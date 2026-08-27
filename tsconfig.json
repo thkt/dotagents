@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "module": "nodenext",
+    "noEmit": true,
+    "rewriteRelativeImportExtensions": true,
+    "strict": true,
+    "target": "esnext",
+    "types": ["node"],
+    "verbatimModuleSyntax": true
+  },
+  "include": [
+    "runtime/**/*.ts",
+    "workflows/core/**/*.ts",
+    "workflows/tests/**/*.ts",
+    "skills/build/scripts/**/*.ts",
+    "skills/build/tests/**/*.ts",
+    "tools/**/*.ts",
+    "../.codex/hooks/**/*.ts"
+  ]
+}

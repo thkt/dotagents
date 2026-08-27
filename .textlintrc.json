@@ -1,0 +1,26 @@
+{
+  "rules": {
+    "@textlint-ja/preset-ai-writing": true,
+    "preset-ja-technical-writing": {
+      "sentence-length": {
+        "max": 150
+      },
+      "max-ten": {
+        "max": 3
+      },
+      "no-mix-dearu-desumasu": {
+        "preferInHeader": "である",
+        "preferInBody": "である",
+        "preferInList": "である"
+      }
+    },
+    "preset-ja-spacing": {
+      "ja-space-between-half-and-full-width": {
+        "space": ["alphabets", "numbers"]
+      },
+      "ja-space-around-code": false
+    },
+    "ja-no-redundant-expression": true,
+    "ja-no-weak-phrase": true
+  }
+}

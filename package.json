@@ -1,0 +1,31 @@
+{
+  "name": "codex-agent-workflows",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "codex-build-plan": "skills/build/scripts/validate-plan.ts",
+    "codex-build-pr-body": "skills/build/scripts/render-pr-body.ts",
+    "codex-flow": "workflows/core/flow-control.ts"
+  },
+  "scripts": {
+    "check": "npm run typecheck && npm test && npm run validate:skills",
+    "fix:text": "textlint --fix '.ja/**/*.md'",
+    "lint:text": "textlint '.ja/**/*.md'",
+    "setup:python": "python3 -m venv .venv && .venv/bin/python -m pip install --group dev",
+    "test": "node --test workflows/tests/*.test.ts skills/build/tests/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "validate:skills": "node tools/validate-skills.ts"
+  },
+  "devDependencies": {
+    "@textlint-ja/textlint-rule-preset-ai-writing": "1.7.0",
+    "@types/node": "^26.2.0",
+    "textlint": "15.8.0",
+    "textlint-rule-ja-no-redundant-expression": "4.0.1",
+    "textlint-rule-ja-no-weak-phrase": "2.0.0",
+    "textlint-rule-no-mix-dearu-desumasu": "6.0.4",
+    "textlint-rule-preset-ja-spacing": "3.0.3",
+    "textlint-rule-preset-ja-technical-writing": "12.0.2",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,4 @@
+[dependency-groups]
+dev = [
+  "PyYAML==6.0.3",
+]

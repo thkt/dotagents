@@ -1,0 +1,249 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+
+import { DEFAULT_TIMEOUT_MS, PROTOCOL, parseArgs } from '../core/verify-command.ts';
+
+const verifier = path.resolve(import.meta.dirname, '../core/verify-command.ts');
+
+interface RunOptions {
+  expect?: 'pass' | 'fail';
+  command?: string;
+  route?: string;
+  extra?: string[];
+}
+
+function run(
+  cwd: string,
+  { expect = 'pass', command = 'exit 0', route = 'blocked', extra = [] }: RunOptions = {},
+) {
+  return spawnSync(process.execPath, [
+    verifier,
+    '--gate-id', 'U-001:test',
+    '--failure-route', route,
+    '--cwd', cwd,
+    '--expect', expect,
+    '--command', command,
+    ...extra,
+  ], { encoding: 'utf8' });
+}
+
+test('uses a bounded 60 second default timeout', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'codex-code-gate-'));
+  try {
+    const options = parseArgs([
+      '--gate-id', 'baseline:test',
+      '--failure-route', 'blocked',
+      '--cwd', cwd,
+      '--expect', 'pass',
+      '--command', 'exit 0',
+    ]);
+    assert.equal(options.timeoutMs, DEFAULT_TIMEOUT_MS);
+    assert.equal(options.timeoutMs, 60_000);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('emits a versioned passing gate result', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'codex-code-gate-'));
+  try {
+    const result = run(cwd, { command: 'printf ok', route: 'green:U-001' });
+    assert.equal(result.status, 0);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.protocol, PROTOCOL);
+    assert.equal(report.gate_id, 'U-001:test');
+    assert.equal(report.verdict, 'pass');
+    assert.equal(report.classification, 'pass');
+    assert.equal(report.failure_route, null);
+    assert.equal(report.stdout_tail, 'ok');
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('accepts Red only when failure output contains every required anchor', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'codex-code-gate-'));
+  try {
+    const result = run(cwd, {
+      expect: 'fail',
+      command: "printf 'T-001 collapses spaces\\nT-002 collapses tabs' >&2; exit 7",
+      route: 'red:U-001',
+      extra: ['--require-output', 'T-001 collapses spaces', '--require-output', 'T-002 collapses tabs'],
+    });
+    assert.equal(result.status, 0);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.verdict, 'pass');
+    assert.equal(report.classification, 'expected_failure');
+    assert.equal(report.exit_code, 7);
+    assert.equal(report.checks.filter((check: any) => check.kind === 'output_includes').length, 2);
+    assert.equal(report.checks.every((check: any) => check.passed), true);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('routes a missing Red output anchor to the declared Red owner', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'codex-code-gate-'));
+  try {
+    const result = run(cwd, {
+      expect: 'fail',
+      command: "printf 'SyntaxError' >&2; exit 2",
+      route: 'red:U-001',
+      extra: ['--require-output', 'T-001 collapses spaces'],
+    });
+    assert.equal(result.status, 1);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.verdict, 'fail');
+    assert.equal(report.classification, 'missing_required_output');
+    assert.deepEqual(report.reason_codes, ['missing_required_output']);
+    assert.equal(report.failure_route, 'red:U-001');
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('does not accept a planned test that passed beside an unrelated failure', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'codex-code-gate-'));
+  try {
+    const result = run(cwd, {
+      expect: 'fail',
+      command: "printf 'ok 1 - T-001 collapses spaces\\nnot ok 2 - unrelated test'; exit 1",
+      route: 'red:U-001',
+      extra: ['--require-output', 'not ok 1 - T-001 collapses spaces'],
+    });
+    assert.equal(result.status, 1);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.verdict, 'fail');
+    assert.deepEqual(report.reason_codes, ['missing_required_output']);
+    assert.equal(report.failure_route, 'red:U-001');
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('routes an unexpected Red pass without AI reclassification', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'codex-code-gate-'));
+  try {
+    const result = run(cwd, {
+      expect: 'fail',
+      command: "printf 'T-001 collapses spaces'",
+      route: 'red:U-001',
+      extra: ['--require-output', 'T-001 collapses spaces'],
+    });
+    assert.equal(result.status, 1);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.verdict, 'fail');
+    assert.deepEqual(report.reason_codes, ['unexpected_pass']);
+    assert.equal(report.failure_route, 'red:U-001');
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('fails a gate when forbidden output is present', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'codex-code-gate-'));
+  try {
+    const result = run(cwd, {
+      command: "printf '1 pass, 1 skipped'",
+      route: 'green:U-001',
+      extra: ['--forbid-output', 'skipped'],
+    });
+    assert.equal(result.status, 1);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.verdict, 'fail');
+    assert.deepEqual(report.reason_codes, ['forbidden_output']);
+    assert.equal(report.failure_route, 'green:U-001');
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('classifies timeout as blocked and suppresses the editing route', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'codex-code-gate-'));
+  try {
+    const result = run(cwd, {
+      expect: 'fail',
+      command: 'sleep 1',
+      route: 'red:U-001',
+      extra: ['--require-output', 'T-001', '--timeout-ms', '50'],
+    });
+    assert.equal(result.status, 124);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.verdict, 'blocked');
+    assert.equal(report.classification, 'timeout');
+    assert.equal(report.failure_route, 'blocked');
+    assert.equal(report.configured_failure_route, 'red:U-001');
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('keeps only the configured output tail', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'codex-code-gate-'));
+  try {
+    const result = run(cwd, {
+      command: "printf '0123456789'",
+      extra: ['--tail-bytes', '4'],
+    });
+    assert.equal(result.status, 0);
+    assert.equal(JSON.parse(result.stdout).stdout_tail, '6789');
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('returns a blocked JSON result for invalid invocation', () => {
+  const result = spawnSync(process.execPath, [
+    verifier,
+    '--gate-id', 'red:test',
+    '--failure-route', 'red:U-001',
+    '--cwd', '.',
+    '--expect', 'fail',
+    '--command', 'exit 1',
+  ], { encoding: 'utf8' });
+  assert.equal(result.status, 2);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.protocol, PROTOCOL);
+  assert.equal(report.verdict, 'blocked');
+  assert.equal(report.classification, 'usage_error');
+  assert.equal(report.failure_route, 'blocked');
+});
+
+test('rejects duplicate singleton arguments', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'codex-code-gate-'));
+  try {
+    assert.throws(
+      () => parseArgs([
+        '--gate-id', 'one',
+        '--gate-id', 'two',
+        '--failure-route', 'blocked',
+        '--cwd', cwd,
+        '--expect', 'pass',
+        '--command', 'exit 0',
+      ]),
+      /--gate-id may be provided only once/,
+    );
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('accepts a cleanup actor as a deterministic failure route', () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), 'codex-code-gate-'));
+  try {
+    const options = parseArgs([
+      '--gate-id', 'cleanup:format:gate',
+      '--failure-route', 'cleanup:format',
+      '--cwd', cwd,
+      '--expect', 'pass',
+      '--command', 'exit 0',
+    ]);
+    assert.equal(options.failureRoute, 'cleanup:format');
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
