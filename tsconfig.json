@@ -12,11 +12,12 @@
   },
   "include": [
     "runtime/**/*.ts",
+    "hooks/**/*.ts",
     "workflows/core/**/*.ts",
     "workflows/tests/**/*.ts",
     "skills/build/scripts/**/*.ts",
     "skills/build/tests/**/*.ts",
     "tools/**/*.ts",
-    "../.codex/hooks/**/*.ts"
+    "../.codex/hooks/textlint-fix.ts"
   ]
 }

@@ -6,7 +6,8 @@
   "bin": {
     "codex-build-plan": "skills/build/scripts/validate-plan.ts",
     "codex-build-pr-body": "skills/build/scripts/render-pr-body.ts",
-    "codex-flow": "workflows/core/flow-control.ts"
+    "codex-flow": "workflows/core/flow-control.ts",
+    "codex-workflow-hook": "hooks/workflow-enforcer.ts"
   },
   "scripts": {
     "check": "npm run typecheck && npm test && npm run validate:skills",

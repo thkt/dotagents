@@ -6,11 +6,13 @@ import path from 'node:path';
 import test, { type TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import * as hook from '../../../.codex/hooks/workflow-enforcer.ts';
+import * as hook from '../../hooks/workflow-enforcer.ts';
 import * as flow from '../core/flow-control.ts';
+import * as intent from '../core/intent.ts';
+import type { FlowManifest, PublicState } from '../core/contracts.ts';
 
 const AGENTS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const HOOKS_CONFIG = path.resolve(AGENTS_ROOT, '../.codex/hooks.json');
+const HOOKS_CONFIG = path.resolve(AGENTS_ROOT, 'hooks/hooks.json');
 
 function fixture(
   t: TestContext,
@@ -110,10 +112,21 @@ function fixture(
   return { manifest, manifestFile, repo, startPoint };
 }
 
+function startFlow(runId: string, manifestFile: string): PublicState {
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8')) as FlowManifest;
+  const pending = intent.armIntent({
+    runId,
+    workflow: manifest.workflow,
+    cwd: manifest.repo,
+  });
+  fs.copyFileSync(manifestFile, pending.manifest_path);
+  return flow.start(runId, pending.manifest_path);
+}
+
 test('advances only through the declared actor and deterministic gates', (t) => {
   const { manifestFile } = fixture(t);
   const turn = 'turn-success';
-  assert.equal(flow.start(turn, manifestFile).current_step?.id, 'baseline:test');
+  assert.equal(startFlow(turn, manifestFile).current_step?.id, 'baseline:test');
   const beforeNext = fs.readFileSync(flow.statePath(turn), 'utf8');
   const baselineDirective = flow.nextDirective(turn);
   assert.equal(baselineDirective.kind, 'run-gate');
@@ -135,7 +148,7 @@ test('advances only through the declared actor and deterministic gates', (t) => 
 test('routes a failed gate to its owner and blocks after correction budget', (t) => {
   const { manifestFile } = fixture(t, { failingUnitGate: true });
   const turn = 'turn-failure';
-  flow.start(turn, manifestFile);
+  startFlow(turn, manifestFile);
   flow.report(turn, 'baseline:test', 'verify');
   flow.report(turn, 'U-001:direct', 'actor-completed');
   const first = flow.report(turn, 'U-001:direct:gate', 'verify');
@@ -164,7 +177,7 @@ test('seals a Red fingerprint only from observed calibration output', (t) => {
     });
   fs.writeFileSync(manifestFile, JSON.stringify(manifest));
   const turn = 'turn-calibrate';
-  flow.start(turn, manifestFile);
+  startFlow(turn, manifestFile);
   flow.report(turn, 'baseline:test', 'verify');
   flow.report(turn, 'U-001:red', 'actor-completed');
   const calibrationDirective = flow.nextDirective(turn);
@@ -207,7 +220,7 @@ test('derives an owned gate route from its actor and rejects conflicting input',
 test('enforces build Branch and commit postconditions before ship-ready', (t) => {
   const { manifestFile, repo, startPoint } = fixture(t, { workflow: 'build' });
   const turn = 'turn-build';
-  flow.start(turn, manifestFile);
+  startFlow(turn, manifestFile);
   flow.report(turn, 'load:plan', 'verify');
   flow.report(turn, 'revalidate:plan', 'verify');
   const branch = flow.nextDirective(turn);
@@ -250,7 +263,7 @@ test('blocks a gate that mutates Git state', (t) => {
   manifest.steps[0].gate.command = 'node mutate.js';
   fs.writeFileSync(manifestFile, JSON.stringify(manifest));
   const turn = 'turn-mutating-gate';
-  flow.start(turn, manifestFile);
+  startFlow(turn, manifestFile);
   const result = flow.report(turn, 'baseline:test', 'verify');
   assert.equal(result.exitCode, 2);
   assert.equal(result.result.gate?.classification, 'gate_mutated_repository');
@@ -260,7 +273,7 @@ test('blocks a gate that mutates Git state', (t) => {
 test('hook limits patches to the active actor and keeps an unfinished flow open', (t) => {
   const { manifestFile, repo } = fixture(t);
   const turn = 'turn-hook';
-  flow.start(turn, manifestFile);
+  startFlow(turn, manifestFile);
   flow.report(turn, 'baseline:test', 'verify');
 
   const allowed = hook.preToolUse({
@@ -279,7 +292,7 @@ test('hook limits patches to the active actor and keeps an unfinished flow open'
 test('controller and PostToolUse reject shell edits outside actor scope', (t) => {
   const { manifestFile, repo } = fixture(t);
   const turn = 'turn-scope';
-  flow.start(turn, manifestFile);
+  startFlow(turn, manifestFile);
   flow.report(turn, 'baseline:test', 'verify');
   fs.writeFileSync(path.join(repo, 'outside.js'), 'outside\n');
 
@@ -299,7 +312,7 @@ test('preserves unrelated dirty files that predate actor entry', (t) => {
   const { manifestFile, repo } = fixture(t);
   fs.writeFileSync(path.join(repo, 'unrelated.txt'), 'user change\n');
   const turn = 'turn-dirty-baseline';
-  flow.start(turn, manifestFile);
+  startFlow(turn, manifestFile);
   flow.report(turn, 'baseline:test', 'verify');
   fs.writeFileSync(path.join(repo, 'src.js'), 'allowed\n');
   assert.equal(
@@ -313,7 +326,7 @@ test('detects modification of a dirty file that predates actor entry', (t) => {
   const { manifestFile, repo } = fixture(t);
   fs.writeFileSync(path.join(repo, 'unrelated.txt'), 'user change\n');
   const turn = 'turn-dirty-fingerprint';
-  flow.start(turn, manifestFile);
+  startFlow(turn, manifestFile);
   flow.report(turn, 'baseline:test', 'verify');
   fs.writeFileSync(path.join(repo, 'unrelated.txt'), 'actor changed it\n');
   assert.throws(
@@ -357,7 +370,7 @@ test('self-describes the current manifest and directive contract without workflo
 test('public CLI exposes only describe, start, status, next, and report', (t) => {
   const { manifestFile } = fixture(t);
   const turn = 'turn-closed-cli';
-  flow.start(turn, manifestFile);
+  startFlow(turn, manifestFile);
   assert.throws(
     () => flow.main(['gate', '--step', 'baseline:test', '--run-id', turn]),
     /unknown command: gate/,
@@ -366,6 +379,85 @@ test('public CLI exposes only describe, start, status, next, and report', (t) =>
     () => flow.main(['next', '--extra', 'value', '--run-id', turn]),
     /unsupported flag/,
   );
+});
+
+test('starts only from the manifest armed by an explicit workflow invocation', (t) => {
+  const { manifestFile, repo } = fixture(t);
+  const turn = 'turn-explicit-start';
+  assert.throws(
+    () => flow.start(turn, manifestFile),
+    /explicit \$code invocation is required/,
+  );
+
+  const pending = intent.armIntent({ runId: turn, workflow: 'code', cwd: repo });
+  assert.equal(pending.repo, fs.realpathSync(repo));
+  assert.equal(intent.loadIntent(turn)?.manifest_path, pending.manifest_path);
+  assert.throws(
+    () => flow.start(turn, manifestFile),
+    /manifest path supplied by the workflow hook/,
+  );
+
+  fs.copyFileSync(manifestFile, pending.manifest_path);
+  assert.equal(flow.start(turn, pending.manifest_path).status, 'running');
+  assert.equal(intent.loadIntent(turn), null);
+});
+
+test('UserPromptSubmit arms only a leading explicit workflow invocation', (t) => {
+  const { repo } = fixture(t);
+  const natural = hook.handle({
+    hook_event_name: 'UserPromptSubmit', session_id: 'turn-natural', cwd: repo,
+    prompt: 'Please use $build when it is appropriate.',
+  });
+  assert.deepEqual(natural, {});
+  assert.equal(intent.loadIntent('turn-natural'), null);
+
+  const explicit = hook.handle({
+    hook_event_name: 'UserPromptSubmit', session_id: 'turn-explicit-hook', cwd: repo,
+    prompt: '$build #123',
+  });
+  const pending = intent.loadIntent('turn-explicit-hook');
+  assert.equal(pending?.workflow, 'build');
+  assert.equal(explicit.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
+  assert.match(explicit.hookSpecificOutput?.additionalContext || '', /codex-flow start/);
+  assert.match(explicit.hookSpecificOutput?.additionalContext || '', new RegExp(pending!.manifest_path));
+});
+
+test('pending intent permits manifest preparation and blocks unrelated mutation', (t) => {
+  const { repo } = fixture(t);
+  const turn = 'turn-pending-policy';
+  const pending = intent.armIntent({ runId: turn, workflow: 'code', cwd: repo });
+
+  assert.deepEqual(hook.preToolUse({
+    hook_event_name: 'PreToolUse', session_id: turn, tool_name: 'Bash', cwd: repo,
+    tool_input: { command: 'rg --files' },
+  }), {});
+  assert.deepEqual(hook.preToolUse({
+    hook_event_name: 'PreToolUse', session_id: turn, tool_name: 'apply_patch', cwd: repo,
+    tool_input: { command: `*** Begin Patch\n*** Add File: ${pending.manifest_path}\n*** End Patch` },
+  }), {});
+  assert.equal(hook.preToolUse({
+    hook_event_name: 'PreToolUse', session_id: turn, tool_name: 'apply_patch', cwd: repo,
+    tool_input: { command: '*** Begin Patch\n*** Add File: src.js\n*** End Patch' },
+  }).hookSpecificOutput?.permissionDecision, 'deny');
+  assert.equal(hook.preToolUse({
+    hook_event_name: 'PreToolUse', session_id: turn, tool_name: 'Bash', cwd: repo,
+    tool_input: { command: 'touch src.js' },
+  }).hookSpecificOutput?.permissionDecision, 'deny');
+  assert.deepEqual(hook.preToolUse({
+    hook_event_name: 'PreToolUse', session_id: turn, tool_name: 'Bash', cwd: repo,
+    tool_input: { command: 'codex-flow describe --workflow code' },
+  }), {});
+
+  const start = hook.preToolUse({
+    hook_event_name: 'PreToolUse', session_id: turn, tool_name: 'Bash', cwd: repo,
+    tool_input: { command: `codex-flow start --manifest ${pending.manifest_path}` },
+  });
+  assert.equal(start.hookSpecificOutput?.permissionDecision, 'allow');
+  assert.equal(
+    start.hookSpecificOutput?.updatedInput?.command,
+    `codex-flow start --manifest ${pending.manifest_path} --run-id "${turn}"`,
+  );
+  assert.equal(hook.stop({ session_id: turn, stop_hook_active: false }).decision, 'block');
 });
 
 test('directive validation rejects open or malformed shapes', () => {
@@ -399,18 +491,17 @@ test('hook binds flow-control commands to the current Codex task', () => {
     hook_event_name: 'PreToolUse', session_id: 'session-123', tool_name: 'Bash',
     tool_input: { command: 'echo codex-flow status' },
   }), {});
+  assert.deepEqual(hook.preToolUse({
+    hook_event_name: 'PreToolUse', session_id: 'session-123', tool_name: 'Bash',
+    tool_input: { command: 'codex-flow describe --workflow code' },
+  }), {});
 });
 
-test('Codex hook configuration executes only the TypeScript workflow enforcer', () => {
+test('portable hook configuration covers the full explicit workflow lifecycle', () => {
   const config = JSON.parse(fs.readFileSync(HOOKS_CONFIG, 'utf8'));
-  const events = ['PreToolUse', 'PostToolUse', 'Stop'];
+  const events = ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop'];
   const commands: string[] = events.flatMap((event) => config.hooks[event])
     .flatMap((entry: any) => entry.hooks)
-    .map((entry: any) => entry.command)
-    .filter((command: string) => command.includes('workflow-enforcer'));
-  assert.equal(commands.length, 3);
-  assert.equal(commands.every(
-    (command) => command === 'node "${CODEX_HOME:-$HOME/.codex}/hooks/workflow-enforcer.ts"',
-  ), true);
-  assert.equal(commands.some((command) => command.includes('workflow-enforcer.js')), false);
+    .map((entry: any) => entry.command);
+  assert.deepEqual(commands, Array(4).fill('codex-workflow-hook'));
 });

@@ -38,6 +38,7 @@ import {
   type Workflow,
 } from './contracts.ts';
 import { parseArgs as parseGateArgs, runVerification } from './verify-command.ts';
+import { clearIntent, requireIntent } from './intent.ts';
 import {
   defaultWorkflowStateDirectory,
   isMainModule,
@@ -542,6 +543,7 @@ function start(runId: string, manifestFile: string): PublicState {
     const existing = loadState(runId).state;
     if (existing.status === 'running') throw new FlowError('a workflow is already active for this task', 'state_error');
   }
+  requireIntent(runId, manifest.workflow, manifest.repo, manifestFile);
   const state: FlowState = {
     protocol: STATE_PROTOCOL,
     run_id: runId,
@@ -559,7 +561,9 @@ function start(runId: string, manifestFile: string): PublicState {
     actor_baseline: null,
     action_baseline: null,
   };
-  return save(file, state);
+  const result = save(file, state);
+  clearIntent(runId);
+  return result;
 }
 
 function requireRunning(state: FlowState): void {

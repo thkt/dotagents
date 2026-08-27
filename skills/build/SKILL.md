@@ -5,7 +5,7 @@ description: Implement a plan-backed GitHub issue through an enforced workflow c
 
 # Build
 
-Turn one plan-backed issue into a verified local branch or an explicitly authorized draft PR through the shared executable controller.
+This is an explicit-only workflow. Invoke it with `$build`, then turn one plan-backed issue into a verified local branch or an explicitly authorized draft PR through the shared executable controller.
 
 Before preparing a manifest, read the [native build protocol](references/native-build-protocol.md), public [workflow controller](../../workflows/references/workflow-controller.md), and [gate protocol](../../workflows/references/gate-protocol.md). Before Ship or final reporting, read [shipping and stops](references/shipping-and-stops.md).
 
@@ -15,7 +15,7 @@ Before preparing a manifest, read the [native build protocol](references/native-
 - Extract only issue-authored Plan facts. Do not invent a reference module, command, precondition, unit, test, or acceptance condition.
 - Read `.claude/OUTCOME.md` when present and stop if the requested scope conflicts with it.
 - Resolve the absolute Git root, canonical base commit, new branch name, allowed files, repository-anchored commands, and correction budget. Preserve unrelated changes.
-- Put the extracted Plan and `codex-flow-manifest/v1` in absolute temporary files outside the repository.
+- Put the extracted Plan in an absolute temporary file outside the repository. Write `codex-flow-manifest/v1` only to the hook-supplied manifest path.
 
 ## Authority
 
@@ -25,11 +25,7 @@ Before preparing a manifest, read the [native build protocol](references/native-
 
 ## Start and conduct
 
-Start the controller before Plan validation, Branch, or any workflow edit. Omit `--run-id`; the Codex hook binds the current task.
-
-```bash
-codex-flow start --manifest /absolute/path/to/manifest.json
-```
+Start the controller before Plan validation, Branch, or any workflow edit by using the exact start command supplied by the hook. Omit `--run-id`; the hook binds the current task.
 
 Then follow the controller's typed directives through its documented `next`/`report` interface until it returns a terminal directive. Perform only the declared action and parameters. For Red sealing, choose a failure-specific literal from captured calibration evidence. Do not replace a directive or mechanical result with prose judgment.
 

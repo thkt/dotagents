@@ -5,7 +5,7 @@ description: GitHub Issue に記載された Plan を強制実行制御器で実
 
 # Build
 
-Plan を含む 1 件の GitHub Issue を、共通の実行制御器で実装する。成果は検証済みのローカルブランチ、または許可済みの下書き PR とする。
+このワークフローは明示起動専用である。`$build`で起動し、Plan を含む 1 件の GitHub Issue を共通の実行制御器で実装する。成果は検証済みのローカルブランチ、または許可済みの下書き PR とする。
 
 実行定義を作る前に[Build 固有の入力](references/native-build-protocol.md)を読む。併せて、公開された[ワークフロー制御器](../../workflows/references/workflow-controller.md)と[ゲート判定の証拠](../../workflows/references/gate-protocol.md)を読む。`Ship`または最終報告の前に[Ship の判断](references/shipping-and-stops.md)を読む。
 
@@ -19,7 +19,8 @@ Plan を含む 1 件の GitHub Issue を、共通の実行制御器で実装す�
 - Git ルートの絶対パス、基準コミットの正規 ID、新しいブランチ名を決める。
 - 編集可能ファイル、リポジトリ設定に基づくコマンド、修正回数の上限を決める。
 - 依頼範囲外の既存変更は保持する。
-- 抽出した Plan と`codex-flow-manifest/v1`の実行定義を、絶対パスで指定したリポジトリ外の一時ファイルへ保存する。
+- 抽出した Plan は、絶対パスで指定したリポジトリ外の一時ファイルへ保存する。
+- `codex-flow-manifest/v1`の実行定義は、hook から渡された manifest path（実行定義ファイルの保存先）だけに書く。
 
 ## 権限
 
@@ -31,11 +32,7 @@ Plan を含む 1 件の GitHub Issue を、共通の実行制御器で実装す�
 
 ## 開始と進行
 
-Plan の検証、ブランチ作成、対象ファイルの編集より前に制御器を開始する。`--run-id`は省略する。Codex hook が現在のタスクに関連付ける。
-
-```bash
-codex-flow start --manifest /absolute/path/to/manifest.json
-```
+Plan の検証、ブランチ作成、対象ファイルの編集より前に、hook から渡された開始コマンドを変更せずに実行して制御器を開始する。`--run-id`は省略する。hook が現在のタスクに関連付ける。
 
 以降は公開された`next`と`report`を使う。制御器が終了指示を返すまで、型付き指示に従う。指示に宣言された操作と引数だけを実行する。Red の失敗条件を固定するときは、調整実行で取得した出力から失敗固有の文字列を選ぶ。制御器の指示や機械検証結果を文章による判断で置き換えない。
 

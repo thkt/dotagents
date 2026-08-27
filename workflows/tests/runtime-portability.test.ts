@@ -34,6 +34,7 @@ test('publishes stable CLI names for every documented executable', () => {
     'codex-build-plan': 'skills/build/scripts/validate-plan.ts',
     'codex-build-pr-body': 'skills/build/scripts/render-pr-body.ts',
     'codex-flow': 'workflows/core/flow-control.ts',
+    'codex-workflow-hook': 'hooks/workflow-enforcer.ts',
   });
   for (const relative of Object.values(packageJson.bin) as string[]) {
     assert.match(fs.readFileSync(path.join(EXPECTED_ROOT, relative), 'utf8'), /^#!\/usr\/bin\/env node$/m);
@@ -47,13 +48,16 @@ test('executes every CLI through a package-manager symlink', (t) => {
     ['codex-flow', 'workflows/core/flow-control.ts', ['describe', '--workflow', 'code'], 'codex-flow-description/v1'],
     ['codex-build-plan', 'skills/build/scripts/validate-plan.ts', ['describe'], 'codex-build-plan-description/v1'],
     ['codex-build-pr-body', 'skills/build/scripts/render-pr-body.ts', ['describe'], 'codex-build-pr-body-description/v1'],
+    ['codex-workflow-hook', 'hooks/workflow-enforcer.ts', [], null],
   ] as const;
   for (const [name, relative, args, protocol] of cases) {
     const executable = path.join(root, name);
     fs.symlinkSync(path.join(EXPECTED_ROOT, relative), executable);
     const result = spawnSync(executable, args, { encoding: 'utf8' });
     assert.equal(result.status, 0, `${name}: ${result.stderr}`);
-    assert.equal(JSON.parse(result.stdout).protocol, protocol, name);
+    const output = JSON.parse(result.stdout);
+    if (protocol) assert.equal(output.protocol, protocol, name);
+    else assert.deepEqual(output, {}, name);
   }
 });
 
@@ -61,6 +65,8 @@ test('keeps maintained runtime and instruction files independent of a user home'
   const files = [
     'package.json',
     'runtime/paths.ts',
+    'hooks/hooks.json',
+    'hooks/workflow-enforcer.ts',
     'workflows/core/flow-control.ts',
     'workflows/references/workflow-controller.md',
     'skills/build/SKILL.md',
@@ -75,7 +81,6 @@ test('keeps maintained runtime and instruction files independent of a user home'
   ].map((relative) => path.join(EXPECTED_ROOT, relative));
   files.push(
     path.join(CODEX_ROOT, 'hooks.json'),
-    path.join(CODEX_ROOT, 'hooks/workflow-enforcer.ts'),
     path.join(CODEX_ROOT, 'hooks/textlint-fix.ts'),
   );
   for (const file of files) {
@@ -83,13 +88,12 @@ test('keeps maintained runtime and instruction files independent of a user home'
   }
 });
 
-test('documents only the stable CLI surface', () => {
+test('documents explicit workflow invocation and only stable CLI surfaces', () => {
   for (const relative of ['skills/build/SKILL.md', 'skills/code/SKILL.md', '.ja/skills/build/SKILL.md', '.ja/skills/code/SKILL.md']) {
-    assert.match(
-      fs.readFileSync(path.join(EXPECTED_ROOT, relative), 'utf8'),
-      /codex-flow start --manifest \/absolute\/path\/to\/manifest\.json/u,
-      relative,
-    );
+    const content = fs.readFileSync(path.join(EXPECTED_ROOT, relative), 'utf8');
+    const invocation = relative.includes('/build/') ? '$build' : '$code';
+    assert.match(content, new RegExp(`\\${invocation}`), relative);
+    assert.match(content, /hook-supplied manifest path|hook から渡された manifest path/u, relative);
   }
   for (const relative of ['workflows/references/workflow-controller.md', '.ja/workflows/references/workflow-controller.md']) {
     assert.match(fs.readFileSync(path.join(EXPECTED_ROOT, relative), 'utf8'), /codex-flow describe --workflow code/u, relative);

@@ -73,6 +73,21 @@ test('keeps the Japanese mirror structurally aligned with the English documents'
   }
 });
 
+test('requires explicit invocation metadata for both workflow skills and mirrors', () => {
+  for (const relative of [
+    'skills/build/agents/openai.yaml',
+    'skills/code/agents/openai.yaml',
+    '.ja/skills/build/agents/openai.yaml',
+    '.ja/skills/code/agents/openai.yaml',
+  ]) {
+    assert.match(
+      readFileSync(path.join(agentsRoot, relative), 'utf8').trim(),
+      /^policy:\n  allow_implicit_invocation: false$/u,
+      relative,
+    );
+  }
+});
+
 test('keeps executable transition policy out of instruction documents', () => {
   const instructionDocuments = pairs.flat();
   const executablePolicy = [
