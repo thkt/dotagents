@@ -34,6 +34,10 @@ export function issueApprovalPath(runId: string): string {
   return path.join(stateDirectory(), 'issue-approvals', `${runKey(runId)}.json`);
 }
 
+export function buildShipApprovalPath(runId: string): string {
+  return path.join(stateDirectory(), 'build-ship-approvals', `${runKey(runId)}.json`);
+}
+
 export function workflowInputPath(runId: string): string {
   return path.join(stateDirectory(), 'inputs', `${runKey(runId)}.json`);
 }

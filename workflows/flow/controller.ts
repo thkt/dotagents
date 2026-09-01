@@ -32,7 +32,7 @@ import {
   DEFAULT_TIMEOUT_MS,
   parseArgs as parseGateArgs,
 } from './shell-gate.ts';
-import { clearIntent, loadIntent, requireIntent } from '../invocation.ts';
+import { clearIntent, loadIntent, requireBuildShipApproval, requireIntent } from '../invocation.ts';
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
 import { atomicWrite, statePath, workflowInputPath } from '../shared/storage.ts';
 import {
@@ -128,6 +128,9 @@ function startWorkflow(runId: string, manifestFile: string): PublicState {
       throw new FlowError('a workflow is already active for this task', 'state_error');
   }
   const intent = requireIntent(runId, manifest.workflow, manifest.repo, manifestFile);
+  if (manifest.workflow === 'build' && manifest.shipping_authorized) {
+    requireBuildShipApproval(runId, manifest.repo);
+  }
   const workflowBaseline = repoSnapshot(manifest.repo);
   if (manifest.workflow === 'build') {
     const staged = nulPaths(
