@@ -27,12 +27,12 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash|apply_patch|Edit|Write",
+        "matcher": "apply_patch|Edit|Write",
         "hooks": [
           {
-            "command": "codex-workflow-hook",
-            "statusMessage": "Verifying workflow edit scope",
-            "timeout": 10,
+            "command": "codex-post-edit",
+            "statusMessage": "Checking edited files",
+            "timeout": 60,
             "type": "command"
           }
         ]
