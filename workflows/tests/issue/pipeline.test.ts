@@ -17,7 +17,11 @@ import type { GitHubIssue, IssueGateway } from '../../../workflows/issue/github.
 import { persistThinkReport } from '../../../workflows/think/artifact.ts';
 import { THINK_REPORT_PROTOCOL, type ThinkReport } from '../../../workflows/think/contracts.ts';
 import { repositoryInvariant } from '../../../workflows/shared/repository.ts';
-import { workflowInputPath } from '../../../workflows/shared/storage.ts';
+import {
+  intentPath,
+  issueApprovalPath,
+  workflowInputPath,
+} from '../../../workflows/shared/storage.ts';
 import { emptyStageTimings } from '../../../workflows/shared/codex.ts';
 import { sha256 } from '../../../workflows/shared/evidence.ts';
 import { ProgressReporter, type ProgressEvent } from '../../../workflows/shared/progress.ts';
@@ -159,6 +163,8 @@ test('one explicit issue invocation publishes the exact draft and returns build 
     }),
   );
   assert.equal(gateway.writes, 1);
+  assert.equal(fs.existsSync(issueApprovalPath('issue-test')), false);
+  assert.equal(fs.existsSync(intentPath('issue-test')), false);
   assert.equal(publishedResult.status, 'published');
   assert.equal(
     compileContext(repo, 'think').entries.some((e) => e.kind === 'decision'),
@@ -186,6 +192,64 @@ test('one explicit issue invocation publishes the exact draft and returns build 
       ['issue_publish', 'completed'],
     ],
   );
+});
+
+test('publication requires the approval created by the explicit issue invocation', (t) => {
+  const repo = repoFixture(t);
+  const report = think(repo);
+  const gateway = new Gateway();
+  const runId = 'issue-missing-approval';
+  const pending = armIntent({ runId, workflow: 'issue', cwd: repo });
+  fs.writeFileSync(pending.input_path, JSON.stringify(input(repo, report)));
+  fs.unlinkSync(issueApprovalPath(runId));
+
+  assert.throws(
+    () => draftIssueWorkflow(runId, pending.input_path, gateway),
+    /explicit \$issue publication approval is required/,
+  );
+  assert.equal(gateway.writes, 0);
+  assert.equal(fs.existsSync(intentPath(runId)), true);
+});
+
+test('publication approval is bound to the repository and consumed before GitHub writes', (t) => {
+  const repo = repoFixture(t);
+  const report = think(repo);
+  const gateway = new Gateway();
+  const runId = 'issue-wrong-approval-repo';
+  const pending = armIntent({ runId, workflow: 'issue', cwd: repo });
+  const approval = JSON.parse(fs.readFileSync(issueApprovalPath(runId), 'utf8')) as Record<
+    string,
+    unknown
+  >;
+  fs.writeFileSync(
+    issueApprovalPath(runId),
+    JSON.stringify({ ...approval, repo: path.dirname(repo) }),
+  );
+  fs.writeFileSync(pending.input_path, JSON.stringify(input(repo, report)));
+
+  assert.throws(
+    () => draftIssueWorkflow(runId, pending.input_path, gateway),
+    /issue publication approval has an invalid shape/,
+  );
+  assert.equal(gateway.writes, 0);
+});
+
+test('GitHub write failures cannot reuse a consumed publication approval', (t) => {
+  const repo = repoFixture(t);
+  const report = think(repo);
+  const runId = 'issue-failed-publication';
+  const pending = armIntent({ runId, workflow: 'issue', cwd: repo });
+  fs.writeFileSync(pending.input_path, JSON.stringify(input(repo, report)));
+  const gateway = new Gateway();
+  gateway.create = () => {
+    gateway.writes++;
+    throw new Error('GitHub unavailable');
+  };
+
+  assert.throws(() => draftIssueWorkflow(runId, pending.input_path, gateway), /GitHub unavailable/);
+  assert.equal(gateway.writes, 1);
+  assert.equal(fs.existsSync(issueApprovalPath(runId)), false);
+  assert.equal(fs.existsSync(intentPath(runId)), false);
 });
 
 test('rejects stale/changed evidence and preserves ignored-only changes', (t) => {

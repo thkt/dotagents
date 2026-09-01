@@ -18,6 +18,7 @@ Inspect the current input, preview, and publication contract with `codex-issue d
 
 ## Publication
 
+- Treat the user's leading explicit `$issue` invocation as authorization for exactly one GitHub Issue create or edit in the hook-bound repository. Do not request another publication confirmation.
 - Create the draft before any GitHub write.
 - Validate the exact draft, body, evidence, repository state, and target issue immediately before the GitHub write.
 - Publish the validated draft in the same invocation and return the issue URL, receipt, and build source.

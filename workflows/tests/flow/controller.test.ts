@@ -893,6 +893,25 @@ test('UserPromptSubmit accepts a leading Codex skill link as an explicit invocat
   assert.equal(intent.loadIntent('turn-embedded-link'), null);
 });
 
+test('explicit issue invocation communicates its single-publication authorization', (t) => {
+  const { repo } = fixture(t);
+  const response = hook.handle({
+    hook_event_name: 'UserPromptSubmit',
+    session_id: 'turn-explicit-issue',
+    cwd: repo,
+    prompt: '$issue publish the reviewed plan',
+  });
+
+  assert.match(
+    response.hookSpecificOutput?.additionalContext || '',
+    /authorizes exactly one GitHub Issue create or edit/,
+  );
+  assert.match(
+    response.hookSpecificOutput?.additionalContext || '',
+    /no additional publication confirmation/,
+  );
+});
+
 test('pending intent permits workflow input preparation and blocks unrelated mutation', (t) => {
   const { repo } = fixture(t);
   const turn = 'turn-pending-policy';

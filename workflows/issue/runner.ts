@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /** @file Outcome: One explicit command validates and publishes one exact issue draft. */
 
-import { clearIntent, requireIssueIntent } from '../invocation.ts';
+import { clearIntent, consumeIssueApproval, requireIssueIntent } from '../invocation.ts';
 import { BUILD_SOURCE_PROTOCOL } from '../flow/build/handoff.ts';
 import { parseCommand, requireExactFlags } from '../shared/cli.ts';
 import { ISSUE_COMMAND, isMainModule } from '../shared/environment.ts';
@@ -90,10 +90,11 @@ export function draftIssueWorkflow(
   const result = progress.runSync({ workflow: 'issue', stage: 'issue_draft' }, () =>
     draftIssue(input, gateway),
   );
+  consumeIssueApproval(runId, input.repo);
+  clearIntent(runId);
   const published = progress.runSync({ workflow: 'issue', stage: 'issue_publish' }, () =>
     publishIssue(result.draft_json, result.draft_sha256, gateway),
   );
-  clearIntent(runId);
   return {
     protocol: ISSUE_RESULT_PROTOCOL,
     status: 'published',
