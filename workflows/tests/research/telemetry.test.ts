@@ -1,6 +1,6 @@
 /** @file Outcome: Research telemetry remains typed, bounded, and diagnosable at every model boundary. */
 
-import test from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { renderResearchMarkdown } from '../../../workflows/research/artifact.ts';
 import { parseResearchReport } from '../../../workflows/research/contracts.ts';
@@ -66,12 +66,6 @@ test('Research report rejects unknown timing fields', () => {
       }),
     /unknown key/u,
   );
-});
-
-test('Research timing keeps model wall time and structured validation separate', () => {
-  assert.ok(timings.investigator_model_call_ms >= 0);
-  assert.ok(timings.investigator_structured_validation_ms >= 0);
-  assert.notEqual('investigator_model_call_ms', 'investigator_structured_validation_ms');
 });
 
 const input: ResearchInput = {

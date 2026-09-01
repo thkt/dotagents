@@ -2,10 +2,9 @@
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import test from 'node:test';
+import { onTestFinished, test } from 'bun:test';
 
 import { armIntent } from '../../invocation.ts';
 import { describe } from '../../flow/controller.ts';
@@ -15,8 +14,9 @@ import { BUILD_SOURCE_PROTOCOL } from '../../flow/build/handoff.ts';
 import { renderPlanMarkdown, type BuildPlanAuthoring } from '../../flow/build/authoring.ts';
 import { runWorkflow, type WorkflowRuntime } from '../../flow/runner.ts';
 import { renderPublicIssueBody } from '../../issue/public-contract.ts';
+import { temporaryDirectory, useTemporaryStateDirectory } from '../shared/fixtures.ts';
 
-process.env.CODEX_FLOW_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-flow-state-'));
+useTemporaryStateDirectory('codex-flow-state-');
 
 function materializeRaw(value: unknown, replacements: Record<string, string>): unknown {
   let json = JSON.stringify(value);
@@ -32,8 +32,8 @@ function git(repo: string, ...args: string[]) {
   return result.stdout.trim();
 }
 
-test('describe(build) materializes a public Issue source and reaches ship-ready', async (t) => {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-flow-build-smoke-'));
+test('describe(build) materializes a public Issue source and reaches ship-ready', async () => {
+  const repo = temporaryDirectory('codex-flow-build-smoke-');
   git(repo, 'init', '-q', '-b', 'main');
   git(repo, 'config', 'user.email', 'smoke@example.test');
   git(repo, 'config', 'user.name', 'Smoke');
@@ -89,7 +89,7 @@ test('describe(build) materializes a public Issue source and reaches ship-ready'
   });
   const previousPath = process.env.PATH;
   process.env.PATH = `${bin}:${previousPath || ''}`;
-  t.after(() => {
+  onTestFinished(() => {
     process.env.PATH = previousPath;
     fs.rmSync(issueFile, { force: true });
     fs.rmSync(bin, { recursive: true, force: true });
@@ -131,4 +131,4 @@ test('describe(build) materializes a public Issue source and reaches ship-ready'
   assert.equal(result.exitCode, 0);
   assert.equal('status' in result.result && result.result.status, 'ship-ready');
   assert.match(fs.readFileSync(path.join(repo, 'unit.ts'), 'utf8'), /smoke/);
-});
+}, 15_000);

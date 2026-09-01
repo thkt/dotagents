@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import { onTestFinished, test } from 'bun:test';
 
 import { actionInvocations } from '../../flow/build/actions.ts';
 import {
@@ -18,7 +18,7 @@ import {
 import { cleanCodexEnvironment } from '../../shared/codex.ts';
 import { ProgressReporter, type ProgressEvent } from '../../shared/progress.ts';
 import { MANIFEST_PROTOCOL, type FlowDirective, type FlowManifest } from '../../flow/contracts.ts';
-import { runIsolatedActor } from '../../flow/isolation.ts';
+import { runIsolatedActor, runIsolatedShellVerification } from '../../flow/isolation.ts';
 import { main, runWorkflow, type WorkflowRuntime } from '../../flow/runner.ts';
 import { armIntent } from '../../invocation.ts';
 
@@ -167,7 +167,7 @@ test('uses write scope for actors and read-only scope for calibration evidence',
   assert.match(evidencePrompt(SEAL_DIRECTIVE, 'fixed-nonce'), /END OBSERVED OUTPUT fixed-nonce/u);
 });
 
-test('publishes only allowed changes from an isolated actor', async (t) => {
+test('publishes only allowed changes from an isolated actor', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-isolated-actor-test-'));
   const repo = path.join(root, 'repo');
   fs.mkdirSync(repo);
@@ -178,7 +178,7 @@ test('publishes only allowed changes from an isolated actor', async (t) => {
   fs.writeFileSync(path.join(repo, 'outside.txt'), 'before\n');
   spawnSync('git', ['-C', repo, 'add', '.']);
   spawnSync('git', ['-C', repo, 'commit', '-qm', 'fixture']);
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  onTestFinished(() => fs.rmSync(root, { recursive: true, force: true }));
 
   await assert.rejects(
     runIsolatedActor(repo, ['allowed.txt'], async (sandboxRepo) => {
@@ -196,7 +196,30 @@ test('publishes only allowed changes from an isolated actor', async (t) => {
   assert.equal(fs.readFileSync(path.join(repo, 'allowed.txt'), 'utf8'), 'after\n');
 });
 
-test('publishes allowed changes when source ignored files drift during an isolated actor', async (t) => {
+test('blocks without running a shell gate when repository isolation cannot be created', () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-isolation-failure-'));
+  onTestFinished(() => fs.rmSync(cwd, { recursive: true, force: true }));
+  const result = runIsolatedShellVerification({
+    gateId: 'baseline:test',
+    failureRoute: 'blocked',
+    cwd,
+    expect: 'pass',
+    command: 'touch must-not-exist',
+    timeoutMs: 1_000,
+    tailBytes: 1_000,
+    requiredOutput: [],
+    forbiddenOutput: [],
+  });
+
+  assert.equal(result.processExitCode, 2);
+  assert.deepEqual(result.candidates, []);
+  assert.equal(result.report.verdict, 'blocked');
+  assert.equal(result.report.classification, 'gate_isolation_failed');
+  assert.deepEqual(result.report.reason_codes, ['gate_isolation_failed']);
+  assert.equal(fs.existsSync(path.join(cwd, 'must-not-exist')), false);
+});
+
+test('publishes allowed changes when source ignored files drift during an isolated actor', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-ignored-source-test-'));
   const repo = path.join(root, 'repo');
   fs.mkdirSync(repo);
@@ -206,7 +229,7 @@ test('publishes allowed changes when source ignored files drift during an isolat
   fs.writeFileSync(path.join(repo, '.gitignore'), 'cache/\n');
   spawnSync('git', ['-C', repo, 'add', '.gitignore']);
   spawnSync('git', ['-C', repo, 'commit', '-qm', 'fixture']);
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  onTestFinished(() => fs.rmSync(root, { recursive: true, force: true }));
 
   await runIsolatedActor(repo, ['allowed.txt'], async (sandboxRepo) => {
     fs.mkdirSync(path.join(repo, 'cache'));
@@ -216,7 +239,7 @@ test('publishes allowed changes when source ignored files drift during an isolat
   assert.equal(fs.readFileSync(path.join(repo, 'allowed.txt'), 'utf8'), 'published\n');
 });
 
-test('rejects an ignored path created by an isolated actor', async (t) => {
+test('rejects an ignored path created by an isolated actor', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-ignored-sandbox-test-'));
   const repo = path.join(root, 'repo');
   fs.mkdirSync(repo);
@@ -226,7 +249,7 @@ test('rejects an ignored path created by an isolated actor', async (t) => {
   fs.writeFileSync(path.join(repo, '.gitignore'), 'cache/\n');
   spawnSync('git', ['-C', repo, 'add', '.gitignore']);
   spawnSync('git', ['-C', repo, 'commit', '-qm', 'fixture']);
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  onTestFinished(() => fs.rmSync(root, { recursive: true, force: true }));
 
   await assert.rejects(
     runIsolatedActor(repo, [], async (sandboxRepo) => {
@@ -237,7 +260,7 @@ test('rejects an ignored path created by an isolated actor', async (t) => {
   );
 });
 
-test('resumes an SDK actor after a transient runner failure', async (t) => {
+test('resumes an SDK actor after a transient runner failure', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-sdk-runner-test-'));
   const repo = path.join(root, 'repo');
   fs.mkdirSync(repo);
@@ -255,7 +278,7 @@ test('resumes an SDK actor after a transient runner failure', async (t) => {
   const stateDirectory = path.join(root, 'state');
   const previousStateDirectory = process.env.CODEX_FLOW_STATE_DIR;
   process.env.CODEX_FLOW_STATE_DIR = stateDirectory;
-  t.after(() => {
+  onTestFinished(() => {
     if (previousStateDirectory === undefined) delete process.env.CODEX_FLOW_STATE_DIR;
     else process.env.CODEX_FLOW_STATE_DIR = previousStateDirectory;
     fs.rmSync(root, { recursive: true, force: true });
@@ -375,7 +398,7 @@ test('resumes an SDK actor after a transient runner failure', async (t) => {
   );
 });
 
-test('blocks and discards sandbox edits on actor escalation, then resumes without recall', async (t) => {
+test('blocks and discards sandbox edits on actor escalation, then resumes without recall', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-escalation-test-'));
   const repo = path.join(root, 'repo');
   fs.mkdirSync(repo);
@@ -388,7 +411,7 @@ test('blocks and discards sandbox edits on actor escalation, then resumes withou
   const stateDirectory = path.join(root, 'state');
   const previous = process.env.CODEX_FLOW_STATE_DIR;
   process.env.CODEX_FLOW_STATE_DIR = stateDirectory;
-  t.after(() => {
+  onTestFinished(() => {
     if (previous === undefined) delete process.env.CODEX_FLOW_STATE_DIR;
     else process.env.CODEX_FLOW_STATE_DIR = previous;
     fs.rmSync(root, { recursive: true, force: true });

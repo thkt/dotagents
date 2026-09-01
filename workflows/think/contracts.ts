@@ -21,9 +21,9 @@ export const THINK_REPORT_PROTOCOL = 'codex-think-report/v3' as const;
 export const THINK_RESULT_PROTOCOL = 'codex-think-result/v1' as const;
 export const THINK_DESCRIPTION_PROTOCOL = 'codex-think-description/v1' as const;
 
-export type ThinkTaskType = 'bug' | 'feature' | 'docs' | 'chore';
-export type ThinkLanguage = 'english' | 'japanese';
-export type ThinkReadiness = 'ready' | 'research_required';
+type ThinkTaskType = 'bug' | 'feature' | 'docs' | 'chore';
+type ThinkLanguage = 'english' | 'japanese';
+type ThinkReadiness = 'ready' | 'research_required';
 
 export interface ThinkInput {
   protocol: typeof THINK_INPUT_PROTOCOL;
@@ -34,7 +34,7 @@ export interface ThinkInput {
   language: ThinkLanguage;
 }
 
-export interface ThinkApproach {
+interface ThinkApproach {
   id: string;
   summary: string;
   benefits: string[];
@@ -51,7 +51,7 @@ export interface ThinkDraft {
   uncertainties: string[];
 }
 
-export interface ThinkEvidence {
+interface ThinkEvidence {
   kind: 'repository' | 'research';
   source: string;
   locator: string;

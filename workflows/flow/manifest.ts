@@ -31,7 +31,7 @@ import { parseArgs as parseGateArgs } from './shell-gate.ts';
 export const ACTIONS = new Set<ActionName>(['branch', 'commit', 'ship']);
 export const UNIT_ACTOR = /^(U-\d{3}):(red|green|direct)$/u;
 export const CLEANUP_ACTOR = /^cleanup:[A-Za-z0-9._-]+$/u;
-export const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
+const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 export const BUILD_OPENING_IDS = [
   'load:plan',
   'revalidate:plan',
@@ -39,7 +39,7 @@ export const BUILD_OPENING_IDS = [
   'branch:verify',
 ] as const;
 export const DEFAULT_MAX_CORRECTIONS = 3;
-export const GATE_AUTHORITIES = new Set<GateAuthority>([
+const GATE_AUTHORITIES = new Set<GateAuthority>([
   'shell',
   'build-plan',
   'build-revalidate',

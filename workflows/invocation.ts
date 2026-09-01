@@ -282,4 +282,4 @@ export {
   requireResearchIntent,
   requireThinkIntent,
 };
-export type { WorkflowIntent, WorkflowInvocation };
+export type { WorkflowIntent };

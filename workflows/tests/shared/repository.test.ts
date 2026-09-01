@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import { onTestFinished, test } from 'bun:test';
 
 import {
   repositoryControlChanges,
@@ -13,9 +13,9 @@ import {
   sameWorkflowRepositoryInvariant,
 } from '../../../workflows/shared/repository.ts';
 
-function repository(t: test.TestContext): string {
+function repository(): string {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-repository-invariant-'));
-  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  onTestFinished(() => fs.rmSync(repo, { recursive: true, force: true }));
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
   execFileSync('git', ['config', 'user.name', 'Test'], { cwd: repo });
   execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: repo });
@@ -35,8 +35,8 @@ function legacyRefFingerprint(repo: string): string {
   }).toString('base64');
 }
 
-test('Codex desktop refs are host state, not workflow repository mutations', (t) => {
-  const repo = repository(t);
+test('Codex desktop refs are host state, not workflow repository mutations', () => {
+  const repo = repository();
   const before = repositoryInvariant(repo);
 
   updateRef(repo, 'refs/codex/turn-diffs/checkpoints/task/turn/checkpoint');
@@ -48,8 +48,8 @@ test('Codex desktop refs are host state, not workflow repository mutations', (t)
   assert.deepEqual(repositoryControlChanges(before, after), []);
 });
 
-test('repository-owned refs remain protected Git metadata', (t) => {
-  const repo = repository(t);
+test('repository-owned refs remain protected Git metadata', () => {
+  const repo = repository();
   const before = repositoryInvariant(repo);
   assert.equal(before.metadata.refs, legacyRefFingerprint(repo));
 

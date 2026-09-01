@@ -92,7 +92,7 @@ export function nulPaths(buffer: Buffer): string[] {
   return buffer.toString('utf8').split('\0').filter(Boolean);
 }
 
-export function changedPaths(repo: string): string[] {
+function changedPaths(repo: string): string[] {
   const paths = new Set([
     ...nulPaths(gitOutput(repo, ['diff', '--name-only', '-z'], 'worktree diff')),
     ...nulPaths(gitOutput(repo, ['diff', '--cached', '--name-only', '-z'], 'index diff')),

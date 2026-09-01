@@ -2,8 +2,6 @@
 
 import type { RepositoryInvariant, RepoSnapshot } from '../shared/repository.ts';
 
-export type { RepositoryInvariant, RepoSnapshot } from '../shared/repository.ts';
-
 export const MANIFEST_PROTOCOL = 'codex-flow-manifest/v4' as const;
 export const STATE_PROTOCOL = 'codex-flow-state/v8' as const;
 export const RESULT_PROTOCOL = 'codex-flow-control/v5' as const;
@@ -43,23 +41,23 @@ export interface ShellGateSpec extends GateSpecBase {
   forbid_output: string[];
 }
 
-export interface BuildPlanGateSpec extends GateSpecBase {
+interface BuildPlanGateSpec extends GateSpecBase {
   authority: 'build-plan';
   input: string;
 }
 
-export interface BuildRevalidateGateSpec extends GateSpecBase {
+interface BuildRevalidateGateSpec extends GateSpecBase {
   authority: 'build-revalidate';
   input: string;
 }
 
-export interface BuildArtifactsGateSpec extends GateSpecBase {
+interface BuildArtifactsGateSpec extends GateSpecBase {
   authority: 'build-artifacts';
   input: string;
   unit_id: string;
 }
 
-export interface BuildShipGateSpec extends GateSpecBase {
+interface BuildShipGateSpec extends GateSpecBase {
   authority: 'build-ship';
 }
 
@@ -161,7 +159,7 @@ export interface FlowManifest {
   steps: FlowStep[];
 }
 
-export interface Calibration {
+interface Calibration {
   command: string;
   exit_code: number | null;
   stdout_tail: string;
@@ -184,7 +182,7 @@ export interface GateCheck {
   passed: boolean;
 }
 
-export interface ShellGateEvidence {
+interface ShellGateEvidence {
   kind: 'shell';
   checks: GateCheck[];
   matches_expected_exit: boolean;
@@ -196,12 +194,10 @@ export interface ShellGateEvidence {
   stderr_tail: string;
 }
 
-export interface StructuredGateEvidence {
+interface StructuredGateEvidence {
   kind: 'structured';
   report: StructuredGateResult;
 }
-
-export type GateEvidence = ShellGateEvidence | StructuredGateEvidence;
 
 interface GateReportBase {
   protocol: typeof GATE_PROTOCOL;
@@ -216,12 +212,12 @@ interface GateReportBase {
   duration_ms: number;
 }
 
-export interface ShellGateReport extends GateReportBase {
+interface ShellGateReport extends GateReportBase {
   expected: GateExpectation;
   evidence: ShellGateEvidence;
 }
 
-export interface StructuredGateReport extends GateReportBase {
+interface StructuredGateReport extends GateReportBase {
   evidence: StructuredGateEvidence;
 }
 

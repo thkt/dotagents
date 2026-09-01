@@ -6,7 +6,7 @@ import { FlowError } from '../shared/errors.ts';
 import type { ConfiguredLanguage } from '../shared/language.ts';
 import { isObject, rejectUnknownKeys } from '../shared/schema.ts';
 
-export const PUBLIC_ISSUE_CONTRACT_PROTOCOL = 'codex-public-build-contract/v1' as const;
+const PUBLIC_ISSUE_CONTRACT_PROTOCOL = 'codex-public-build-contract/v1' as const;
 
 const CONTRACT_OPEN = `<!-- ${PUBLIC_ISSUE_CONTRACT_PROTOCOL}\n`;
 const CONTRACT_CLOSE = '\n-->';

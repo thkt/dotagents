@@ -50,6 +50,7 @@ export interface ThinkAgent {
     research: ThinkResearchContext[],
     buildContract: unknown,
     context?: ThinkContextSummary[],
+    snapshotRepo?: string,
   ): Promise<ThinkDraft>;
   review(
     input: ThinkInput,
@@ -58,6 +59,7 @@ export interface ThinkAgent {
     buildContract: unknown,
     correction?: ThinkReviewCorrection,
     context?: ThinkContextSummary[],
+    snapshotRepo?: string,
   ): Promise<ThinkDecision>;
 }
 
@@ -162,10 +164,10 @@ async function runStage(
   }
 }
 
-function threadOptions(input: ThinkInput): ThreadOptions {
+function threadOptions(input: ThinkInput, snapshotRepo: string = input.repo): ThreadOptions {
   return {
     ...THINKING_THREAD_OPTIONS,
-    workingDirectory: input.repo,
+    workingDirectory: snapshotRepo,
     sandboxMode: 'read-only',
     approvalPolicy: 'never',
     networkAccessEnabled: false,
@@ -191,8 +193,9 @@ export class CodexThinkAgent implements ThinkAgent {
     research: ThinkResearchContext[],
     buildContract: unknown,
     context: ThinkContextSummary[] = [],
+    snapshotRepo: string = input.repo,
   ): Promise<ThinkDraft> {
-    const thread = this.client.startThread(threadOptions(input));
+    const thread = this.client.startThread(threadOptions(input, snapshotRepo));
     const result = await runStage(
       'designer',
       () =>
@@ -217,8 +220,9 @@ export class CodexThinkAgent implements ThinkAgent {
     buildContract: unknown,
     correction?: ThinkReviewCorrection,
     context: ThinkContextSummary[] = [],
+    snapshotRepo: string = input.repo,
   ): Promise<ThinkDecision> {
-    const thread = this.client.startThread(threadOptions(input));
+    const thread = this.client.startThread(threadOptions(input, snapshotRepo));
     const result = await runStage(
       'reviewer',
       () =>

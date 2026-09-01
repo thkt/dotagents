@@ -13,8 +13,8 @@ export const ISSUE_DRAFT_PROTOCOL = 'codex-issue-draft/v2' as const;
 export const ISSUE_RESULT_PROTOCOL = 'codex-issue-result/v2' as const;
 export const ISSUE_DESCRIPTION_PROTOCOL = 'codex-issue-description/v2' as const;
 
-export type IssueMode = 'create' | 'attach-plan';
-export type IssuePriority = 'critical' | 'high' | 'medium' | 'low';
+type IssueMode = 'create' | 'attach-plan';
+type IssuePriority = 'critical' | 'high' | 'medium' | 'low';
 
 export interface IssueInput {
   protocol: typeof ISSUE_INPUT_PROTOCOL;
@@ -28,7 +28,7 @@ export interface IssueInput {
   priority: IssuePriority;
 }
 
-export interface ExistingIssueSnapshot {
+interface ExistingIssueSnapshot {
   title: string;
   body_sha256: string;
 }

@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import test from 'node:test';
+import { test } from 'bun:test';
 
 import { FlowError } from '../../../workflows/shared/errors.ts';
 import { ProgressReporter, type ProgressEvent } from '../../../workflows/shared/progress.ts';

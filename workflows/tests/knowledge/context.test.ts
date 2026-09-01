@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import { onTestFinished, test } from 'bun:test';
 import { compileContext } from '../../knowledge/context.ts';
 import { researchArtifactDirectory, issueArtifactDirectory } from '../../shared/storage.ts';
 import { sha256 } from '../../shared/evidence.ts';
@@ -15,10 +15,12 @@ import { THINK_REPORT_PROTOCOL, type ThinkReport } from '../../think/contracts.t
 import { repositoryInvariant } from '../../shared/repository.ts';
 import { emptyStageTimings } from '../../shared/codex.ts';
 import type { GitHubIssue, IssueGateway } from '../../issue/github.ts';
+import { temporaryDirectory } from '../shared/fixtures.ts';
 
 function fixture() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'knowledge-context-'));
-  const state = fs.mkdtempSync(path.join(os.tmpdir(), 'knowledge-state-'));
+  const root = temporaryDirectory('knowledge-context-');
+  const state = temporaryDirectory('knowledge-state-');
+  const previous = process.env.CODEX_FLOW_STATE_DIR;
   process.env.CODEX_FLOW_STATE_DIR = state;
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
   fs.writeFileSync(path.join(root, 'src.ts'), 'export const x = 1;\n');
@@ -31,9 +33,9 @@ function fixture() {
   execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/owner/repo.git'], {
     cwd: root,
   });
-  test.after(() => {
-    fs.rmSync(root, { recursive: true, force: true });
-    fs.rmSync(state, { recursive: true, force: true });
+  onTestFinished(() => {
+    if (previous === undefined) delete process.env.CODEX_FLOW_STATE_DIR;
+    else process.env.CODEX_FLOW_STATE_DIR = previous;
   });
   return { root, state };
 }
@@ -86,7 +88,7 @@ test('does not follow a symlinked research artifact directory', () => {
   fs.mkdirSync(path.dirname(directory), { recursive: true });
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'knowledge-outside-'));
   fs.symlinkSync(outside, directory, 'dir');
-  test.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+  onTestFinished(() => fs.rmSync(outside, { recursive: true, force: true }));
   assert.deepEqual(compileContext(root, 'research'), { status: 'degraded', entries: [] });
 });
 

@@ -21,7 +21,7 @@ interface ThreadResult {
   finalResponse: string;
 }
 
-export interface CodexThreadLike {
+interface CodexThreadLike {
   run(input: string, options?: TurnOptions): Promise<ThreadResult>;
 }
 
