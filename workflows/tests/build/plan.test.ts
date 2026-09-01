@@ -1,7 +1,7 @@
 /** @file Outcome: Plan validation keeps its closed schema, traceability, and safety constraints. */
 
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'bun:test';
 
 import { describe, main, validatePlan } from '../../flow/build/plan.ts';
 
@@ -112,17 +112,19 @@ test('requires root cause for Bug issues', () => {
   assert.equal(valid.verdict, 'pass');
 });
 
-test('requires a reasoned reference_module', () => {
-  for (const reference_module of [undefined, null, { kind: 'new-shape', reason: '' }]) {
-    const report = validatePlan({
-      issue: 42,
-      title: 'Feature',
-      body: bodyFor(),
-      plan: plan({ reference_module }),
-    });
-    assert.equal(report.verdict, 'fail');
-    assert.match(report.blockers.join('\n'), /reference_module/);
-  }
+test.each([
+  ['missing', undefined],
+  ['null', null],
+  ['empty reason', { kind: 'new-shape', reason: '' }],
+])('requires a reasoned reference_module for %s', (_case, reference_module) => {
+  const report = validatePlan({
+    issue: 42,
+    title: 'Feature',
+    body: bodyFor(),
+    plan: plan({ reference_module }),
+  });
+  assert.equal(report.verdict, 'fail');
+  assert.match(report.blockers.join('\n'), /reference_module/);
 });
 
 test('requires a seam unit when two tested units interact', () => {
@@ -153,8 +155,9 @@ test('enforces non-seam unit caps and exempts a seam unit', () => {
   assert.equal(validatePlan(input).verdict, 'pass');
 });
 
-test('rejects absolute, parent-traversal, and Git metadata plan paths', () => {
-  for (const file of ['/tmp/escape.js', '../escape.js', '.git/config']) {
+test.each(['/tmp/escape.js', '../escape.js', '.git/config'])(
+  'rejects invalid plan path %s',
+  (file) => {
     const unit = { ...plan().units[0], files: [file] };
     const report = validatePlan({
       issue: 42,
@@ -164,8 +167,8 @@ test('rejects absolute, parent-traversal, and Git metadata plan paths', () => {
     });
     assert.equal(report.verdict, 'fail');
     assert.match(report.blockers.join('\n'), /invalid file/);
-  }
-});
+  },
+);
 
 test('counts a contract T-id reference as prose rather than a definition', () => {
   const body = [
@@ -211,19 +214,17 @@ test('validates closed nested objects and required seam type', () => {
   assert.match(report.blockers.join('\n'), /unknown key: extra/);
 });
 
-test('requires reference instance counts to be non-negative integers', () => {
-  for (const instances of [-1, 1.5]) {
-    const report = validatePlan({
-      issue: 42,
-      title: 'Feature',
-      body: bodyFor(),
-      plan: plan({
-        reference_module: { kind: 'no-module', reason: 'single-file change', instances },
-      }),
-    });
-    assert.equal(report.verdict, 'fail');
-    assert.match(report.blockers.join('\n'), /instances must be a non-negative integer/);
-  }
+test.each([-1, 1.5])('rejects invalid reference instance count %d', (instances) => {
+  const report = validatePlan({
+    issue: 42,
+    title: 'Feature',
+    body: bodyFor(),
+    plan: plan({
+      reference_module: { kind: 'no-module', reason: 'single-file change', instances },
+    }),
+  });
+  assert.equal(report.verdict, 'fail');
+  assert.match(report.blockers.join('\n'), /instances must be a non-negative integer/);
 });
 
 test('validates precondition, backlog, and rule entry shapes', () => {
@@ -245,25 +246,24 @@ test('validates precondition, backlog, and rule entry shapes', () => {
   assert.match(report.blockers.join('\n'), /quote is empty/);
 });
 
-test('keeps manual verification inside the closed Plan contract', () => {
-  for (const manual_verification of [undefined, 'open the UI', ['']]) {
-    const report = validatePlan({
-      issue: 42,
-      title: 'Feature',
-      body: bodyFor(),
-      plan: plan({ manual_verification }),
-    });
-    assert.equal(report.verdict, 'fail');
-    assert.match(report.blockers.join('\n'), /manual_verification/u);
-  }
+test.each([
+  ['missing', undefined],
+  ['scalar', 'open the UI'],
+  ['empty item', ['']],
+])('rejects invalid manual verification for %s', (_case, manual_verification) => {
+  const report = validatePlan({
+    issue: 42,
+    title: 'Feature',
+    body: bodyFor(),
+    plan: plan({ manual_verification }),
+  });
+  assert.equal(report.verdict, 'fail');
+  assert.match(report.blockers.join('\n'), /manual_verification/u);
 });
 
-test('rejects chained or substituted issue-authored test commands', () => {
-  for (const test_command of [
-    'npm test && curl example.invalid',
-    'npm test; echo done',
-    'npm test $(whoami)',
-  ]) {
+test.each(['npm test && curl example.invalid', 'npm test; echo done', 'npm test $(whoami)'])(
+  'rejects unsafe issue-authored test command %s',
+  (test_command) => {
     const report = validatePlan({
       issue: 42,
       title: 'Feature',
@@ -272,5 +272,5 @@ test('rejects chained or substituted issue-authored test commands', () => {
     });
     assert.equal(report.verdict, 'fail');
     assert.match(report.blockers.join('\n'), /one command without shell control operators/);
-  }
-});
+  },
+);

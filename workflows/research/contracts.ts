@@ -14,11 +14,11 @@ export const RESEARCH_RESULT_PROTOCOL = 'codex-research-result/v1' as const;
 export const RESEARCH_DESCRIPTION_PROTOCOL = 'codex-research-description/v1' as const;
 
 export type ResearchMode = 'understand' | 'plan' | 'diagnose';
-export type ExternalSources = 'none' | 'primary' | 'broad';
-export type ResearchLanguage = 'english' | 'japanese';
-export type EvidenceKind = 'repository' | 'web';
-export type FindingKind = 'fact' | 'inference';
-export type Confidence = 'high' | 'medium' | 'low';
+type ExternalSources = 'none' | 'primary' | 'broad';
+type ResearchLanguage = 'english' | 'japanese';
+type EvidenceKind = 'repository' | 'web';
+type FindingKind = 'fact' | 'inference';
+type Confidence = 'high' | 'medium' | 'low';
 export type ResearchNextStep = 'think' | 'fix' | 'complete';
 
 const LINE_LOCATOR = /^L\d+(?:-L?\d+)?$/u;
@@ -50,18 +50,18 @@ export interface ResearchEvidence {
   supports: string;
 }
 
-export interface RepositoryReportEvidence extends ResearchEvidence {
+interface RepositoryReportEvidence extends ResearchEvidence {
   kind: 'repository';
   source_sha256: string;
 }
 
-export interface WebReportEvidence extends ResearchEvidence {
+interface WebReportEvidence extends ResearchEvidence {
   kind: 'web';
 }
 
 export type ResearchReportEvidence = RepositoryReportEvidence | WebReportEvidence;
 
-export interface ResearchDraftFinding {
+interface ResearchDraftFinding {
   statement: string;
   kind: FindingKind;
   evidence: ResearchEvidence[];
@@ -78,7 +78,7 @@ export interface ResearchDraft {
   unknowns: ResearchUnknown[];
 }
 
-export interface AuditedFinding extends ResearchDraftFinding {
+interface AuditedFinding extends ResearchDraftFinding {
   confidence: Confidence;
   qualification: string | null;
 }
@@ -88,7 +88,7 @@ export interface ResearchReportFinding extends Omit<AuditedFinding, 'evidence'> 
   evidence: ResearchReportEvidence[];
 }
 
-export interface RejectedFinding {
+interface RejectedFinding {
   statement: string;
   reason: string;
 }

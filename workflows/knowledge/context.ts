@@ -12,7 +12,7 @@ import { parseThinkReport } from '../think/contracts.ts';
 import { parseIssueDraft } from '../issue/contracts.ts';
 import { parsePublishedIssueReceipt } from '../issue/receipt.ts';
 
-export interface ContextEntry {
+interface ContextEntry {
   id: string;
   kind: 'knowledge' | 'decision';
   status: 'active' | 'review_required';

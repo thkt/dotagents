@@ -2,11 +2,8 @@
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import * as os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
-
-process.env.CODEX_FLOW_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-issue-state-'));
+import { test } from 'bun:test';
 
 import { compileContext } from '../../../workflows/knowledge/context.ts';
 import { draftIssue, publishIssue } from '../../../workflows/issue/pipeline.ts';
@@ -29,10 +26,12 @@ import {
   BUILD_SOURCE_PROTOCOL,
   resolveBuildSource,
 } from '../../../workflows/flow/build/handoff.ts';
+import { temporaryDirectory, useTemporaryStateDirectory } from '../shared/fixtures.ts';
 
-function repoFixture(t: test.TestContext): string {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-issue-'));
-  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+useTemporaryStateDirectory('codex-issue-state-');
+
+function repoFixture(): string {
+  const repo = temporaryDirectory('codex-issue-');
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
   fs.writeFileSync(path.join(repo, 'README.md'), 'fixture\n');
   execFileSync('git', ['add', '.'], { cwd: repo });
@@ -154,8 +153,8 @@ test('issue description uses the language configured by Codex', () => {
   );
 });
 
-test('one explicit issue invocation publishes the exact draft and returns build context', (t) => {
-  const repo = repoFixture(t);
+test('one explicit issue invocation publishes the exact draft and returns build context', () => {
+  const repo = repoFixture();
   const report = think(repo);
   const gateway = new Gateway();
   const inputFile = workflowInputPath('issue-test');
@@ -220,8 +219,8 @@ test('one explicit issue invocation publishes the exact draft and returns build 
   );
 });
 
-test('new issue title and report must match the language configured by Codex', (t) => {
-  const repo = repoFixture(t);
+test('new issue title and report must match the language configured by Codex', () => {
+  const repo = repoFixture();
   const gateway = new Gateway();
   assert.throws(
     () => draftIssue(input(repo, think(repo), { title: 'English title' }), gateway, 'japanese'),
@@ -234,8 +233,8 @@ test('new issue title and report must match the language configured by Codex', (
   assert.equal(gateway.writes, 0);
 });
 
-test('publication requires the approval created by the explicit issue invocation', (t) => {
-  const repo = repoFixture(t);
+test('publication requires the approval created by the explicit issue invocation', () => {
+  const repo = repoFixture();
   const report = think(repo);
   const gateway = new Gateway();
   const runId = 'issue-missing-approval';
@@ -251,8 +250,8 @@ test('publication requires the approval created by the explicit issue invocation
   assert.equal(fs.existsSync(intentPath(runId)), true);
 });
 
-test('publication approval is bound to the repository and consumed before GitHub writes', (t) => {
-  const repo = repoFixture(t);
+test('publication approval is bound to the repository and consumed before GitHub writes', () => {
+  const repo = repoFixture();
   const report = think(repo);
   const gateway = new Gateway();
   const runId = 'issue-wrong-approval-repo';
@@ -274,8 +273,8 @@ test('publication approval is bound to the repository and consumed before GitHub
   assert.equal(gateway.writes, 0);
 });
 
-test('GitHub write failures cannot reuse a consumed publication approval', (t) => {
-  const repo = repoFixture(t);
+test('GitHub write failures cannot reuse a consumed publication approval', () => {
+  const repo = repoFixture();
   const report = think(repo);
   const runId = 'issue-failed-publication';
   const pending = armIntent({ runId, workflow: 'issue', cwd: repo });
@@ -292,8 +291,8 @@ test('GitHub write failures cannot reuse a consumed publication approval', (t) =
   assert.equal(fs.existsSync(intentPath(runId)), false);
 });
 
-test('rejects stale/changed evidence and preserves ignored-only changes', (t) => {
-  const repo = repoFixture(t);
+test('rejects stale/changed evidence and preserves ignored-only changes', () => {
+  const repo = repoFixture();
   fs.writeFileSync(path.join(repo, '.ignored'), 'x');
   fs.writeFileSync(path.join(repo, '.gitignore'), '.ignored\n');
   execFileSync('git', ['add', '.gitignore'], { cwd: repo });
@@ -309,8 +308,8 @@ test('rejects stale/changed evidence and preserves ignored-only changes', (t) =>
   assert.throws(() => draftIssue(input(repo, report), gateway), /repository state|stale/u);
 });
 
-test('rejects stale Think evidence before any GitHub write', (t) => {
-  const repo = repoFixture(t);
+test('rejects stale Think evidence before any GitHub write', () => {
+  const repo = repoFixture();
   const report = think(repo, {
     evidence: [
       {
@@ -326,8 +325,8 @@ test('rejects stale Think evidence before any GitHub write', (t) => {
   assert.throws(() => draftIssue(input(repo, report), new Gateway()), /stale/u);
 });
 
-test('rejects changed draft body and digest before writing', (t) => {
-  const repo = repoFixture(t);
+test('rejects changed draft body and digest before writing', () => {
+  const repo = repoFixture();
   const gateway = new Gateway();
   const preview = draftIssue(input(repo, think(repo)), gateway);
   fs.appendFileSync(preview.body_markdown, '\nchanged\n');
@@ -343,8 +342,8 @@ test('rejects changed draft body and digest before writing', (t) => {
   assert.equal(gateway.writes, 0);
 });
 
-test('attach-plan preserves the existing title, appends one Plan, and rejects target drift', (t) => {
-  const repo = repoFixture(t);
+test('attach-plan preserves the existing title, appends one Plan, and rejects target drift', () => {
+  const repo = repoFixture();
   const gateway = new Gateway();
   gateway.issue = {
     number: 7,

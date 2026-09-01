@@ -91,8 +91,12 @@ export async function runThinkWorkflow(
   const input = validateThinkInput(readAbsoluteJson(inputFile, 'think'));
   requireThinkIntent(runId, input.repo, inputFile);
   requireConfiguredLanguage(input.language);
-  const result = await runThink(input, agent);
-  clearIntent(runId);
+  let result: ThinkRunResult;
+  try {
+    result = await runThink(input, agent);
+  } finally {
+    clearIntent(runId);
+  }
   return {
     protocol: THINK_RESULT_PROTOCOL,
     status: 'completed',

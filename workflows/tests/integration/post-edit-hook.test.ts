@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import { onTestFinished, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -46,10 +46,10 @@ test('resolves files from Codex edit payloads', () => {
   );
 });
 
-test('formats edited source and returns the changed file as feedback', (t) => {
+test('formats edited source and returns the changed file as feedback', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-post-edit-'));
   const file = path.join(root, 'index.ts');
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  onTestFinished(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.writeFileSync(file, 'export const value={message:"ok"}\n');
 
   const result = postEdit({
@@ -67,20 +67,20 @@ test('uses Claude Code Japanese detection threshold', () => {
   assert.equal(hasJapanese('日'.repeat(JAPANESE_THRESHOLD)), true);
 });
 
-test('auto-fixes Japanese Markdown with the shared textlint config', (t) => {
+test('auto-fixes Japanese Markdown with the shared textlint config', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-textlint-'));
   const file = path.join(root, 'guide.md');
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  onTestFinished(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.writeFileSync(file, `${'これは日本語の文章です。'.repeat(6)}APIを使用する。\n`);
   assert.equal(fixMarkdown(file), true);
   assert.match(fs.readFileSync(file, 'utf8'), /API を使用する。/);
 });
 
-test('fails when textlint exits non-zero', (t) => {
+test('fails when textlint exits non-zero', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-textlint-failure-'));
   const file = path.join(root, 'guide.md');
   const executable = path.join(root, 'textlint');
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  onTestFinished(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.writeFileSync(file, `${'これは日本語の文章です。'.repeat(6)}\n`);
   fs.writeFileSync(executable, '#!/bin/sh\necho "actionable textlint feedback"\nexit 1\n', {
     mode: 0o755,
@@ -88,12 +88,12 @@ test('fails when textlint exits non-zero', (t) => {
   assert.throws(() => fixMarkdown(file, executable), /actionable textlint feedback/u);
 });
 
-test('returns oxlint agent diagnostics when a source issue remains', (t) => {
+test('returns oxlint agent diagnostics when a source issue remains', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-oxlint-feedback-'));
   const file = path.join(root, 'index.ts');
   const oxlint = path.join(root, 'oxlint');
   const noOp = path.join(root, 'no-op');
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  onTestFinished(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.writeFileSync(file, 'export const value = 1;\n');
   fs.writeFileSync(oxlint, '#!/bin/sh\necho "index.ts:1:1 actionable oxlint feedback"\nexit 1\n', {
     mode: 0o755,

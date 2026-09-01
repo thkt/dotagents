@@ -2,12 +2,11 @@
 
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import { test } from 'bun:test';
 
 import { codeFence, describe, main, render, validatePayload } from '../../flow/build/pr-body.ts';
+import { temporaryDirectory } from '../shared/fixtures.ts';
 
 function payload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -80,15 +79,11 @@ test('keeps backticks and newlines in filenames inside one safe code span', () =
 });
 
 test('writes the rendered body only to an explicit absolute output path', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'codex-pr-body-'));
+  const root = temporaryDirectory('codex-pr-body-');
   const input = path.join(root, 'input.json');
   const output = path.join(root, 'body.md');
-  try {
-    fs.writeFileSync(input, JSON.stringify(payload()));
-    const result = main(['--input', input, '--output', output]);
-    assert.equal(result.exitCode, 0);
-    assert.equal(fs.readFileSync(output, 'utf8'), result.output);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+  fs.writeFileSync(input, JSON.stringify(payload()));
+  const result = main(['--input', input, '--output', output]);
+  assert.equal(result.exitCode, 0);
+  assert.equal(fs.readFileSync(output, 'utf8'), result.output);
 });

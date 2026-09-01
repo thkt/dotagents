@@ -5,13 +5,13 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import { onTestFinished, test } from 'bun:test';
 
 import { shellCommand } from '../../shared/command.ts';
 
-test('quotes controller-supplied shell arguments without evaluating their contents', (t) => {
+test('quotes controller-supplied shell arguments without evaluating their contents', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-shell-command-'));
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  onTestFinished(() => fs.rmSync(directory, { recursive: true, force: true }));
   const marker = path.join(directory, 'expanded');
   const argument = `literal ' quote $(touch ${marker})`;
   const result = spawnSync(shellCommand('printf', ['%s', argument]), {

@@ -908,7 +908,6 @@ function describe(workflow: Workflow): FlowDescription {
 }
 
 export {
-  DESCRIPTION_PROTOCOL,
   MANIFEST_PROTOCOL,
   completeCurrentDirective,
   cancelWorkflow,

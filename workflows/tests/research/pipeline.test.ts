@@ -2,12 +2,10 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
-
-process.env.CODEX_FLOW_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-research-state-'));
+import { onTestFinished, test } from 'bun:test';
 
 import { runResearch } from '../../../workflows/research/pipeline.ts';
 import {
@@ -23,10 +21,14 @@ import type {
 } from '../../../workflows/research/agent.ts';
 import { auditPrompt, investigationPrompt } from '../../../workflows/research/agent.ts';
 import { researchArtifactDirectory } from '../../../workflows/shared/storage.ts';
+import { runResearchWorkflow } from '../../../workflows/research/runner.ts';
+import { armIntent, clearIntent, loadIntent } from '../../../workflows/invocation.ts';
+import { temporaryDirectory, useTemporaryStateDirectory } from '../shared/fixtures.ts';
 
-function repoFixture(t: test.TestContext): string {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-research-'));
-  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+useTemporaryStateDirectory('codex-research-state-');
+
+function repoFixture(): string {
+  const repo = temporaryDirectory('codex-research-');
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
   fs.writeFileSync(path.join(repo, 'README.md'), 'one\ntwo\nthree\n');
   fs.mkdirSync(path.join(repo, 'src'));
@@ -105,8 +107,8 @@ class FakeAgent implements ResearchAgent {
   }
 }
 
-test('validates the input boundary and rejects invalid scope paths', (t) => {
-  const repo = repoFixture(t);
+test('validates the input boundary and rejects invalid scope paths', () => {
+  const repo = repoFixture();
   assert.equal(validateResearchInput(input(repo, { scope_paths: ['src'] })).scope_paths[0], 'src');
   assert.throws(
     () => validateResearchInput(input(repo, { scope_paths: ['missing'] })),
@@ -118,8 +120,8 @@ test('validates the input boundary and rejects invalid scope paths', (t) => {
   );
 });
 
-test('runs read-only research, seals repository evidence, and writes paired artifacts', async (t) => {
-  const repo = repoFixture(t);
+test('runs read-only research, seals repository evidence, and writes paired artifacts', async () => {
+  const repo = repoFixture();
   const agent = new FakeAgent();
   const before = fs.readFileSync(path.join(repo, 'src/index.ts'), 'utf8');
   const result = await runResearch(input(repo), agent);
@@ -133,8 +135,62 @@ test('runs read-only research, seals repository evidence, and writes paired arti
   assert.deepEqual(agent.seen[0]!.prior, []);
 });
 
-test('passes only active and review_required knowledge context, never decisions', async (t) => {
-  const repo = repoFixture(t);
+test('returns the closed Research command result for an armed successful run', async () => {
+  const repo = repoFixture();
+  const runId = `research-success-${crypto.randomUUID()}`;
+  const pending = armIntent({ runId, workflow: 'research', cwd: repo });
+  fs.writeFileSync(pending.input_path, JSON.stringify(input(repo)));
+
+  const result = await runResearchWorkflow(runId, pending.input_path, new FakeAgent());
+
+  assert.equal(result.protocol, 'codex-research-result/v1');
+  assert.equal(result.status, 'completed');
+  assert.equal(result.findings, 1);
+  assert.equal(result.unknowns, 0);
+  assert.equal(result.next_step, 'complete');
+  assert.ok(['loaded', 'degraded'].includes(result.context_status));
+  assert.ok(fs.existsSync(result.report_json));
+  assert.ok(fs.existsSync(result.report_markdown));
+  assert.equal(loadIntent(runId), null);
+});
+
+test('investigator and auditor read the same startup snapshot while the shared worktree changes', async () => {
+  const repo = repoFixture();
+  const source = path.join(repo, 'src/index.ts');
+  let firstSnapshot: string | undefined;
+  const agent: ResearchAgent = {
+    async investigate(_input, _prior, _context, snapshotRepo) {
+      assert.ok(snapshotRepo);
+      firstSnapshot = snapshotRepo;
+      assert.notEqual(fs.realpathSync(snapshotRepo), fs.realpathSync(repo));
+      assert.equal(
+        fs.readFileSync(path.join(snapshotRepo, 'src/index.ts'), 'utf8'),
+        'export const answer = 42;\n',
+      );
+      fs.writeFileSync(source, 'export const answer = 0;\n');
+      assert.equal(
+        fs.readFileSync(path.join(snapshotRepo, 'src/index.ts'), 'utf8'),
+        'export const answer = 42;\n',
+      );
+      fs.writeFileSync(source, 'export const answer = 42;\n');
+      return draft;
+    },
+    async audit(_input, _draft, _prior, _context, snapshotRepo) {
+      assert.equal(snapshotRepo, firstSnapshot);
+      assert.equal(
+        fs.readFileSync(path.join(snapshotRepo!, 'src/index.ts'), 'utf8'),
+        'export const answer = 42;\n',
+      );
+      return audit;
+    },
+  };
+
+  const result = await runResearch(input(repo), agent);
+  assert.equal(result.report.answer, audit.answer);
+});
+
+test('passes only active and review_required knowledge context, never decisions', async () => {
+  const repo = repoFixture();
   const dir = researchArtifactDirectory(repo);
   fs.mkdirSync(dir, { recursive: true });
   const agent = new FakeAgent();
@@ -150,8 +206,8 @@ test('passes only active and review_required knowledge context, never decisions'
   }
 });
 
-test('loads valid prior research reports and ignores malformed catalog entries', async (t) => {
-  const repo = repoFixture(t);
+test('loads valid prior research reports and ignores malformed catalog entries', async () => {
+  const repo = repoFixture();
   const dir = researchArtifactDirectory(repo);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'bad.json'), '{not-json');
@@ -163,8 +219,8 @@ test('loads valid prior research reports and ignores malformed catalog entries',
   assert.ok(agent.seen[0]!.prior.some((item) => item.path.endsWith('.json')));
 });
 
-test('rejects out-of-scope, invalid-line, and web evidence when disabled', async (t) => {
-  const repo = repoFixture(t);
+test('rejects out-of-scope, invalid-line, and web evidence when disabled', async () => {
+  const repo = repoFixture();
   const outside = new FakeAgent({
     findings: [
       {
@@ -195,8 +251,8 @@ test('rejects out-of-scope, invalid-line, and web evidence when disabled', async
   await assert.rejects(runResearch(input(repo), web), /external sources|HTTPS/u);
 });
 
-test('rejects an audit with neither findings nor explicit unknown', async (t) => {
-  const repo = repoFixture(t);
+test('rejects an audit with neither findings nor explicit unknown', async () => {
+  const repo = repoFixture();
   const empty: ResearchAudit = { ...audit, answer: 'なし', findings: [], unknowns: [] };
   await assert.rejects(
     runResearch(input(repo), new FakeAgent(draft, empty)),
@@ -204,8 +260,8 @@ test('rejects an audit with neither findings nor explicit unknown', async (t) =>
   );
 });
 
-test('degrades context safely when an artifact directory is malformed', async (t) => {
-  const repo = repoFixture(t);
+test('degrades context safely when an artifact directory is malformed', async () => {
+  const repo = repoFixture();
   const dir = researchArtifactDirectory(repo);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'broken.json'), '{}');
@@ -244,4 +300,34 @@ test('research prompt labels supplied context as knowledge context', () => {
   }
   assert.match(prompts[0], /Find the smallest evidence set/u);
   assert.match(prompts[1], /Open every cited repository source/u);
+});
+
+test('model execution consumes its intent while input validation preserves it', async () => {
+  const repo = repoFixture();
+  const failedRun = `research-model-failure-${crypto.randomUUID()}`;
+  const failed = armIntent({ runId: failedRun, workflow: 'research', cwd: repo });
+  fs.writeFileSync(failed.input_path, JSON.stringify(input(repo)));
+  const failingAgent: ResearchAgent = {
+    async investigate() {
+      throw new Error('terminal model failure');
+    },
+    async audit() {
+      throw new Error('unexpected audit');
+    },
+  };
+  await assert.rejects(
+    runResearchWorkflow(failedRun, failed.input_path, failingAgent),
+    /terminal/u,
+  );
+  assert.equal(loadIntent(failedRun), null);
+
+  const invalidRun = `research-invalid-input-${crypto.randomUUID()}`;
+  const invalid = armIntent({ runId: invalidRun, workflow: 'research', cwd: repo });
+  onTestFinished(() => clearIntent(invalidRun));
+  fs.writeFileSync(invalid.input_path, '{}');
+  await assert.rejects(
+    runResearchWorkflow(invalidRun, invalid.input_path, failingAgent),
+    /protocol/u,
+  );
+  assert.ok(loadIntent(invalidRun));
 });

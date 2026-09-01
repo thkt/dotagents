@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import test from 'node:test';
+import { test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 
 const skillsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -57,14 +57,15 @@ function markdownShape(content: string): string[] {
 }
 
 test('keeps skill entrypoints and references within a 60-line disclosure limit', () => {
-  for (const pair of pairs) {
-    for (const documentPath of pair) {
-      assert.ok(
-        lineCount(readFileSync(documentPath, 'utf8')) <= 60,
-        path.relative(agentsRoot, documentPath),
-      );
-    }
-  }
+  const overflow = pairs
+    .flat()
+    .map((documentPath) => ({
+      path: path.relative(agentsRoot, documentPath),
+      lines: lineCount(readFileSync(documentPath, 'utf8')),
+    }))
+    .filter(({ lines }) => lines > 60)
+    .map(({ path: documentPath, lines }) => ({ path: documentPath, lines, over_by: lines - 60 }));
+  assert.deepEqual(overflow, []);
 });
 
 test('resolves every local Markdown link from the declaring document', () => {
@@ -168,6 +169,7 @@ test('keeps the shared Bun toolchain at the agents root', () => {
   for (const file of [
     '.oxfmtrc.json',
     '.oxlintrc.json',
+    'knip.json',
     'package.json',
     'bun.lock',
     'skills/validate.ts',
@@ -181,21 +183,24 @@ test('keeps the shared Bun toolchain at the agents root', () => {
   };
   assert.deepEqual(packageJson.scripts, {
     check:
-      'bun run lint && bun run format:check && bun run typecheck && bun run test && bun run validate:skills',
+      'bun run lint && bun run format:check && bun run typecheck && bun run knip && bun run test && bun run validate:skills',
     format: 'oxfmt --write .',
     'format:check': 'oxfmt --check .',
     'fix:text': "textlint --fix '.ja/**/*.md'",
     lint: 'oxlint .',
     'lint:fix': 'oxlint --fix .',
     'lint:text': "textlint '.ja/**/*.md'",
-    test: 'bun test --parallel=8 workflows/tests/*/*.test.ts skills/tests/*.test.ts',
+    knip: 'knip',
+    test: 'bun test --parallel=8 workflows/tests skills/tests',
     typecheck: 'tsc -p tsconfig.json',
     'verify:clean': 'bun install --frozen-lockfile --ignore-scripts && bun run check',
     'validate:skills': 'bun skills/validate.ts',
   });
   assert.match(packageJson.devDependencies?.oxfmt ?? '', /^\^0\./u);
+  assert.equal(packageJson.devDependencies?.['@types/bun'], '1.4.0');
   assert.match(packageJson.devDependencies?.oxlint ?? '', /^\^1\./u);
   assert.match(packageJson.devDependencies?.['oxlint-tsgolint'] ?? '', /^\^7\./u);
+  assert.match(packageJson.devDependencies?.knip ?? '', /^\^6\./u);
   assert.match(packageJson.devDependencies?.yaml ?? '', /^\^2\./u);
 
   const oxlint = JSON.parse(readFileSync(path.join(agentsRoot, '.oxlintrc.json'), 'utf8')) as {

@@ -16,7 +16,7 @@ import {
 import { isMainModule } from '../shared/environment.ts';
 import { UsageError, errorMessage, usageError } from '../shared/errors.ts';
 
-export const PROTOCOL = GATE_PROTOCOL;
+const PROTOCOL = GATE_PROTOCOL;
 export const DEFAULT_TIMEOUT_MS = 60_000;
 export const DEFAULT_TAIL_BYTES = 12_000;
 const MAX_CALIBRATION_CANDIDATES = 128;

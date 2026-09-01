@@ -95,7 +95,7 @@ export function run(
     : spawnSync(command, [...args], { ...options, encoding });
 }
 
-export function blockedReport(protocol: string, error: unknown) {
+function blockedReport(protocol: string, error: unknown) {
   const usage = error instanceof UsageError;
   return {
     protocol,

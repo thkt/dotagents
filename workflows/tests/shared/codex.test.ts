@@ -1,7 +1,7 @@
 /** @file Outcome: Shared Codex timing contracts remain closed, complete, and classified. */
 
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'bun:test';
 
 import {
   STAGE_TIMING_KEYS,

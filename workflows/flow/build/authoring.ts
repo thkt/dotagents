@@ -5,7 +5,7 @@ import type { ConfiguredLanguage } from '../../shared/language.ts';
 import { isObject, rejectUnknownKeys, stringArray, type JsonObject } from '../../shared/schema.ts';
 import { oneLine, sentenceItems } from '../../shared/text.ts';
 
-export interface BuildPlanReference {
+interface BuildPlanReference {
   kind: 'module' | 'no-module' | 'new-shape';
   reason: string | null;
   path: string | null;

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "ignoreDependencies": [
+    "@textlint-ja/textlint-rule-preset-ai-writing",
+    "textlint-rule-ja-no-redundant-expression",
+    "textlint-rule-ja-no-weak-phrase",
+    "textlint-rule-preset-ja-spacing",
+    "textlint-rule-preset-ja-technical-writing"
+  ],
+  "ignoreBinaries": ["codex-workflow-hook"]
+}

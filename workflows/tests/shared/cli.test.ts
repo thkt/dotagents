@@ -1,7 +1,7 @@
 /** @file Outcome: Shared workflow CLI parsing rejects ambiguous commands and flags. */
 
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'bun:test';
 
 import { parseCommand, requireExactFlags } from '../../shared/cli.ts';
 

@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import { onTestFinished, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -112,9 +112,9 @@ test('resolves package and Codex state paths without a user-specific home', () =
   );
 });
 
-test('resolves the workflow language from the Codex desktop locale', (t) => {
+test('resolves the workflow language from the Codex desktop locale', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-language-'));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
   const codex = path.join(home, '.codex');
   fs.mkdirSync(codex);
   fs.writeFileSync(
@@ -150,9 +150,9 @@ test('publishes stable CLI names for every documented executable', () => {
   }
 });
 
-test('executes every CLI through a package-manager symlink', (t) => {
+test('executes every CLI through a package-manager symlink', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-bin-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  onTestFinished(() => fs.rmSync(root, { recursive: true, force: true }));
   const cases = [
     [
       'codex-flow',

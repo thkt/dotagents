@@ -1,12 +1,10 @@
 /** @file Outcome: Think routes explicit requests through read-only design and review. */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
-
-process.env.CODEX_FLOW_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-think-state-'));
+import { onTestFinished, test } from 'bun:test';
 
 import { runThink } from '../../../workflows/think/pipeline.ts';
 import { CodexThinkAgent, designPrompt, reviewPrompt } from '../../../workflows/think/agent.ts';
@@ -16,16 +14,24 @@ import type {
   ThinkResearchContext,
   ThinkContextSummary,
 } from '../../../workflows/think/agent.ts';
-import type { ThinkDecision, ThinkDraft, ThinkInput } from '../../../workflows/think/contracts.ts';
+import {
+  parseThinkReport,
+  type ThinkDecision,
+  type ThinkDraft,
+  type ThinkInput,
+} from '../../../workflows/think/contracts.ts';
 import { RESEARCH_REPORT_PROTOCOL } from '../../../workflows/research/contracts.ts';
 import { emptyStageTimings } from '../../../workflows/shared/codex.ts';
 import { researchArtifactDirectory } from '../../../workflows/shared/storage.ts';
 import { errorCode } from '../../../workflows/shared/errors.ts';
 import { ProgressReporter, type ProgressEvent } from '../../../workflows/shared/progress.ts';
+import { armIntent, clearIntent, loadIntent } from '../../../workflows/invocation.ts';
+import { temporaryDirectory, useTemporaryStateDirectory } from '../shared/fixtures.ts';
 
-function repoFixture(t: test.TestContext): string {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-think-'));
-  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+useTemporaryStateDirectory('codex-think-state-');
+
+function repoFixture(): string {
+  const repo = temporaryDirectory('codex-think-');
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
   fs.writeFileSync(path.join(repo, 'README.md'), 'one\ntwo\n');
   execFileSync('git', ['add', '.'], { cwd: repo });
@@ -68,6 +74,54 @@ const researchDecision: ThinkDecision = {
   review_notes: [],
 };
 
+const readyPlan = {
+  outcome: 'Issue-ready change',
+  root_cause: null,
+  test_command: 'bun test',
+  reference_module: {
+    kind: 'no-module' as const,
+    reason: 'The fixture has no reusable implementation module.',
+    path: null,
+    files: [],
+    instances: 0,
+    conventions: [],
+  },
+  preconditions: [],
+  backlog_candidates: [],
+  rules: [],
+  manual_verification: [],
+  units: [
+    {
+      id: 'U-001',
+      goal: 'Keep the documented value stable.',
+      files: ['README.md'],
+      contract: 'README.md retains the documented value.',
+      tests: [{ id: 'T-001', name: 'documented value remains available' }],
+      seam: false,
+    },
+  ],
+};
+
+const readyDecision: ThinkDecision = {
+  readiness: 'ready',
+  outcome: readyPlan.outcome,
+  root_cause: null,
+  decision: 'Keep the documented value stable.',
+  rationale: 'The repository evidence establishes the current value.',
+  alternatives: [{ summary: 'Remove the value', rejected_because: 'It breaks the contract.' }],
+  evidence: [
+    {
+      kind: 'repository',
+      source: 'README.md',
+      locator: 'L1',
+      supports: 'The documented value exists.',
+    },
+  ],
+  plan: readyPlan,
+  research_questions: [],
+  review_notes: [],
+};
+
 class FakeAgent implements ThinkAgent {
   designCalls = 0;
   reviewCalls = 0;
@@ -102,8 +156,8 @@ class FakeAgent implements ThinkAgent {
   }
 }
 
-test('routes a read-only Think run through designer and reviewer and preserves the worktree', async (t) => {
-  const repo = repoFixture(t);
+test('routes a read-only Think run through designer and reviewer and preserves the worktree', async () => {
+  const repo = repoFixture();
   const before = execFileSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf8' });
   const agent = new FakeAgent();
   const result = await runThink(input(repo), agent);
@@ -118,8 +172,35 @@ test('routes a read-only Think run through designer and reviewer and preserves t
   assert.ok(fs.existsSync(result.report_markdown));
 });
 
-test('does not reject Codex desktop checkpoint refs created during Think', async (t) => {
-  const repo = repoFixture(t);
+test('returns an issue-ready validated Plan with sealed repository evidence', async () => {
+  const repo = repoFixture();
+  const runId = `think-ready-${crypto.randomUUID()}`;
+  const pending = armIntent({ runId, workflow: 'think', cwd: repo });
+  fs.writeFileSync(pending.input_path, JSON.stringify(input(repo)));
+
+  const result = await runThinkWorkflow(runId, pending.input_path, new FakeAgent(readyDecision));
+
+  assert.equal(result.status, 'completed');
+  assert.equal(result.readiness, 'ready');
+  assert.equal(result.next_step, 'issue');
+  assert.equal(result.units, 1);
+  assert.equal(loadIntent(runId), null);
+  const report = parseThinkReport(JSON.parse(fs.readFileSync(result.report_json, 'utf8')));
+  assert.deepEqual(report.plan, readyPlan);
+  assert.deepEqual(report.evidence, [
+    {
+      id: 'E-001',
+      source: 'README.md',
+      source_sha256: crypto.createHash('sha256').update('one\ntwo\n').digest('hex'),
+      kind: 'repository',
+      locator: 'L1',
+      supports: 'The documented value exists.',
+    },
+  ]);
+});
+
+test('does not reject Codex desktop checkpoint refs created during Think', async () => {
+  const repo = repoFixture();
   const agent: ThinkAgent = {
     async design() {
       execFileSync(
@@ -130,6 +211,32 @@ test('does not reject Codex desktop checkpoint refs created during Think', async
       return draft;
     },
     async review() {
+      return researchDecision;
+    },
+  };
+
+  const result = await runThink(input(repo), agent);
+  assert.equal(result.report.next_step, 'research');
+});
+
+test('designer and reviewer read the same startup snapshot while the shared worktree changes', async () => {
+  const repo = repoFixture();
+  const source = path.join(repo, 'README.md');
+  let firstSnapshot: string | undefined;
+  const agent: ThinkAgent = {
+    async design(_input, _research, _contract, _context, snapshotRepo) {
+      assert.ok(snapshotRepo);
+      firstSnapshot = snapshotRepo;
+      assert.notEqual(fs.realpathSync(snapshotRepo), fs.realpathSync(repo));
+      assert.equal(fs.readFileSync(path.join(snapshotRepo, 'README.md'), 'utf8'), 'one\ntwo\n');
+      fs.writeFileSync(source, 'changed during design\n');
+      assert.equal(fs.readFileSync(path.join(snapshotRepo, 'README.md'), 'utf8'), 'one\ntwo\n');
+      fs.writeFileSync(source, 'one\ntwo\n');
+      return draft;
+    },
+    async review(_input, _draft, _research, _contract, _correction, _context, snapshotRepo) {
+      assert.equal(snapshotRepo, firstSnapshot);
+      assert.equal(fs.readFileSync(path.join(snapshotRepo!, 'README.md'), 'utf8'), 'one\ntwo\n');
       return researchDecision;
     },
   };
@@ -233,8 +340,8 @@ test('emits distinct Think model and validation progress stages', async () => {
   );
 });
 
-test('rejects stale selected research evidence before invoking the agent', async (t) => {
-  const repo = repoFixture(t);
+test('rejects stale selected research evidence before invoking the agent', async () => {
+  const repo = repoFixture();
   const dir = researchArtifactDirectory(repo);
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, 'stale.json');
@@ -283,8 +390,8 @@ test('rejects stale selected research evidence before invoking the agent', async
   );
 });
 
-test('preserves selected Research findings and web trail for both agent phases', async (t) => {
-  const repo = repoFixture(t);
+test('preserves selected Research findings and web trail for both agent phases', async () => {
+  const repo = repoFixture();
   const dir = researchArtifactDirectory(repo);
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, 'web.json');
@@ -331,8 +438,8 @@ test('preserves selected Research findings and web trail for both agent phases',
   }
 });
 
-test('sends one concrete reviewer correction and accepts the retry', async (t) => {
-  const repo = repoFixture(t);
+test('sends one concrete reviewer correction and accepts the retry', async () => {
+  const repo = repoFixture();
   const invalid: ThinkDecision = {
     ...researchDecision,
     readiness: 'ready',
@@ -348,8 +455,8 @@ test('sends one concrete reviewer correction and accepts the retry', async (t) =
   assert.match(String((correction as { errors: string[] }).errors[0]), /plan/u);
 });
 
-test('stops after the second invalid reviewer handoff', async (t) => {
-  const repo = repoFixture(t);
+test('stops after the second invalid reviewer handoff', async () => {
+  const repo = repoFixture();
   const invalid: ThinkDecision = {
     ...researchDecision,
     readiness: 'ready',
@@ -361,14 +468,14 @@ test('stops after the second invalid reviewer handoff', async (t) => {
   assert.equal(agent.reviewCalls, 2);
 });
 
-test('returns no partial Plan for research_required and exposes context status', async (t) => {
-  const result = await runThink(input(repoFixture(t)), new FakeAgent());
+test('returns no partial Plan for research_required and exposes context status', async () => {
+  const result = await runThink(input(repoFixture()), new FakeAgent());
   assert.equal(result.report.plan, null);
   assert.ok(['loaded', 'degraded'].includes(result.context_status));
 });
 
-test('closed input is required and unknown command is rejected', async (t) => {
-  const repo = repoFixture(t);
+test('closed input is required and unknown command is rejected', async () => {
+  const repo = repoFixture();
   const runId = `think-${Date.now()}`;
   const file = path.join(repo, 'input.json');
   fs.writeFileSync(file, JSON.stringify(input(repo)));
@@ -380,4 +487,28 @@ test('closed input is required and unknown command is rejected', async (t) => {
     import('../../../workflows/think/runner.ts').then((m) => m.main(['wat'])),
     /unknown command/u,
   );
+});
+
+test('model execution consumes its intent while input validation preserves it', async () => {
+  const repo = repoFixture();
+  const failedRun = `think-model-failure-${crypto.randomUUID()}`;
+  const failed = armIntent({ runId: failedRun, workflow: 'think', cwd: repo });
+  fs.writeFileSync(failed.input_path, JSON.stringify(input(repo)));
+  const failingAgent: ThinkAgent = {
+    async design() {
+      throw new Error('terminal model failure');
+    },
+    async review() {
+      throw new Error('unexpected review');
+    },
+  };
+  await assert.rejects(runThinkWorkflow(failedRun, failed.input_path, failingAgent), /terminal/u);
+  assert.equal(loadIntent(failedRun), null);
+
+  const invalidRun = `think-invalid-input-${crypto.randomUUID()}`;
+  const invalid = armIntent({ runId: invalidRun, workflow: 'think', cwd: repo });
+  onTestFinished(() => clearIntent(invalidRun));
+  fs.writeFileSync(invalid.input_path, '{}');
+  await assert.rejects(runThinkWorkflow(invalidRun, invalid.input_path, failingAgent), /protocol/u);
+  assert.ok(loadIntent(invalidRun));
 });

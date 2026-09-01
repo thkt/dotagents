@@ -98,8 +98,12 @@ export async function runResearchWorkflow(
   const input = validateResearchInput(readAbsoluteJson(inputFile, 'research'));
   requireResearchIntent(runId, input.repo, inputFile);
   requireConfiguredLanguage(input.language);
-  const result = await runResearch(input, agent);
-  clearIntent(runId);
+  let result: ResearchRunResult;
+  try {
+    result = await runResearch(input, agent);
+  } finally {
+    clearIntent(runId);
+  }
   return {
     protocol: RESEARCH_RESULT_PROTOCOL,
     status: 'completed',

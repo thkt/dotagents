@@ -4,12 +4,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import { onTestFinished, test } from 'bun:test';
 import { cliErrorResult, readAbsoluteJson } from '../../shared/runtime.ts';
 
 test('reads absolute JSON and rejects relative or malformed input', () => {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'runtime-')), 'input.json');
-  test.after(() => fs.rmSync(path.dirname(file), { recursive: true, force: true }));
+  onTestFinished(() => fs.rmSync(path.dirname(file), { recursive: true, force: true }));
   fs.writeFileSync(file, '{"ok":true}');
   assert.deepEqual(readAbsoluteJson(file, 'test'), { ok: true });
   assert.throws(() => readAbsoluteJson('input.json', 'test'), /absolute/);

@@ -41,12 +41,14 @@ export interface ResearchAgent {
     input: ResearchInput,
     prior: PriorResearchSummary[],
     context?: ResearchContextSummary[],
+    snapshotRepo?: string,
   ): Promise<ResearchDraft>;
   audit(
     input: ResearchInput,
     draft: ResearchDraft,
     prior: PriorResearchSummary[],
     context?: ResearchContextSummary[],
+    snapshotRepo?: string,
   ): Promise<ResearchAudit>;
 }
 
@@ -141,10 +143,14 @@ export function auditPrompt(
   );
 }
 
-function threadOptions(input: ResearchInput, prior: PriorResearchSummary[]): ThreadOptions {
+function threadOptions(
+  input: ResearchInput,
+  prior: PriorResearchSummary[],
+  snapshotRepo: string = input.repo,
+): ThreadOptions {
   return {
     ...THINKING_THREAD_OPTIONS,
-    workingDirectory: input.repo,
+    workingDirectory: snapshotRepo,
     sandboxMode: 'read-only',
     approvalPolicy: 'never',
     networkAccessEnabled: false,
@@ -170,8 +176,9 @@ export class CodexResearchAgent implements ResearchAgent {
     input: ResearchInput,
     prior: PriorResearchSummary[] = [],
     context: ResearchContextSummary[] = [],
+    snapshotRepo: string = input.repo,
   ): Promise<ResearchDraft> {
-    const thread = this.client.startThread(threadOptions(input, prior));
+    const thread = this.client.startThread(threadOptions(input, prior, snapshotRepo));
     const started = performance.now();
     let result;
     try {
@@ -211,8 +218,9 @@ export class CodexResearchAgent implements ResearchAgent {
     draft: ResearchDraft,
     prior: PriorResearchSummary[] = [],
     context: ResearchContextSummary[] = [],
+    snapshotRepo: string = input.repo,
   ): Promise<ResearchAudit> {
-    const thread = this.client.startThread(threadOptions(input, prior));
+    const thread = this.client.startThread(threadOptions(input, prior, snapshotRepo));
     const result = await this.progress.run(
       { workflow: 'research', stage: 'auditor_model_call' },
       () =>

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test, { type TestContext } from 'node:test';
+import { onTestFinished, test } from 'bun:test';
 
 import { buildManifestPlanBlockers } from '../../flow/build/gates.ts';
 import type { BuildPlanContext, FlowManifest } from '../../flow/contracts.ts';
@@ -37,19 +37,19 @@ function manifest(steps: FlowManifest['steps']): FlowManifest {
   return { steps } as unknown as FlowManifest;
 }
 
-function tempRepo(t: TestContext, existingFiles: string[] = []): string {
+function tempRepo(existingFiles: string[] = []): string {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-build-gates-'));
   for (const file of existingFiles) {
     const target = path.join(repo, file);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, '');
   }
-  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  onTestFinished(() => fs.rmSync(repo, { recursive: true, force: true }));
   return repo;
 }
 
-test('accepts manifest units, strategies, and scopes that match the validated Plan', (t) => {
-  const repo = tempRepo(t, ['src/value.ts', 'tests/value.test.ts']);
+test('accepts manifest units, strategies, and scopes that match the validated Plan', () => {
+  const repo = tempRepo(['src/value.ts', 'tests/value.test.ts']);
   assert.deepEqual(
     buildManifestPlanBlockers(
       manifest([
@@ -79,8 +79,8 @@ test('accepts manifest units, strategies, and scopes that match the validated Pl
   );
 });
 
-test('rejects units, strategies, and scopes that diverge from the validated Plan', (t) => {
-  const repo = tempRepo(t, ['src/value.ts', 'tests/value.test.ts']);
+test('rejects units, strategies, and scopes that diverge from the validated Plan', () => {
+  const repo = tempRepo(['src/value.ts', 'tests/value.test.ts']);
   assert.deepEqual(
     buildManifestPlanBlockers(
       manifest([
@@ -110,8 +110,8 @@ test('rejects units, strategies, and scopes that diverge from the validated Plan
   );
 });
 
-test('requires initially absent tested-unit files in both Red and Green scopes', (t) => {
-  const repo = tempRepo(t);
+test('requires initially absent tested-unit files in both Red and Green scopes', () => {
+  const repo = tempRepo();
   const result = buildManifestPlanBlockers(
     manifest([
       { id: 'U-001:red', kind: 'actor', outcome: 'x', files: ['tests/value.test.ts'] },
@@ -127,8 +127,8 @@ test('requires initially absent tested-unit files in both Red and Green scopes',
   ]);
 });
 
-test('accepts initially absent files when both actors include them', (t) => {
-  const repo = tempRepo(t);
+test('accepts initially absent files when both actors include them', () => {
+  const repo = tempRepo();
   assert.deepEqual(
     buildManifestPlanBlockers(
       manifest([

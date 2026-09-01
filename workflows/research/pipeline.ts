@@ -22,6 +22,7 @@ import { researchArtifactDirectory } from '../shared/storage.ts';
 import { persistResearchReport } from './artifact.ts';
 import { compileContext } from '../knowledge/context.ts';
 import { emptyStageTimings } from '../shared/codex.ts';
+import { withRepositorySnapshot } from '../flow/isolation.ts';
 
 export interface ResearchRunResult {
   report: ResearchReport;
@@ -157,32 +158,39 @@ export async function runResearch(
   agent: ResearchAgent = new CodexResearchAgent(),
 ): Promise<ResearchRunResult> {
   const before = repositoryInvariant(input.repo);
-  const prior = readPriorResearch(input.repo);
-  let contextLoad: ReturnType<typeof compileContext>;
-  try {
-    contextLoad = compileContext(input.repo, 'research');
-  } catch {
-    contextLoad = { status: 'degraded', entries: [] };
-  }
-  const context = contextLoad.entries
-    .filter((e) => e.kind === 'knowledge')
-    .map(({ id, statement, source_artifact, source_id, status }) => ({
-      id,
-      kind: 'knowledge' as const,
-      status: status as 'active' | 'review_required',
-      statement,
-      source_artifact,
-      source_id,
-    }));
-  const draft = await agent.investigate(input, prior, context);
-  validateDraftSources(input, draft);
-  const audit = await agent.audit(input, draft, prior, context);
-  validateAuditSources(input, audit, prior);
-  const findings = audit.findings.map((finding, index) => ({
-    ...finding,
-    id: `F-${String(index + 1).padStart(3, '0')}`,
-    evidence: finding.evidence.map((item) => sealEvidence(input, item)),
-  }));
+  const { audit, contextLoad, findings } = await withRepositorySnapshot(
+    input.repo,
+    async (snapshotRepo) => {
+      const validationInput = { ...input, repo: snapshotRepo };
+      const prior = readPriorResearch(input.repo);
+      let contextLoad: ReturnType<typeof compileContext>;
+      try {
+        contextLoad = compileContext(input.repo, 'research');
+      } catch {
+        contextLoad = { status: 'degraded', entries: [] };
+      }
+      const context = contextLoad.entries
+        .filter((e) => e.kind === 'knowledge')
+        .map(({ id, statement, source_artifact, source_id, status }) => ({
+          id,
+          kind: 'knowledge' as const,
+          status: status as 'active' | 'review_required',
+          statement,
+          source_artifact,
+          source_id,
+        }));
+      const draft = await agent.investigate(input, prior, context, snapshotRepo);
+      validateDraftSources(validationInput, draft);
+      const audit = await agent.audit(input, draft, prior, context, snapshotRepo);
+      validateAuditSources(validationInput, audit, prior);
+      const findings = audit.findings.map((finding, index) => ({
+        ...finding,
+        id: `F-${String(index + 1).padStart(3, '0')}`,
+        evidence: finding.evidence.map((item) => sealEvidence(validationInput, item)),
+      }));
+      return { audit, contextLoad, findings };
+    },
+  );
   if (!sameWorkflowRepositoryInvariant(before, repositoryInvariant(input.repo))) {
     throw new FlowError('repository changed while research was running', 'state_error');
   }

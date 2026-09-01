@@ -80,6 +80,19 @@ function createRepositorySandbox(repo: string): RepositorySandbox {
   }
 }
 
+/** Runs read-only work against one disposable copy of the repository state captured at entry. */
+export async function withRepositorySnapshot<T>(
+  repo: string,
+  run: (snapshotRepo: string) => Promise<T>,
+): Promise<T> {
+  const snapshot = createRepositorySandbox(repo);
+  try {
+    return await run(snapshot.directory);
+  } finally {
+    snapshot.dispose();
+  }
+}
+
 function copyActorFile(sourceRepo: string, targetRepo: string, relative: string): void {
   const source = path.join(sourceRepo, relative);
   const target = path.join(targetRepo, relative);

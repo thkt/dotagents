@@ -18,7 +18,7 @@ function stateDirectory(): string {
   return process.env.CODEX_FLOW_STATE_DIR || DEFAULT_STATE_DIR;
 }
 
-export function repositoryStateKey(repo: string): string {
+function repositoryStateKey(repo: string): string {
   return crypto.createHash('sha256').update(fs.realpathSync(repo)).digest('hex');
 }
 

@@ -17,6 +17,7 @@ import {
 import { researchArtifactDirectory } from '../shared/storage.ts';
 import { persistThinkReport } from './artifact.ts';
 import { compileContext } from '../knowledge/context.ts';
+import { withRepositorySnapshot } from '../flow/isolation.ts';
 import {
   CodexThinkAgent,
   type ThinkAgent,
@@ -45,7 +46,12 @@ interface SelectedResearch {
   source_sha256: string;
 }
 
-function reportContext(repo: string, file: string, index: number): SelectedResearch {
+function reportContext(
+  repo: string,
+  evidenceRepo: string,
+  file: string,
+  index: number,
+): SelectedResearch {
   const label = `think input.research_reports[${index}]`;
   const directory = researchArtifactDirectory(repo);
   const stat = fs.lstatSync(file, { throwIfNoEntry: false });
@@ -73,7 +79,7 @@ function reportContext(repo: string, file: string, index: number): SelectedResea
       if (evidence.kind !== 'repository') continue;
       const evidenceLabel = `${label}.findings[${findingIndex}].evidence[${evidenceIndex}]`;
       const snapshot = readRepositoryEvidence(
-        repo,
+        evidenceRepo,
         evidence.source,
         evidence.locator,
         evidenceLabel,
@@ -203,16 +209,29 @@ function validateAndSeal(
 /** Gives one invalid final handoff back to the reviewer with the controller's concrete blockers. */
 async function reviewedDecision(
   input: ThinkInput,
+  validationInput: ThinkInput,
   draft: ThinkDraft,
   selectedResearch: SelectedResearch[],
   buildContract: unknown,
   agent: ThinkAgent,
   context: ThinkContextSummary[] = [],
+  snapshotRepo: string,
 ): Promise<{ decision: ThinkDecision; evidence: ThinkReportEvidence[] }> {
   const research = selectedResearch.map((item) => item.context);
-  const first = await agent.review(input, draft, research, buildContract, undefined, context);
+  const first = await agent.review(
+    input,
+    draft,
+    research,
+    buildContract,
+    undefined,
+    context,
+    snapshotRepo,
+  );
   try {
-    return { decision: first, evidence: validateAndSeal(input, first, selectedResearch) };
+    return {
+      decision: first,
+      evidence: validateAndSeal(validationInput, first, selectedResearch),
+    };
   } catch (error) {
     if (!['decision_error', 'evidence_error'].includes(errorCode(error) ?? '')) throw error;
     const second = await agent.review(
@@ -225,8 +244,12 @@ async function reviewedDecision(
         errors: [errorMessage(error)],
       },
       context,
+      snapshotRepo,
     );
-    return { decision: second, evidence: validateAndSeal(input, second, selectedResearch) };
+    return {
+      decision: second,
+      evidence: validateAndSeal(validationInput, second, selectedResearch),
+    };
   }
 }
 
@@ -236,35 +259,44 @@ export async function runThink(
   agent: ThinkAgent = new CodexThinkAgent(),
 ): Promise<ThinkRunResult> {
   const before = repositoryInvariant(input.repo);
-  const selectedResearch = input.research_reports.map((file, index) =>
-    reportContext(input.repo, file, index),
-  );
-  const research = selectedResearch.map((item) => item.context);
-  const buildContract = describeBuildPlan();
-  let contextLoad: ReturnType<typeof compileContext>;
-  try {
-    contextLoad = compileContext(input.repo, 'think');
-  } catch {
-    contextLoad = { status: 'degraded', entries: [] };
-  }
-  const context: ThinkContextSummary[] = contextLoad.entries
-    .filter((e) => e.status === 'active')
-    .map(({ id, kind, statement, source_artifact, source_id }) => ({
-      id,
-      kind,
-      status: 'active',
-      statement,
-      source_artifact,
-      source_id,
-    }));
-  const draft = await agent.design(input, research, buildContract, context);
-  const { decision, evidence } = await reviewedDecision(
-    input,
-    draft,
-    selectedResearch,
-    buildContract,
-    agent,
-    context,
+  const { contextLoad, decision, evidence, research } = await withRepositorySnapshot(
+    input.repo,
+    async (snapshotRepo) => {
+      const validationInput = { ...input, repo: snapshotRepo };
+      const selectedResearch = input.research_reports.map((file, index) =>
+        reportContext(input.repo, snapshotRepo, file, index),
+      );
+      const research = selectedResearch.map((item) => item.context);
+      const buildContract = describeBuildPlan();
+      let contextLoad: ReturnType<typeof compileContext>;
+      try {
+        contextLoad = compileContext(input.repo, 'think');
+      } catch {
+        contextLoad = { status: 'degraded', entries: [] };
+      }
+      const context: ThinkContextSummary[] = contextLoad.entries
+        .filter((e) => e.status === 'active')
+        .map(({ id, kind, statement, source_artifact, source_id }) => ({
+          id,
+          kind,
+          status: 'active',
+          statement,
+          source_artifact,
+          source_id,
+        }));
+      const draft = await agent.design(input, research, buildContract, context, snapshotRepo);
+      const reviewed = await reviewedDecision(
+        input,
+        validationInput,
+        draft,
+        selectedResearch,
+        buildContract,
+        agent,
+        context,
+        snapshotRepo,
+      );
+      return { contextLoad, research, ...reviewed };
+    },
   );
   if (!sameWorkflowRepositoryInvariant(before, repositoryInvariant(input.repo))) {
     throw new FlowError('repository changed while think was running', 'state_error');

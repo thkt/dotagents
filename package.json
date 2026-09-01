@@ -16,14 +16,15 @@
   },
   "type": "module",
   "scripts": {
-    "check": "bun run lint && bun run format:check && bun run typecheck && bun run test && bun run validate:skills",
+    "check": "bun run lint && bun run format:check && bun run typecheck && bun run knip && bun run test && bun run validate:skills",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "fix:text": "textlint --fix '.ja/**/*.md'",
     "lint": "oxlint .",
     "lint:fix": "oxlint --fix .",
     "lint:text": "textlint '.ja/**/*.md'",
-    "test": "bun test --parallel=8 workflows/tests/*/*.test.ts skills/tests/*.test.ts",
+    "knip": "knip",
+    "test": "bun test --parallel=8 workflows/tests skills/tests",
     "typecheck": "tsc -p tsconfig.json",
     "verify:clean": "bun install --frozen-lockfile --ignore-scripts && bun run check",
     "validate:skills": "bun skills/validate.ts"
@@ -33,7 +34,9 @@
   },
   "devDependencies": {
     "@textlint-ja/textlint-rule-preset-ai-writing": "1.7.0",
+    "@types/bun": "1.4.0",
     "@types/node": "^26.2.0",
+    "knip": "^6.33.0",
     "oxfmt": "^0.65.0",
     "oxlint": "^1.80.0",
     "oxlint-tsgolint": "^7.0.2001",
