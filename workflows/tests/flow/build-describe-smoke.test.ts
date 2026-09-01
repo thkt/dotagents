@@ -1,4 +1,4 @@
-/** @file Outcome: Build describe output reaches its real local ship-ready terminal from a published receipt. */
+/** @file Outcome: Build describe output reaches its real local ship-ready terminal from a public Issue. */
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,11 +11,10 @@ import { armIntent } from '../../invocation.ts';
 import { describe } from '../../flow/controller.ts';
 import { validateManifest } from '../../flow/manifest.ts';
 import { executeAction } from '../../flow/build/actions.ts';
-import { BUILD_SOURCE_PROTOCOL, PUBLISHED_ISSUE_PROTOCOL } from '../../flow/build/handoff.ts';
+import { BUILD_SOURCE_PROTOCOL } from '../../flow/build/handoff.ts';
 import { renderPlanMarkdown, type BuildPlanAuthoring } from '../../flow/build/authoring.ts';
 import { runWorkflow, type WorkflowRuntime } from '../../flow/runner.ts';
-import { issueArtifactDirectory } from '../../shared/storage.ts';
-import { sha256 } from '../../shared/evidence.ts';
+import { renderPublicIssueBody } from '../../issue/public-contract.ts';
 
 process.env.CODEX_FLOW_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-flow-state-'));
 
@@ -33,7 +32,7 @@ function git(repo: string, ...args: string[]) {
   return result.stdout.trim();
 }
 
-test('describe(build) materializes a published source and reaches completed state', async () => {
+test('describe(build) materializes a public Issue source and reaches ship-ready', async (t) => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-flow-build-smoke-'));
   git(repo, 'init', '-q', '-b', 'main');
   git(repo, 'config', 'user.email', 'smoke@example.test');
@@ -71,31 +70,41 @@ test('describe(build) materializes a published source and reaches completed stat
       },
     ],
   };
-  const body = renderPlanMarkdown(plan);
-  const published = {
-    protocol: PUBLISHED_ISSUE_PROTOCOL,
-    published_at: new Date().toISOString(),
-    repo: fs.realpathSync(repo),
-    repository: 'owner/repo',
-    remote: 'origin',
-    draft_sha256: sha256('draft'),
-    issue_number: 1,
-    url: 'https://github.com/owner/repo/issues/1',
-    title: 'Smoke build',
-    body,
-    body_sha256: sha256(body),
-    plan,
-  };
-  const receipt = path.join(issueArtifactDirectory(repo), 'smoke.published.json');
-  fs.mkdirSync(path.dirname(receipt), { recursive: true });
-  fs.writeFileSync(receipt, JSON.stringify(published));
+  const body = renderPublicIssueBody(renderPlanMarkdown(plan), plan, 'english');
+  const issueFile = `${repo}.issue.json`;
+  fs.writeFileSync(
+    issueFile,
+    JSON.stringify({
+      number: 1,
+      title: 'Smoke build',
+      body,
+      url: 'https://github.com/owner/repo/issues/1',
+      labels: [],
+    }),
+  );
+  const bin = `${repo}.bin`;
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\nexec /bin/cat '${issueFile}'\n`, {
+    mode: 0o700,
+  });
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}:${previousPath || ''}`;
+  t.after(() => {
+    process.env.PATH = previousPath;
+    fs.rmSync(issueFile, { force: true });
+    fs.rmSync(bin, { recursive: true, force: true });
+  });
 
   const runId = `describe-build-smoke-${Date.now()}`;
   const pending = armIntent({ runId, workflow: 'build', cwd: repo });
   assert.ok(pending.build_source_path);
   fs.writeFileSync(
     pending.build_source_path,
-    JSON.stringify({ protocol: BUILD_SOURCE_PROTOCOL, receipt }),
+    JSON.stringify({
+      protocol: BUILD_SOURCE_PROTOCOL,
+      repository: 'owner/repo',
+      issue_number: 1,
+    }),
   );
   const manifest = materializeRaw(describe('build').executable_example!.manifest, {
     '<absolute-git-root>': repo,

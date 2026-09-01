@@ -80,10 +80,14 @@ function readInput(): HookInput {
 }
 
 function activeState(runId: string | undefined): FlowState | null {
+  const state = controllerState(runId);
+  return state?.status === 'running' ? state : null;
+}
+
+function controllerState(runId: string | undefined): FlowState | null {
   if (!runId) return null;
   try {
-    const state = loadWorkflowState(runId).state;
-    return state.status === 'running' ? state : null;
+    return loadWorkflowState(runId).state;
   } catch (error) {
     if (errorCode(error) === 'no_flow') return null;
     throw error;
@@ -324,6 +328,16 @@ function preToolUse(input: HookInput): HookResponse {
     return deny('workflow command may not be chained or redirected');
   }
   if (standalone) return {};
+  if (subcommand === 'cancel') {
+    const state = controllerState(input.session_id);
+    if (!state || (state.status !== 'running' && state.status !== 'cancelled')) {
+      return deny('cancel requires an active workflow controller for this task');
+    }
+    const expected = workflowInputPath(state.run_id);
+    return exactInputPath(input, command, '--manifest', expected)
+      ? injectRunId(input, command)
+      : deny(`cancel with the hook-supplied manifest: ${expected}`);
+  }
   if (issue !== null) return deny('explicit $issue invocation is required before drafting');
   if (research !== null) return deny('explicit $research invocation is required');
   if (think !== null) return deny('explicit $think invocation is required');

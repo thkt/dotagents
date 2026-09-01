@@ -95,10 +95,10 @@ function terminalStatus(state: FlowState): FlowStatus {
 }
 
 function publicState(state: FlowState): PublicState {
-  const current = state.manifest.steps[state.cursor] ?? null;
+  const current = state.status === 'running' ? (state.manifest.steps[state.cursor] ?? null) : null;
   return {
     protocol: RESULT_PROTOCOL,
-    verdict: state.status === 'blocked' ? 'blocked' : 'pass',
+    verdict: state.status === 'blocked' || state.status === 'cancelled' ? 'blocked' : 'pass',
     workflow: state.workflow,
     status: state.status,
     current_step: current,
@@ -110,6 +110,7 @@ function publicState(state: FlowState): PublicState {
     last_gate: state.gate_reports.at(-1) ?? null,
     gate_reports: state.gate_reports,
     escalation: state.escalation,
+    ship_authorization_revoked: state.ship_authorization_revoked,
   };
 }
 
@@ -186,6 +187,7 @@ function startWorkflow(runId: string, manifestFile: string): PublicState {
     actor_baseline: null,
     action_baseline: null,
     escalation: null,
+    ship_authorization_revoked: false,
   };
   const result = save(file, state);
   clearIntent(runId);
@@ -227,6 +229,28 @@ function startOrResumeWorkflow(runId: string, manifestFile: string): PublicState
     if (errorCode(error) === 'no_flow') return startWorkflow(runId, manifestFile);
     throw error;
   }
+}
+
+/** Cancels only the exact active controller bound to this task and hook-supplied manifest. */
+function cancelWorkflow(runId: string, manifestFile: string): PublicState {
+  const { file, state } = loadWorkflowState(runId);
+  if (path.resolve(manifestFile) !== workflowInputPath(runId)) {
+    throw new FlowError('cancel requires the hook-supplied manifest path', 'state_error');
+  }
+  if (state.status === 'cancelled') return publicState(state);
+  if (state.status !== 'running') {
+    throw new FlowError(
+      `workflow is ${state.status}; only an active workflow can be cancelled`,
+      'state_error',
+    );
+  }
+  state.status = 'cancelled';
+  state.actor_baseline = null;
+  state.action_baseline = null;
+  state.escalation = null;
+  state.ship_authorization_revoked = true;
+  clearIntent(runId);
+  return save(file, state);
 }
 
 function requireRunning(state: FlowState): void {
@@ -304,7 +328,11 @@ function completeActorOrAction(runId: string, stepId: string): PublicState {
     }
   }
   if (step.kind === 'action') validateActionCompletion(state, step);
-  if (step.kind === 'action' && step.action === 'ship' && !state.manifest.shipping_authorized) {
+  if (
+    step.kind === 'action' &&
+    step.action === 'ship' &&
+    (!state.manifest.shipping_authorized || state.ship_authorization_revoked)
+  ) {
     throw new FlowError('shipping is not authorized', 'authorization_error');
   }
   advanceToNextStep(state);
@@ -543,6 +571,9 @@ function actorVerification(state: FlowState, step: ActorStep): ActorVerification
 
 /** Derives the sole permitted next operation from persisted controller state. */
 function directiveForState(state: FlowState): FlowDirective {
+  if (state.status === 'cancelled') {
+    return { kind: 'cancelled' };
+  }
   if (state.status === 'completed') {
     return { kind: 'done' };
   }
@@ -669,6 +700,7 @@ function describe(workflow: Workflow): FlowDescription {
     cli: {
       describe: `codex-flow describe --workflow ${workflow}`,
       run: 'codex-flow run --manifest <absolute-json>',
+      cancel: 'codex-flow cancel --manifest <hook-supplied-json>',
       task_binding: 'hook-injected',
     },
     defaults: {
@@ -867,7 +899,10 @@ function describe(workflow: Workflow): FlowDescription {
         red_green: unitStepIds('U-NNN', ['red', 'green'], workflow),
         direct: unitStepIds('U-NNN', ['direct'], workflow),
       },
-      closing: workflow === 'build' ? ['final:*', 'ship?', 'ship:verify?'] : ['final:*'],
+      closing:
+        workflow === 'build'
+          ? ['final:*', 'revalidate:ship?', 'ship?', 'ship:verify?']
+          : ['final:*'],
     },
   };
 }
@@ -876,6 +911,7 @@ export {
   DESCRIPTION_PROTOCOL,
   MANIFEST_PROTOCOL,
   completeCurrentDirective,
+  cancelWorkflow,
   currentDirective,
   describe,
   loadWorkflowState,

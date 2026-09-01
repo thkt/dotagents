@@ -11,16 +11,13 @@ import { fileURLToPath } from 'node:url';
 import * as hook from '../../../hooks/workflow-enforcer.ts';
 import { executeAction, type CommandInvocation } from '../../flow/build/actions.ts';
 import { renderPlanMarkdown, type BuildPlanAuthoring } from '../../flow/build/authoring.ts';
-import { BUILD_SOURCE_PROTOCOL, PUBLISHED_ISSUE_PROTOCOL } from '../../flow/build/handoff.ts';
+import { BUILD_SOURCE_PROTOCOL } from '../../flow/build/handoff.ts';
+import { runStructuredBuildGate } from '../../flow/build/gates.ts';
+import { parsePublicIssueBody, renderPublicIssueBody } from '../../issue/public-contract.ts';
 import * as flow from '../../flow/controller.ts';
+import { main as flowMain } from '../../flow/runner.ts';
 import * as intent from '../../invocation.ts';
-import { sha256 } from '../../shared/evidence.ts';
-import {
-  buildShipApprovalPath,
-  intentPath,
-  issueArtifactDirectory,
-  workflowInputPath,
-} from '../../shared/storage.ts';
+import { buildShipApprovalPath, intentPath, workflowInputPath } from '../../shared/storage.ts';
 import type {
   ActionStep,
   ActorStep,
@@ -73,6 +70,13 @@ function fixture(
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-flow-test-'));
   const repo = path.join(root, 'repo');
   const state = path.join(root, 'state');
+  const bin = path.join(root, 'bin');
+  const issueFile = path.join(root, 'github-issue.json');
+  fs.mkdirSync(bin);
+  const gh = path.join(bin, 'gh');
+  fs.writeFileSync(gh, `#!/bin/sh\nexec /bin/cat '${issueFile}'\n`, { mode: 0o700 });
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${bin}:${previousPath || ''}`;
   fs.mkdirSync(repo);
   spawnSync('git', ['init', '-q', repo], { encoding: 'utf8' });
   spawnSync('git', ['-C', repo, 'config', 'user.email', 'flow@example.test'], { encoding: 'utf8' });
@@ -201,6 +205,7 @@ function fixture(
   const previous = process.env.CODEX_FLOW_STATE_DIR;
   process.env.CODEX_FLOW_STATE_DIR = state;
   t.after(() => {
+    process.env.PATH = previousPath;
     if (previous === undefined) delete process.env.CODEX_FLOW_STATE_DIR;
     else process.env.CODEX_FLOW_STATE_DIR = previous;
     fs.rmSync(root, { recursive: true, force: true });
@@ -227,6 +232,15 @@ function requireActor(manifest: FixtureManifest): ActorStep {
 function enableShipping(manifest: FixtureManifest): void {
   manifest.shipping_authorized = true;
   manifest.steps.push(
+    {
+      id: 'revalidate:ship',
+      kind: 'gate',
+      gate: {
+        authority: 'build-revalidate',
+        input: '/hook-supplied-build-source.json',
+        failure_route: 'blocked',
+      },
+    },
     {
       id: 'ship',
       kind: 'action',
@@ -280,32 +294,24 @@ function startFlow(runId: string, manifestFile: string, beforeStart?: () => void
         },
       ],
     };
-    const body = renderPlanMarkdown(plan);
-    const directory = issueArtifactDirectory(manifest.repo);
-    const receipt = path.join(directory, 'fixture.json.published.json');
-    fs.mkdirSync(directory, { recursive: true });
+    const body = renderPublicIssueBody(renderPlanMarkdown(plan), plan, 'english');
+    const issueFile = path.join(path.dirname(manifest.repo), 'github-issue.json');
     fs.writeFileSync(
-      receipt,
+      issueFile,
       JSON.stringify({
-        protocol: PUBLISHED_ISSUE_PROTOCOL,
-        published_at: new Date().toISOString(),
-        repo: manifest.repo,
-        repository: 'owner/project',
-        remote: 'origin',
-        draft_sha256: '0'.repeat(64),
-        issue_number: 42,
-        url: 'https://github.com/owner/project/issues/42',
+        number: 42,
         title: 'フィクスチャ',
         body,
-        body_sha256: sha256(body),
-        plan,
+        url: 'https://github.com/owner/project/issues/42',
+        labels: [],
       }),
     );
     fs.writeFileSync(
       pending.build_source_path,
       JSON.stringify({
         protocol: BUILD_SOURCE_PROTOCOL,
-        receipt,
+        repository: 'owner/project',
+        issue_number: 42,
       }),
     );
     for (const step of manifest.steps) {
@@ -319,6 +325,8 @@ function startFlow(runId: string, manifestFile: string, beforeStart?: () => void
       }
     }
     fs.writeFileSync(pending.input_path, JSON.stringify(manifest));
+    beforeStart?.();
+    return flow.startWorkflow(runId, pending.input_path);
   } else {
     fs.copyFileSync(manifestFile, pending.input_path);
   }
@@ -564,12 +572,14 @@ test('enforces build Branch and commit postconditions before ship-ready', (t) =>
   const turn = 'turn-build';
   startFlow(turn, manifestFile);
   const loaded = flow.completeCurrentDirective(turn, 'load:plan');
+  assert.equal(loaded.result.status, 'running', JSON.stringify(loaded.result.last_gate));
   assert.equal(loaded.result.gate?.evidence.kind, 'structured');
   if (loaded.result.gate?.evidence.kind !== 'structured') return;
   assert.equal('expected' in loaded.result.gate, false);
   assert.equal(loaded.result.gate.evidence.report.protocol, 'codex-build-plan/v3');
   assert.equal(loaded.result.gate_reports.length, 1);
-  flow.completeCurrentDirective(turn, 'revalidate:plan');
+  const revalidated = flow.completeCurrentDirective(turn, 'revalidate:plan');
+  assert.equal(revalidated.result.status, 'running', JSON.stringify(revalidated.result.last_gate));
   const branch = flow.currentDirective(turn);
   assert.equal(branch.kind, 'run-action');
   if (branch.kind !== 'run-action' || branch.action !== 'branch')
@@ -619,8 +629,10 @@ test('Ship directive owns its PR input, render path, and external targets', (t) 
   const turn = 'turn-ship-contract';
   startFlow(turn, manifestFile);
   assert.equal(fs.existsSync(buildShipApprovalPath(turn)), false);
-  flow.completeCurrentDirective(turn, 'load:plan');
-  flow.completeCurrentDirective(turn, 'revalidate:plan');
+  const loaded = flow.completeCurrentDirective(turn, 'load:plan');
+  assert.equal(loaded.result.status, 'running', JSON.stringify(loaded.result.last_gate));
+  const revalidated = flow.completeCurrentDirective(turn, 'revalidate:plan');
+  assert.equal(revalidated.result.status, 'running', JSON.stringify(revalidated.result.last_gate));
   spawnSync('git', ['-C', repo, 'switch', '-q', '-c', 'codex/flow-test', startPoint]);
   flow.completeCurrentDirective(turn, 'branch');
   flow.completeCurrentDirective(turn, 'branch:verify');
@@ -654,6 +666,8 @@ test('Ship directive owns its PR input, render path, and external targets', (t) 
   state.gate_reports.push(staleFinalFailure);
   fs.writeFileSync(flow.statePath(turn), JSON.stringify(state));
   flow.completeCurrentDirective(turn, 'final:test');
+  const shipRevalidation = flow.completeCurrentDirective(turn, 'revalidate:ship');
+  assert.equal(shipRevalidation.result.gate?.verdict, 'pass');
 
   const directive = flow.currentDirective(turn);
   assert.equal(directive.kind, 'run-action');
@@ -806,6 +820,7 @@ test('self-describes the manifest contract without workflow state', () => {
   assert.deepEqual(code.cli, {
     describe: 'codex-flow describe --workflow code',
     run: 'codex-flow run --manifest <absolute-json>',
+    cancel: 'codex-flow cancel --manifest <hook-supplied-json>',
     task_binding: 'hook-injected',
   });
   assert.equal(code.defaults.gate_timeout_ms, 60_000);
@@ -817,7 +832,8 @@ test('self-describes the manifest contract without workflow state', () => {
   const build = flow.describe('build');
   assert.equal(code.inputs, undefined);
   assert.equal(build.inputs?.source.template.protocol, BUILD_SOURCE_PROTOCOL);
-  assert.equal(typeof build.inputs?.source.template.receipt, 'string');
+  assert.equal(build.inputs?.source.template.repository, 'owner/name');
+  assert.equal(build.inputs?.source.template.issue_number, 123);
   assert.equal(
     build.step_contracts.some((contract) => contract.kind === 'action'),
     true,
@@ -1164,6 +1180,93 @@ test('active workflow permits inspection and only its controller resume command'
     `codex-flow run --manifest ${workflowInputPath(turn)} --run-id '${turn}'`,
   );
   assert.match(hook.stop({ session_id: turn }).reason || '', /Resume its controller/u);
+});
+
+test('active Build can be cancelled only by its exact task-bound controller', async (t) => {
+  const { manifest, manifestFile, repo, startPoint } = fixture(t, { workflow: 'build' });
+  enableShipping(manifest);
+  fs.writeFileSync(manifestFile, JSON.stringify(manifest));
+  const turn = 'turn-cancel-active-build';
+  startFlow(turn, manifestFile);
+  const expected = workflowInputPath(turn);
+
+  const wrong = hook.preToolUse({
+    hook_event_name: 'PreToolUse',
+    session_id: turn,
+    tool_name: 'Bash',
+    cwd: repo,
+    tool_input: { command: 'codex-flow cancel --manifest /tmp/other-run.json' },
+  });
+  assert.equal(wrong.hookSpecificOutput?.permissionDecision, 'deny');
+
+  const allowed = hook.preToolUse({
+    hook_event_name: 'PreToolUse',
+    session_id: turn,
+    tool_name: 'Bash',
+    cwd: repo,
+    tool_input: { command: `codex-flow cancel --manifest ${expected}` },
+  });
+  assert.equal(
+    allowed.hookSpecificOutput?.updatedInput?.command,
+    `codex-flow cancel --manifest ${expected} --run-id '${turn}'`,
+  );
+
+  const cancelled = (await flowMain(['cancel', '--manifest', expected, '--run-id', turn])).result;
+  if (!('status' in cancelled)) throw new Error('missing cancellation status');
+  assert.equal(cancelled.status, 'cancelled');
+  assert.equal(cancelled.ship_authorization_revoked, true);
+  assert.equal(cancelled.current_step, null);
+  assert.equal(flow.currentDirective(turn).kind, 'cancelled');
+  assert.equal(flow.cancelWorkflow(turn, expected).status, 'cancelled');
+  assert.deepEqual(hook.stop({ session_id: turn }), {});
+  assert.equal(
+    hook.preToolUse({
+      hook_event_name: 'PreToolUse',
+      session_id: turn,
+      tool_name: 'Bash',
+      cwd: repo,
+      tool_input: { command: `codex-flow run --manifest ${expected}` },
+    }).hookSpecificOutput?.permissionDecision,
+    'deny',
+  );
+  assert.equal(
+    spawnSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim(),
+    startPoint,
+  );
+  assert.equal(
+    spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim(),
+    'master',
+  );
+  assert.equal(fs.existsSync(path.join(repo, 'src.js')), false);
+});
+
+test('Ship revalidation rejects an Issue body edited after load:plan', (t) => {
+  const { manifest, manifestFile, repo } = fixture(t, { workflow: 'build' });
+  enableShipping(manifest);
+  fs.writeFileSync(manifestFile, JSON.stringify(manifest));
+  const turn = 'turn-stale-public-issue';
+  startFlow(turn, manifestFile);
+  assert.equal(flow.completeCurrentDirective(turn, 'load:plan').result.status, 'running');
+
+  const issueFile = path.join(path.dirname(repo), 'github-issue.json');
+  const issue = JSON.parse(fs.readFileSync(issueFile, 'utf8')) as Record<string, unknown>;
+  const parsed = parsePublicIssueBody(String(issue.body));
+  issue.body = renderPublicIssueBody(
+    `Edited after Build started.\n\n${parsed.visibleBody}`,
+    parsed.plan,
+    'english',
+  );
+  fs.writeFileSync(issueFile, JSON.stringify(issue));
+
+  const state = flow.loadWorkflowState(turn).state;
+  const step = state.manifest.steps.find(
+    (candidate) => candidate.kind === 'gate' && candidate.id === 'revalidate:ship',
+  );
+  if (!step || step.kind !== 'gate') throw new Error('missing Ship revalidation gate');
+  const report = runStructuredBuildGate(state, step);
+  assert.equal(report.verdict, 'blocked');
+  assert.equal(report.classification, 'issue_contract_stale');
+  assert.deepEqual(report.reason_codes, ['issue_contract_stale']);
 });
 
 test('corrupt workflow intent blocks hook execution instead of disabling enforcement', (t) => {

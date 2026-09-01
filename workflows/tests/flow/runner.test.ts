@@ -482,7 +482,7 @@ test('blocks and discards sandbox edits on actor escalation, then resumes withou
   assert.equal(actorCalls, 1);
 });
 
-test('CLI exposes only describe and run', async () => {
+test('CLI exposes only describe, run, and task-bound cancel', async () => {
   const described = await main(['describe', '--workflow', 'code']);
   assert.equal(
     'protocol' in described.result && described.result.protocol,

@@ -20,7 +20,8 @@ description: レビュー済みのthink成果物1件から、検証済みでbuil
 - ユーザーが先頭で明示した `$issue` invocation を、hook が束縛したリポジトリに対する GitHub Issue の create または edit 1 回分の承認として扱う。公開確認を重ねて求めない。
 - GitHub へ書き込む前に draft を作成する。
 - GitHub へ書き込む直前に、同一 draft の title、body、証拠、リポジトリ状態、対象 Issue を検証する。
-- 検証済みの draft を同じ invocation で公開し、Issue URL、receipt、build source を返す。
+- 検証済みの draft を同じ invocation で公開し、Issue URL、監査用 receipt、`repository + issue_number`の portable build source を返す。
+- 可視 Plan と埋め込み machine contract を同じ canonical Plan から生成し、公開前に Build と同じ完全一致検証を行う。
 
 ## エスカレーション
 
@@ -28,4 +29,4 @@ Plan・証拠が不正または古い場合は公開せず `think` に戻す。G
 
 ## 報告
 
-公開後は Issue URL、receipt のパス、次の状態が build であることを報告する。次の状態へは進まない。
+公開後は Issue URL、任意の監査用 receipt のパス、portable build source、次の状態が build であることを報告する。次の状態へは進まない。

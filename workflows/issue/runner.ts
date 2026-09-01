@@ -46,7 +46,11 @@ export interface IssuePublishCommandResult {
   issue_number: number;
   url: string;
   receipt_json: string;
-  build_source: { protocol: typeof BUILD_SOURCE_PROTOCOL; receipt: string };
+  build_source: {
+    protocol: typeof BUILD_SOURCE_PROTOCOL;
+    repository: string;
+    issue_number: number;
+  };
   next_step: 'build';
 }
 
@@ -107,7 +111,11 @@ export function draftIssueWorkflow(
     issue_number: published.issue.number,
     url: published.issue.url,
     receipt_json: published.receipt_json,
-    build_source: { protocol: BUILD_SOURCE_PROTOCOL, receipt: published.receipt_json },
+    build_source: {
+      protocol: BUILD_SOURCE_PROTOCOL,
+      repository: input.repository,
+      issue_number: published.issue.number,
+    },
     next_step: 'build',
   };
 }

@@ -201,3 +201,17 @@ export function assertGitHubRemote(repo: string, remote: string, repository: str
     throw new FlowError(`Git remote ${remote} does not resolve to ${repository}`, 'state_error');
   }
 }
+
+/** Proves that the selected public repository is reachable through one configured remote. */
+export function assertGitHubRepository(repo: string, repository: string): void {
+  const remotes = gitText(repo, ['remote'], 'Git remotes').split(/\r?\n/u).filter(Boolean);
+  for (const remote of remotes) {
+    try {
+      assertGitHubRemote(repo, remote, repository);
+      return;
+    } catch {
+      // Continue until every configured remote has been checked.
+    }
+  }
+  throw new FlowError(`Git worktree has no remote for ${repository}`, 'state_error');
+}

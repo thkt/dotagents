@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 
 import { buildPlanValue, renderPlanMarkdown } from '../flow/build/authoring.ts';
-import { PUBLISHED_ISSUE_PROTOCOL } from '../flow/build/handoff.ts';
+import { parsePublicIssueBody, renderPublicIssueBody } from './public-contract.ts';
 import { validatePlan } from '../flow/build/plan.ts';
 import { revalidatePlan } from '../flow/build/revalidate.ts';
 import { readRepositoryEvidence, sha256 } from '../shared/evidence.ts';
@@ -30,6 +30,7 @@ import {
 } from '../shared/storage.ts';
 import { parseThinkReport, type ThinkPlan, type ThinkReport } from '../think/contracts.ts';
 import { persistIssueDraft, receiptPath } from './artifact.ts';
+import { PUBLISHED_ISSUE_PROTOCOL } from './receipt.ts';
 import {
   ISSUE_DRAFT_PROTOCOL,
   parseIssueDraft,
@@ -216,9 +217,10 @@ export function draftIssue(
     );
   }
   const title = existing ? existing.title : createTitle(source.report, input.title!, language);
-  const body = existing
+  const visibleBody = existing
     ? appendPlan(existing.body, source.report, language)
     : createBody(source.report, language);
+  const body = renderPublicIssueBody(visibleBody, source.report.plan, language);
   requireValidPlan(input.target_issue ?? 1, title, body, source.report, input.repo);
   if (!sameWorkflowRepositoryInvariant(before, repositoryInvariant(input.repo))) {
     throw new FlowError(
@@ -314,6 +316,10 @@ export function publishIssue(
   const { draft } = loaded;
   const body = currentBody(draft);
   const report = verifySource(draft);
+  const publicContract = parsePublicIssueBody(body);
+  if (JSON.stringify(publicContract.plan) !== JSON.stringify(draft.plan)) {
+    throw new FlowError('issue draft Plan does not match its public build contract');
+  }
   if (repositoryFingerprint(repositoryInvariant(draft.repo)) !== draft.repository_fingerprint) {
     throw new FlowError('repository changed after draft validation', 'state_error');
   }

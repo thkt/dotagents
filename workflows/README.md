@@ -4,10 +4,11 @@ The project outcome is defined in [.codex/OUTCOME.md](../.codex/OUTCOME.md).
 This document is the primary source for the stable handoff boundaries:
 
 - Think and Research model stages use the same-run immutable repository snapshot.
-- Build selects an explicitly task-bound published Issue artifact; it does not scan for the latest artifact.
+- Build selects a public GitHub Issue contract by `repository + issue_number`; it does not depend on a publisher-local receipt or scan for the latest artifact.
 - Semantic review and audit are independent checks.
 - A terminal model failure consumes intent; input or binding validation failures preserve it.
-- Issue revalidates current source and publishes once; Build consumes the published Issue only.
+- Issue generates the visible body and machine contract from one canonical Plan, then revalidates current source and exact identity before publishing once. Build revalidates that public Issue at startup and before Ship.
+- An active controller can be cancelled only through task-bound `codex-flow cancel`, which revokes Ship authorization and records terminal `cancelled` state.
 
 Think Plans should cite this document and quote the applicable rule instead of restating it.
 

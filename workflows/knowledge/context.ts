@@ -10,7 +10,7 @@ import { readRepositoryEvidence, sha256 } from '../shared/evidence.ts';
 import { parseResearchReport } from '../research/contracts.ts';
 import { parseThinkReport } from '../think/contracts.ts';
 import { parseIssueDraft } from '../issue/contracts.ts';
-import { parsePublishedIssueReceipt } from '../flow/build/handoff.ts';
+import { parsePublishedIssueReceipt } from '../issue/receipt.ts';
 
 export interface ContextEntry {
   id: string;

@@ -372,7 +372,7 @@ function validateBuildSequence(
   }
   const authorityIds: Partial<Record<GateAuthority, RegExp>> = {
     'build-plan': /^load:plan$/u,
-    'build-revalidate': /^revalidate:plan$/u,
+    'build-revalidate': /^revalidate:(?:plan|ship)$/u,
     'build-artifacts': /^U-\d{3}:artifacts$/u,
     'build-ship': /^ship:verify$/u,
   };
@@ -441,6 +441,16 @@ function validateBuildSequence(
     throw new FlowError('a ship action requires shipping_authorized: true');
   if (!ship) return;
   const shipIndex = steps.indexOf(ship);
+  const revalidation = steps[shipIndex - 1];
+  if (
+    !revalidation ||
+    revalidation.kind !== 'gate' ||
+    revalidation.id !== 'revalidate:ship' ||
+    revalidation.gate.authority !== 'build-revalidate' ||
+    revalidation.owner !== undefined
+  ) {
+    throw new FlowError('ship must be preceded by fail-closed revalidate:ship');
+  }
   const verification = steps[shipIndex + 1];
   if (!verification || verification.kind !== 'gate' || verification.id !== 'ship:verify') {
     throw new FlowError('ship must be followed by ship:verify');
