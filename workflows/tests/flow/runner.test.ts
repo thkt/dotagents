@@ -16,6 +16,7 @@ import {
   type WorkflowAgent,
 } from '../../flow/agent.ts';
 import { cleanCodexEnvironment } from '../../shared/codex.ts';
+import { ProgressReporter, type ProgressEvent } from '../../shared/progress.ts';
 import { MANIFEST_PROTOCOL, type FlowDirective, type FlowManifest } from '../../flow/contracts.ts';
 import { runIsolatedActor } from '../../flow/isolation.ts';
 import { main, runWorkflow, type WorkflowRuntime } from '../../flow/runner.ts';
@@ -338,8 +339,14 @@ test('resumes an SDK actor after a transient runner failure', async (t) => {
       throw new Error('calibration is not expected');
     },
   };
+  const progressEvents: ProgressEvent[] = [];
   const runtime: WorkflowRuntime = {
     agent,
+    progress: new ProgressReporter({
+      write: (line) => progressEvents.push(JSON.parse(line) as ProgressEvent),
+      setInterval: () => ({}),
+      clearInterval: () => undefined,
+    }),
     executeAction() {
       throw new Error('actions are not expected');
     },
@@ -351,6 +358,21 @@ test('resumes an SDK actor after a transient runner failure', async (t) => {
   assert.equal('status' in result.result && result.result.status, 'completed');
   assert.equal('escalation' in result.result && result.result.escalation, null);
   assert.equal(actorCalls, 2);
+  assert.ok(progressEvents.every((event) => event.workflow === 'code'));
+  assert.ok(
+    progressEvents.some(
+      (event) =>
+        event.stage === 'actor_model_call' &&
+        event.unit_id === 'U-001' &&
+        event.status === 'failed' &&
+        event.classification === 'execution_error',
+    ),
+  );
+  assert.ok(
+    progressEvents.some(
+      (event) => event.stage === 'gate_verification' && event.status === 'completed',
+    ),
+  );
 });
 
 test('blocks and discards sandbox edits on actor escalation, then resumes without recall', async (t) => {
