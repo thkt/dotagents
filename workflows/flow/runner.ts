@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /** @file Outcome: One command drives an armed flow through actors, actions, and gates to a terminal state. */
 
 import { RESULT_PROTOCOL, type CommandResult, type FlowDirective } from './contracts.ts';

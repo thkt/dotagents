@@ -6,6 +6,8 @@ import * as os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+process.env.CODEX_FLOW_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-think-state-'));
+
 import { runThink } from '../../../workflows/think/pipeline.ts';
 import { CodexThinkAgent, designPrompt, reviewPrompt } from '../../../workflows/think/agent.ts';
 import { runThinkWorkflow } from '../../../workflows/think/runner.ts';
@@ -15,6 +17,8 @@ import type {
   ThinkContextSummary,
 } from '../../../workflows/think/agent.ts';
 import type { ThinkDecision, ThinkDraft, ThinkInput } from '../../../workflows/think/contracts.ts';
+import { RESEARCH_REPORT_PROTOCOL } from '../../../workflows/research/contracts.ts';
+import { emptyStageTimings } from '../../../workflows/shared/codex.ts';
 import { researchArtifactDirectory } from '../../../workflows/shared/storage.ts';
 import { errorCode } from '../../../workflows/shared/errors.ts';
 
@@ -179,7 +183,7 @@ test('rejects stale selected research evidence before invoking the agent', async
   fs.writeFileSync(
     file,
     JSON.stringify({
-      protocol: 'codex-research-report/v2',
+      protocol: RESEARCH_REPORT_PROTOCOL,
       generated_at: new Date().toISOString(),
       question: 'q',
       mode: 'plan',
@@ -211,6 +215,7 @@ test('rejects stale selected research evidence before invoking the agent', async
       rejected: [],
       limitations: [],
       prior_reports: [],
+      timings: emptyStageTimings(),
       next_step: 'think',
     }),
   );
@@ -228,7 +233,7 @@ test('preserves selected Research findings and web trail for both agent phases',
   fs.writeFileSync(
     file,
     JSON.stringify({
-      protocol: 'codex-research-report/v2',
+      protocol: RESEARCH_REPORT_PROTOCOL,
       generated_at: new Date().toISOString(),
       question: 'q',
       mode: 'plan',
@@ -254,6 +259,7 @@ test('preserves selected Research findings and web trail for both agent phases',
       rejected: [],
       limitations: [],
       prior_reports: [],
+      timings: emptyStageTimings(),
       next_step: 'think',
     }),
   );

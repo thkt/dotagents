@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /** @file Outcome: Explicit workflows start and resume only through their task-bound controller. */
 
 import * as fs from 'node:fs';

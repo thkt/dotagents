@@ -16,16 +16,17 @@
   },
   "type": "module",
   "scripts": {
-    "check": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run validate:skills",
+    "check": "bun run lint && bun run format:check && bun run typecheck && bun run test && bun run validate:skills",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "fix:text": "textlint --fix '.ja/**/*.md'",
     "lint": "oxlint .",
     "lint:fix": "oxlint --fix .",
     "lint:text": "textlint '.ja/**/*.md'",
-    "test": "node --test workflows/tests/*/*.test.ts skills/tests/*.test.ts",
+    "test": "bun test --parallel=8 workflows/tests/*/*.test.ts skills/tests/*.test.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "validate:skills": "node skills/validate.ts"
+    "verify:clean": "bun install --frozen-lockfile --ignore-scripts && bun run check",
+    "validate:skills": "bun skills/validate.ts"
   },
   "dependencies": {
     "@openai/codex-sdk": "^0.149.1"
@@ -43,5 +44,6 @@
     "textlint-rule-preset-ja-technical-writing": "12.0.2",
     "typescript": "^7.0.2",
     "yaml": "^2.9.0"
-  }
+  },
+  "packageManager": "bun@1.4.0"
 }

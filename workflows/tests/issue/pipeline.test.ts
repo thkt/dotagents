@@ -6,6 +6,8 @@ import * as os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+process.env.CODEX_FLOW_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-issue-state-'));
+
 import { compileContext } from '../../../workflows/knowledge/context.ts';
 import { draftIssue, publishIssue } from '../../../workflows/issue/pipeline.ts';
 import { draftIssueWorkflow } from '../../../workflows/issue/runner.ts';
@@ -16,6 +18,7 @@ import { persistThinkReport } from '../../../workflows/think/artifact.ts';
 import { THINK_REPORT_PROTOCOL, type ThinkReport } from '../../../workflows/think/contracts.ts';
 import { repositoryInvariant } from '../../../workflows/shared/repository.ts';
 import { workflowInputPath } from '../../../workflows/shared/storage.ts';
+import { emptyStageTimings } from '../../../workflows/shared/codex.ts';
 import { sha256 } from '../../../workflows/shared/evidence.ts';
 import {
   BUILD_SOURCE_PROTOCOL,
@@ -88,6 +91,7 @@ function think(repo: string, overrides: Partial<ThinkReport> = {}): string {
     review_notes: [],
     research_reports: [],
     next_step: 'issue',
+    timings: emptyStageTimings(),
     ...overrides,
   };
   return persistThinkReport(repo, report).json;

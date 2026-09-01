@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /** @file Outcome: Edited source and Japanese Markdown return actionable automated feedback. */
 
 import { spawnSync } from 'node:child_process';

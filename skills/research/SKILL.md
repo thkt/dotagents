@@ -5,6 +5,8 @@ description: Investigate one project or technical question into a source-checked
 
 # Research
 
+When present, read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) and inspect only the minimal relevant primary sources.
+
 Inspect the current input and artifact contract with `codex-research describe`.
 
 ## Decisions

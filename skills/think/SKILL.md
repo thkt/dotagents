@@ -5,6 +5,9 @@ description: Compare implementation approaches and turn one change request into 
 
 # Think
 
+When present, read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) and record stable rules in `Plan.rules` with exact paths and quotations.
+Use the relevant [workflow contracts](../../workflows/README.md) when recording those rules.
+
 Inspect the current input and decision contract with `codex-think describe`.
 
 ## Decisions

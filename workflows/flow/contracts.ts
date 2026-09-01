@@ -367,6 +367,13 @@ export interface FlowDescription {
     shipping_authorized: false;
     steps: [];
   };
+  executable_example: {
+    required_sequence: string[];
+    manifest: Record<string, unknown>;
+  };
+  cli_contracts: {
+    reports: Array<{ protocol: string; command: string }>;
+  };
   inputs?: {
     source: {
       template: Record<string, unknown>;

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /** @file Outcome: Draft PR bodies expose complete mechanical verification facts without unsafe rendering. */
 
 import * as fs from 'node:fs';

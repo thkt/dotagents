@@ -6,7 +6,7 @@ Read this reference when the requested code change edits this package's workflow
 
 - Group modules by the outcome they maintain. Put feature-independent code in `workflows/shared/` and build-only code in `workflows/flow/build/`.
 - Keep workflow tests with the owning workflow. Use integration tests only for cross-workflow or installation boundaries.
-- Keep the Node toolchain and dependency installation at the package root.
+- Keep the Bun 1.4.0 toolchain and dependency installation at the package root.
 
 ## Runtime boundary
 

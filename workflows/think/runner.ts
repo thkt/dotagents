@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /** @file Outcome: One explicit command turns a change request into a reviewed decision or a concrete research route. */
 
 import { clearIntent, requireThinkIntent } from '../invocation.ts';

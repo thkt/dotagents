@@ -12,6 +12,7 @@ import {
   parseBuildPlanAuthoring,
   type BuildPlanAuthoring,
 } from '../flow/build/authoring.ts';
+import { parseStageTimings, type StageTimings } from '../shared/codex.ts';
 
 export type ThinkPlan = BuildPlanAuthoring;
 
@@ -85,6 +86,7 @@ export interface ThinkReport extends Omit<ThinkDecision, 'evidence'> {
   evidence: ThinkReportEvidence[];
   research_reports: string[];
   next_step: 'issue' | 'research';
+  timings: StageTimings;
 }
 
 export const THINK_DRAFT_SCHEMA = {
@@ -382,6 +384,7 @@ export function parseThinkReport(raw: unknown): ThinkReport {
       'review_notes',
       'research_reports',
       'next_step',
+      'timings',
     ],
     'think report',
   );
@@ -438,6 +441,7 @@ export function parseThinkReport(raw: unknown): ThinkReport {
     ['issue', 'research'] as const,
     'think report.next_step',
   );
+  const timings = parseStageTimings(raw.timings, 'think report.timings');
   if (
     (decision.readiness === 'ready' && (decision.plan === null || nextStep !== 'issue')) ||
     (decision.readiness === 'research_required' &&
@@ -466,5 +470,6 @@ export function parseThinkReport(raw: unknown): ThinkReport {
     evidence: reportEvidence,
     research_reports: stringArray(raw.research_reports, 'think report.research_reports'),
     next_step: nextStep,
+    timings,
   };
 }

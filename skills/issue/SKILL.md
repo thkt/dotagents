@@ -5,6 +5,8 @@ description: Turn one reviewed think artifact into a validated, build-ready GitH
 
 # Issue
 
+Before preparing a publication contract, read [.codex/OUTCOME.md](../../.codex/OUTCOME.md).
+
 Inspect the current input, preview, and publication contract with `codex-issue describe`.
 
 ## Decisions

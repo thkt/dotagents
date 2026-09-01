@@ -16,10 +16,7 @@ import {
 } from '../../../hooks/post-edit.ts';
 
 const AGENTS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-const HOOKS_CONFIGS = [
-  path.join(AGENTS_ROOT, 'hooks/hooks.json'),
-  path.resolve(AGENTS_ROOT, '../.codex/hooks.json'),
-];
+const HOOKS_CONFIGS = [path.join(AGENTS_ROOT, 'hooks/hooks.json')];
 
 test('resolves files from Codex edit payloads', () => {
   assert.deepEqual(

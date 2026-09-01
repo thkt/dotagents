@@ -679,6 +679,183 @@ function describe(workflow: Workflow): FlowDescription {
       shipping_authorized: false,
       steps: [],
     },
+    executable_example: {
+      required_sequence:
+        workflow === 'build' ? ['branch', 'baseline', 'final'] : ['baseline', 'final'],
+      manifest: {
+        protocol: MANIFEST_PROTOCOL,
+        workflow,
+        repo: '<absolute-git-root>',
+        max_corrections: DEFAULT_MAX_CORRECTIONS,
+        shipping_authorized: false,
+        steps:
+          workflow === 'build'
+            ? [
+                {
+                  id: 'load:plan',
+                  kind: 'gate',
+                  gate: {
+                    authority: 'build-plan',
+                    input: '<absolute-build-source-json>',
+                    failure_route: 'triage',
+                  },
+                },
+                {
+                  id: 'revalidate:plan',
+                  kind: 'gate',
+                  gate: {
+                    authority: 'build-revalidate',
+                    input: '<absolute-build-source-json>',
+                    failure_route: 'triage',
+                  },
+                },
+                {
+                  id: 'branch',
+                  kind: 'action',
+                  action: 'branch',
+                  branch_name: 'codex/example',
+                  start_point: '<git-ref>',
+                },
+                {
+                  id: 'branch:verify',
+                  kind: 'gate',
+                  gate: {
+                    authority: 'shell',
+                    command: 'true',
+                    expect: 'pass',
+                    calibrate: false,
+                    failure_route: 'triage',
+                    require_output: [],
+                    forbid_output: [],
+                  },
+                },
+                {
+                  id: 'baseline:direct',
+                  kind: 'gate',
+                  gate: {
+                    authority: 'shell',
+                    command: 'true',
+                    expect: 'pass',
+                    calibrate: false,
+                    failure_route: 'triage',
+                    require_output: [],
+                    forbid_output: [],
+                  },
+                },
+                {
+                  id: 'U-001:direct',
+                  kind: 'actor',
+                  outcome: '<unit-outcome>',
+                  files: ['<repo-relative-file>'],
+                },
+                {
+                  id: 'U-001:direct:gate',
+                  kind: 'gate',
+                  owner: 'U-001:direct',
+                  gate: {
+                    authority: 'shell',
+                    command: 'true',
+                    expect: 'pass',
+                    calibrate: false,
+                    failure_route: 'direct:U-001',
+                    require_output: [],
+                    forbid_output: [],
+                  },
+                },
+                {
+                  id: 'U-001:artifacts',
+                  kind: 'gate',
+                  owner: 'U-001:direct',
+                  gate: {
+                    authority: 'build-artifacts',
+                    input: '<absolute-build-source-json>',
+                    unit_id: 'U-001',
+                    failure_route: 'direct:U-001',
+                  },
+                },
+                { id: 'U-001:commit', kind: 'action', action: 'commit', subject: 'feat: unit' },
+                {
+                  id: 'U-001:commit:verify',
+                  kind: 'gate',
+                  gate: {
+                    authority: 'shell',
+                    command: 'true',
+                    expect: 'pass',
+                    calibrate: false,
+                    failure_route: 'triage',
+                    require_output: [],
+                    forbid_output: [],
+                  },
+                },
+                {
+                  id: 'final:direct',
+                  kind: 'gate',
+                  gate: {
+                    authority: 'shell',
+                    command: 'true',
+                    expect: 'pass',
+                    calibrate: false,
+                    failure_route: 'triage',
+                    require_output: [],
+                    forbid_output: [],
+                  },
+                },
+              ]
+            : [
+                {
+                  id: 'baseline:direct',
+                  kind: 'gate',
+                  gate: {
+                    authority: 'shell',
+                    command: 'true',
+                    expect: 'pass',
+                    calibrate: false,
+                    failure_route: 'triage',
+                    require_output: [],
+                    forbid_output: [],
+                  },
+                },
+                {
+                  id: 'U-001:direct',
+                  kind: 'actor',
+                  outcome: '<unit-outcome>',
+                  files: ['<repo-relative-file>'],
+                },
+                {
+                  id: 'U-001:direct:gate',
+                  kind: 'gate',
+                  owner: 'U-001:direct',
+                  gate: {
+                    authority: 'shell',
+                    command: 'true',
+                    expect: 'pass',
+                    calibrate: false,
+                    failure_route: 'direct:U-001',
+                    require_output: [],
+                    forbid_output: [],
+                  },
+                },
+                {
+                  id: 'final:direct',
+                  kind: 'gate',
+                  gate: {
+                    authority: 'shell',
+                    command: 'true',
+                    expect: 'pass',
+                    calibrate: false,
+                    failure_route: 'triage',
+                    require_output: [],
+                    forbid_output: [],
+                  },
+                },
+              ],
+      },
+    },
+    cli_contracts: {
+      reports: [
+        { protocol: RESULT_PROTOCOL, command: 'codex-flow run --manifest <absolute-json>' },
+      ],
+    },
     ...(workflow === 'build' ? { inputs: { source: describeBuildSourceInput() } } : {}),
     step_contracts: stepContracts,
     sequence: {

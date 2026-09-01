@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /** @file Outcome: Each build unit changes its planned files and supplies its planned test evidence. */
 
 import * as fs from 'node:fs';

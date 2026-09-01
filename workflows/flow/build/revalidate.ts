@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /** @file Outcome: Every repository fact cited by a Plan still exists and matches before build starts. */
 
 import * as fs from 'node:fs';

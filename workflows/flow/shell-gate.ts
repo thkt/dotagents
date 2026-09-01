@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /** @file Outcome: Each shell condition yields bounded, deterministic evidence and a declared failure route. */
 
 import { spawnSync } from 'node:child_process';

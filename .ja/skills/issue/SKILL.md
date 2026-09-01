@@ -9,6 +9,7 @@ description: レビュー済みのthink成果物1件から、検証済みでbuil
 
 ## 判断
 
+- 公開する契約を準備する前に [.codex/OUTCOME.md](../../.codex/OUTCOME.md) を読む。
 - think が作成した準備完了の JSON 成果物を 1 件使用する。存在しなければ、設計判断が不足している状態で止める。
 - 新規 Issue を作るか、指定された既存 Issue へ Plan を追加するかを選ぶ。
 - 新規 Issue では、作業種別の接頭辞を付けず、内容を具体的に表す短い title を付ける。

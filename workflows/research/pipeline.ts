@@ -21,6 +21,7 @@ import { CodexResearchAgent, type PriorResearchSummary, type ResearchAgent } fro
 import { researchArtifactDirectory } from '../shared/storage.ts';
 import { persistResearchReport } from './artifact.ts';
 import { compileContext } from '../knowledge/context.ts';
+import { emptyStageTimings } from '../shared/codex.ts';
 
 export interface ResearchRunResult {
   report: ResearchReport;
@@ -205,6 +206,7 @@ export async function runResearch(
     limitations: audit.limitations,
     prior_reports: audit.prior_reports,
     next_step: researchNextStep(input.mode),
+    timings: emptyStageTimings(),
   };
   const paths = persistResearchReport(input.repo, report);
   return {

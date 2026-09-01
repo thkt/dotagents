@@ -12,6 +12,7 @@
     "noUnusedParameters": true,
     "rewriteRelativeImportExtensions": true,
     "strict": true,
+    "skipLibCheck": true,
     "target": "esnext",
     "types": ["node"],
     "verbatimModuleSyntax": true

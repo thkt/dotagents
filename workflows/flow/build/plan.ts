@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /** @file Outcome: Only closed, traceable, and safely executable build Plans enter the workflow. */
 
 import {

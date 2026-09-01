@@ -121,7 +121,7 @@ export function reviewPrompt(
     'When ready, plan.manual_verification contains only behavior the test command cannot execute and names the mechanism and observable check. Return the schema exactly once as the final response; never place a draft JSON response in commentary.',
     ...(correction
       ? [
-          'Correct the final handoff so it satisfies every validation error below. Do not change supported claims merely to satisfy the schema.',
+          "Correct only the semantic findings identified below. Do not broaden the handoff or invent evidence merely to satisfy mechanical validation; schema, ID, and precondition checks remain the controller's responsibility.",
           inertJsonBlock('REJECTED HANDOFF', correction.rejected),
           inertJsonBlock('VALIDATION ERRORS', correction.errors),
         ]

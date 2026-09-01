@@ -164,12 +164,12 @@ test('keeps build implementation and skill documentation tests on the TypeScript
   }
 });
 
-test('keeps the shared Node toolchain at the agents root', () => {
+test('keeps the shared Bun toolchain at the agents root', () => {
   for (const file of [
     '.oxfmtrc.json',
     '.oxlintrc.json',
     'package.json',
-    'package-lock.json',
+    'bun.lock',
     'skills/validate.ts',
     'tsconfig.json',
   ]) {
@@ -181,16 +181,17 @@ test('keeps the shared Node toolchain at the agents root', () => {
   };
   assert.deepEqual(packageJson.scripts, {
     check:
-      'npm run lint && npm run format:check && npm run typecheck && npm test && npm run validate:skills',
+      'bun run lint && bun run format:check && bun run typecheck && bun run test && bun run validate:skills',
     format: 'oxfmt --write .',
     'format:check': 'oxfmt --check .',
     'fix:text': "textlint --fix '.ja/**/*.md'",
     lint: 'oxlint .',
     'lint:fix': 'oxlint --fix .',
     'lint:text': "textlint '.ja/**/*.md'",
-    test: 'node --test workflows/tests/*/*.test.ts skills/tests/*.test.ts',
+    test: 'bun test --parallel=8 workflows/tests/*/*.test.ts skills/tests/*.test.ts',
     typecheck: 'tsc -p tsconfig.json',
-    'validate:skills': 'node skills/validate.ts',
+    'verify:clean': 'bun install --frozen-lockfile --ignore-scripts && bun run check',
+    'validate:skills': 'bun skills/validate.ts',
   });
   assert.match(packageJson.devDependencies?.oxfmt ?? '', /^\^0\./u);
   assert.match(packageJson.devDependencies?.oxlint ?? '', /^\^1\./u);

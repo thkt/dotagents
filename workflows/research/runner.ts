@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /** @file Outcome: One explicit command turns a closed research question into verified JSON and Markdown artifacts. */
 
 import { clearIntent, requireResearchIntent } from '../invocation.ts';

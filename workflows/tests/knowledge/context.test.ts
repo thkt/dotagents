@@ -13,6 +13,7 @@ import { draftIssue, publishIssue } from '../../issue/pipeline.ts';
 import { persistThinkReport } from '../../think/artifact.ts';
 import { THINK_REPORT_PROTOCOL, type ThinkReport } from '../../think/contracts.ts';
 import { repositoryInvariant } from '../../shared/repository.ts';
+import { emptyStageTimings } from '../../shared/codex.ts';
 import type { GitHubIssue, IssueGateway } from '../../issue/github.ts';
 
 function fixture() {
@@ -31,7 +32,6 @@ function fixture() {
     cwd: root,
   });
   test.after(() => {
-    delete process.env.CODEX_FLOW_STATE_DIR;
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(state, { recursive: true, force: true });
   });
@@ -39,7 +39,7 @@ function fixture() {
 }
 
 const reportBase = {
-  protocol: 'codex-research-report/v2',
+  protocol: 'codex-research-report/v3',
   generated_at: new Date().toISOString(),
   question: 'q',
   mode: 'plan',
@@ -53,6 +53,7 @@ const reportBase = {
   limitations: [],
   prior_reports: [],
   next_step: 'think',
+  timings: emptyStageTimings(),
 };
 function researchReport(findings: unknown[]) {
   return { ...reportBase, findings };
@@ -223,6 +224,7 @@ test('valid published issue receipt with sibling draft and ready Think artifact 
     review_notes: [],
     research_reports: [],
     next_step: 'issue',
+    timings: emptyStageTimings(),
     plan: {
       outcome: 'o',
       root_cause: null,

@@ -31,6 +31,7 @@ import {
   type ThinkReport,
   type ThinkReportEvidence,
 } from './contracts.ts';
+import { emptyStageTimings } from '../shared/codex.ts';
 
 export interface ThinkRunResult {
   report: ThinkReport;
@@ -279,6 +280,7 @@ export async function runThink(
     evidence,
     research_reports: research.map((item) => item.path),
     next_step: decision.readiness === 'ready' ? 'issue' : 'research',
+    timings: emptyStageTimings(),
   };
   const paths = persistThinkReport(input.repo, report);
   return {

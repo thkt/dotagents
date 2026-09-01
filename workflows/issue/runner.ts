@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /** @file Outcome: One explicit command validates and publishes one exact issue draft. */
 
 import { clearIntent, requireIssueIntent } from '../invocation.ts';

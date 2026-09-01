@@ -6,9 +6,10 @@ import path from 'node:path';
 import { FlowError } from '../shared/errors.ts';
 import { gitRoot, normalizeRepoPath, realpathInside } from '../shared/repository.ts';
 import { isObject, rejectUnknownKeys, stringArray, type JsonObject } from '../shared/schema.ts';
+import { parseStageTimings, type StageTimings } from '../shared/codex.ts';
 
 export const RESEARCH_INPUT_PROTOCOL = 'codex-research-input/v1' as const;
-export const RESEARCH_REPORT_PROTOCOL = 'codex-research-report/v2' as const;
+export const RESEARCH_REPORT_PROTOCOL = 'codex-research-report/v3' as const;
 export const RESEARCH_RESULT_PROTOCOL = 'codex-research-result/v1' as const;
 export const RESEARCH_DESCRIPTION_PROTOCOL = 'codex-research-description/v1' as const;
 
@@ -115,6 +116,7 @@ export interface ResearchReport extends Omit<ResearchAudit, 'findings'> {
   };
   findings: ResearchReportFinding[];
   next_step: ResearchNextStep;
+  timings: StageTimings;
 }
 
 const EVIDENCE_SCHEMA = {
@@ -450,7 +452,7 @@ export function parseResearchAudit(raw: unknown): ResearchAudit {
     ),
     limitations: stringArray(raw.limitations, 'research audit.limitations', 'execution_error'),
     prior_reports: stringArray(
-      raw.prior_reports,
+      raw.prior_reports ?? [],
       'research audit.prior_reports',
       'execution_error',
     ),
@@ -483,6 +485,7 @@ export function parseResearchReport(raw: unknown): ResearchReport {
       'limitations',
       'prior_reports',
       'next_step',
+      'timings',
     ],
     'research report',
     'execution_error',
@@ -513,6 +516,7 @@ export function parseResearchReport(raw: unknown): ResearchReport {
     'research report.next_step',
     'execution_error',
   );
+  const timings = parseStageTimings(raw.timings, 'research report.timings', 'execution_error');
   if (nextStep !== researchNextStep(mode)) {
     throw new FlowError('research report.next_step does not match mode', 'execution_error');
   }
@@ -609,10 +613,11 @@ export function parseResearchReport(raw: unknown): ResearchReport {
     unknowns,
     limitations: stringArray(raw.limitations, 'research report.limitations', 'execution_error'),
     prior_reports: stringArray(
-      raw.prior_reports,
+      raw.prior_reports ?? [],
       'research report.prior_reports',
       'execution_error',
     ),
     next_step: nextStep,
+    timings,
   };
 }

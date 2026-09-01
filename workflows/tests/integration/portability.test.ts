@@ -128,7 +128,7 @@ test('publishes stable CLI names for every documented executable', () => {
   for (const relative of Object.values(packageJson.bin) as string[]) {
     assert.match(
       fs.readFileSync(path.join(EXPECTED_ROOT, relative), 'utf8'),
-      /^#!\/usr\/bin\/env node$/m,
+      /^#!\/usr\/bin\/env bun$/m,
     );
   }
 });
@@ -230,16 +230,14 @@ test('keeps maintained runtime and instruction files independent of a user home'
     '.ja/skills/think/SKILL.md',
     '.ja/skills/think/references/decision-writing.md',
   ].map((relative) => path.join(EXPECTED_ROOT, relative));
-  files.push(path.join(CODEX_ROOT, 'hooks.json'));
   for (const file of files) {
     assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /\/Users\/[^/]+\//u, file);
   }
 });
 
-test('keeps Codex guidance independent of the Claude rules tree', () => {
-  const guidance = fs.readFileSync(path.join(CODEX_ROOT, 'AGENTS.md'), 'utf8');
+test('keeps package guidance independent of the Claude rules tree', () => {
+  const guidance = fs.readFileSync(path.join(EXPECTED_ROOT, '.codex/OUTCOME.md'), 'utf8');
   assert.doesNotMatch(guidance, /(?:\.\/rules|\.claude\/rules)/u);
-  assert.equal(fs.lstatSync(path.join(CODEX_ROOT, 'rules'), { throwIfNoEntry: false }), undefined);
 });
 
 test('keeps hook implementations in the shared agents package only', () => {
