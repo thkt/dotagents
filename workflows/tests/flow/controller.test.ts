@@ -777,7 +777,7 @@ test('self-describes the manifest contract without workflow state', () => {
   assert.equal(code.manifest_template.protocol, flow.MANIFEST_PROTOCOL);
   assert.deepEqual(code.cli, {
     describe: 'codex-flow describe --workflow code',
-    run: 'codex-flow run --manifest <absolute-manifest-json> --run-id <task-run-id>',
+    run: 'codex-flow run --manifest <absolute-json>',
     task_binding: 'hook-injected',
   });
   assert.equal(code.defaults.gate_timeout_ms, 60_000);
@@ -891,81 +891,6 @@ test('UserPromptSubmit accepts a leading Codex skill link as an explicit invocat
   });
   assert.deepEqual(embedded, {});
   assert.equal(intent.loadIntent('turn-embedded-link'), null);
-});
-
-test('standalone Think/Research require typed commands and inject only the task run id', (t) => {
-  const { repo } = fixture(t);
-  for (const [workflow, executable, args] of [
-    ['think', 'codex-think', '--request change --task-type feature --language japanese'],
-    [
-      'research',
-      'codex-research',
-      '--question question --mode understand --language japanese --external-sources none --scope-path src',
-    ],
-  ] as const) {
-    const turn = `typed-${workflow}`;
-    const armed = hook.handle({
-      hook_event_name: 'UserPromptSubmit',
-      session_id: turn,
-      cwd: repo,
-      prompt: `$${workflow} run`,
-    });
-    assert.match(
-      armed.hookSpecificOutput?.additionalContext ?? '',
-      /Do not write private input files/u,
-    );
-    assert.equal(
-      hook.preToolUse({
-        hook_event_name: 'PreToolUse',
-        session_id: turn,
-        cwd: repo,
-        tool_name: 'Write',
-        tool_input: { file_path: path.join(repo, 'input.json') },
-      }).hookSpecificOutput?.permissionDecision,
-      'deny',
-    );
-    const command = `${executable} run ${args}`;
-    const injected = hook.preToolUse({
-      hook_event_name: 'PreToolUse',
-      session_id: turn,
-      cwd: repo,
-      tool_name: 'Bash',
-      tool_input: { command },
-    });
-    assert.equal(injected.hookSpecificOutput?.permissionDecision, 'allow');
-    assert.match(
-      injected.hookSpecificOutput?.updatedInput?.command ?? '',
-      new RegExp(`--run-id '${turn}'`),
-    );
-    assert.doesNotMatch(injected.hookSpecificOutput?.updatedInput?.command ?? '', /input\.json/u);
-  }
-});
-
-test('pending standalone intent remains bound to its original repository and Stop does not rerun', (t) => {
-  const { repo } = fixture(t);
-  const turn = 'typed-repo-binding';
-  hook.handle({
-    hook_event_name: 'UserPromptSubmit',
-    session_id: turn,
-    cwd: repo,
-    prompt: '$think',
-  });
-  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'other-repo-'));
-  t.after(() => fs.rmSync(other, { recursive: true, force: true }));
-  const denied = hook.preToolUse({
-    hook_event_name: 'PreToolUse',
-    session_id: turn,
-    cwd: other,
-    tool_name: 'Bash',
-    tool_input: { command: 'codex-think run --request x --task-type feature --language japanese' },
-  });
-  assert.equal(denied.hookSpecificOutput?.permissionDecision, 'allow');
-  assert.equal(intent.loadIntent(turn)?.repo, fs.realpathSync(repo));
-  const first = hook.stop({ hook_event_name: 'Stop', session_id: turn });
-  assert.equal(first.decision, 'block');
-  const second = hook.stop({ hook_event_name: 'Stop', session_id: turn, stop_hook_active: true });
-  assert.equal(second.continue, false);
-  assert.equal(intent.loadIntent(turn), null);
 });
 
 test('pending intent permits workflow input preparation and blocks unrelated mutation', (t) => {

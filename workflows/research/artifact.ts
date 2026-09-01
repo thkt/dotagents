@@ -29,6 +29,7 @@ export function renderResearchMarkdown(report: ResearchReport): string {
         unknowns: '未確定事項',
         resolution: '確認方法',
         limitations: '制約',
+        prior: '参照した過去の調査',
         next: '次の状態',
       }
     : {
@@ -42,6 +43,7 @@ export function renderResearchMarkdown(report: ResearchReport): string {
         unknowns: 'Unknowns',
         resolution: 'How to resolve',
         limitations: 'Limitations',
+        prior: 'Prior research consulted',
         next: 'Next state',
       };
   const lines = [
@@ -101,6 +103,14 @@ export function renderResearchMarkdown(report: ResearchReport): string {
       `## ${labels.limitations}`,
       '',
       ...report.limitations.map((item) => `- ${oneLine(item)}`),
+      '',
+    );
+  }
+  if (report.prior_reports.length) {
+    lines.push(
+      `## ${labels.prior}`,
+      '',
+      ...report.prior_reports.map((item) => `- \`${item}\``),
       '',
     );
   }

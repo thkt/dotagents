@@ -8,13 +8,21 @@ import { buildPlanValue, renderPlanMarkdown } from '../flow/build/authoring.ts';
 import { revalidatePlan } from '../flow/build/revalidate.ts';
 import { parseResearchReport } from '../research/contracts.ts';
 import { readRepositoryEvidence, sha256 } from '../shared/evidence.ts';
-import { errorMessage, FlowError } from '../shared/errors.ts';
-import { elapsedMs, emptyStageTimings, type StageTimings } from '../shared/codex.ts';
-import { realpathInside, repositoryInvariant } from '../shared/repository.ts';
+import { errorCode, errorMessage, FlowError } from '../shared/errors.ts';
+import {
+  realpathInside,
+  repositoryInvariant,
+  sameWorkflowRepositoryInvariant,
+} from '../shared/repository.ts';
 import { researchArtifactDirectory } from '../shared/storage.ts';
 import { persistThinkReport } from './artifact.ts';
-import { runInImmutableRepositorySnapshot } from '../flow/isolation.ts';
-import { CodexThinkAgent, type ThinkAgent, type ThinkResearchContext } from './agent.ts';
+import { compileContext } from '../knowledge/context.ts';
+import {
+  CodexThinkAgent,
+  type ThinkAgent,
+  type ThinkResearchContext,
+  type ThinkContextSummary,
+} from './agent.ts';
 import {
   THINK_REPORT_PROTOCOL,
   type ThinkDecision,
@@ -23,13 +31,13 @@ import {
   type ThinkReport,
   type ThinkReportEvidence,
 } from './contracts.ts';
+import { emptyStageTimings } from '../shared/codex.ts';
 
 export interface ThinkRunResult {
   report: ThinkReport;
   report_json: string;
   report_markdown: string;
-  timings: StageTimings;
-  artifact_persist_ms: number;
+  context_status: 'loaded' | 'degraded';
 }
 
 interface SelectedResearch {
@@ -37,12 +45,7 @@ interface SelectedResearch {
   source_sha256: string;
 }
 
-function reportContext(
-  repo: string,
-  evidenceRepo: string,
-  file: string,
-  index: number,
-): SelectedResearch {
+function reportContext(repo: string, file: string, index: number): SelectedResearch {
   const label = `think input.research_reports[${index}]`;
   const directory = researchArtifactDirectory(repo);
   const stat = fs.lstatSync(file, { throwIfNoEntry: false });
@@ -70,7 +73,7 @@ function reportContext(
       if (evidence.kind !== 'repository') continue;
       const evidenceLabel = `${label}.findings[${findingIndex}].evidence[${evidenceIndex}]`;
       const snapshot = readRepositoryEvidence(
-        evidenceRepo,
+        repo,
         evidence.source,
         evidence.locator,
         evidenceLabel,
@@ -97,7 +100,6 @@ function sealEvidence(
   repo: string,
   decision: ThinkDecision,
   research: readonly SelectedResearch[],
-  indexOffset = 0,
 ): ThinkReportEvidence[] {
   return decision.evidence.map((evidence, index) => {
     const label = `think decision.evidence[${index}]`;
@@ -116,14 +118,14 @@ function sealEvidence(
       }
       return {
         ...evidence,
-        id: `E-${String(index + indexOffset + 1).padStart(3, '0')}`,
+        id: `E-${String(index + 1).padStart(3, '0')}`,
         source_sha256: report.source_sha256,
       };
     }
     const snapshot = readRepositoryEvidence(repo, evidence.source, evidence.locator, label);
     return {
       ...evidence,
-      id: `E-${String(index + indexOffset + 1).padStart(3, '0')}`,
+      id: `E-${String(index + 1).padStart(3, '0')}`,
       ...snapshot,
     };
   });
@@ -133,102 +135,99 @@ function issueTitle(input: ThinkInput): string {
   return input.task_type === 'bug' ? '[Bug] Think decision' : 'Think decision';
 }
 
+function validateDecision(input: ThinkInput, decision: ThinkDecision): void {
+  if (decision.readiness === 'research_required') {
+    if (decision.plan !== null)
+      throw new FlowError('research_required decision must not contain a plan', 'decision_error');
+    if (!decision.research_questions.length) {
+      throw new FlowError(
+        'research_required decision must contain a research question',
+        'decision_error',
+      );
+    }
+    return;
+  }
+  if (decision.plan === null)
+    throw new FlowError('ready decision must contain a plan', 'decision_error');
+  if (decision.research_questions.length) {
+    throw new FlowError(
+      'ready decision cannot contain unresolved research questions',
+      'decision_error',
+    );
+  }
+  if (!decision.alternatives.length) {
+    throw new FlowError('ready decision must retain a rejected alternative', 'decision_error');
+  }
+  if (!decision.evidence.length) {
+    throw new FlowError(
+      'ready decision must cite repository or selected research evidence',
+      'decision_error',
+    );
+  }
+  if (
+    decision.outcome !== decision.plan.outcome ||
+    decision.root_cause !== decision.plan.root_cause
+  ) {
+    throw new FlowError('decision outcome and root cause must match the plan', 'decision_error');
+  }
+  if (input.task_type === 'bug' && decision.root_cause === null) {
+    throw new FlowError('a ready bug decision requires an evidenced root cause', 'decision_error');
+  }
+  const plan = buildPlanValue(decision.plan);
+  const body = renderPlanMarkdown(decision.plan);
+  const report = validatePlan({ issue: 1, title: issueTitle(input), body, plan });
+  if (report.verdict !== 'pass') {
+    throw new FlowError(
+      `think plan violates the build contract: ${[...report.blockers, ...report.reason_codes].join('; ')}`,
+      'decision_error',
+    );
+  }
+  const revalidation = revalidatePlan(plan, input.repo);
+  if (revalidation.verdict !== 'pass') {
+    throw new FlowError(
+      `think plan references missing or stale repository state: ${revalidation.drift.map((item) => item.path).join(', ')}`,
+      'decision_error',
+    );
+  }
+}
+
 function validateAndSeal(
   input: ThinkInput,
   decision: ThinkDecision,
   research: readonly SelectedResearch[],
 ): ThinkReportEvidence[] {
-  const blockers: string[] = [];
-  if (decision.readiness === 'research_required') {
-    if (!decision.research_questions.length)
-      blockers.push('research_required decision must contain a research question');
-  } else {
-    if (decision.plan === null) blockers.push('ready decision must contain a plan');
-    if (decision.research_questions.length)
-      blockers.push('ready decision cannot contain unresolved research questions');
-    if (!decision.alternatives.length)
-      blockers.push('ready decision must retain a rejected alternative');
-    if (!decision.evidence.length)
-      blockers.push('ready decision must cite repository or selected research evidence');
-    if (decision.plan && decision.outcome !== decision.plan.outcome)
-      blockers.push('decision outcome and root cause must match the plan');
-    if (decision.plan && decision.root_cause !== decision.plan.root_cause)
-      blockers.push('decision outcome and root cause must match the plan');
-    if (input.task_type === 'bug' && decision.root_cause === null)
-      blockers.push('a ready bug decision requires an evidenced root cause');
-    if (decision.plan) {
-      const plan = buildPlanValue(decision.plan);
-      const report = validatePlan({
-        issue: 1,
-        title: issueTitle(input),
-        body: renderPlanMarkdown(decision.plan),
-        plan,
-      });
-      blockers.push(...report.blockers, ...report.reason_codes);
-      const drift = revalidatePlan(plan, input.repo);
-      blockers.push(...drift.drift.map((item) => `plan drift: ${item.path}`));
-    }
-  }
-  const evidence: ThinkReportEvidence[] = [];
-  for (const [index, item] of decision.evidence.entries()) {
-    try {
-      evidence.push(
-        sealEvidence(input.repo, { ...decision, evidence: [item] }, research, index)[0]!,
-      );
-    } catch (error) {
-      blockers.push(`evidence[${index}]: ${errorMessage(error)}`);
-    }
-  }
-  const unique = [...new Set(blockers)];
-  if (unique.length) throw new FlowError(JSON.stringify(unique), 'decision_error');
-  return evidence;
+  validateDecision(input, decision);
+  return sealEvidence(input.repo, decision, research);
 }
 
-function proposalDecision(
-  draft: ThinkDraft,
-  findings: ThinkDecision['review_findings'],
-): ThinkDecision {
-  const blocking = findings.some((f) => f.severity === 'blocking');
-  return {
-    ...draft,
-    readiness: blocking ? 'research_required' : draft.plan ? 'ready' : 'research_required',
-    research_questions: blocking
-      ? [
-          ...draft.research_questions,
-          ...findings.filter((f) => f.severity === 'blocking').map((f) => f.required_action),
-        ]
-      : draft.research_questions,
-    plan: draft.plan,
-    review_findings: findings.map((f) => ({
-      ...f,
-      disposition: blocking && f.severity === 'blocking' ? 'block_issue' : 'advisory',
-    })),
-    review_notes: findings.map((f) => `${f.severity}: ${f.statement} — ${f.required_action}`),
-  };
-}
-
-/** Validates the designer proposal before semantic review; reviewer never rewrites it. */
+/** Gives one invalid final handoff back to the reviewer with the controller's concrete blockers. */
 async function reviewedDecision(
   input: ThinkInput,
-  agentInput: ThinkInput,
   draft: ThinkDraft,
   selectedResearch: SelectedResearch[],
   buildContract: unknown,
   agent: ThinkAgent,
+  context: ThinkContextSummary[] = [],
 ): Promise<{ decision: ThinkDecision; evidence: ThinkReportEvidence[] }> {
   const research = selectedResearch.map((item) => item.context);
-  const proposal = proposalDecision(draft, []);
-  validateAndSeal(input, proposal, selectedResearch);
-  let findings;
+  const first = await agent.review(input, draft, research, buildContract, undefined, context);
   try {
-    findings = await agent.review(agentInput, draft, research, buildContract);
-  } catch (firstError) {
-    findings = await agent.review(agentInput, draft, research, buildContract, {
-      errors: [errorMessage(firstError)],
-    });
+    return { decision: first, evidence: validateAndSeal(input, first, selectedResearch) };
+  } catch (error) {
+    if (!['decision_error', 'evidence_error'].includes(errorCode(error) ?? '')) throw error;
+    const second = await agent.review(
+      input,
+      draft,
+      research,
+      buildContract,
+      {
+        rejected: first,
+        errors: [errorMessage(error)],
+      },
+      context,
+    );
+    return { decision: second, evidence: validateAndSeal(input, second, selectedResearch) };
   }
-  const decision = proposalDecision(draft, findings);
-  return { decision, evidence: validateAndSeal(input, decision, selectedResearch) };
 }
 
 /** Runs comparison and independent review against one immutable repository snapshot. */
@@ -236,35 +235,40 @@ export async function runThink(
   input: ThinkInput,
   agent: ThinkAgent = new CodexThinkAgent(),
 ): Promise<ThinkRunResult> {
-  const timings: StageTimings = emptyStageTimings();
   const before = repositoryInvariant(input.repo);
-  const snapshotStarted = performance.now();
-  const staged = await runInImmutableRepositorySnapshot(input.repo, async (snapshotRepo) => {
-    timings.repository_snapshot_ms = elapsedMs(snapshotStarted);
-    const modelInput = { ...input, repo: snapshotRepo };
-    const selectedResearch = input.research_reports.map((file, index) =>
-      reportContext(input.repo, snapshotRepo, file, index),
-    );
-    const research = selectedResearch.map((item) => item.context);
-    const buildContract = describeBuildPlan();
-    const designStarted = performance.now();
-    const draft = await agent.design(modelInput, research, buildContract);
-    timings.designer_model_call_ms = elapsedMs(designStarted);
-    Object.assign(timings, agent.lastTimings);
-    const validationStarted = performance.now();
-    const reviewed = await reviewedDecision(
-      modelInput,
-      modelInput,
-      draft,
-      selectedResearch,
-      buildContract,
-      agent,
-    );
-    timings.controller_evidence_validation_ms += elapsedMs(validationStarted);
-    Object.assign(timings, agent.lastTimings);
-    return { ...reviewed, draft, research };
-  });
-  const { decision, evidence, research } = staged;
+  const selectedResearch = input.research_reports.map((file, index) =>
+    reportContext(input.repo, file, index),
+  );
+  const research = selectedResearch.map((item) => item.context);
+  const buildContract = describeBuildPlan();
+  let contextLoad: ReturnType<typeof compileContext>;
+  try {
+    contextLoad = compileContext(input.repo, 'think');
+  } catch {
+    contextLoad = { status: 'degraded', entries: [] };
+  }
+  const context: ThinkContextSummary[] = contextLoad.entries
+    .filter((e) => e.status === 'active')
+    .map(({ id, kind, statement, source_artifact, source_id }) => ({
+      id,
+      kind,
+      status: 'active',
+      statement,
+      source_artifact,
+      source_id,
+    }));
+  const draft = await agent.design(input, research, buildContract, context);
+  const { decision, evidence } = await reviewedDecision(
+    input,
+    draft,
+    selectedResearch,
+    buildContract,
+    agent,
+    context,
+  );
+  if (!sameWorkflowRepositoryInvariant(before, repositoryInvariant(input.repo))) {
+    throw new FlowError('repository changed while think was running', 'state_error');
+  }
   const report: ThinkReport = {
     protocol: THINK_REPORT_PROTOCOL,
     generated_at: new Date().toISOString(),
@@ -276,15 +280,13 @@ export async function runThink(
     evidence,
     research_reports: research.map((item) => item.path),
     next_step: decision.readiness === 'ready' ? 'issue' : 'research',
-    timings,
+    timings: emptyStageTimings(),
   };
-  const persistStarted = performance.now();
   const paths = persistThinkReport(input.repo, report);
   return {
     report,
     report_json: paths.json,
     report_markdown: paths.markdown,
-    timings,
-    artifact_persist_ms: elapsedMs(persistStarted),
+    context_status: contextLoad.status,
   };
 }

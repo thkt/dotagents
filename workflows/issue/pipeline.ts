@@ -23,7 +23,6 @@ import {
   thinkArtifactDirectory,
 } from '../shared/storage.ts';
 import { parseThinkReport, type ThinkPlan, type ThinkReport } from '../think/contracts.ts';
-import { parseResearchReport } from '../research/contracts.ts';
 import { persistIssueDraft, receiptPath } from './artifact.ts';
 import {
   ISSUE_DRAFT_PROTOCOL,
@@ -105,18 +104,6 @@ function loadThinkReport(
       if (sha256(content) !== evidence.source_sha256) {
         throw new FlowError(`${label} is stale`, 'evidence_error');
       }
-      const selected = parseResearchReport(parseJson(content, label));
-      const finding = selected.findings.find((item) => item.id === evidence.locator);
-      if (!finding)
-        throw new FlowError(`${label}.locator is missing in selected report`, 'evidence_error');
-      for (const [findingIndex, nested] of finding.evidence.entries()) {
-        if (nested.kind !== 'repository') continue;
-        const nestedLabel = `${label}.finding[${findingIndex}].evidence`;
-        const snapshot = readRepositoryEvidence(repo, nested.source, nested.locator, nestedLabel);
-        if (snapshot.source_sha256 !== nested.source_sha256) {
-          throw new FlowError(`${nestedLabel} is stale (${nested.source})`, 'evidence_error');
-        }
-      }
     }
   }
   return { content, report };
@@ -131,16 +118,22 @@ function createTitle(report: ReadyThinkReport, title: string): string {
 }
 
 function createBody(report: ReadyThinkReport): string {
+  const labels =
+    report.language === 'japanese'
+      ? { why: '背景と目的', decision: '決定' }
+      : { why: 'What & Why', decision: 'Decision' };
   return [
-    '## Outcome',
+    `## ${labels.why}`,
     '',
-    report.outcome,
+    report.request,
     '',
-    '## Decision',
+    report.rationale,
+    '',
+    `## ${labels.decision}`,
     '',
     report.decision,
     '',
-    renderPlanMarkdown(report.plan, { includeOutcome: false }).trimEnd(),
+    renderPlanMarkdown(report.plan).trimEnd(),
     '',
   ].join('\n');
 }

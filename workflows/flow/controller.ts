@@ -57,9 +57,6 @@ import { isObject } from '../shared/schema.ts';
 import { runIsolatedShellVerification } from './isolation.ts';
 import { actionDirective, prepareShipInput, validateActionCompletion } from './build/actions.ts';
 import { describeBuildSourceInput, runStructuredBuildGate } from './build/gates.ts';
-import { PROTOCOL as BUILD_PLAN_PROTOCOL } from './build/plan.ts';
-import { PROTOCOL as BUILD_REVALIDATE_PROTOCOL } from './build/revalidate.ts';
-import { PROTOCOL as BUILD_ARTIFACTS_PROTOCOL } from './build/artifacts.ts';
 
 function readJson(file: string, label: string): unknown {
   if (!path.isAbsolute(file)) throw new FlowError(`${label} must be absolute`);
@@ -620,160 +617,6 @@ function completeCurrentDirective(
 }
 
 function describe(workflow: Workflow): FlowDescription {
-  const exampleInput = '<absolute-build-source-json>';
-  const exampleSteps =
-    workflow === 'build'
-      ? [
-          {
-            id: 'load:plan',
-            kind: 'gate',
-            gate: { authority: 'build-plan', input: exampleInput, failure_route: 'blocked' },
-          },
-          {
-            id: 'revalidate:plan',
-            kind: 'gate',
-            gate: { authority: 'build-revalidate', input: exampleInput, failure_route: 'blocked' },
-          },
-          {
-            id: 'branch',
-            kind: 'action',
-            action: 'branch',
-            branch_name: 'codex/<issue>-<slug>',
-            start_point: '<git-ref>',
-          },
-          {
-            id: 'branch:verify',
-            kind: 'gate',
-            gate: {
-              authority: 'shell',
-              command: 'git status --porcelain',
-              expect: 'pass',
-              calibrate: false,
-              require_output: [],
-              forbid_output: [],
-              failure_route: 'blocked',
-            },
-          },
-          {
-            id: 'baseline:status',
-            kind: 'gate',
-            gate: {
-              authority: 'shell',
-              command: 'git status --porcelain',
-              expect: 'pass',
-              calibrate: false,
-              require_output: [],
-              forbid_output: [],
-              failure_route: 'blocked',
-            },
-          },
-          {
-            id: 'U-001:direct',
-            kind: 'actor',
-            outcome: '<unit-outcome>',
-            files: ['<repo-relative-file>'],
-          },
-          {
-            id: 'U-001:direct:gate',
-            kind: 'gate',
-            owner: 'U-001:direct',
-            gate: {
-              authority: 'shell',
-              command: 'git status --porcelain',
-              expect: 'pass',
-              calibrate: false,
-              require_output: [],
-              forbid_output: [],
-              failure_route: 'direct:U-001',
-            },
-          },
-          {
-            id: 'U-001:artifacts',
-            kind: 'gate',
-            owner: 'U-001:direct',
-            gate: {
-              authority: 'build-artifacts',
-              input: exampleInput,
-              unit_id: 'U-001',
-              failure_route: 'direct:U-001',
-            },
-          },
-          { id: 'U-001:commit', kind: 'action', action: 'commit', subject: 'feat: <unit-summary>' },
-          {
-            id: 'U-001:commit:verify',
-            kind: 'gate',
-            gate: {
-              authority: 'shell',
-              command: 'git status --porcelain',
-              expect: 'pass',
-              calibrate: false,
-              require_output: [],
-              forbid_output: [],
-              failure_route: 'blocked',
-            },
-          },
-          {
-            id: 'final:verify',
-            kind: 'gate',
-            gate: {
-              authority: 'shell',
-              command: 'git status --porcelain',
-              expect: 'pass',
-              calibrate: false,
-              require_output: [],
-              forbid_output: [],
-              failure_route: 'blocked',
-            },
-          },
-        ]
-      : ([
-          {
-            id: 'baseline:status',
-            kind: 'gate',
-            gate: {
-              authority: 'shell',
-              command: 'git status --porcelain',
-              expect: 'pass',
-              calibrate: false,
-              require_output: [],
-              forbid_output: [],
-              failure_route: 'blocked',
-            },
-          },
-          {
-            id: 'U-001:direct',
-            kind: 'actor',
-            outcome: '<unit-outcome>',
-            files: ['<repo-relative-file>'],
-          },
-          {
-            id: 'U-001:direct:gate',
-            kind: 'gate',
-            owner: 'U-001:direct',
-            gate: {
-              authority: 'shell',
-              command: 'git status --porcelain',
-              expect: 'pass',
-              calibrate: false,
-              require_output: [],
-              forbid_output: [],
-              failure_route: 'direct:U-001',
-            },
-          },
-          {
-            id: 'final:verify',
-            kind: 'gate',
-            gate: {
-              authority: 'shell',
-              command: 'git status --porcelain',
-              expect: 'pass',
-              calibrate: false,
-              require_output: [],
-              forbid_output: [],
-              failure_route: 'blocked',
-            },
-          },
-        ] as unknown as FlowStep[]);
   const stepContracts: StepDescription[] = [
     {
       kind: 'actor',
@@ -822,7 +665,7 @@ function describe(workflow: Workflow): FlowDescription {
     workflow,
     cli: {
       describe: `codex-flow describe --workflow ${workflow}`,
-      run: 'codex-flow run --manifest <absolute-manifest-json> --run-id <task-run-id>',
+      run: 'codex-flow run --manifest <absolute-json>',
       task_binding: 'hook-injected',
     },
     defaults: {
@@ -834,80 +677,183 @@ function describe(workflow: Workflow): FlowDescription {
       repo: '<absolute-git-root>',
       max_corrections: DEFAULT_MAX_CORRECTIONS,
       shipping_authorized: false,
-      steps: exampleSteps as FlowStep[],
+      steps: [],
     },
     executable_example: {
+      required_sequence:
+        workflow === 'build' ? ['branch', 'baseline', 'final'] : ['baseline', 'final'],
       manifest: {
         protocol: MANIFEST_PROTOCOL,
         workflow,
         repo: '<absolute-git-root>',
         max_corrections: DEFAULT_MAX_CORRECTIONS,
         shipping_authorized: false,
-        steps: exampleSteps,
-      },
-      start_command: 'codex-flow run --manifest <absolute-manifest-json> --run-id <task-run-id>',
-      required_sequence:
-        workflow === 'build'
-          ? [...BUILD_OPENING_IDS, 'baseline:*', 'U-NNN:(red|green|direct)', 'final:*']
-          : ['baseline:*', 'U-NNN:(red|green|direct)', 'final:*'],
-      gate_authority: {
-        shell: 'codex-flow executes command and checks exit/output contract',
-        ...(workflow === 'build'
-          ? {
-              'build-plan': 'codex-build-plan --input <absolute-build-source-json>',
-              'build-revalidate':
-                'codex-build-revalidate --input <absolute-build-source-json> --repo <absolute-git-root>',
-              'build-artifacts':
-                'codex-build-artifacts --gate-id <id> --unit U-NNN --input <absolute-build-source-json> --repo <absolute-git-root> --base <git-ref>',
-              'build-ship': 'codex-build-ship-verify',
-            }
-          : {}),
-      },
-      failure_routes: {
-        blocked: 'stop the run; caller must repair input or binding',
-        'direct:U-NNN': 'return to the owning direct actor',
-        'red:U-NNN': 'return to the owning red actor',
-        'green:U-NNN': 'return to the owning green actor',
+        steps:
+          workflow === 'build'
+            ? [
+                {
+                  id: 'load:plan',
+                  kind: 'gate',
+                  gate: {
+                    authority: 'build-plan',
+                    input: '<absolute-build-source-json>',
+                    failure_route: 'triage',
+                  },
+                },
+                {
+                  id: 'revalidate:plan',
+                  kind: 'gate',
+                  gate: {
+                    authority: 'build-revalidate',
+                    input: '<absolute-build-source-json>',
+                    failure_route: 'triage',
+                  },
+                },
+                {
+                  id: 'branch',
+                  kind: 'action',
+                  action: 'branch',
+                  branch_name: 'codex/example',
+                  start_point: '<git-ref>',
+                },
+                {
+                  id: 'branch:verify',
+                  kind: 'gate',
+                  gate: {
+                    authority: 'shell',
+                    command: 'true',
+                    expect: 'pass',
+                    calibrate: false,
+                    failure_route: 'triage',
+                    require_output: [],
+                    forbid_output: [],
+                  },
+                },
+                {
+                  id: 'baseline:direct',
+                  kind: 'gate',
+                  gate: {
+                    authority: 'shell',
+                    command: 'true',
+                    expect: 'pass',
+                    calibrate: false,
+                    failure_route: 'triage',
+                    require_output: [],
+                    forbid_output: [],
+                  },
+                },
+                {
+                  id: 'U-001:direct',
+                  kind: 'actor',
+                  outcome: '<unit-outcome>',
+                  files: ['<repo-relative-file>'],
+                },
+                {
+                  id: 'U-001:direct:gate',
+                  kind: 'gate',
+                  owner: 'U-001:direct',
+                  gate: {
+                    authority: 'shell',
+                    command: 'true',
+                    expect: 'pass',
+                    calibrate: false,
+                    failure_route: 'direct:U-001',
+                    require_output: [],
+                    forbid_output: [],
+                  },
+                },
+                {
+                  id: 'U-001:artifacts',
+                  kind: 'gate',
+                  owner: 'U-001:direct',
+                  gate: {
+                    authority: 'build-artifacts',
+                    input: '<absolute-build-source-json>',
+                    unit_id: 'U-001',
+                    failure_route: 'direct:U-001',
+                  },
+                },
+                { id: 'U-001:commit', kind: 'action', action: 'commit', subject: 'feat: unit' },
+                {
+                  id: 'U-001:commit:verify',
+                  kind: 'gate',
+                  gate: {
+                    authority: 'shell',
+                    command: 'true',
+                    expect: 'pass',
+                    calibrate: false,
+                    failure_route: 'triage',
+                    require_output: [],
+                    forbid_output: [],
+                  },
+                },
+                {
+                  id: 'final:direct',
+                  kind: 'gate',
+                  gate: {
+                    authority: 'shell',
+                    command: 'true',
+                    expect: 'pass',
+                    calibrate: false,
+                    failure_route: 'triage',
+                    require_output: [],
+                    forbid_output: [],
+                  },
+                },
+              ]
+            : [
+                {
+                  id: 'baseline:direct',
+                  kind: 'gate',
+                  gate: {
+                    authority: 'shell',
+                    command: 'true',
+                    expect: 'pass',
+                    calibrate: false,
+                    failure_route: 'triage',
+                    require_output: [],
+                    forbid_output: [],
+                  },
+                },
+                {
+                  id: 'U-001:direct',
+                  kind: 'actor',
+                  outcome: '<unit-outcome>',
+                  files: ['<repo-relative-file>'],
+                },
+                {
+                  id: 'U-001:direct:gate',
+                  kind: 'gate',
+                  owner: 'U-001:direct',
+                  gate: {
+                    authority: 'shell',
+                    command: 'true',
+                    expect: 'pass',
+                    calibrate: false,
+                    failure_route: 'direct:U-001',
+                    require_output: [],
+                    forbid_output: [],
+                  },
+                },
+                {
+                  id: 'final:direct',
+                  kind: 'gate',
+                  gate: {
+                    authority: 'shell',
+                    command: 'true',
+                    expect: 'pass',
+                    calibrate: false,
+                    failure_route: 'triage',
+                    require_output: [],
+                    forbid_output: [],
+                  },
+                },
+              ],
       },
     },
     cli_contracts: {
       reports: [
-        {
-          command: 'codex-build-plan --input <absolute-json>',
-          protocol: BUILD_PLAN_PROTOCOL,
-          flags: {
-            '--input': { required: true, repeatable: false, example: '--input /repo/build.json' },
-          },
-        },
-        {
-          command: 'codex-build-revalidate --input <absolute-json> --repo <absolute-git-root>',
-          protocol: BUILD_REVALIDATE_PROTOCOL,
-          flags: {
-            '--input': { required: true, repeatable: false, example: '--input /repo/build.json' },
-            '--repo': { required: true, repeatable: false, example: '--repo /repo' },
-          },
-        },
-        {
-          command:
-            'codex-build-artifacts --gate-id <id> --unit U-NNN --input <absolute-json> --repo <absolute-git-root> --base <git-ref> [--baseline-changed <absolute-json>]',
-          protocol: BUILD_ARTIFACTS_PROTOCOL,
-          flags: {
-            '--gate-id': {
-              required: true,
-              repeatable: false,
-              example: '--gate-id U-001:artifacts',
-            },
-            '--unit': { required: true, repeatable: false, example: '--unit U-001' },
-            '--input': { required: true, repeatable: false, example: '--input /repo/build.json' },
-            '--repo': { required: true, repeatable: false, example: '--repo /repo' },
-            '--base': { required: true, repeatable: false, example: '--base HEAD' },
-            '--baseline-changed': {
-              required: false,
-              repeatable: false,
-              example: '--baseline-changed /tmp/changed.json',
-            },
-          },
-        },
+        { protocol: RESULT_PROTOCOL, command: 'codex-flow run --manifest <absolute-json>' },
       ],
     },
     ...(workflow === 'build' ? { inputs: { source: describeBuildSourceInput() } } : {}),

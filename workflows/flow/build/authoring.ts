@@ -287,15 +287,12 @@ export function buildPlanValue(plan: BuildPlanAuthoring) {
 }
 
 /** Renders the exact human Plan that the structured value describes. */
-export function renderPlanMarkdown(
-  plan: BuildPlanAuthoring,
-  options: { includeOutcome?: boolean } = {},
-): string {
+export function renderPlanMarkdown(plan: BuildPlanAuthoring): string {
   const reference = plan.reference_module;
   const lines = [
     '## Plan',
     '',
-    ...(options.includeOutcome === false ? [] : [`Outcome: ${oneLine(plan.outcome)}`]),
+    `Outcome: ${oneLine(plan.outcome)}`,
     ...(plan.root_cause === null ? [] : [`root_cause: ${oneLine(plan.root_cause)}`]),
     `test_command: ${plan.test_command}`,
     `reference_module: ${reference.kind}${reference.reason === null ? '' : ` — ${oneLine(reference.reason)}`}`,

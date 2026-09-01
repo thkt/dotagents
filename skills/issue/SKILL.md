@@ -5,11 +5,12 @@ description: Turn one reviewed think artifact into a validated, build-ready GitH
 
 # Issue
 
+Before preparing a publication contract, read [.codex/OUTCOME.md](../../.codex/OUTCOME.md).
+
 Inspect the current input, preview, and publication contract with `codex-issue describe`.
 
 ## Decisions
 
-- Read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) before preparing the published contract.
 - Use one ready JSON artifact produced by think. If none exists, stop at the missing decision.
 - Choose a new issue or Plan attachment to one named existing issue.
 - For a new issue, provide a concise title without a task-type prefix.

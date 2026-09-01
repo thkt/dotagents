@@ -22,7 +22,7 @@ import {
 } from '../shared/repository.ts';
 import { runShellVerification } from './shell-gate.ts';
 
-export interface RepositorySandbox {
+interface RepositorySandbox {
   directory: string;
   dispose(): void;
 }
@@ -56,7 +56,7 @@ function copyWorkingTree(source: string, destination: string): void {
   }
 }
 
-export function createRepositorySandbox(repo: string): RepositorySandbox {
+function createRepositorySandbox(repo: string): RepositorySandbox {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-repository-sandbox-'));
   const directory = path.join(root, 'repo');
   try {
@@ -77,41 +77,6 @@ export function createRepositorySandbox(repo: string): RepositorySandbox {
   } catch (error) {
     fs.rmSync(root, { recursive: true, force: true });
     throw error;
-  }
-}
-
-/**
- * Runs work against one repository snapshot.  The callback never receives the
- * caller's worktree, so files changed while a model is waiting cannot alter
- * what it reads.  Callers that hand results back to the current source must
- * perform their normal evidence/dependency revalidation afterwards.
- */
-export async function runInImmutableRepositorySnapshot<T>(
-  repo: string,
-  run: (snapshotRepo: string) => Promise<T>,
-): Promise<T> {
-  const sandbox = createRepositorySandbox(repo);
-  try {
-    const before = repositoryInvariant(sandbox.directory);
-    let result: T | undefined;
-    let failure: unknown;
-    try {
-      result = await run(sandbox.directory);
-    } catch (error) {
-      failure = error;
-    }
-    const after = repositoryInvariant(sandbox.directory);
-    const controls = repositoryControlChanges(before, after);
-    const changed = snapshotChanges(before.changes, after.changes);
-    if (controls.length || changed.length)
-      throw new FlowError(
-        `snapshot actor changed repository state: ${[...controls, ...changed].join(', ')}${failure ? `; ${errorMessage(failure)}` : ''}`,
-        'scope_error',
-      );
-    if (failure) throw failure;
-    return result as T;
-  } finally {
-    sandbox.dispose();
   }
 }
 

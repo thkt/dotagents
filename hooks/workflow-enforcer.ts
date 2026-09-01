@@ -147,13 +147,8 @@ const WORKFLOW_RUNTIMES = {
   build: { executable: FLOW_COMMAND, flag: '--manifest', start: 'run', noun: 'manifest' },
   code: { executable: FLOW_COMMAND, flag: '--manifest', start: 'run', noun: 'manifest' },
   issue: { executable: ISSUE_COMMAND, flag: '--input', start: 'draft', noun: 'issue input' },
-  research: {
-    executable: RESEARCH_COMMAND,
-    flag: null,
-    start: 'run',
-    noun: 'typed research flags',
-  },
-  think: { executable: THINK_COMMAND, flag: null, start: 'run', noun: 'typed think flags' },
+  research: { executable: RESEARCH_COMMAND, flag: '--input', start: 'run', noun: 'research input' },
+  think: { executable: THINK_COMMAND, flag: '--input', start: 'run', noun: 'think input' },
 } as const;
 type WorkflowName = keyof typeof WORKFLOW_RUNTIMES;
 
@@ -241,9 +236,7 @@ function pendingPreToolUse(
     input.tool_name === 'Edit' ||
     input.tool_name === 'Write'
   ) {
-    return pending.workflow === 'think' || pending.workflow === 'research'
-      ? deny('standalone Think/Research input is typed CLI only; do not write private input files')
-      : pendingWrite(input, pending);
+    return pendingWrite(input, pending);
   }
   if (input.tool_name !== 'Bash') return {};
   const { executable, flag, start } = invocationRuntime(pending);
@@ -254,9 +247,6 @@ function pendingPreToolUse(
       : {};
   }
   if (subcommand === start) {
-    if (pending.workflow === 'think' || pending.workflow === 'research')
-      return injectRunId(input, command);
-    if (!flag) return deny('workflow command requires its input flag');
     return exactInputPath(input, command, flag, pending.input_path)
       ? injectRunId(input, command)
       : deny(`${start} with the hook-supplied input: ${pending.input_path}`);
@@ -278,7 +268,7 @@ function pendingPreToolUse(
 
 function invocationRuntime(pending: WorkflowIntent): {
   executable: string;
-  flag: '--manifest' | '--input' | null;
+  flag: '--manifest' | '--input';
   start: 'run' | 'draft';
   noun: string;
 } {
@@ -298,19 +288,11 @@ function userPromptSubmit(input: HookInput): HookResponse {
         ? ` Prepare the published-issue source at ${pending.build_source_path}.`
         : '';
     const { executable, flag, start, noun } = invocationRuntime(pending);
-    const command =
-      pending.workflow === 'think'
-        ? `${executable} ${start} --request <text> --task-type <type> --language <language> --run-id <injected>`
-        : pending.workflow === 'research'
-          ? `${executable} ${start} --question <text> --mode <mode> --language <language> --external-sources <sources> --run-id <injected>`
-          : `${executable} ${start} ${flag} ${shellArgument(pending.input_path)}`;
+    const command = `${executable} ${start} ${flag} ${shellArgument(pending.input_path)}`;
     return {
       hookSpecificOutput: {
         hookEventName: 'UserPromptSubmit',
-        additionalContext:
-          pending.workflow === 'think' || pending.workflow === 'research'
-            ? `Explicit $${workflow} is armed. Do not write private input files. Run the typed command ${command}; the hook injects --run-id.`
-            : `Explicit $${workflow} is armed. Write the ${noun} only to the hook-supplied path ${pending.input_path}.${buildPaths} Then run ${command}.`,
+        additionalContext: `Explicit $${workflow} is armed. Write the ${noun} only to the hook-supplied path ${pending.input_path}.${buildPaths} Then run ${command}.`,
       },
     };
   } catch (error) {
@@ -360,16 +342,8 @@ function stop(input: HookInput): HookResponse {
   const pending = loadIntent(input.session_id);
   if (pending) {
     const { executable, flag, start } = invocationRuntime(pending);
-    const command =
-      pending.workflow === 'think'
-        ? `${executable} ${start} --request <text> --task-type <type> --language <language> --run-id <injected>`
-        : pending.workflow === 'research'
-          ? `${executable} ${start} --question <text> --mode <mode> --language <language> --external-sources <sources> --run-id <injected>`
-          : `${executable} ${start} ${flag} ${shellArgument(pending.input_path)}`;
-    const reason =
-      pending.workflow === 'think' || pending.workflow === 'research'
-        ? `The explicit $${pending.workflow} workflow has not run. Run the typed command: ${command}.`
-        : `The explicit $${pending.workflow} workflow has not run. Create ${pending.input_path} and run ${command}.`;
+    const command = `${executable} ${start} ${flag} ${shellArgument(pending.input_path)}`;
+    const reason = `The explicit $${pending.workflow} workflow has not run. Create ${pending.input_path} and run ${command}.`;
     if (input.stop_hook_active) {
       clearIntent(pending.run_id);
       return {

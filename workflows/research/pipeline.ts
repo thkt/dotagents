@@ -1,11 +1,14 @@
 /** @file Outcome: Only source-valid, independently audited research becomes a durable repository artifact. */
 
-import { FlowError, withStageElapsed } from '../shared/errors.ts';
-import { elapsedMs, emptyStageTimings, type StageTimings } from '../shared/codex.ts';
+import * as fs from 'node:fs';
+import path from 'node:path';
+
+import { FlowError } from '../shared/errors.ts';
 import { readRepositoryEvidence } from '../shared/evidence.ts';
-import { repositoryInvariant } from '../shared/repository.ts';
+import { repositoryInvariant, sameWorkflowRepositoryInvariant } from '../shared/repository.ts';
 import {
   RESEARCH_REPORT_PROTOCOL,
+  parseResearchReport,
   researchNextStep,
   type ResearchAudit,
   type ResearchDraft,
@@ -14,17 +17,20 @@ import {
   type ResearchReport,
   type ResearchReportEvidence,
 } from './contracts.ts';
-import { CodexResearchAgent, type ResearchAgent } from './agent.ts';
+import { CodexResearchAgent, type PriorResearchSummary, type ResearchAgent } from './agent.ts';
+import { researchArtifactDirectory } from '../shared/storage.ts';
 import { persistResearchReport } from './artifact.ts';
-import { runInImmutableRepositorySnapshot } from '../flow/isolation.ts';
+import { compileContext } from '../knowledge/context.ts';
+import { emptyStageTimings } from '../shared/codex.ts';
 
 export interface ResearchRunResult {
   report: ResearchReport;
   report_json: string;
   report_markdown: string;
-  timings: StageTimings;
-  artifact_persist_ms: number;
+  context_status: 'loaded' | 'degraded';
 }
+
+const PRIOR_REPORT_LIMIT = 20;
 
 function inScope(source: string, scopePaths: readonly string[]): boolean {
   if (!scopePaths.length) return true;
@@ -74,9 +80,21 @@ function validateDraftSources(input: ResearchInput, draft: ResearchDraft): void 
   }
 }
 
-function validateAuditSources(input: ResearchInput, audit: ResearchAudit): void {
+function validateAuditSources(
+  input: ResearchInput,
+  audit: ResearchAudit,
+  prior: PriorResearchSummary[],
+): void {
   for (const [index, finding] of audit.findings.entries()) {
     validateEvidence(input, finding.evidence, `research audit.findings[${index}].evidence`);
+  }
+  const available = new Set(prior.map((item) => item.path));
+  const invalid = audit.prior_reports.filter((item) => !available.has(item));
+  if (invalid.length) {
+    throw new FlowError(
+      `research audit cited unavailable prior reports: ${invalid.join(', ')}`,
+      'evidence_error',
+    );
   }
   if (!audit.findings.length && !audit.unknowns.length) {
     throw new FlowError(
@@ -84,6 +102,37 @@ function validateAuditSources(input: ResearchInput, audit: ResearchAudit): void 
       'evidence_error',
     );
   }
+}
+
+function readPriorResearch(repo: string): PriorResearchSummary[] {
+  const directory = researchArtifactDirectory(repo);
+  const stat = fs.lstatSync(directory, { throwIfNoEntry: false });
+  if (!stat) return [];
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new FlowError('the research artifact path must be a directory', 'state_error');
+  }
+  return fs
+    .readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+    .map((entry) => {
+      const file = path.join(directory, entry.name);
+      return { file, mtime: fs.statSync(file).mtimeMs };
+    })
+    .sort((left, right) => right.mtime - left.mtime)
+    .slice(0, PRIOR_REPORT_LIMIT)
+    .flatMap(({ file }) => {
+      try {
+        const value = parseResearchReport(JSON.parse(fs.readFileSync(file, 'utf8')) as unknown);
+        return [
+          {
+            path: path.basename(file),
+            question: value.question,
+          },
+        ];
+      } catch {
+        return [];
+      }
+    });
 }
 
 /** Seals current repository evidence so later workflows can reject stale citations. */
@@ -107,69 +156,36 @@ export async function runResearch(
   input: ResearchInput,
   agent: ResearchAgent = new CodexResearchAgent(),
 ): Promise<ResearchRunResult> {
-  const timings: StageTimings = emptyStageTimings();
   const before = repositoryInvariant(input.repo);
-  const snapshotStarted = performance.now();
-  const staged = await runInImmutableRepositorySnapshot(input.repo, async (snapshotRepo) => {
-    timings.repository_snapshot_ms = elapsedMs(snapshotStarted);
-    const modelInput = { ...input, repo: snapshotRepo };
-    const investigateStarted = performance.now();
-    let draft: ResearchDraft;
-    try {
-      draft = await agent.investigate(modelInput);
-    } catch (error) {
-      timings.investigator_model_call_ms = elapsedMs(investigateStarted);
-      throw withStageElapsed(
-        error,
-        'research investigator model call',
-        timings.investigator_model_call_ms,
-      );
-    }
-    timings.investigator_model_call_ms = elapsedMs(investigateStarted);
-    Object.assign(timings, agent.lastTimings);
-    const draftValidationStarted = performance.now();
-    try {
-      validateDraftSources({ ...input, repo: snapshotRepo }, draft);
-    } catch (error) {
-      timings.controller_evidence_validation_ms += elapsedMs(draftValidationStarted);
-      throw withStageElapsed(
-        error,
-        'research draft evidence validation',
-        timings.controller_evidence_validation_ms,
-      );
-    }
-    timings.controller_evidence_validation_ms += elapsedMs(draftValidationStarted);
-    const auditStarted = performance.now();
-    let audit: ResearchAudit;
-    try {
-      audit = await agent.audit(modelInput, draft);
-    } catch (error) {
-      timings.auditor_model_call_ms = elapsedMs(auditStarted);
-      throw withStageElapsed(error, 'research auditor model call', timings.auditor_model_call_ms);
-    }
-    timings.auditor_model_call_ms = elapsedMs(auditStarted);
-    Object.assign(timings, agent.lastTimings);
-    const auditValidationStarted = performance.now();
-    try {
-      validateAuditSources({ ...input, repo: snapshotRepo }, audit);
-    } catch (error) {
-      timings.controller_evidence_validation_ms += elapsedMs(auditValidationStarted);
-      throw withStageElapsed(
-        error,
-        'research audit evidence validation',
-        timings.controller_evidence_validation_ms,
-      );
-    }
-    timings.controller_evidence_validation_ms += elapsedMs(auditValidationStarted);
-    const findings = audit.findings.map((finding, index) => ({
-      ...finding,
-      id: `F-${String(index + 1).padStart(3, '0')}`,
-      evidence: finding.evidence.map((item) =>
-        sealEvidence({ ...input, repo: snapshotRepo }, item),
-      ),
+  const prior = readPriorResearch(input.repo);
+  let contextLoad: ReturnType<typeof compileContext>;
+  try {
+    contextLoad = compileContext(input.repo, 'research');
+  } catch {
+    contextLoad = { status: 'degraded', entries: [] };
+  }
+  const context = contextLoad.entries
+    .filter((e) => e.kind === 'knowledge')
+    .map(({ id, statement, source_artifact, source_id, status }) => ({
+      id,
+      kind: 'knowledge' as const,
+      status: status as 'active' | 'review_required',
+      statement,
+      source_artifact,
+      source_id,
     }));
-    return { audit, findings };
-  });
+  const draft = await agent.investigate(input, prior, context);
+  validateDraftSources(input, draft);
+  const audit = await agent.audit(input, draft, prior, context);
+  validateAuditSources(input, audit, prior);
+  const findings = audit.findings.map((finding, index) => ({
+    ...finding,
+    id: `F-${String(index + 1).padStart(3, '0')}`,
+    evidence: finding.evidence.map((item) => sealEvidence(input, item)),
+  }));
+  if (!sameWorkflowRepositoryInvariant(before, repositoryInvariant(input.repo))) {
+    throw new FlowError('repository changed while research was running', 'state_error');
+  }
   const generatedAt = new Date();
   const report: ResearchReport = {
     protocol: RESEARCH_REPORT_PROTOCOL,
@@ -183,21 +199,20 @@ export async function runResearch(
       head: before.head,
       dirty: Object.keys(before.changes).length > 0,
     },
-    answer: staged.audit.answer,
-    findings: staged.findings,
-    rejected: staged.audit.rejected,
-    unknowns: staged.audit.unknowns,
-    limitations: staged.audit.limitations,
+    answer: audit.answer,
+    findings,
+    rejected: audit.rejected,
+    unknowns: audit.unknowns,
+    limitations: audit.limitations,
+    prior_reports: audit.prior_reports,
     next_step: researchNextStep(input.mode),
-    timings,
+    timings: emptyStageTimings(),
   };
-  const persistStarted = performance.now();
   const paths = persistResearchReport(input.repo, report);
   return {
     report,
     report_json: paths.json,
     report_markdown: paths.markdown,
-    timings,
-    artifact_persist_ms: elapsedMs(persistStarted),
+    context_status: contextLoad.status,
   };
 }

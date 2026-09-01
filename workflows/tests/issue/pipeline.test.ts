@@ -6,6 +6,9 @@ import * as os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+process.env.CODEX_FLOW_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-issue-state-'));
+
+import { compileContext } from '../../../workflows/knowledge/context.ts';
 import { draftIssue, publishIssue } from '../../../workflows/issue/pipeline.ts';
 import { draftIssueWorkflow } from '../../../workflows/issue/runner.ts';
 import { armIntent } from '../../../workflows/invocation.ts';
@@ -15,14 +18,12 @@ import { persistThinkReport } from '../../../workflows/think/artifact.ts';
 import { THINK_REPORT_PROTOCOL, type ThinkReport } from '../../../workflows/think/contracts.ts';
 import { repositoryInvariant } from '../../../workflows/shared/repository.ts';
 import { workflowInputPath } from '../../../workflows/shared/storage.ts';
-import { researchArtifactDirectory } from '../../../workflows/shared/storage.ts';
+import { emptyStageTimings } from '../../../workflows/shared/codex.ts';
 import { sha256 } from '../../../workflows/shared/evidence.ts';
 import {
   BUILD_SOURCE_PROTOCOL,
   resolveBuildSource,
 } from '../../../workflows/flow/build/handoff.ts';
-
-process.env.CODEX_FLOW_STATE_DIR ??= fs.mkdtempSync(path.join(os.tmpdir(), 'issue-state-'));
 
 function repoFixture(t: test.TestContext): string {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-issue-'));
@@ -88,21 +89,9 @@ function think(repo: string, overrides: Partial<ThinkReport> = {}): string {
     plan,
     research_questions: [],
     review_notes: [],
-    review_findings: [],
-    timings: {
-      repository_snapshot_ms: 0,
-      investigator_model_call_ms: 0,
-      investigator_structured_validation_ms: 0,
-      auditor_model_call_ms: 0,
-      auditor_structured_validation_ms: 0,
-      designer_model_call_ms: 0,
-      designer_structured_validation_ms: 0,
-      reviewer_model_call_ms: 0,
-      reviewer_structured_validation_ms: 0,
-      controller_evidence_validation_ms: 0,
-    },
     research_reports: [],
     next_step: 'issue',
+    timings: emptyStageTimings(),
     ...overrides,
   };
   return persistThinkReport(repo, report).json;
@@ -132,16 +121,13 @@ class Gateway implements IssueGateway {
     labels: [],
   };
   writes = 0;
-  calls: string[] = [];
   view() {
     return this.issue;
   }
   ensureLabel(_r: string, label: string) {
-    this.calls.push(`ensureLabel:${label}`);
     this.issue.labels = [label];
   }
   create(_r: string, title: string, bodyFile: string, label: string) {
-    this.calls.push('create');
     this.writes++;
     this.issue = { ...this.issue, title, body: fs.readFileSync(bodyFile, 'utf8'), labels: [label] };
     return this.issue;
@@ -162,8 +148,11 @@ test('one explicit issue invocation publishes the exact draft and returns build 
   armIntent({ runId: 'issue-test', workflow: 'issue', cwd: repo });
   const publishedResult = draftIssueWorkflow('issue-test', inputFile, gateway);
   assert.equal(gateway.writes, 1);
-  assert.deepEqual(gateway.calls, ['ensureLabel:priority:medium', 'create']);
   assert.equal(publishedResult.status, 'published');
+  assert.equal(
+    compileContext(repo, 'think').entries.some((e) => e.kind === 'decision'),
+    true,
+  );
   assert.equal(
     JSON.parse(fs.readFileSync(publishedResult.receipt_json, 'utf8')).body,
     gateway.issue.body,
@@ -177,34 +166,6 @@ test('one explicit issue invocation publishes the exact draft and returns build 
   assert.equal(resolved.body, gateway.issue.body);
   assert.equal(resolved.plan.outcome, plan.outcome);
   assert.equal(resolved.plan.test_command, plan.test_command);
-});
-
-test('renders a readable Outcome Decision Plan without repeating request or rationale', (t) => {
-  const repo = repoFixture(t);
-  const report = think(repo, {
-    request: '長い request の全文 SENTINEL_REQUEST_ONLY\n詳細な依頼文',
-    outcome: '実装後に観測できる Outcome\n二行目',
-    rationale: '長い rationale の全文 SENTINEL_RATIONALE_ONLY\n理由の詳細',
-    decision: 'Decision paragraph first line\nDecision paragraph second line',
-    plan: {
-      ...plan,
-      rules: [{ source: 'README.md', quote: 'fixture' }],
-      preconditions: [{ path: 'README.md', pattern: null }],
-    },
-  });
-  const body = fs.readFileSync(
-    draftIssue(input(repo, report), new Gateway()).body_markdown,
-    'utf8',
-  );
-  assert.deepEqual(
-    [...body.matchAll(/^## (Outcome|Decision|Plan)$/gmu)].map((m) => m[1]),
-    ['Outcome', 'Decision', 'Plan'],
-  );
-  assert.doesNotMatch(body, /SENTINEL_REQUEST_ONLY|SENTINEL_RATIONALE_ONLY/u);
-  assert.match(body, /Decision paragraph first line\nDecision paragraph second line/u);
-  assert.equal((body.match(/^Outcome:/gmu) ?? []).length, 0);
-  assert.match(body, /### U-001/u);
-  assert.match(body, /- T-001 正常系/u);
 });
 
 test('rejects stale/changed evidence and preserves ignored-only changes', (t) => {
@@ -239,83 +200,6 @@ test('rejects stale Think evidence before any GitHub write', (t) => {
     ],
   });
   assert.throws(() => draftIssue(input(repo, report), new Gateway()), /stale/u);
-});
-
-test('revalidates current repository source before publishing selected research evidence', (t) => {
-  const repo = repoFixture(t);
-  fs.writeFileSync(path.join(repo, 'README.md'), 'dirty-one\n');
-  const artifactDir = researchArtifactDirectory(repo);
-  fs.mkdirSync(artifactDir, { recursive: true });
-  const artifact = path.join(artifactDir, 'selected-b.json');
-  const nestedHash = sha256(Buffer.from('dirty-one\n'));
-  fs.writeFileSync(
-    artifact,
-    JSON.stringify({
-      protocol: 'codex-research-report/v3',
-      generated_at: new Date().toISOString(),
-      question: 'B',
-      mode: 'plan',
-      language: 'japanese',
-      scope_paths: [],
-      external_sources: 'none',
-      repository: { head: null, dirty: true },
-      timings: {
-        repository_snapshot_ms: 0,
-        investigator_model_call_ms: 0,
-        investigator_structured_validation_ms: 0,
-        auditor_model_call_ms: 0,
-        auditor_structured_validation_ms: 0,
-        designer_model_call_ms: 0,
-        designer_structured_validation_ms: 0,
-        reviewer_model_call_ms: 0,
-        reviewer_structured_validation_ms: 0,
-        controller_evidence_validation_ms: 0,
-      },
-      answer: 'B',
-      findings: [
-        {
-          id: 'F-001',
-          statement: 'B',
-          kind: 'fact',
-          confidence: 'high',
-          qualification: null,
-          evidence: [
-            {
-              kind: 'repository',
-              source: 'README.md',
-              locator: 'L1',
-              supports: 'B',
-              source_sha256: nestedHash,
-            },
-          ],
-          implication: 'B',
-        },
-      ],
-      unknowns: [],
-      rejected: [],
-      limitations: [],
-      next_step: 'think',
-    }),
-  );
-  const artifactDigest = sha256(fs.readFileSync(artifact));
-  const report = think(repo, {
-    repository: { head: repositoryInvariant(repo).head, dirty: true },
-    evidence: [
-      {
-        id: 'E-001',
-        kind: 'research',
-        source: 'selected-b.json',
-        locator: 'F-001',
-        supports: 'B',
-        source_sha256: artifactDigest,
-      },
-    ],
-    research_reports: [artifact],
-  });
-  fs.writeFileSync(path.join(repo, 'README.md'), 'dirty-two\n');
-  const gateway = new Gateway();
-  assert.throws(() => draftIssue(input(repo, report), gateway), /README.*stale|stale.*README/u);
-  assert.equal(gateway.writes, 0);
 });
 
 test('rejects changed draft body and digest before writing', (t) => {

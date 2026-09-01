@@ -30,6 +30,10 @@ export function intentPath(runId: string): string {
   return path.join(stateDirectory(), 'intents', `${runKey(runId)}.json`);
 }
 
+export function issueApprovalPath(runId: string): string {
+  return path.join(stateDirectory(), 'issue-approvals', `${runKey(runId)}.json`);
+}
+
 export function workflowInputPath(runId: string): string {
   return path.join(stateDirectory(), 'inputs', `${runKey(runId)}.json`);
 }

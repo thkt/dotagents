@@ -149,21 +149,13 @@ function requireIntent(
 }
 
 /** Proves that research startup matches its explicit task- and repository-bound invocation. */
-function requireResearchIntent(runId: string, repo: string): WorkflowIntent {
-  const intent = loadIntent(runId);
-  if (!intent || intent.workflow !== 'research')
-    throw new Error('explicit $research invocation is required');
-  if (intent.repo !== repo) throw new Error('workflow intent belongs to a different Git worktree');
-  return intent;
+function requireResearchIntent(runId: string, repo: string, inputFile: string): WorkflowIntent {
+  return requireBoundIntent(runId, 'research', repo, inputFile, 'research input');
 }
 
 /** Proves that think startup matches its explicit task- and repository-bound invocation. */
-function requireThinkIntent(runId: string, repo: string): WorkflowIntent {
-  const intent = loadIntent(runId);
-  if (!intent || intent.workflow !== 'think')
-    throw new Error('explicit $think invocation is required');
-  if (intent.repo !== repo) throw new Error('workflow intent belongs to a different Git worktree');
-  return intent;
+function requireThinkIntent(runId: string, repo: string, inputFile: string): WorkflowIntent {
+  return requireBoundIntent(runId, 'think', repo, inputFile, 'think input');
 }
 
 /** Proves that issue drafting matches its explicit task- and repository-bound invocation. */

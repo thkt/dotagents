@@ -365,22 +365,14 @@ export interface FlowDescription {
     repo: '<absolute-git-root>';
     max_corrections: number;
     shipping_authorized: false;
-    steps: FlowStep[];
+    steps: [];
   };
-  /** A closed, copyable contract: values in angle brackets are substitution points. */
-  executable_example?: {
-    manifest: Record<string, unknown>;
-    start_command: string;
+  executable_example: {
     required_sequence: string[];
-    gate_authority: Record<string, string>;
-    failure_routes: Record<string, string>;
+    manifest: Record<string, unknown>;
   };
-  cli_contracts?: {
-    reports: Array<{
-      command: string;
-      protocol: string;
-      flags: Record<string, { required: boolean; repeatable: boolean; example: string }>;
-    }>;
+  cli_contracts: {
+    reports: Array<{ protocol: string; command: string }>;
   };
   inputs?: {
     source: {

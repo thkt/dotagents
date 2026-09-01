@@ -27,13 +27,3 @@ export function errorCode(error: unknown): string | undefined {
     ? error.code
     : undefined;
 }
-
-/** Adds an observable stage duration while preserving the stable FlowError classification. */
-export function withStageElapsed(error: unknown, stage: string, elapsed: number): FlowError {
-  const message = errorMessage(error);
-  const code = errorCode(error) ?? 'execution_error';
-  return new FlowError(
-    `${stage} failed after ${Math.max(0, Math.round(elapsed))}ms: ${message}`,
-    code,
-  );
-}

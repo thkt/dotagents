@@ -94,11 +94,7 @@ export function parsePublishedIssueReceipt(raw: unknown, repo: string): Publishe
     throw new FlowError('build receipt body digest is invalid');
   }
   const plan = parseBuildPlanAuthoring(raw.plan);
-  const planRenderings = [
-    renderPlanMarkdown(plan).trimEnd(),
-    renderPlanMarkdown(plan, { includeOutcome: false }).trimEnd(),
-  ];
-  if (!planRenderings.some((rendering) => body.trimEnd().endsWith(rendering))) {
+  if (!body.trimEnd().endsWith(renderPlanMarkdown(plan).trimEnd())) {
     throw new FlowError('build receipt body does not contain its exact Plan');
   }
   const remote = requiredString(raw.remote, 'build receipt.remote');

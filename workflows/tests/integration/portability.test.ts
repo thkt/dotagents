@@ -15,6 +15,7 @@ import {
 } from '../../shared/environment.ts';
 
 const EXPECTED_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const CODEX_ROOT = path.resolve(EXPECTED_ROOT, '../.codex');
 
 function typeScriptFiles(directory: string): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -43,7 +44,14 @@ test('groups workflow modules by outcome without feature dependencies in shared'
     .map((entry) => entry.name)
     .filter((name) => name !== 'tests')
     .sort();
-  assert.deepEqual(moduleDirectories, ['flow', 'issue', 'research', 'shared', 'think']);
+  assert.deepEqual(moduleDirectories, [
+    'flow',
+    'issue',
+    'knowledge',
+    'research',
+    'shared',
+    'think',
+  ]);
   assert.deepEqual(
     fs
       .readdirSync(workflows, { withFileTypes: true })
@@ -85,7 +93,7 @@ test('keeps build implementation and workflow tests with their owning workflow',
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .sort(),
-    ['build', 'flow', 'integration', 'issue', 'research', 'shared', 'think'],
+    ['build', 'flow', 'integration', 'issue', 'knowledge', 'research', 'shared', 'think'],
   );
   for (const file of ['workflows/flow/build/gates.ts', 'workflows/tests/build/gates.test.ts']) {
     const ignored = spawnSync('git', ['check-ignore', '--quiet', file], { cwd: EXPECTED_ROOT });
@@ -224,5 +232,16 @@ test('keeps maintained runtime and instruction files independent of a user home'
   ].map((relative) => path.join(EXPECTED_ROOT, relative));
   for (const file of files) {
     assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /\/Users\/[^/]+\//u, file);
+  }
+});
+
+test('keeps package guidance independent of the Claude rules tree', () => {
+  const guidance = fs.readFileSync(path.join(EXPECTED_ROOT, '.codex/OUTCOME.md'), 'utf8');
+  assert.doesNotMatch(guidance, /(?:\.\/rules|\.claude\/rules)/u);
+});
+
+test('keeps hook implementations in the shared agents package only', () => {
+  for (const file of ['hooks/package.json', 'hooks/post-edit.ts', 'hooks/workflow-enforcer.ts']) {
+    assert.equal(fs.existsSync(path.join(CODEX_ROOT, file)), false, file);
   }
 });

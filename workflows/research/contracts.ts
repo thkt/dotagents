@@ -99,6 +99,7 @@ export interface ResearchAudit {
   rejected: RejectedFinding[];
   unknowns: ResearchUnknown[];
   limitations: string[];
+  prior_reports: string[];
 }
 
 export interface ResearchReport extends Omit<ResearchAudit, 'findings'> {
@@ -194,8 +195,9 @@ export const RESEARCH_AUDIT_SCHEMA = {
     },
     unknowns: { type: 'array', items: UNKNOWN_SCHEMA },
     limitations: { type: 'array', items: { type: 'string' } },
+    prior_reports: { type: 'array', items: { type: 'string' } },
   },
-  required: ['answer', 'findings', 'rejected', 'unknowns', 'limitations'],
+  required: ['answer', 'findings', 'rejected', 'unknowns', 'limitations', 'prior_reports'],
   additionalProperties: false,
 } as const;
 
@@ -424,7 +426,7 @@ export function parseResearchAudit(raw: unknown): ResearchAudit {
     throw new FlowError('research auditor returned an invalid object', 'execution_error');
   rejectUnknownKeys(
     raw,
-    ['answer', 'findings', 'rejected', 'unknowns', 'limitations'],
+    ['answer', 'findings', 'rejected', 'unknowns', 'limitations', 'prior_reports'],
     'research audit',
     'execution_error',
   );
@@ -449,6 +451,11 @@ export function parseResearchAudit(raw: unknown): ResearchAudit {
       parseUnknown(item, `research audit.unknowns[${index}]`),
     ),
     limitations: stringArray(raw.limitations, 'research audit.limitations', 'execution_error'),
+    prior_reports: stringArray(
+      raw.prior_reports ?? [],
+      'research audit.prior_reports',
+      'execution_error',
+    ),
   };
 }
 
@@ -476,6 +483,7 @@ export function parseResearchReport(raw: unknown): ResearchReport {
       'rejected',
       'unknowns',
       'limitations',
+      'prior_reports',
       'next_step',
       'timings',
     ],
@@ -502,14 +510,13 @@ export function parseResearchReport(raw: unknown): ResearchReport {
     'research report.mode',
     'execution_error',
   );
-  const timingsValue = raw.timings;
-  const timings = parseStageTimings(timingsValue, 'research report.timings', 'execution_error');
   const nextStep = enumValue(
     raw.next_step,
     ['think', 'fix', 'complete'] as const,
     'research report.next_step',
     'execution_error',
   );
+  const timings = parseStageTimings(raw.timings, 'research report.timings', 'execution_error');
   if (nextStep !== researchNextStep(mode)) {
     throw new FlowError('research report.next_step does not match mode', 'execution_error');
   }
@@ -605,6 +612,11 @@ export function parseResearchReport(raw: unknown): ResearchReport {
     ),
     unknowns,
     limitations: stringArray(raw.limitations, 'research report.limitations', 'execution_error'),
+    prior_reports: stringArray(
+      raw.prior_reports ?? [],
+      'research report.prior_reports',
+      'execution_error',
+    ),
     next_step: nextStep,
     timings,
   };

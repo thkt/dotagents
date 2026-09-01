@@ -4,7 +4,6 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 
 import { FlowError } from '../shared/errors.ts';
-import { parseStageTimings, type StageTimings } from '../shared/codex.ts';
 import { gitRoot } from '../shared/repository.ts';
 import { isObject, rejectUnknownKeys, stringArray, type JsonObject } from '../shared/schema.ts';
 import {
@@ -13,6 +12,7 @@ import {
   parseBuildPlanAuthoring,
   type BuildPlanAuthoring,
 } from '../flow/build/authoring.ts';
+import { parseStageTimings, type StageTimings } from '../shared/codex.ts';
 
 export type ThinkPlan = BuildPlanAuthoring;
 
@@ -23,7 +23,7 @@ export const THINK_DESCRIPTION_PROTOCOL = 'codex-think-description/v1' as const;
 
 export type ThinkTaskType = 'bug' | 'feature' | 'docs' | 'chore';
 export type ThinkLanguage = 'english' | 'japanese';
-export type ThinkReadiness = 'ready' | 'research_required' | 'blocked';
+export type ThinkReadiness = 'ready' | 'research_required';
 
 export interface ThinkInput {
   protocol: typeof THINK_INPUT_PROTOCOL;
@@ -43,23 +43,12 @@ export interface ThinkApproach {
 }
 
 export interface ThinkDraft {
-  outcome: string;
-  root_cause: string | null;
-  decision: string;
-  rationale: string;
-  alternatives: Array<{ summary: string; rejected_because: string }>;
-  evidence: ThinkEvidence[];
+  problem: string;
+  constraints: string[];
+  approaches: ThinkApproach[];
+  recommendation: { approach_id: string; rationale: string };
   plan: ThinkPlan | null;
-  research_questions: string[];
-}
-
-export interface ThinkReviewFinding {
-  severity: 'blocking' | 'nonblocking';
-  statement: string;
-  evidence: ThinkEvidence[];
-  implication: string;
-  required_action: string;
-  disposition?: 'block_issue' | 'advisory';
+  uncertainties: string[];
 }
 
 export interface ThinkEvidence {
@@ -79,8 +68,6 @@ export interface ThinkDecision {
   evidence: ThinkEvidence[];
   plan: ThinkPlan | null;
   research_questions: string[];
-  review_findings: ThinkReviewFinding[];
-  /** @deprecated retained only for report-reader compatibility; new reviewers cannot emit it. */
   review_notes: string[];
 }
 
@@ -105,6 +92,40 @@ export interface ThinkReport extends Omit<ThinkDecision, 'evidence'> {
 export const THINK_DRAFT_SCHEMA = {
   type: 'object',
   properties: {
+    problem: { type: 'string' },
+    constraints: STRING_ARRAY_SCHEMA,
+    approaches: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          summary: { type: 'string' },
+          benefits: STRING_ARRAY_SCHEMA,
+          costs: STRING_ARRAY_SCHEMA,
+          risks: STRING_ARRAY_SCHEMA,
+        },
+        required: ['id', 'summary', 'benefits', 'costs', 'risks'],
+        additionalProperties: false,
+      },
+    },
+    recommendation: {
+      type: 'object',
+      properties: { approach_id: { type: 'string' }, rationale: { type: 'string' } },
+      required: ['approach_id', 'rationale'],
+      additionalProperties: false,
+    },
+    plan: { anyOf: [BUILD_PLAN_AUTHORING_SCHEMA, { type: 'null' }] },
+    uncertainties: STRING_ARRAY_SCHEMA,
+  },
+  required: ['problem', 'constraints', 'approaches', 'recommendation', 'plan', 'uncertainties'],
+  additionalProperties: false,
+} as const;
+
+export const THINK_REVIEW_SCHEMA = {
+  type: 'object',
+  properties: {
+    readiness: { type: 'string', enum: ['ready', 'research_required'] },
     outcome: { type: 'string' },
     root_cause: { type: ['string', 'null'] },
     decision: { type: 'string' },
@@ -118,11 +139,26 @@ export const THINK_DRAFT_SCHEMA = {
         additionalProperties: false,
       },
     },
-    evidence: { type: 'array' },
+    evidence: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          kind: { type: 'string', enum: ['repository', 'research'] },
+          source: { type: 'string' },
+          locator: { type: 'string' },
+          supports: { type: 'string' },
+        },
+        required: ['kind', 'source', 'locator', 'supports'],
+        additionalProperties: false,
+      },
+    },
     plan: { anyOf: [BUILD_PLAN_AUTHORING_SCHEMA, { type: 'null' }] },
     research_questions: STRING_ARRAY_SCHEMA,
+    review_notes: STRING_ARRAY_SCHEMA,
   },
   required: [
+    'readiness',
     'outcome',
     'root_cause',
     'decision',
@@ -131,30 +167,8 @@ export const THINK_DRAFT_SCHEMA = {
     'evidence',
     'plan',
     'research_questions',
+    'review_notes',
   ],
-  additionalProperties: false,
-} as const;
-
-export const THINK_REVIEW_SCHEMA = {
-  type: 'object',
-  properties: {
-    findings: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          severity: { type: 'string', enum: ['blocking', 'nonblocking'] },
-          statement: { type: 'string' },
-          evidence: { type: 'array' },
-          implication: { type: 'string' },
-          required_action: { type: 'string' },
-        },
-        required: ['severity', 'statement', 'evidence', 'implication', 'required_action'],
-        additionalProperties: false,
-      },
-    },
-  },
-  required: ['findings'],
   additionalProperties: false,
 } as const;
 
@@ -193,7 +207,6 @@ function parseApproach(raw: JsonObject, label: string): ThinkApproach {
     risks: stringArray(raw.risks, `${label}.risks`, 'execution_error'),
   };
 }
-void parseApproach;
 
 /** Validates the caller-authored decision boundary before any agent starts. */
 export function validateThinkInput(raw: unknown): ThinkInput {
@@ -235,84 +248,47 @@ export function parseThinkDraft(raw: unknown): ThinkDraft {
     throw new FlowError('think designer returned an invalid object', 'execution_error');
   rejectUnknownKeys(
     raw,
-    [
-      'outcome',
-      'root_cause',
-      'decision',
-      'rationale',
-      'alternatives',
-      'evidence',
-      'plan',
-      'research_questions',
-    ],
+    ['problem', 'constraints', 'approaches', 'recommendation', 'plan', 'uncertainties'],
     'think draft',
     'execution_error',
   );
-  return {
-    outcome: requiredString(raw.outcome, 'think draft.outcome', 'execution_error'),
-    root_cause: nullableString(raw.root_cause, 'think draft.root_cause'),
-    decision: requiredString(raw.decision, 'think draft.decision', 'execution_error'),
-    rationale: requiredString(raw.rationale, 'think draft.rationale', 'execution_error'),
-    alternatives: objectArray(raw.alternatives, 'think draft.alternatives').map((x) => ({
-      summary: requiredString(x.summary, 'summary', 'execution_error'),
-      rejected_because: requiredString(x.rejected_because, 'rejected_because', 'execution_error'),
-    })),
-    evidence: parseEvidence(raw.evidence, 'think draft.evidence'),
-    plan: raw.plan === null ? null : parseBuildPlanAuthoring(raw.plan),
-    research_questions: stringArray(
-      raw.research_questions,
-      'think draft.research_questions',
+  const approaches = objectArray(raw.approaches, 'think draft.approaches').map((item, index) =>
+    parseApproach(item, `think draft.approaches[${index}]`),
+  );
+  if (approaches.length < 2)
+    throw new FlowError('think draft requires at least two approaches', 'execution_error');
+  if (!isObject(raw.recommendation)) {
+    throw new FlowError('think draft.recommendation must be an object', 'execution_error');
+  }
+  rejectUnknownKeys(
+    raw.recommendation,
+    ['approach_id', 'rationale'],
+    'think draft.recommendation',
+    'execution_error',
+  );
+  const recommendation = {
+    approach_id: requiredString(
+      raw.recommendation.approach_id,
+      'think draft.recommendation.approach_id',
+      'execution_error',
+    ),
+    rationale: requiredString(
+      raw.recommendation.rationale,
+      'think draft.recommendation.rationale',
       'execution_error',
     ),
   };
-}
-
-function parseEvidence(value: unknown, label: string): ThinkEvidence[] {
-  return objectArray(value, label).map((item, index) => {
-    const p = `${label}[${index}]`;
-    rejectUnknownKeys(item, ['kind', 'source', 'locator', 'supports'], p, 'execution_error');
-    return {
-      kind: enumValue(item.kind, ['repository', 'research'] as const, `${p}.kind`),
-      source: requiredString(item.source, `${p}.source`, 'execution_error'),
-      locator: requiredString(item.locator, `${p}.locator`, 'execution_error'),
-      supports: requiredString(item.supports, `${p}.supports`, 'execution_error'),
-    };
-  });
-}
-
-export function parseThinkReview(raw: unknown): ThinkReviewFinding[] {
-  if (!isObject(raw))
-    throw new FlowError('think reviewer returned an invalid object', 'execution_error');
-  rejectUnknownKeys(raw, ['findings'], 'think review', 'execution_error');
-  return objectArray(raw.findings, 'think review.findings').map((item, index) => {
-    const p = `think review.findings[${index}]`;
-    rejectUnknownKeys(
-      item,
-      ['severity', 'statement', 'evidence', 'implication', 'required_action', 'disposition'],
-      p,
-      'execution_error',
-    );
-    return {
-      severity: enumValue(item.severity, ['blocking', 'nonblocking'] as const, `${p}.severity`),
-      statement: requiredString(item.statement, `${p}.statement`, 'execution_error'),
-      evidence: parseEvidence(item.evidence, `${p}.evidence`),
-      implication: requiredString(item.implication, `${p}.implication`, 'execution_error'),
-      required_action: requiredString(
-        item.required_action,
-        `${p}.required_action`,
-        'execution_error',
-      ),
-      ...(item.disposition
-        ? {
-            disposition: enumValue(
-              item.disposition,
-              ['block_issue', 'advisory'] as const,
-              `${p}.disposition`,
-            ),
-          }
-        : {}),
-    };
-  });
+  if (!approaches.some((approach) => approach.id === recommendation.approach_id)) {
+    throw new FlowError('think draft recommendation does not name an approach', 'execution_error');
+  }
+  return {
+    problem: requiredString(raw.problem, 'think draft.problem', 'execution_error'),
+    constraints: stringArray(raw.constraints, 'think draft.constraints', 'execution_error'),
+    approaches,
+    recommendation,
+    plan: raw.plan === null ? null : parseBuildPlanAuthoring(raw.plan),
+    uncertainties: stringArray(raw.uncertainties, 'think draft.uncertainties', 'execution_error'),
+  };
 }
 
 /** Parses the independent review into the only decision shape allowed to become an artifact. */
@@ -332,7 +308,6 @@ export function parseThinkDecision(raw: unknown): ThinkDecision {
       'plan',
       'research_questions',
       'review_notes',
-      'review_findings',
     ],
     'think decision',
     'execution_error',
@@ -380,7 +355,6 @@ export function parseThinkDecision(raw: unknown): ThinkDecision {
       'execution_error',
     ),
     review_notes: stringArray(raw.review_notes, 'think decision.review_notes', 'execution_error'),
-    review_findings: raw.review_findings ? parseThinkReview({ findings: raw.review_findings }) : [],
   };
 }
 
@@ -408,7 +382,6 @@ export function parseThinkReport(raw: unknown): ThinkReport {
       'plan',
       'research_questions',
       'review_notes',
-      'review_findings',
       'research_reports',
       'next_step',
       'timings',
@@ -416,8 +389,6 @@ export function parseThinkReport(raw: unknown): ThinkReport {
     'think report',
   );
   const generatedAt = requiredString(raw.generated_at, 'think report.generated_at');
-  const timingsValue = raw.timings;
-  const timings = parseStageTimings(timingsValue, 'think report.timings');
   const generatedTime = Date.parse(generatedAt);
   if (!Number.isFinite(generatedTime) || new Date(generatedTime).toISOString() !== generatedAt) {
     throw new FlowError('think report.generated_at must be an ISO timestamp');
@@ -464,16 +435,17 @@ export function parseThinkReport(raw: unknown): ThinkReport {
     plan: raw.plan,
     research_questions: raw.research_questions,
     review_notes: raw.review_notes,
-    review_findings: raw.review_findings ?? [],
   });
   const nextStep = enumValue(
     raw.next_step,
     ['issue', 'research'] as const,
     'think report.next_step',
   );
+  const timings = parseStageTimings(raw.timings, 'think report.timings');
   if (
     (decision.readiness === 'ready' && (decision.plan === null || nextStep !== 'issue')) ||
-    (decision.readiness === 'research_required' && nextStep !== 'research')
+    (decision.readiness === 'research_required' &&
+      (decision.plan !== null || nextStep !== 'research'))
   ) {
     throw new FlowError('think report readiness, plan, and next_step are inconsistent');
   }

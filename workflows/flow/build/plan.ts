@@ -16,7 +16,7 @@ import type { StructuredGateResult } from '../contracts.ts';
 import { SHELL_CONTROL } from '../../shared/command.ts';
 import { isMainModule } from '../../shared/environment.ts';
 
-export const PROTOCOL = 'codex-build-plan/v3';
+const PROTOCOL = 'codex-build-plan/v3';
 const DESCRIPTION_PROTOCOL = 'codex-build-plan-description/v3';
 const UNIT_CAPS = { files: 3, tests: 4 } as const;
 const PLAN_KEYS = new Set([

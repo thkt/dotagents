@@ -29,7 +29,6 @@ export interface CodexClientLike {
   startThread(options?: ThreadOptions): CodexThreadLike;
 }
 
-/** Controller-observable wall-clock stages; SDK-internal queue/reasoning is not inferred. */
 export interface StageTimings {
   repository_snapshot_ms: number;
   investigator_model_call_ms: number;

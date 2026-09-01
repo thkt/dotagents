@@ -5,11 +5,12 @@ description: Investigate one project or technical question into a source-checked
 
 # Research
 
+When present, read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) and inspect only the minimal relevant primary sources.
+
 Inspect the current input and artifact contract with `codex-research describe`.
 
 ## Decisions
 
-- When it exists, read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) and inspect only the minimum relevant primary repository documents.
 - State one answerable question and whether the result supports understanding, planning, or diagnosis.
 - Set repository scope only when evidence outside it must be excluded.
 - Choose whether external sources are disabled, limited to primary sources, or broadly allowed.

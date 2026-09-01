@@ -17,7 +17,7 @@ import type { StructuredGateResult } from '../contracts.ts';
 import { isMainModule } from '../../shared/environment.ts';
 import { nulPaths, realpathInside } from '../../shared/repository.ts';
 
-export const PROTOCOL = 'codex-build-artifacts/v2';
+const PROTOCOL = 'codex-build-artifacts/v2';
 const DESCRIPTION_PROTOCOL = 'codex-build-artifacts-description/v2';
 const BASE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 

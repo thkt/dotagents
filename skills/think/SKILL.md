@@ -5,11 +5,13 @@ description: Compare implementation approaches and turn one change request into 
 
 # Think
 
+When present, read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) and record stable rules in `Plan.rules` with exact paths and quotations.
+Use the relevant [workflow contracts](../../workflows/README.md) when recording those rules.
+
 Inspect the current input and decision contract with `codex-think describe`.
 
 ## Decisions
 
-- When it exists, read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) and cite stable rules from [workflow contracts](../../workflows/README.md) in `Plan.rules` with the source path and exact quote.
 - State one change and the observable state that should exist when it is done.
 - Classify it as a bug, feature, documentation change, or maintenance task.
 - Include only planning research reports that bear directly on the decision.

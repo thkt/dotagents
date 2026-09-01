@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 /** @file Outcome: One explicit command turns a change request into a reviewed decision or a concrete research route. */
 
-import { clearIntent, loadIntent, requireThinkIntent } from '../invocation.ts';
-import { parseCommandWithRepeatable, requireExactFlags } from '../shared/cli.ts';
+import { clearIntent, requireThinkIntent } from '../invocation.ts';
+import { parseCommand, requireExactFlags } from '../shared/cli.ts';
 import { isMainModule, THINK_COMMAND } from '../shared/environment.ts';
 import { FlowError } from '../shared/errors.ts';
-import { runCli } from '../shared/runtime.ts';
+import { readAbsoluteJson, runCli } from '../shared/runtime.ts';
 import {
   THINK_DESCRIPTION_PROTOCOL,
   THINK_INPUT_PROTOCOL,
@@ -13,7 +13,7 @@ import {
   validateThinkInput,
 } from './contracts.ts';
 import type { ThinkAgent } from './agent.ts';
-import { runThink } from './pipeline.ts';
+import { runThink, type ThinkRunResult } from './pipeline.ts';
 
 interface ThinkDescription {
   protocol: typeof THINK_DESCRIPTION_PROTOCOL;
@@ -37,11 +37,12 @@ interface ThinkDescription {
 export interface ThinkCommandResult {
   protocol: typeof THINK_RESULT_PROTOCOL;
   status: 'completed';
-  readiness: 'ready' | 'research_required' | 'blocked';
+  readiness: 'ready' | 'research_required';
   report_json: string;
   report_markdown: string;
   units: number;
   next_step: 'issue' | 'research';
+  context_status: ThinkRunResult['context_status'];
 }
 
 /** Exposes the authoring boundary without starting a model or workflow. */
@@ -52,7 +53,7 @@ export function describeThink(): ThinkDescription {
       'A source-backed decision is either issue-ready or routed to one concrete research gap.',
     cli: {
       describe: `${THINK_COMMAND} describe`,
-      run: `${THINK_COMMAND} run --request <text> --task-type <bug|feature|docs|chore> --language <english|japanese> [--research-report <absolute-json>]`,
+      run: `${THINK_COMMAND} run --input <absolute-json>`,
       task_binding: 'hook-injected',
     },
     input_template: {
@@ -77,30 +78,13 @@ export function describeThink(): ThinkDescription {
 /** Runs only the think input armed for this Codex task, then consumes its intent. */
 export async function runThinkWorkflow(
   runId: string,
-  request: string,
-  taskType: string,
-  language: string,
-  researchReports: string | string[] | undefined,
+  inputFile: string,
   agent?: ThinkAgent,
 ): Promise<ThinkCommandResult> {
-  const intent = loadIntent(runId);
-  if (!intent || intent.workflow !== 'think')
-    throw new FlowError('explicit $think invocation is required');
-  requireThinkIntent(runId, intent.repo);
-  const input = validateThinkInput({
-    protocol: THINK_INPUT_PROTOCOL,
-    repo: intent.repo,
-    request,
-    task_type: taskType,
-    research_reports: researchReports
-      ? Array.isArray(researchReports)
-        ? researchReports
-        : [researchReports]
-      : [],
-    language,
-  });
-  clearIntent(runId);
+  const input = validateThinkInput(readAbsoluteJson(inputFile, 'think'));
+  requireThinkIntent(runId, input.repo, inputFile);
   const result = await runThink(input, agent);
+  clearIntent(runId);
   return {
     protocol: THINK_RESULT_PROTOCOL,
     status: 'completed',
@@ -109,26 +93,21 @@ export async function runThinkWorkflow(
     report_markdown: result.report_markdown,
     units: result.report.plan?.units.length ?? 0,
     next_step: result.report.next_step,
+    context_status: result.context_status,
   };
 }
 
 export async function main(
   argv: string[] = process.argv.slice(2),
 ): Promise<ThinkDescription | ThinkCommandResult> {
-  const { command, flags } = parseCommandWithRepeatable(argv, ['--research-report']);
+  const { command, flags } = parseCommand(argv);
   if (command === 'describe') {
     requireExactFlags(flags, []);
     return describeThink();
   }
   if (command === 'run') {
-    requireExactFlags(flags, ['--request', '--task-type', '--language', '--run-id']);
-    return runThinkWorkflow(
-      flags['--run-id'] as string,
-      flags['--request'] as string,
-      flags['--task-type'] as string,
-      flags['--language'] as string,
-      flags['--research-report'],
-    );
+    requireExactFlags(flags, ['--input', '--run-id']);
+    return runThinkWorkflow(flags['--run-id']!, flags['--input']!);
   }
   throw new FlowError(`unknown command: ${command}`);
 }
