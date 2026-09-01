@@ -17,6 +17,7 @@ description: issueワークフローが公開したreceipt 1件を、検証済�
 - tested unit の Plan file が workflow 開始時点で存在しない場合、その file は Red actor と Green actor の双方の allowed files に含める。既存 file の Red/Green 分割は許可する。
 - このワークフローは、宣言したローカルブランチの作成と、検証済み実装単位のコミットを許可する。
 - push と下書き PR 作成をユーザーが両方とも明示的に許可した場合だけ`Ship`を含める。
+- PR の title と人が読む説明には Codex で設定された言語を使用する。GitHub keyword、識別子、path、command、テスト名は変更しない。
 - 追加 Issue の候補は報告するだけで、作成しない。
 
 ## エスカレーション

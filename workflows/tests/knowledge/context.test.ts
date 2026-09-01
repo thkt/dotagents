@@ -294,7 +294,7 @@ test('valid published issue receipt with sibling draft and ready Think artifact 
       remote: 'origin',
       mode: 'create',
       think_report: thinkFile,
-      title: 't',
+      title: '変更',
       target_issue: null,
       priority: 'medium',
     },

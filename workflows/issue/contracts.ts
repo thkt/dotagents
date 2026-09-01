@@ -144,7 +144,10 @@ export function validateIssueInput(raw: unknown): IssueInput {
   if (mode === 'attach-plan' && (title !== null || targetIssue === null)) {
     throw new FlowError('attach-plan mode requires target_issue and title null');
   }
-  if (title?.includes('\n') || /^\[(?:Bug|Feature|Docs|Chore)\]/u.test(title ?? '')) {
+  if (
+    title?.includes('\n') ||
+    /^\[(?:Bug|Feature|Docs|Chore|バグ|機能|ドキュメント|保守)\]/u.test(title ?? '')
+  ) {
     throw new FlowError('issue input.title must be one line without a task-type prefix');
   }
   const remote = remoteName(raw.remote, 'issue input.remote');

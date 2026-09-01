@@ -10,7 +10,7 @@ process.env.CODEX_FLOW_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-
 
 import { compileContext } from '../../../workflows/knowledge/context.ts';
 import { draftIssue, publishIssue } from '../../../workflows/issue/pipeline.ts';
-import { draftIssueWorkflow } from '../../../workflows/issue/runner.ts';
+import { describeIssue, draftIssueWorkflow } from '../../../workflows/issue/runner.ts';
 import { armIntent } from '../../../workflows/invocation.ts';
 import { ISSUE_INPUT_PROTOCOL, type IssueInput } from '../../../workflows/issue/contracts.ts';
 import type { GitHubIssue, IssueGateway } from '../../../workflows/issue/github.ts';
@@ -110,7 +110,7 @@ function input(repo: string, report: string, extra: Partial<IssueInput> = {}): I
     remote: 'origin',
     mode: 'create',
     think_report: report,
-    title: 'Solid change',
+    title: '堅実な変更',
     target_issue: null,
     priority: 'medium',
     ...extra,
@@ -143,6 +143,17 @@ class Gateway implements IssueGateway {
   }
 }
 
+test('issue description uses the language configured by Codex', () => {
+  assert.equal(
+    describeIssue('japanese').input_template.title,
+    '作業内容を具体的に表す短いタイトル',
+  );
+  assert.equal(
+    describeIssue('english').input_template.title,
+    'Concise title without a task-type prefix',
+  );
+});
+
 test('one explicit issue invocation publishes the exact draft and returns build context', (t) => {
   const repo = repoFixture(t);
   const report = think(repo);
@@ -163,6 +174,10 @@ test('one explicit issue invocation publishes the exact draft and returns build 
     }),
   );
   assert.equal(gateway.writes, 1);
+  assert.equal(gateway.issue.title, '[機能] 堅実な変更');
+  assert.doesNotMatch(gateway.issue.body, /issue test/);
+  assert.match(gateway.issue.body, /## 目的\n\n完了/);
+  assert.match(gateway.issue.body, /- 契約:\n  - 既存契約を維持する/);
   assert.equal(fs.existsSync(issueApprovalPath('issue-test')), false);
   assert.equal(fs.existsSync(intentPath('issue-test')), false);
   assert.equal(publishedResult.status, 'published');
@@ -192,6 +207,20 @@ test('one explicit issue invocation publishes the exact draft and returns build 
       ['issue_publish', 'completed'],
     ],
   );
+});
+
+test('new issue title and report must match the language configured by Codex', (t) => {
+  const repo = repoFixture(t);
+  const gateway = new Gateway();
+  assert.throws(
+    () => draftIssue(input(repo, think(repo), { title: 'English title' }), gateway, 'japanese'),
+    /title must be written in japanese/,
+  );
+  assert.throws(
+    () => draftIssue(input(repo, think(repo), { title: '日本語 title' }), gateway, 'english'),
+    /think report.language must match.*english/,
+  );
+  assert.equal(gateway.writes, 0);
 });
 
 test('publication requires the approval created by the explicit issue invocation', (t) => {

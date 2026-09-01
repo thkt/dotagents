@@ -3,7 +3,12 @@
 
 import { clearIntent, requireThinkIntent } from '../invocation.ts';
 import { parseCommand, requireExactFlags } from '../shared/cli.ts';
-import { isMainModule, THINK_COMMAND } from '../shared/environment.ts';
+import {
+  configuredCodexLanguage,
+  isMainModule,
+  THINK_COMMAND,
+  type ConfiguredLanguage,
+} from '../shared/environment.ts';
 import { FlowError } from '../shared/errors.ts';
 import { readAbsoluteJson, runCli } from '../shared/runtime.ts';
 import {
@@ -25,7 +30,7 @@ interface ThinkDescription {
     request: string;
     task_type: 'feature';
     research_reports: string[];
-    language: 'japanese';
+    language: ConfiguredLanguage;
   };
   contracts: {
     research_reports: string;
@@ -46,7 +51,9 @@ export interface ThinkCommandResult {
 }
 
 /** Exposes the authoring boundary without starting a model or workflow. */
-export function describeThink(): ThinkDescription {
+export function describeThink(
+  language: ConfiguredLanguage = configuredCodexLanguage('japanese'),
+): ThinkDescription {
   return {
     protocol: THINK_DESCRIPTION_PROTOCOL,
     outcome:
@@ -62,7 +69,7 @@ export function describeThink(): ThinkDescription {
       request: 'One change whose outcome needs an implementation decision',
       task_type: 'feature',
       research_reports: [],
-      language: 'japanese',
+      language,
     },
     contracts: {
       research_reports:
@@ -83,6 +90,10 @@ export async function runThinkWorkflow(
 ): Promise<ThinkCommandResult> {
   const input = validateThinkInput(readAbsoluteJson(inputFile, 'think'));
   requireThinkIntent(runId, input.repo, inputFile);
+  const configuredLanguage = configuredCodexLanguage(input.language);
+  if (input.language !== configuredLanguage) {
+    throw new FlowError(`think input.language must match Codex config: ${configuredLanguage}`);
+  }
   const result = await runThink(input, agent);
   clearIntent(runId);
   return {

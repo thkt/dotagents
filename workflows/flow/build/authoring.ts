@@ -1,8 +1,9 @@
 /** @file Outcome: Model-authored Plans have one build-owned schema, parser, runtime value, and human view. */
 
 import { FlowError } from '../../shared/errors.ts';
+import type { ConfiguredLanguage } from '../../shared/environment.ts';
 import { isObject, rejectUnknownKeys, stringArray, type JsonObject } from '../../shared/schema.ts';
-import { oneLine } from '../../shared/text.ts';
+import { oneLine, sentenceItems } from '../../shared/text.ts';
 
 export interface BuildPlanReference {
   kind: 'module' | 'no-module' | 'new-shape';
@@ -286,32 +287,75 @@ export function buildPlanValue(plan: BuildPlanAuthoring) {
   };
 }
 
+function labeledItems(label: string, value: string): string[] {
+  return [`- ${label}:`, ...sentenceItems(value).map((item) => `  - ${item}`)];
+}
+
 /** Renders the exact human Plan that the structured value describes. */
-export function renderPlanMarkdown(plan: BuildPlanAuthoring): string {
+export function renderPlanMarkdown(
+  plan: BuildPlanAuthoring,
+  language: ConfiguredLanguage = 'english',
+): string {
   const reference = plan.reference_module;
+  const labels =
+    language === 'japanese'
+      ? {
+          outcome: '成果',
+          rootCause: '根本原因',
+          testCommand: 'テストコマンド',
+          reference: '参照実装',
+          path: '基準 path',
+          instances: '既存 instance 数',
+          file: '関連 file',
+          convention: '規約',
+          rules: 'ルール',
+          preconditions: '前提条件',
+          contract: '契約',
+          acceptance: '受け入れテスト',
+          manual: '手動確認',
+          backlog: 'バックログ候補',
+          none: 'なし。',
+        }
+      : {
+          outcome: 'Outcome',
+          rootCause: 'Root cause',
+          testCommand: 'Test command',
+          reference: 'Reference module',
+          path: 'path',
+          instances: 'instances',
+          file: 'file',
+          convention: 'convention',
+          rules: 'Rules',
+          preconditions: 'Preconditions',
+          contract: 'Contract',
+          acceptance: 'Acceptance tests',
+          manual: 'Manual verification',
+          backlog: 'Backlog candidates',
+          none: 'None.',
+        };
   const lines = [
     '## Plan',
     '',
-    `Outcome: ${oneLine(plan.outcome)}`,
-    ...(plan.root_cause === null ? [] : [`root_cause: ${oneLine(plan.root_cause)}`]),
-    `test_command: ${plan.test_command}`,
-    `reference_module: ${reference.kind}${reference.reason === null ? '' : ` — ${oneLine(reference.reason)}`}`,
+    ...labeledItems(labels.outcome, plan.outcome),
+    ...(plan.root_cause === null ? [] : labeledItems(labels.rootCause, plan.root_cause)),
+    `- ${labels.testCommand}: \`${plan.test_command}\``,
+    `- ${labels.reference}: ${reference.kind}${reference.reason === null ? '' : ` — ${oneLine(reference.reason)}`}`,
     '',
   ];
   if (reference.kind === 'module') {
     lines.push(
-      '### Reference module',
+      `### ${labels.reference}`,
       '',
-      `- path: \`${reference.path}\``,
-      `- instances: ${reference.instances}`,
-      ...reference.files.map((file) => `- file: \`${file}\``),
-      ...reference.conventions.map((item) => `- convention: ${oneLine(item)}`),
+      `- ${labels.path}: \`${reference.path}\``,
+      `- ${labels.instances}: ${reference.instances}`,
+      ...reference.files.map((file) => `- ${labels.file}: \`${file}\``),
+      ...reference.conventions.map((item) => `- ${labels.convention}: ${oneLine(item)}`),
       '',
     );
   }
   if (plan.rules.length) {
     lines.push(
-      '### Rules',
+      `### ${labels.rules}`,
       '',
       ...plan.rules.map((rule) => `- \`${rule.source}\`: ${oneLine(rule.quote)}`),
       '',
@@ -319,7 +363,7 @@ export function renderPlanMarkdown(plan: BuildPlanAuthoring): string {
   }
   if (plan.preconditions.length) {
     lines.push(
-      '### Preconditions',
+      `### ${labels.preconditions}`,
       '',
       ...plan.preconditions.map(
         (item) =>
@@ -335,13 +379,13 @@ export function renderPlanMarkdown(plan: BuildPlanAuthoring): string {
       oneLine(unit.goal),
       '',
       `- files: ${unit.files.map((file) => `\`${file}\``).join(', ')}`,
-      `- contract: ${oneLine(unit.contract)}`,
+      ...labeledItems(labels.contract, unit.contract),
       ...(unit.seam ? ['- seam: true'] : []),
       '',
     );
     if (unit.tests.length) {
       lines.push(
-        'Acceptance tests.',
+        `${labels.acceptance}.`,
         '',
         ...unit.tests.map((test) => `- ${test.id} ${oneLine(test.name)}`),
         '',
@@ -350,18 +394,18 @@ export function renderPlanMarkdown(plan: BuildPlanAuthoring): string {
   }
   if (plan.manual_verification.length) {
     lines.push(
-      '### Manual verification',
+      `### ${labels.manual}`,
       '',
       ...plan.manual_verification.map((item) => `- ${oneLine(item)}`),
       '',
     );
   }
   lines.push(
-    '## Backlog candidates',
+    `## ${labels.backlog}`,
     '',
     ...(plan.backlog_candidates.length
       ? plan.backlog_candidates.map((item) => `- ${oneLine(item.summary)}`)
-      : ['- None.']),
+      : [`- ${labels.none}`]),
   );
   return `${lines.join('\n')}\n`;
 }

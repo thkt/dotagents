@@ -9,6 +9,8 @@ import { validatePlan } from '../flow/build/plan.ts';
 import { revalidatePlan } from '../flow/build/revalidate.ts';
 import { readRepositoryEvidence, sha256 } from '../shared/evidence.ts';
 import { FlowError } from '../shared/errors.ts';
+import { configuredCodexLanguage, type ConfiguredLanguage } from '../shared/environment.ts';
+import { sentenceItems, textMatchesLanguage } from '../shared/text.ts';
 import {
   realpathInside,
   repositoryInvariant,
@@ -50,10 +52,8 @@ export interface IssuePublishResult {
 }
 
 const TYPE_PREFIX = {
-  bug: '[Bug]',
-  feature: '[Feature]',
-  docs: '[Docs]',
-  chore: '[Chore]',
+  english: { bug: '[Bug]', feature: '[Feature]', docs: '[Docs]', chore: '[Chore]' },
+  japanese: { bug: '[バグ]', feature: '[機能]', docs: '[ドキュメント]', chore: '[保守]' },
 } as const;
 
 type ReadyThinkReport = ThinkReport & {
@@ -113,36 +113,50 @@ function repositoryFingerprint(invariant: RepositoryInvariant): string {
   return sha256(JSON.stringify(workflowRepositoryInvariant(invariant)));
 }
 
-function createTitle(report: ReadyThinkReport, title: string): string {
-  return `${TYPE_PREFIX[report.task_type]} ${title}`;
+function requireTitleLanguage(title: string, language: ConfiguredLanguage): void {
+  if (!textMatchesLanguage(title, language)) {
+    throw new FlowError(`issue input.title must be written in ${language}`, 'decision_error');
+  }
 }
 
-function createBody(report: ReadyThinkReport): string {
+function createTitle(
+  report: ReadyThinkReport,
+  title: string,
+  language: ConfiguredLanguage,
+): string {
+  requireTitleLanguage(title, language);
+  return `${TYPE_PREFIX[language][report.task_type]} ${title}`;
+}
+
+function proseParagraphs(value: string): string[] {
+  return sentenceItems(value).flatMap((sentence) => [sentence, '']);
+}
+
+function createBody(report: ReadyThinkReport, language: ConfiguredLanguage): string {
   const labels =
-    report.language === 'japanese'
-      ? { why: '背景と目的', decision: '決定' }
-      : { why: 'What & Why', decision: 'Decision' };
+    language === 'japanese'
+      ? { outcome: '目的', decision: '決定', rationale: '理由' }
+      : { outcome: 'Outcome', decision: 'Decision', rationale: 'Rationale' };
   return [
-    `## ${labels.why}`,
+    `## ${labels.outcome}`,
     '',
-    report.request,
-    '',
-    report.rationale,
-    '',
+    ...proseParagraphs(report.outcome),
     `## ${labels.decision}`,
     '',
-    report.decision,
+    ...proseParagraphs(report.decision),
+    `### ${labels.rationale}`,
     '',
-    renderPlanMarkdown(report.plan).trimEnd(),
+    ...proseParagraphs(report.rationale),
+    renderPlanMarkdown(report.plan, language).trimEnd(),
     '',
   ].join('\n');
 }
 
-function appendPlan(body: string, report: ReadyThinkReport): string {
+function appendPlan(body: string, report: ReadyThinkReport, language: ConfiguredLanguage): string {
   if (/^##\s+Plan\b/mu.test(body)) {
     throw new FlowError('target issue already has a ## Plan section', 'decision_error');
   }
-  return `${body.trimEnd()}${body.trim() ? '\n\n' : ''}${renderPlanMarkdown(report.plan)}`;
+  return `${body.trimEnd()}${body.trim() ? '\n\n' : ''}${renderPlanMarkdown(report.plan, language)}`;
 }
 
 function requireValidPlan(
@@ -178,6 +192,7 @@ function requireValidPlan(
 export function draftIssue(
   input: IssueInput,
   gateway: IssueGateway = new GhIssueGateway(),
+  configuredLanguage?: ConfiguredLanguage,
 ): IssueDraftResult {
   const before = repositoryInvariant(input.repo);
   const source = loadThinkReport(input.repo, input.think_report);
@@ -190,8 +205,17 @@ export function draftIssue(
   assertGitHubRemote(input.repo, input.remote, input.repository);
   const existing =
     input.mode === 'attach-plan' ? gateway.view(input.repository, input.target_issue!) : null;
-  const title = existing ? existing.title : createTitle(source.report, input.title!);
-  const body = existing ? appendPlan(existing.body, source.report) : createBody(source.report);
+  const language = configuredLanguage ?? configuredCodexLanguage(source.report.language);
+  if (source.report.language !== language) {
+    throw new FlowError(
+      `think report.language must match the configured Codex language: ${language}`,
+      'decision_error',
+    );
+  }
+  const title = existing ? existing.title : createTitle(source.report, input.title!, language);
+  const body = existing
+    ? appendPlan(existing.body, source.report, language)
+    : createBody(source.report, language);
   requireValidPlan(input.target_issue ?? 1, title, body, source.report, input.repo);
   if (!sameWorkflowRepositoryInvariant(before, repositoryInvariant(input.repo))) {
     throw new FlowError(

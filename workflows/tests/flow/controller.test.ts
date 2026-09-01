@@ -271,7 +271,7 @@ function startFlow(runId: string, manifestFile: string): PublicState {
         draft_sha256: '0'.repeat(64),
         issue_number: 42,
         url: 'https://github.com/owner/project/issues/42',
-        title: 'Fixture',
+        title: 'フィクスチャ',
         body,
         body_sha256: sha256(body),
         plan,
@@ -637,6 +637,7 @@ test('Ship directive owns its PR input, render path, and external targets', (t) 
   const payload = JSON.parse(fs.readFileSync(parameters.pr_input_path, 'utf8'));
   assert.equal(payload.issue, 42);
   assert.equal(payload.gates_pass, true);
+  assert.equal(payload.language, 'japanese');
   assert.deepEqual(payload.manual_checks, ['Open the fixture and observe the rendered value.']);
   assert.equal(fs.existsSync(parameters.pr_body_path), false);
 
@@ -655,6 +656,7 @@ test('Ship directive owns its PR input, render path, and external targets', (t) 
     'owner/project',
     '--head',
   ]);
+  assert.equal(invocations[1]?.args[invocations[1]!.args.indexOf('--title') + 1], 'フィクスチャ');
 });
 
 test('blocks a gate that mutates Git state', (t) => {

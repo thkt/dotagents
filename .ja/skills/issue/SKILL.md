@@ -18,6 +18,7 @@ description: レビュー済みのthink成果物1件から、検証済みでbuil
 ## 公開
 
 - ユーザーが先頭で明示した `$issue` invocation を、hook が束縛したリポジトリに対する GitHub Issue の create または edit 1 回分の承認として扱う。公開確認を重ねて求めない。
+- Issue の title と人が読む説明には Codex で設定された言語を使用する。確立した識別子と実行可能なテスト名は変更しない。
 - GitHub へ書き込む前に draft を作成する。
 - GitHub へ書き込む直前に、同一 draft の title、body、証拠、リポジトリ状態、対象 Issue を検証する。
 - 検証済みの draft を同じ invocation で公開し、Issue URL、receipt、build source を返す。
