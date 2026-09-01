@@ -20,6 +20,7 @@ import type {
 } from '../contracts.ts';
 import { shellSafeText } from '../../shared/command.ts';
 import { FlowError, errorCode } from '../../shared/errors.ts';
+import { requireLanguageText, resolveConfiguredLanguage } from '../../shared/language.ts';
 import {
   gitOutput,
   gitText,
@@ -211,6 +212,8 @@ export function actionDirective(state: FlowState, step: ActionStep): RunActionDi
 /** Materializes the verified facts consumed by deterministic PR rendering. */
 export function prepareShipInput(state: FlowState): void {
   if (!state.build_plan) throw new FlowError('ship has no validated Plan context', 'state_error');
+  const language = resolveConfiguredLanguage('japanese');
+  requireLanguageText(state.build_plan.title, language, 'published issue title');
   const currentReports = [
     ...new Map(state.gate_reports.map((report) => [report.gate_id, report])).values(),
   ];
@@ -230,7 +233,7 @@ export function prepareShipInput(state: FlowState): void {
     manual_checks: state.build_plan.manual_verification,
     advisories: [],
     verification_output: '',
-    language: 'japanese',
+    language,
   });
   try {
     fs.unlinkSync(prBodyPath(state.run_id));

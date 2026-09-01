@@ -94,7 +94,10 @@ export function parsePublishedIssueReceipt(raw: unknown, repo: string): Publishe
     throw new FlowError('build receipt body digest is invalid');
   }
   const plan = parseBuildPlanAuthoring(raw.plan);
-  if (!body.trimEnd().endsWith(renderPlanMarkdown(plan).trimEnd())) {
+  const exactPlan = (['english', 'japanese'] as const).some((language) =>
+    body.trimEnd().endsWith(renderPlanMarkdown(plan, language).trimEnd()),
+  );
+  if (!exactPlan) {
     throw new FlowError('build receipt body does not contain its exact Plan');
   }
   const remote = requiredString(raw.remote, 'build receipt.remote');

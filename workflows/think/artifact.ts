@@ -76,7 +76,7 @@ export function renderThinkMarkdown(report: ThinkReport): string {
       '',
     );
   }
-  if (report.plan) lines.push(renderPlanMarkdown(report.plan).trimEnd(), '');
+  if (report.plan) lines.push(renderPlanMarkdown(report.plan, report.language).trimEnd(), '');
   if (report.research_questions.length) {
     lines.push(
       `## ${labels.research}`,

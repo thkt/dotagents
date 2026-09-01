@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
 /** @file Outcome: One explicit command validates and publishes one exact issue draft. */
 
-import { clearIntent, requireIssueIntent } from '../invocation.ts';
+import { clearIntent, consumeIssueApproval, requireIssueIntent } from '../invocation.ts';
 import { BUILD_SOURCE_PROTOCOL } from '../flow/build/handoff.ts';
 import { parseCommand, requireExactFlags } from '../shared/cli.ts';
 import { ISSUE_COMMAND, isMainModule } from '../shared/environment.ts';
+import { resolveConfiguredLanguage, type ConfiguredLanguage } from '../shared/language.ts';
 import { FlowError } from '../shared/errors.ts';
 import { readAbsoluteJson, runCli } from '../shared/runtime.ts';
 import { ProgressReporter, workflowProgress } from '../shared/progress.ts';
@@ -50,7 +51,9 @@ export interface IssuePublishCommandResult {
 }
 
 /** Exposes the human decisions while leaving Plan rendering and publication mechanics to code. */
-export function describeIssue(): IssueDescription {
+export function describeIssue(
+  language: ConfiguredLanguage = resolveConfiguredLanguage('japanese'),
+): IssueDescription {
   return {
     protocol: ISSUE_DESCRIPTION_PROTOCOL,
     outcome: 'One reviewed Plan is validated and published as a build-ready GitHub issue.',
@@ -66,7 +69,10 @@ export function describeIssue(): IssueDescription {
       remote: 'origin',
       mode: 'create',
       think_report: '/absolute/private-think-report.json',
-      title: 'Concise title without a task-type prefix',
+      title:
+        language === 'japanese'
+          ? '作業内容を具体的に表す短いタイトル'
+          : 'Concise title without a task-type prefix',
       target_issue: null,
       priority: 'medium',
     },
@@ -90,10 +96,11 @@ export function draftIssueWorkflow(
   const result = progress.runSync({ workflow: 'issue', stage: 'issue_draft' }, () =>
     draftIssue(input, gateway),
   );
+  consumeIssueApproval(runId, input.repo);
+  clearIntent(runId);
   const published = progress.runSync({ workflow: 'issue', stage: 'issue_publish' }, () =>
     publishIssue(result.draft_json, result.draft_sha256, gateway),
   );
-  clearIntent(runId);
   return {
     protocol: ISSUE_RESULT_PROTOCOL,
     status: 'published',

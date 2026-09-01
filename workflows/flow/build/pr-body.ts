@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { cli, isObject, parseSingletonArgs, readJsonFile, usageError } from './cli.ts';
 import { isMainModule } from '../../shared/environment.ts';
+import { resolveConfiguredLanguage, type ConfiguredLanguage } from '../../shared/language.ts';
 
 const PROTOCOL = 'codex-build-pr-body/v1';
 const DESCRIPTION_PROTOCOL = 'codex-build-pr-body-description/v1';
@@ -140,7 +141,7 @@ export function render(payload: unknown): string {
   return `\n\n---\n\n${labels.header}\n\nCloses #${payload.issue}\n\n${verification}\n`;
 }
 
-export function describe() {
+export function describe(language: ConfiguredLanguage = resolveConfiguredLanguage('japanese')) {
   return {
     protocol: DESCRIPTION_PROTOCOL,
     renders_with: PROTOCOL,
@@ -155,7 +156,7 @@ export function describe() {
       manual_checks: [],
       advisories: [],
       verification_output: '',
-      language: 'japanese',
+      language,
     },
     required_keys: [...REQUIRED_KEYS],
     languages: Object.keys(LABELS),

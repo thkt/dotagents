@@ -271,7 +271,7 @@ function startFlow(runId: string, manifestFile: string): PublicState {
         draft_sha256: '0'.repeat(64),
         issue_number: 42,
         url: 'https://github.com/owner/project/issues/42',
-        title: 'Fixture',
+        title: 'フィクスチャ',
         body,
         body_sha256: sha256(body),
         plan,
@@ -637,6 +637,7 @@ test('Ship directive owns its PR input, render path, and external targets', (t) 
   const payload = JSON.parse(fs.readFileSync(parameters.pr_input_path, 'utf8'));
   assert.equal(payload.issue, 42);
   assert.equal(payload.gates_pass, true);
+  assert.equal(payload.language, 'japanese');
   assert.deepEqual(payload.manual_checks, ['Open the fixture and observe the rendered value.']);
   assert.equal(fs.existsSync(parameters.pr_body_path), false);
 
@@ -655,6 +656,7 @@ test('Ship directive owns its PR input, render path, and external targets', (t) 
     'owner/project',
     '--head',
   ]);
+  assert.equal(invocations[1]?.args[invocations[1]!.args.indexOf('--title') + 1], 'フィクスチャ');
 });
 
 test('blocks a gate that mutates Git state', (t) => {
@@ -891,6 +893,25 @@ test('UserPromptSubmit accepts a leading Codex skill link as an explicit invocat
   });
   assert.deepEqual(embedded, {});
   assert.equal(intent.loadIntent('turn-embedded-link'), null);
+});
+
+test('explicit issue invocation communicates its single-publication authorization', (t) => {
+  const { repo } = fixture(t);
+  const response = hook.handle({
+    hook_event_name: 'UserPromptSubmit',
+    session_id: 'turn-explicit-issue',
+    cwd: repo,
+    prompt: '$issue publish the reviewed plan',
+  });
+
+  assert.match(
+    response.hookSpecificOutput?.additionalContext || '',
+    /authorizes exactly one GitHub Issue create or edit/,
+  );
+  assert.match(
+    response.hookSpecificOutput?.additionalContext || '',
+    /no additional publication confirmation/,
+  );
 });
 
 test('pending intent permits workflow input preparation and blocks unrelated mutation', (t) => {

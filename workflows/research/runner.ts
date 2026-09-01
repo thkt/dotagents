@@ -4,6 +4,11 @@
 import { clearIntent, requireResearchIntent } from '../invocation.ts';
 import { parseCommand, requireExactFlags } from '../shared/cli.ts';
 import { RESEARCH_COMMAND, isMainModule } from '../shared/environment.ts';
+import {
+  requireConfiguredLanguage,
+  resolveConfiguredLanguage,
+  type ConfiguredLanguage,
+} from '../shared/language.ts';
 import { FlowError } from '../shared/errors.ts';
 import { readAbsoluteJson, runCli } from '../shared/runtime.ts';
 import {
@@ -30,7 +35,7 @@ interface ResearchDescription {
     mode: 'understand';
     scope_paths: string[];
     external_sources: 'none';
-    language: 'japanese';
+    language: ConfiguredLanguage;
   };
   contracts: {
     mode: string;
@@ -52,7 +57,9 @@ export interface ResearchCommandResult {
 }
 
 /** Exposes the authoring contract without starting a workflow or model. */
-export function describeResearch(): ResearchDescription {
+export function describeResearch(
+  language: ConfiguredLanguage = resolveConfiguredLanguage('japanese'),
+): ResearchDescription {
   return {
     protocol: RESEARCH_DESCRIPTION_PROTOCOL,
     outcome:
@@ -69,7 +76,7 @@ export function describeResearch(): ResearchDescription {
       mode: 'understand',
       scope_paths: [],
       external_sources: 'none',
-      language: 'japanese',
+      language,
     },
     contracts: {
       mode: 'understand completes; plan hands off to think; diagnose hands off to fix',
@@ -90,6 +97,7 @@ export async function runResearchWorkflow(
 ): Promise<ResearchCommandResult> {
   const input = validateResearchInput(readAbsoluteJson(inputFile, 'research'));
   requireResearchIntent(runId, input.repo, inputFile);
+  requireConfiguredLanguage(input.language);
   const result = await runResearch(input, agent);
   clearIntent(runId);
   return {

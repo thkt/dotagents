@@ -174,7 +174,7 @@ function validateDecision(input: ThinkInput, decision: ThinkDecision): void {
     throw new FlowError('a ready bug decision requires an evidenced root cause', 'decision_error');
   }
   const plan = buildPlanValue(decision.plan);
-  const body = renderPlanMarkdown(decision.plan);
+  const body = renderPlanMarkdown(decision.plan, input.language);
   const report = validatePlan({ issue: 1, title: issueTitle(input), body, plan });
   if (report.verdict !== 'pass') {
     throw new FlowError(

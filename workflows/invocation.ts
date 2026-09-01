@@ -10,11 +10,13 @@ import {
   atomicWrite,
   buildSourcePath,
   intentPath,
+  issueApprovalPath,
   statePath,
   workflowInputPath,
 } from './shared/storage.ts';
 
 const INTENT_PROTOCOL = 'codex-workflow-intent/v4' as const;
+const ISSUE_APPROVAL_PROTOCOL = 'codex-issue-approval/v1' as const;
 type WorkflowInvocation = Workflow | 'issue' | 'research' | 'think';
 
 interface StoredWorkflowIntent {
@@ -33,6 +35,13 @@ interface ArmIntentOptions {
   runId: string;
   workflow: WorkflowInvocation;
   cwd: string;
+}
+
+interface StoredIssueApproval {
+  protocol: typeof ISSUE_APPROVAL_PROTOCOL;
+  run_id: string;
+  repo: string;
+  operation: 'publish-one-github-issue';
 }
 
 function hasRunningFlow(runId: string): boolean {
@@ -69,7 +78,10 @@ function armIntent({ runId, workflow, cwd }: ArmIntentOptions): WorkflowIntent {
   if (hasRunningFlow(runId)) throw new Error('a workflow is already active for this task');
   const repo = gitRoot(cwd, 'explicit workflow invocation requires a Git worktree');
   const existing = loadIntent(runId);
-  if (existing && existing.workflow === workflow && existing.repo === repo) return existing;
+  if (existing && existing.workflow === workflow && existing.repo === repo) {
+    if (workflow === 'issue') armIssueApproval(runId, repo);
+    return existing;
+  }
   const stored: StoredWorkflowIntent = {
     protocol: INTENT_PROTOCOL,
     run_id: runId,
@@ -81,7 +93,56 @@ function armIntent({ runId, workflow, cwd }: ArmIntentOptions): WorkflowIntent {
     if (file) fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   }
   atomicWrite(intentPath(runId), stored);
+  if (workflow === 'issue') armIssueApproval(runId, repo);
   return intent;
+}
+
+/** Records the one GitHub publication authorized by a leading explicit $issue invocation. */
+function armIssueApproval(runId: string, repo: string): void {
+  const approval: StoredIssueApproval = {
+    protocol: ISSUE_APPROVAL_PROTOCOL,
+    run_id: runId,
+    repo,
+    operation: 'publish-one-github-issue',
+  };
+  atomicWrite(issueApprovalPath(runId), approval);
+}
+
+/** Atomically consumes the task- and repository-bound approval before the GitHub write starts. */
+function consumeIssueApproval(runId: string, repo: string): void {
+  let value: unknown;
+  const approvalFile = issueApprovalPath(runId);
+  try {
+    value = JSON.parse(fs.readFileSync(approvalFile, 'utf8')) as unknown;
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') {
+      throw new Error('explicit $issue publication approval is required');
+    }
+    throw new Error(`issue publication approval is unreadable: ${errorMessage(error)}`);
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('issue publication approval has an invalid shape');
+  }
+  const record = value as Record<string, unknown>;
+  const fields = ['protocol', 'run_id', 'repo', 'operation'];
+  if (
+    Object.keys(record).length !== fields.length ||
+    fields.some((field) => !Object.hasOwn(record, field)) ||
+    record.protocol !== ISSUE_APPROVAL_PROTOCOL ||
+    record.run_id !== runId ||
+    record.repo !== repo ||
+    record.operation !== 'publish-one-github-issue'
+  ) {
+    throw new Error('issue publication approval has an invalid shape');
+  }
+  try {
+    fs.unlinkSync(approvalFile);
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') {
+      throw new Error('explicit $issue publication approval is required');
+    }
+    throw error;
+  }
 }
 
 /** Loads and validates an armed intent without trusting persisted JSON. */
@@ -163,18 +224,21 @@ function requireIssueIntent(runId: string, repo: string, inputFile: string): Wor
   return requireBoundIntent(runId, 'issue', repo, inputFile, 'issue input');
 }
 
-/** Consumes an intent after controller state has been created successfully. */
+/** Clears the task-scoped intent and any publication authority derived from it. */
 function clearIntent(runId: string): void {
-  try {
-    fs.unlinkSync(intentPath(runId));
-  } catch (error) {
-    if (errorCode(error) !== 'ENOENT') throw error;
+  for (const file of [intentPath(runId), issueApprovalPath(runId)]) {
+    try {
+      fs.unlinkSync(file);
+    } catch (error) {
+      if (errorCode(error) !== 'ENOENT') throw error;
+    }
   }
 }
 
 export {
   armIntent,
   clearIntent,
+  consumeIssueApproval,
   loadIntent,
   parseExplicitInvocation,
   requireIntent,

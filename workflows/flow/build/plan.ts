@@ -295,8 +295,8 @@ export function validatePlan(input: unknown): PlanValidationReport {
   if (plan.root_cause !== undefined && typeof plan.root_cause !== 'string') {
     blockers.push('root_cause must be a string when present');
   }
-  if (title.startsWith('[Bug]') && !nonEmptyString(plan.root_cause)) {
-    blockers.push('root_cause is empty on a [Bug] issue');
+  if (/^\[(?:Bug|バグ)\]/u.test(title) && !nonEmptyString(plan.root_cause)) {
+    blockers.push('root_cause is empty on a bug issue');
   }
 
   validateReferenceModule(plan.reference_module, blockers);
@@ -371,7 +371,7 @@ export function describe() {
     plan_keys: [...PLAN_KEYS],
     unit_caps: UNIT_CAPS,
     conditional_fields: {
-      'plan.root_cause': 'required-when-title-prefix:[Bug]',
+      'plan.root_cause': 'required-when-title-prefix:[Bug]|[バグ]',
       'plan.reference_module.path': 'required-when-kind:module',
       'plan.reference_module.reason': 'required-when-kind:no-module|new-shape',
       'plan.units[].seam': 'one-required-when:two-or-more-units-have-tests',
