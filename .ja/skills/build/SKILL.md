@@ -1,6 +1,6 @@
 ---
 name: build
-description: issueワークフローが公開したreceipt 1件を、検証済みの実装単位ごとにコミットし、下書きPRまで作成する。Issue公開後の実装を最初から最後まで進める明示的な依頼に使用する。
+description: 公開GitHub Issue contract 1件を、検証済みの実装単位ごとにコミットし、下書きPRまで作成する。Issue公開後の実装を最初から最後まで進める明示的な依頼に使用する。
 ---
 
 # Build
@@ -9,8 +9,9 @@ description: issueワークフローが公開したreceipt 1件を、検証済�
 
 ## 入力
 
-- issue が生成した公開済み receipt を使用する。存在しない場合は、引き渡し不足として停止する。
-- GitHub の title や本文から Plan を再構成したり補ったりしない。
+- 公開 contract は正確な GitHub `repository` と `issue_number` で選ぶ。公開者のローカル receipt は必須ではない。
+- issue workflow が埋め込んだ canonical machine Plan と、人が読む Plan および body digest の完全一致を要求する。
+- Build 開始時と Ship 直前に Issue を再取得する。`load:plan`後の title、body、digest、Plan の変更は stale とする。
 
 ## 権限
 
@@ -18,6 +19,7 @@ description: issueワークフローが公開したreceipt 1件を、検証済�
 - ユーザーが先頭で明示した invocation を、hook が束縛したリポジトリにおける宣言済みローカルブランチ、検証済み実装単位のコミット、push 1 回、下書き PR 作成 1 回の承認として扱う。`Ship`の確認を重ねて求めない。
 - 同じ依頼で push または下書き PR 作成をユーザーが明示的に除外した場合を除き、`Ship`を含める。
 - 追加 Issue の候補は報告するだけで、作成しない。
+- active Build の取消をユーザーが求めた場合は hook-bound な`codex-flow cancel`を実行する。取消後は実装、commit、push、draft PR 作成を行わない。
 
 ## エスカレーション
 

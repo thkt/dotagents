@@ -11,7 +11,7 @@ export const GATE_PROTOCOL = 'codex-code-gate/v3' as const;
 export const DESCRIPTION_PROTOCOL = 'codex-flow-description/v6' as const;
 
 export type Workflow = 'code' | 'build';
-export type FlowStatus = 'running' | 'completed' | 'ship-ready' | 'blocked';
+export type FlowStatus = 'running' | 'completed' | 'ship-ready' | 'blocked' | 'cancelled';
 export interface WorkflowEscalation {
   step_id: string;
   next_step: 'think' | 'research';
@@ -264,6 +264,7 @@ export interface FlowState {
   actor_baseline: RepositoryInvariant | null;
   action_baseline: RepositoryInvariant | null;
   escalation: WorkflowEscalation | null;
+  ship_authorization_revoked: boolean;
 }
 
 export interface BuildPlanUnit {
@@ -275,8 +276,10 @@ export interface BuildPlanUnit {
 }
 
 export interface BuildPlanContext {
+  repository: string;
   issue: number;
   title: string;
+  body_sha256: string;
   manual_verification: string[];
   units: BuildPlanUnit[];
 }
@@ -295,6 +298,7 @@ export interface PublicState {
   last_gate: GateReport | null;
   gate_reports: GateReport[];
   escalation: WorkflowEscalation | null;
+  ship_authorization_revoked: boolean;
   gate?: GateReport;
   calibration?: Calibration;
 }
@@ -307,6 +311,7 @@ export interface CorrectionContext {
 
 export type FlowDirective =
   | { kind: 'done' }
+  | { kind: 'cancelled' }
   | { kind: 'ship-ready' }
   | { kind: 'blocked' }
   | {
@@ -354,6 +359,7 @@ export interface FlowDescription {
   cli: {
     describe: string;
     run: string;
+    cancel: string;
     task_binding: 'hook-injected';
   };
   defaults: {

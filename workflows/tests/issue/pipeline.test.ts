@@ -181,6 +181,12 @@ test('one explicit issue invocation publishes the exact draft and returns build 
   assert.equal(fs.existsSync(issueApprovalPath('issue-test')), false);
   assert.equal(fs.existsSync(intentPath('issue-test')), false);
   assert.equal(publishedResult.status, 'published');
+  assert.deepEqual(publishedResult.build_source, {
+    protocol: BUILD_SOURCE_PROTOCOL,
+    repository: 'owner/repo',
+    issue_number: gateway.issue.number,
+  });
+  assert.equal('receipt' in publishedResult.build_source, false);
   assert.equal(
     compileContext(repo, 'think').entries.some((e) => e.kind === 'decision'),
     true,
@@ -190,8 +196,13 @@ test('one explicit issue invocation publishes the exact draft and returns build 
     gateway.issue.body,
   );
   const resolved = resolveBuildSource(
-    { protocol: BUILD_SOURCE_PROTOCOL, receipt: publishedResult.receipt_json },
+    {
+      protocol: BUILD_SOURCE_PROTOCOL,
+      repository: 'owner/repo',
+      issue_number: gateway.issue.number,
+    },
     repo,
+    gateway,
   );
   assert.equal(resolved.issue, gateway.issue.number);
   assert.equal(resolved.title, gateway.issue.title);

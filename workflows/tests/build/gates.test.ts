@@ -10,8 +10,10 @@ import { buildManifestPlanBlockers } from '../../flow/build/gates.ts';
 import type { BuildPlanContext, FlowManifest } from '../../flow/contracts.ts';
 
 const plan: BuildPlanContext = {
+  repository: 'owner/repo',
   issue: 123,
   title: 'Feature',
+  body_sha256: '0'.repeat(64),
   manual_verification: [],
   units: [
     {

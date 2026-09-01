@@ -5,7 +5,7 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 
 import { gitFileList, verifyArtifacts } from './artifacts.ts';
-import { describeBuildSource, resolveBuildSource } from './handoff.ts';
+import { describeBuildSource, resolveBuildSource, type ResolvedBuildSource } from './handoff.ts';
 import { validatePlan } from './plan.ts';
 import { revalidatePlan } from './revalidate.ts';
 import {
@@ -23,7 +23,6 @@ import {
 import { UNIT_ACTOR } from '../manifest.ts';
 import { shellSafeText } from '../../shared/command.ts';
 import { FlowError, errorMessage } from '../../shared/errors.ts';
-import { isObject } from '../../shared/schema.ts';
 
 function readJson(file: string, label: string): unknown {
   if (!path.isAbsolute(file)) throw new FlowError(`${label} must be absolute`);
@@ -34,29 +33,19 @@ function readJson(file: string, label: string): unknown {
   }
 }
 
-function buildPlanContext(value: unknown): BuildPlanContext {
-  if (
-    !isObject(value) ||
-    !Number.isInteger(value.issue) ||
-    !isObject(value.plan) ||
-    !Array.isArray(value.plan.units)
-  ) {
-    throw new FlowError('validated Plan input has no build context', 'state_error');
-  }
+function buildPlanContext(value: ResolvedBuildSource): BuildPlanContext {
   return {
-    issue: Number(value.issue),
-    title: String(value.title),
-    manual_verification: Array.isArray(value.plan.manual_verification)
-      ? value.plan.manual_verification.map(String)
-      : [],
-    units: value.plan.units.filter(isObject).map((unit) => ({
-      id: String(unit.id),
-      contract: shellSafeText(String(unit.contract)),
-      files: (Array.isArray(unit.files) ? unit.files : []).map(String),
-      tests: (Array.isArray(unit.tests) ? unit.tests : [])
-        .filter(isObject)
-        .map((test) => ({ id: String(test.id), name: String(test.name) })),
-      seam: unit.seam === true,
+    repository: value.repository,
+    issue: value.issue,
+    title: value.title,
+    body_sha256: value.body_sha256,
+    manual_verification: value.plan.manual_verification,
+    units: value.plan.units.map((unit) => ({
+      id: unit.id,
+      contract: shellSafeText(unit.contract),
+      files: unit.files,
+      tests: unit.tests,
+      seam: unit.seam,
     })),
   };
 }
@@ -232,12 +221,53 @@ function normalizeGate(
 export function runStructuredBuildGate(state: FlowState, step: GateStep): GateReport {
   const startedAt = Date.now();
   const source = 'input' in step.gate ? readJson(step.gate.input, `${step.id}.gate.input`) : null;
-  const input = 'input' in step.gate ? resolveBuildSource(source, state.manifest.repo) : null;
+  let input: ReturnType<typeof resolveBuildSource> | null = null;
+  if ('input' in step.gate) {
+    try {
+      input = resolveBuildSource(source, state.manifest.repo);
+    } catch (error) {
+      return normalizeGate(step, state.manifest.repo, startedAt, {
+        verdict: 'blocked',
+        classification: 'issue_contract_invalid',
+        reason_codes: ['issue_contract_invalid'],
+        failure_route: 'blocked',
+        error: errorMessage(error),
+      });
+    }
+  }
   let report: StructuredGateResult;
+  if (
+    input &&
+    step.gate.authority !== 'build-plan' &&
+    state.build_plan &&
+    (input.repository !== state.build_plan.repository ||
+      input.issue !== state.build_plan.issue ||
+      input.title !== state.build_plan.title ||
+      input.body_sha256 !== state.build_plan.body_sha256)
+  ) {
+    return normalizeGate(step, state.manifest.repo, startedAt, {
+      verdict: 'blocked',
+      classification: 'issue_contract_stale',
+      reason_codes: ['issue_contract_stale'],
+      failure_route: 'blocked',
+      expected_body_sha256: state.build_plan.body_sha256,
+      actual_body_sha256: input.body_sha256,
+      expected_title: state.build_plan.title,
+      actual_title: input.title,
+    });
+  }
   switch (step.gate.authority) {
     case 'build-plan': {
-      report = validatePlan(input);
+      report = validatePlan(
+        input && {
+          issue: input.issue,
+          title: input.title,
+          body: input.body,
+          plan: input.plan,
+        },
+      );
       if (report.verdict === 'pass') {
+        if (!input) throw new FlowError('validated Plan input has no build context', 'state_error');
         const context = buildPlanContext(input);
         const blockers = buildManifestPlanBlockers(state.manifest, context, state.manifest.repo);
         if (blockers.length) {

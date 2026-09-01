@@ -1,6 +1,6 @@
 ---
 name: build
-description: Implement one published issue-workflow receipt as verified unit commits and a draft PR. Use for an explicitly requested end-to-end build after issue publication.
+description: Implement one public GitHub Issue contract as verified unit commits and a draft PR. Use for an explicitly requested end-to-end build after issue publication.
 ---
 
 # Build
@@ -9,8 +9,9 @@ Inspect the current workflow and Plan contract with `codex-flow describe --workf
 
 ## Source
 
-- Use the published issue receipt produced by issue. If it is unavailable, stop at the missing handoff.
-- Do not reconstruct or extend its Plan from the GitHub title or body.
+- Select the public contract by exact GitHub `repository` and `issue_number`; a publisher's local receipt is never required.
+- Read the canonical machine Plan embedded by the issue workflow and require it to match the human-readable Plan and body digest exactly.
+- Re-fetch the Issue at Build start and immediately before Ship. Treat any title, body, digest, or Plan change after `load:plan` as stale.
 
 ## Authority
 
@@ -18,6 +19,7 @@ Inspect the current workflow and Plan contract with `codex-flow describe --workf
 - Treat the user's leading explicit invocation as authorization for the declared local branch, verified unit commits, exactly one push, and exactly one draft PR creation in the hook-bound repository. Do not request another Ship confirmation.
 - Include Ship unless the user explicitly excludes push or draft PR creation in the same request.
 - Report backlog candidates without creating them.
+- If the user cancels an active Build, run the hook-bound `codex-flow cancel` operation. Do not implement, commit, push, or create a draft PR after cancellation.
 
 ## Escalation
 

@@ -11,6 +11,7 @@ import { runIsolatedActor } from './isolation.ts';
 import { ProgressReporter, workflowProgress, type ProgressContext } from '../shared/progress.ts';
 import {
   completeCurrentDirective,
+  cancelWorkflow,
   currentDirective,
   describe,
   loadWorkflowState,
@@ -37,7 +38,7 @@ function defaultRuntime(): WorkflowRuntime {
 
 function progressContext(
   workflow: 'build' | 'code',
-  directive: Exclude<FlowDirective, { kind: 'done' | 'ship-ready' | 'blocked' }>,
+  directive: Exclude<FlowDirective, { kind: 'done' | 'ship-ready' | 'blocked' | 'cancelled' }>,
 ): ProgressContext {
   const unitId = directive.step_id.match(/^U-\d+/u)?.[0];
   let stage: ProgressContext['stage'];
@@ -85,6 +86,8 @@ export async function driveWorkflow(
         return { result: workflowStatus(runId), exitCode: 0 };
       case 'blocked':
         return { result: workflowStatus(runId), exitCode: 2 };
+      case 'cancelled':
+        return { result: workflowStatus(runId), exitCode: 0 };
       case 'run-actor':
         try {
           await progress.run(progressContext(workflow, directive), async () => {
@@ -153,6 +156,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<Comm
   if (command === 'run') {
     requireExactFlags(flags, ['--manifest', '--run-id']);
     return runWorkflow(flags['--run-id']!, flags['--manifest']!);
+  }
+  if (command === 'cancel') {
+    requireExactFlags(flags, ['--manifest', '--run-id']);
+    return { result: cancelWorkflow(flags['--run-id']!, flags['--manifest']!), exitCode: 0 };
   }
   throw new FlowError(`unknown command: ${command}`);
 }
