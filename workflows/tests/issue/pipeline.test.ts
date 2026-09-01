@@ -20,6 +20,7 @@ import { repositoryInvariant } from '../../../workflows/shared/repository.ts';
 import { workflowInputPath } from '../../../workflows/shared/storage.ts';
 import { emptyStageTimings } from '../../../workflows/shared/codex.ts';
 import { sha256 } from '../../../workflows/shared/evidence.ts';
+import { ProgressReporter, type ProgressEvent } from '../../../workflows/shared/progress.ts';
 import {
   BUILD_SOURCE_PROTOCOL,
   resolveBuildSource,
@@ -146,7 +147,17 @@ test('one explicit issue invocation publishes the exact draft and returns build 
   fs.mkdirSync(path.dirname(inputFile), { recursive: true });
   fs.writeFileSync(inputFile, JSON.stringify(input(repo, report)));
   armIntent({ runId: 'issue-test', workflow: 'issue', cwd: repo });
-  const publishedResult = draftIssueWorkflow('issue-test', inputFile, gateway);
+  const events: ProgressEvent[] = [];
+  const publishedResult = draftIssueWorkflow(
+    'issue-test',
+    inputFile,
+    gateway,
+    new ProgressReporter({
+      write: (line) => events.push(JSON.parse(line) as ProgressEvent),
+      setInterval: () => ({}),
+      clearInterval: () => undefined,
+    }),
+  );
   assert.equal(gateway.writes, 1);
   assert.equal(publishedResult.status, 'published');
   assert.equal(
@@ -166,6 +177,15 @@ test('one explicit issue invocation publishes the exact draft and returns build 
   assert.equal(resolved.body, gateway.issue.body);
   assert.equal(resolved.plan.outcome, plan.outcome);
   assert.equal(resolved.plan.test_command, plan.test_command);
+  assert.deepEqual(
+    events.map(({ stage, status }) => [stage, status]),
+    [
+      ['issue_draft', 'started'],
+      ['issue_draft', 'completed'],
+      ['issue_publish', 'started'],
+      ['issue_publish', 'completed'],
+    ],
+  );
 });
 
 test('rejects stale/changed evidence and preserves ignored-only changes', (t) => {

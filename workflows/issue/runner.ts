@@ -7,6 +7,7 @@ import { parseCommand, requireExactFlags } from '../shared/cli.ts';
 import { ISSUE_COMMAND, isMainModule } from '../shared/environment.ts';
 import { FlowError } from '../shared/errors.ts';
 import { readAbsoluteJson, runCli } from '../shared/runtime.ts';
+import { ProgressReporter, workflowProgress } from '../shared/progress.ts';
 import {
   ISSUE_DESCRIPTION_PROTOCOL,
   ISSUE_INPUT_PROTOCOL,
@@ -82,11 +83,16 @@ export function draftIssueWorkflow(
   runId: string,
   inputFile: string,
   gateway?: IssueGateway,
+  progress: ProgressReporter = workflowProgress,
 ): IssuePublishCommandResult {
   const input = validateIssueInput(readAbsoluteJson(inputFile, 'issue'));
   requireIssueIntent(runId, input.repo, inputFile);
-  const result = draftIssue(input, gateway);
-  const published = publishIssue(result.draft_json, result.draft_sha256, gateway);
+  const result = progress.runSync({ workflow: 'issue', stage: 'issue_draft' }, () =>
+    draftIssue(input, gateway),
+  );
+  const published = progress.runSync({ workflow: 'issue', stage: 'issue_publish' }, () =>
+    publishIssue(result.draft_json, result.draft_sha256, gateway),
+  );
   clearIntent(runId);
   return {
     protocol: ISSUE_RESULT_PROTOCOL,

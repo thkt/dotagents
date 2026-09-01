@@ -153,6 +153,24 @@ function ignoredSnapshot(repo: string): RepoSnapshot {
   );
 }
 
+const CODEX_MANAGED_REF_PREFIX = 'refs/codex/';
+
+/**
+ * Captures repository-owned refs while excluding refs maintained by the Codex host.
+ * Desktop turn checkpoints and snapshots are operational state, not repository mutations.
+ */
+function repositoryRefs(repo: string): string {
+  const output = gitOutput(
+    repo,
+    ['for-each-ref', '--format=%(refname)%00%(objectname)%00'],
+    'ref scan',
+  ).toString('utf8');
+  const records = output
+    .split('\n')
+    .filter((record) => record && !record.startsWith(CODEX_MANAGED_REF_PREFIX));
+  return Buffer.from(records.map((record) => `${record}\n`).join('')).toString('base64');
+}
+
 /** Captures actor/gate-visible files plus Git control state for mutation checks. */
 export function repositoryInvariant(repo: string): RepositoryInvariant {
   return {
@@ -161,11 +179,7 @@ export function repositoryInvariant(repo: string): RepositoryInvariant {
     changes: repoSnapshot(repo),
     ignored: ignoredSnapshot(repo),
     metadata: {
-      refs: gitOutput(
-        repo,
-        ['for-each-ref', '--format=%(refname)%00%(objectname)%00'],
-        'ref scan',
-      ).toString('base64'),
+      refs: repositoryRefs(repo),
       config: gitOutput(repo, ['config', '--local', '--null', '--list'], 'config scan').toString(
         'base64',
       ),

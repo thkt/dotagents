@@ -21,6 +21,7 @@ import { FlowError, errorMessage } from '../shared/errors.ts';
 import { elapsedMs } from '../shared/codex.ts';
 import { researchArtifactDirectory } from '../shared/storage.ts';
 import { inertJsonBlock } from '../shared/prompt.ts';
+import { ProgressReporter, workflowProgress } from '../shared/progress.ts';
 
 export interface PriorResearchSummary {
   path: string;
@@ -152,9 +153,14 @@ function threadOptions(input: ResearchInput, prior: PriorResearchSummary[]): Thr
 /** Runs the discovery and audit stages in separate SDK threads. */
 export class CodexResearchAgent implements ResearchAgent {
   private readonly client: CodexClientLike;
+  private readonly progress: ProgressReporter;
 
-  constructor(client: CodexClientLike = createSignedInCodexClient()) {
+  constructor(
+    client: CodexClientLike = createSignedInCodexClient(),
+    progress: ProgressReporter = workflowProgress,
+  ) {
     this.client = client;
+    this.progress = progress;
   }
 
   async investigate(
@@ -166,10 +172,14 @@ export class CodexResearchAgent implements ResearchAgent {
     const started = performance.now();
     let result;
     try {
-      result = await thread.run(investigationPrompt(input, prior, context), {
-        outputSchema: RESEARCH_DRAFT_SCHEMA,
-        signal: AbortSignal.timeout(INVESTIGATOR_TIMEOUT_MS),
-      });
+      result = await this.progress.run(
+        { workflow: 'research', stage: 'investigator_model_call' },
+        () =>
+          thread.run(investigationPrompt(input, prior, context), {
+            outputSchema: RESEARCH_DRAFT_SCHEMA,
+            signal: AbortSignal.timeout(INVESTIGATOR_TIMEOUT_MS),
+          }),
+      );
     } catch (error) {
       throw new FlowError(
         `research investigator model call failed after ${elapsedMs(started)}ms: ${errorMessage(error)}`,
@@ -178,8 +188,12 @@ export class CodexResearchAgent implements ResearchAgent {
     }
     const validationStarted = performance.now();
     try {
-      return parseResearchDraft(
-        structuredResponseObject(result.finalResponse, 'research investigator'),
+      return this.progress.runSync(
+        { workflow: 'research', stage: 'investigator_structured_validation' },
+        () =>
+          parseResearchDraft(
+            structuredResponseObject(result.finalResponse, 'research investigator'),
+          ),
       );
     } catch (error) {
       throw new FlowError(
@@ -196,10 +210,17 @@ export class CodexResearchAgent implements ResearchAgent {
     context: ResearchContextSummary[] = [],
   ): Promise<ResearchAudit> {
     const thread = this.client.startThread(threadOptions(input, prior));
-    const result = await thread.run(auditPrompt(input, draft, prior, context), {
-      outputSchema: RESEARCH_AUDIT_SCHEMA,
-      signal: AbortSignal.timeout(AUDITOR_TIMEOUT_MS),
-    });
-    return parseResearchAudit(structuredResponseObject(result.finalResponse, 'research auditor'));
+    const result = await this.progress.run(
+      { workflow: 'research', stage: 'auditor_model_call' },
+      () =>
+        thread.run(auditPrompt(input, draft, prior, context), {
+          outputSchema: RESEARCH_AUDIT_SCHEMA,
+          signal: AbortSignal.timeout(AUDITOR_TIMEOUT_MS),
+        }),
+    );
+    return this.progress.runSync(
+      { workflow: 'research', stage: 'auditor_structured_validation' },
+      () => parseResearchAudit(structuredResponseObject(result.finalResponse, 'research auditor')),
+    );
   }
 }

@@ -7,6 +7,7 @@ import { parseResearchReport } from '../../../workflows/research/contracts.ts';
 import { CodexResearchAgent } from '../../../workflows/research/agent.ts';
 import type { CodexClientLike } from '../../../workflows/shared/codex.ts';
 import type { ResearchInput } from '../../../workflows/research/contracts.ts';
+import { ProgressReporter, type ProgressEvent } from '../../../workflows/shared/progress.ts';
 
 const timings = {
   repository_snapshot_ms: 3,
@@ -83,15 +84,32 @@ const input: ResearchInput = {
   protocol: 'codex-research-input/v1',
 };
 test('Research invalid structured output keeps stage and elapsed duration', async () => {
+  const events: ProgressEvent[] = [];
   const client: CodexClientLike = {
     startThread: () => ({
       run: async () => ({ finalResponse: 'not json' }),
     }),
   };
-  const agent = new CodexResearchAgent(client);
+  const agent = new CodexResearchAgent(
+    client,
+    new ProgressReporter({
+      write: (line) => events.push(JSON.parse(line) as ProgressEvent),
+      setInterval: () => ({}),
+      clearInterval: () => undefined,
+    }),
+  );
   await assert.rejects(
     agent.investigate(input),
     /research investigator structured validation failed after \d+ms/u,
+  );
+  assert.deepEqual(
+    events.map(({ stage, status }) => [stage, status]),
+    [
+      ['investigator_model_call', 'started'],
+      ['investigator_model_call', 'completed'],
+      ['investigator_structured_validation', 'started'],
+      ['investigator_structured_validation', 'failed'],
+    ],
   );
 });
 

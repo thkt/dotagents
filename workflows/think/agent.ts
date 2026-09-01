@@ -20,6 +20,7 @@ import {
 } from './contracts.ts';
 import { inertJsonBlock } from '../shared/prompt.ts';
 import { FlowError } from '../shared/errors.ts';
+import { ProgressReporter, workflowProgress } from '../shared/progress.ts';
 
 export interface ThinkResearchContext {
   path: string;
@@ -165,9 +166,14 @@ function threadOptions(input: ThinkInput): ThreadOptions {
 /** Runs design and review in separate SDK threads so the recommendation cannot approve itself. */
 export class CodexThinkAgent implements ThinkAgent {
   private readonly client: CodexClientLike;
+  private readonly progress: ProgressReporter;
 
-  constructor(client: CodexClientLike = createSignedInCodexClient()) {
+  constructor(
+    client: CodexClientLike = createSignedInCodexClient(),
+    progress: ProgressReporter = workflowProgress,
+  ) {
     this.client = client;
+    this.progress = progress;
   }
 
   async design(
@@ -180,13 +186,18 @@ export class CodexThinkAgent implements ThinkAgent {
     const result = await runStage(
       'designer',
       () =>
-        thread.run(designPrompt(input, research, buildContract, context), {
-          outputSchema: THINK_DRAFT_SCHEMA,
-          signal: AbortSignal.timeout(DESIGN_TIMEOUT_MS),
-        }),
+        this.progress.run({ workflow: 'think', stage: 'designer_model_call' }, () =>
+          thread.run(designPrompt(input, research, buildContract, context), {
+            outputSchema: THINK_DRAFT_SCHEMA,
+            signal: AbortSignal.timeout(DESIGN_TIMEOUT_MS),
+          }),
+        ),
       DESIGN_TIMEOUT_MS,
     );
-    return parseThinkDraft(structuredResponseObject(result.finalResponse, 'think designer'));
+    return this.progress.runSync(
+      { workflow: 'think', stage: 'designer_structured_validation' },
+      () => parseThinkDraft(structuredResponseObject(result.finalResponse, 'think designer')),
+    );
   }
 
   async review(
@@ -201,12 +212,27 @@ export class CodexThinkAgent implements ThinkAgent {
     const result = await runStage(
       'reviewer',
       () =>
-        thread.run(reviewPrompt(input, draft, research, buildContract, correction, context), {
-          outputSchema: THINK_REVIEW_SCHEMA,
-          signal: AbortSignal.timeout(REVIEW_TIMEOUT_MS),
-        }),
+        this.progress.run(
+          {
+            workflow: 'think',
+            stage: 'reviewer_model_call',
+            ...(correction ? { attempt: 2 } : {}),
+          },
+          () =>
+            thread.run(reviewPrompt(input, draft, research, buildContract, correction, context), {
+              outputSchema: THINK_REVIEW_SCHEMA,
+              signal: AbortSignal.timeout(REVIEW_TIMEOUT_MS),
+            }),
+        ),
       REVIEW_TIMEOUT_MS,
     );
-    return parseThinkDecision(structuredResponseObject(result.finalResponse, 'think reviewer'));
+    return this.progress.runSync(
+      {
+        workflow: 'think',
+        stage: 'reviewer_structured_validation',
+        ...(correction ? { attempt: 2 } : {}),
+      },
+      () => parseThinkDecision(structuredResponseObject(result.finalResponse, 'think reviewer')),
+    );
   }
 }

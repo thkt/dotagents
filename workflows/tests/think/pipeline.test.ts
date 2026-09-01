@@ -21,6 +21,7 @@ import { RESEARCH_REPORT_PROTOCOL } from '../../../workflows/research/contracts.
 import { emptyStageTimings } from '../../../workflows/shared/codex.ts';
 import { researchArtifactDirectory } from '../../../workflows/shared/storage.ts';
 import { errorCode } from '../../../workflows/shared/errors.ts';
+import { ProgressReporter, type ProgressEvent } from '../../../workflows/shared/progress.ts';
 
 function repoFixture(t: test.TestContext): string {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-think-'));
@@ -117,6 +118,26 @@ test('routes a read-only Think run through designer and reviewer and preserves t
   assert.ok(fs.existsSync(result.report_markdown));
 });
 
+test('does not reject Codex desktop checkpoint refs created during Think', async (t) => {
+  const repo = repoFixture(t);
+  const agent: ThinkAgent = {
+    async design() {
+      execFileSync(
+        'git',
+        ['update-ref', 'refs/codex/turn-diffs/checkpoints/task/turn/checkpoint', 'HEAD'],
+        { cwd: repo },
+      );
+      return draft;
+    },
+    async review() {
+      return researchDecision;
+    },
+  };
+
+  const result = await runThink(input(repo), agent);
+  assert.equal(result.report.next_step, 'research');
+});
+
 test('think prompt labels supplied artifact context', () => {
   const prompt = designPrompt(input('/repo'), [], {}, [
     {
@@ -173,6 +194,38 @@ test('classifies designer and reviewer aborts by stage', async () => {
     assert.match(String((error as Error).message), /reviewer/u);
     return true;
   });
+});
+
+test('emits distinct Think model and validation progress stages', async () => {
+  const events: ProgressEvent[] = [];
+  const validDraft = {
+    ...draft,
+    approaches: [
+      ...draft.approaches,
+      { id: 'b', summary: '別案', benefits: [], costs: ['cost'], risks: [] },
+    ],
+  };
+  const client = {
+    startThread() {
+      return { run: async () => ({ finalResponse: JSON.stringify(validDraft) }) };
+    },
+  };
+  const progress = new ProgressReporter({
+    write: (line) => events.push(JSON.parse(line) as ProgressEvent),
+    setInterval: () => ({}),
+    clearInterval: () => undefined,
+  });
+  await new CodexThinkAgent(client, progress).design(input('/tmp/repo'), [], {});
+
+  assert.deepEqual(
+    events.map(({ stage, status }) => [stage, status]),
+    [
+      ['designer_model_call', 'started'],
+      ['designer_model_call', 'completed'],
+      ['designer_structured_validation', 'started'],
+      ['designer_structured_validation', 'completed'],
+    ],
+  );
 });
 
 test('rejects stale selected research evidence before invoking the agent', async (t) => {

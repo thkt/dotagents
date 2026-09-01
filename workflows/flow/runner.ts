@@ -8,6 +8,7 @@ import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
 import { isMainModule } from '../shared/environment.ts';
 import { parseCommand, requireExactFlags } from '../shared/cli.ts';
 import { runIsolatedActor } from './isolation.ts';
+import { ProgressReporter, workflowProgress, type ProgressContext } from '../shared/progress.ts';
 import {
   completeCurrentDirective,
   currentDirective,
@@ -24,6 +25,7 @@ export interface WorkflowRuntime {
   agent: WorkflowAgent;
   executeAction(repo: string, directive: ActionDirective): void;
   onDirective?(directive: FlowDirective): void;
+  progress?: ProgressReporter;
 }
 
 function defaultRuntime(): WorkflowRuntime {
@@ -33,12 +35,46 @@ function defaultRuntime(): WorkflowRuntime {
   };
 }
 
+function progressContext(
+  workflow: 'build' | 'code',
+  directive: Exclude<FlowDirective, { kind: 'done' | 'ship-ready' | 'blocked' }>,
+): ProgressContext {
+  const unitId = directive.step_id.match(/^U-\d+/u)?.[0];
+  let stage: ProgressContext['stage'];
+  switch (directive.kind) {
+    case 'run-actor':
+      stage = 'actor_model_call';
+      break;
+    case 'seal-gate':
+      stage = 'controller_evidence_validation';
+      break;
+    case 'run-action':
+      stage = `action_${directive.action}`;
+      break;
+    case 'calibrate-gate':
+      stage = 'gate_calibration';
+      break;
+    case 'run-gate':
+      stage = 'gate_verification';
+      break;
+  }
+  return {
+    workflow,
+    stage,
+    ...(unitId ? { unit_id: unitId } : {}),
+    ...(directive.kind === 'run-actor' && directive.correction
+      ? { attempt: directive.correction.attempt }
+      : {}),
+  };
+}
+
 /** Drives persisted controller state until it reaches a terminal directive. */
 export async function driveWorkflow(
   runId: string,
   runtime: WorkflowRuntime = defaultRuntime(),
 ): Promise<CommandResult> {
-  const repo = loadWorkflowState(runId).state.manifest.repo;
+  const { repo, workflow } = loadWorkflowState(runId).state.manifest;
+  const progress = runtime.progress ?? workflowProgress;
 
   while (true) {
     const directive = currentDirective(runId);
@@ -51,9 +87,12 @@ export async function driveWorkflow(
         return { result: workflowStatus(runId), exitCode: 2 };
       case 'run-actor':
         try {
-          await runIsolatedActor(repo, directive.files, (sandboxRepo) =>
-            runtime.agent.runActor(sandboxRepo, directive),
-          );
+          await progress.run(progressContext(workflow, directive), async () => {
+            await runIsolatedActor(repo, directive.files, (sandboxRepo) =>
+              runtime.agent.runActor(sandboxRepo, directive),
+            );
+            completeCurrentDirective(runId, directive.step_id);
+          });
         } catch (error) {
           if (error instanceof ActorEscalation)
             return {
@@ -66,19 +105,24 @@ export async function driveWorkflow(
             };
           throw error;
         }
-        completeCurrentDirective(runId, directive.step_id);
         break;
       case 'run-action':
-        runtime.executeAction(repo, directive);
-        completeCurrentDirective(runId, directive.step_id);
+        progress.runSync(progressContext(workflow, directive), () => {
+          runtime.executeAction(repo, directive);
+          completeCurrentDirective(runId, directive.step_id);
+        });
         break;
       case 'calibrate-gate':
       case 'run-gate':
-        completeCurrentDirective(runId, directive.step_id);
+        progress.runSync(progressContext(workflow, directive), () =>
+          completeCurrentDirective(runId, directive.step_id),
+        );
         break;
       case 'seal-gate': {
-        const candidateId = await runtime.agent.selectEvidenceCandidate(repo, directive);
-        completeCurrentDirective(runId, directive.step_id, candidateId);
+        await progress.run(progressContext(workflow, directive), async () => {
+          const candidateId = await runtime.agent.selectEvidenceCandidate(repo, directive);
+          completeCurrentDirective(runId, directive.step_id, candidateId);
+        });
         break;
       }
     }
