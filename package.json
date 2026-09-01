@@ -2,31 +2,46 @@
   "name": "codex-agent-workflows",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "bin": {
-    "codex-build-plan": "skills/build/scripts/validate-plan.ts",
-    "codex-build-pr-body": "skills/build/scripts/render-pr-body.ts",
-    "codex-flow": "workflows/core/flow-control.ts",
+    "codex-build-artifacts": "workflows/flow/build/artifacts.ts",
+    "codex-build-plan": "workflows/flow/build/plan.ts",
+    "codex-build-pr-body": "workflows/flow/build/pr-body.ts",
+    "codex-build-revalidate": "workflows/flow/build/revalidate.ts",
+    "codex-flow": "workflows/flow/runner.ts",
+    "codex-issue": "workflows/issue/runner.ts",
+    "codex-post-edit": "hooks/post-edit.ts",
+    "codex-research": "workflows/research/runner.ts",
+    "codex-think": "workflows/think/runner.ts",
     "codex-workflow-hook": "hooks/workflow-enforcer.ts"
   },
+  "type": "module",
   "scripts": {
-    "check": "npm run typecheck && npm test && npm run validate:skills",
+    "check": "npm run lint && npm run format:check && npm run typecheck && npm test && npm run validate:skills",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
     "fix:text": "textlint --fix '.ja/**/*.md'",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint --fix .",
     "lint:text": "textlint '.ja/**/*.md'",
-    "setup:python": "python3 -m venv .venv && .venv/bin/python -m pip install --group dev",
-    "test": "node --test workflows/tests/*.test.ts skills/build/tests/*.test.ts",
+    "test": "node --test workflows/tests/*/*.test.ts skills/tests/*.test.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "validate:skills": "node tools/validate-skills.ts"
+    "validate:skills": "node skills/validate.ts"
+  },
+  "dependencies": {
+    "@openai/codex-sdk": "^0.149.1"
   },
   "devDependencies": {
     "@textlint-ja/textlint-rule-preset-ai-writing": "1.7.0",
     "@types/node": "^26.2.0",
+    "oxfmt": "^0.65.0",
+    "oxlint": "^1.80.0",
+    "oxlint-tsgolint": "^7.0.2001",
     "textlint": "15.8.0",
     "textlint-rule-ja-no-redundant-expression": "4.0.1",
     "textlint-rule-ja-no-weak-phrase": "2.0.0",
-    "textlint-rule-no-mix-dearu-desumasu": "6.0.4",
     "textlint-rule-preset-ja-spacing": "3.0.3",
     "textlint-rule-preset-ja-technical-writing": "12.0.2",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "yaml": "^2.9.0"
   }
 }

@@ -1,0 +1,286 @@
+/** @file Outcome: Build gates derive deterministic reports from validated Plan and workflow state. */
+
+import { spawnSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import path from 'node:path';
+
+import { gitFileList, verifyArtifacts } from './artifacts.ts';
+import { describeBuildSource, resolveBuildSource } from './handoff.ts';
+import { validatePlan } from './plan.ts';
+import { revalidatePlan } from './revalidate.ts';
+import {
+  GATE_PROTOCOL,
+  type ActionStep,
+  type ActorRole,
+  type BuildPlanContext,
+  type FlowDescription,
+  type FlowManifest,
+  type FlowState,
+  type GateReport,
+  type GateStep,
+  type StructuredGateResult,
+} from '../contracts.ts';
+import { UNIT_ACTOR } from '../manifest.ts';
+import { shellSafeText } from '../../shared/command.ts';
+import { FlowError, errorMessage } from '../../shared/errors.ts';
+import { isObject } from '../../shared/schema.ts';
+
+function readJson(file: string, label: string): unknown {
+  if (!path.isAbsolute(file)) throw new FlowError(`${label} must be absolute`);
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (error) {
+    throw new FlowError(`${label} is not readable JSON: ${errorMessage(error)}`);
+  }
+}
+
+function buildPlanContext(value: unknown): BuildPlanContext {
+  if (
+    !isObject(value) ||
+    !Number.isInteger(value.issue) ||
+    !isObject(value.plan) ||
+    !Array.isArray(value.plan.units)
+  ) {
+    throw new FlowError('validated Plan input has no build context', 'state_error');
+  }
+  return {
+    issue: Number(value.issue),
+    title: String(value.title),
+    manual_verification: Array.isArray(value.plan.manual_verification)
+      ? value.plan.manual_verification.map(String)
+      : [],
+    units: value.plan.units.filter(isObject).map((unit) => ({
+      id: String(unit.id),
+      contract: shellSafeText(String(unit.contract)),
+      files: (Array.isArray(unit.files) ? unit.files : []).map(String),
+      tests: (Array.isArray(unit.tests) ? unit.tests : [])
+        .filter(isObject)
+        .map((test) => ({ id: String(test.id), name: String(test.name) })),
+      seam: unit.seam === true,
+    })),
+  };
+}
+
+/** Exposes the published-issue handoff through workflow self-description. */
+export function describeBuildSourceInput(): NonNullable<FlowDescription['inputs']>['source'] {
+  return {
+    template: describeBuildSource(),
+  };
+}
+
+type ManifestUnitScope = {
+  roles: ActorRole[];
+  files: Set<string>;
+  roleFiles: Map<ActorRole, Set<string>>;
+};
+
+function manifestUnitScopes(manifest: FlowManifest): Map<string, ManifestUnitScope> {
+  const scopes = new Map<string, ManifestUnitScope>();
+  for (const step of manifest.steps) {
+    if (step.kind !== 'actor') continue;
+    const match = UNIT_ACTOR.exec(step.id);
+    if (!match) continue;
+    const unitId = match[1]!;
+    const role = match[2] as ActorRole;
+    const scope: ManifestUnitScope = scopes.get(unitId) ?? {
+      roles: [],
+      files: new Set(),
+      roleFiles: new Map(),
+    };
+    scope.roles.push(role);
+    const roleFiles = scope.roleFiles.get(role) ?? new Set<string>();
+    for (const file of step.files) {
+      scope.files.add(file);
+      roleFiles.add(file);
+    }
+    scope.roleFiles.set(role, roleFiles);
+    scopes.set(unitId, scope);
+  }
+  return scopes;
+}
+
+function initiallyMissingTestedPlanFiles(plan: BuildPlanContext, repo: string): Set<string> {
+  return new Set(
+    [...new Set(plan.units.flatMap((unit) => (unit.tests.length ? unit.files : [])))].filter(
+      (file) => !fs.existsSync(path.resolve(repo, file)),
+    ),
+  );
+}
+
+/** Returns every unit-level mismatch between a validated Plan and its manifest. */
+export function buildManifestPlanBlockers(
+  manifest: FlowManifest,
+  plan: BuildPlanContext,
+  repo: string,
+): string[] {
+  const manifestUnits = manifestUnitScopes(manifest);
+
+  const blockers: string[] = [];
+  const initiallyMissing = initiallyMissingTestedPlanFiles(plan, repo);
+  const planIds = new Set(plan.units.map((unit) => unit.id));
+  for (const unitId of manifestUnits.keys()) {
+    if (!planIds.has(unitId)) blockers.push(`manifest has unit absent from Plan: ${unitId}`);
+  }
+  for (const planUnit of plan.units) {
+    const manifestUnit = manifestUnits.get(planUnit.id);
+    if (!manifestUnit) {
+      blockers.push(`manifest is missing Plan unit: ${planUnit.id}`);
+      continue;
+    }
+    const expectedRoles = planUnit.tests.length ? 'red,green' : 'direct';
+    if (manifestUnit.roles.join(',') !== expectedRoles) {
+      blockers.push(`${planUnit.id} requires ${expectedRoles} actors from its Plan tests`);
+    }
+    const plannedFiles = new Set(planUnit.files);
+    const missingFiles = planUnit.files.filter((file) => !manifestUnit.files.has(file));
+    const extraFiles = [...manifestUnit.files].filter((file) => !plannedFiles.has(file));
+    if (missingFiles.length) {
+      blockers.push(`${planUnit.id} actor scope is missing Plan files: ${missingFiles.join(', ')}`);
+    }
+    if (extraFiles.length) {
+      blockers.push(
+        `${planUnit.id} actor scope has files absent from Plan: ${extraFiles.join(', ')}`,
+      );
+    }
+    if (planUnit.tests.length) {
+      for (const file of planUnit.files) {
+        if (!initiallyMissing.has(file)) continue;
+        for (const role of ['red', 'green'] as const) {
+          const roleFiles = manifestUnit.roleFiles.get(role);
+          if (roleFiles && !roleFiles.has(file)) {
+            blockers.push(
+              `${planUnit.id}:${role} scope is missing initially absent Plan file: ${file}`,
+            );
+          }
+        }
+      }
+    }
+  }
+  return blockers;
+}
+
+function verifyShip(state: FlowState): StructuredGateResult {
+  const ship = state.manifest.steps.find(
+    (candidate): candidate is ActionStep =>
+      candidate.kind === 'action' && candidate.action === 'ship',
+  );
+  const branch = state.manifest.steps.find(
+    (candidate): candidate is ActionStep =>
+      candidate.kind === 'action' && candidate.action === 'branch',
+  );
+  if (!ship || ship.action !== 'ship' || !branch || branch.action !== 'branch') {
+    throw new FlowError('ship verification has no action context', 'state_error');
+  }
+  const result = spawnSync(
+    'gh',
+    [
+      'pr',
+      'view',
+      branch.branch_name,
+      '--repo',
+      ship.repository,
+      '--json',
+      'url,isDraft,baseRefName,headRefName',
+    ],
+    { encoding: 'utf8' },
+  );
+  let value: Record<string, unknown> = {};
+  try {
+    value = JSON.parse(result.stdout || '{}') as Record<string, unknown>;
+  } catch {
+    value = {};
+  }
+  const passed =
+    result.status === 0 &&
+    value.isDraft === true &&
+    value.baseRefName === ship.base_branch &&
+    value.headRefName === branch.branch_name &&
+    typeof value.url === 'string';
+  return {
+    protocol: 'codex-build-ship/v1',
+    verdict: passed ? 'pass' : 'blocked',
+    classification: passed ? 'pass' : 'ship_verification_failed',
+    reason_codes: passed ? [] : ['ship_verification_failed'],
+    failure_route: passed ? null : 'blocked',
+    ...value,
+    ...(passed ? {} : { stderr: result.stderr.trim() }),
+  };
+}
+
+function normalizeGate(
+  step: GateStep,
+  repo: string,
+  startedAt: number,
+  value: StructuredGateResult,
+): GateReport {
+  return {
+    protocol: GATE_PROTOCOL,
+    gate_id: step.id,
+    verdict: value.verdict,
+    classification: value.classification,
+    reason_codes: value.reason_codes,
+    failure_route: value.verdict === 'pass' ? null : (value.failure_route ?? 'blocked'),
+    configured_failure_route: step.gate.failure_route,
+    command: step.gate.command,
+    cwd: repo,
+    duration_ms: Date.now() - startedAt,
+    evidence: { kind: 'structured', report: value },
+  };
+}
+
+/** Runs one typed build authority and normalizes its result into controller evidence. */
+export function runStructuredBuildGate(state: FlowState, step: GateStep): GateReport {
+  const startedAt = Date.now();
+  const source = 'input' in step.gate ? readJson(step.gate.input, `${step.id}.gate.input`) : null;
+  const input = 'input' in step.gate ? resolveBuildSource(source, state.manifest.repo) : null;
+  let report: StructuredGateResult;
+  switch (step.gate.authority) {
+    case 'build-plan': {
+      report = validatePlan(input);
+      if (report.verdict === 'pass') {
+        const context = buildPlanContext(input);
+        const blockers = buildManifestPlanBlockers(state.manifest, context, state.manifest.repo);
+        if (blockers.length) {
+          report = {
+            ...report,
+            verdict: 'fail',
+            classification: 'manifest_plan_mismatch',
+            reason_codes: ['manifest_plan_mismatch'],
+            failure_route: 'blocked',
+            blockers,
+          };
+        } else {
+          state.build_plan = context;
+        }
+      }
+      break;
+    }
+    case 'build-revalidate':
+      report = revalidatePlan(input, state.manifest.repo);
+      break;
+    case 'build-artifacts': {
+      const branch = state.manifest.steps.find(
+        (candidate): candidate is ActionStep =>
+          candidate.kind === 'action' && candidate.action === 'branch',
+      );
+      if (!branch || branch.action !== 'branch') {
+        throw new FlowError(`${step.id} has no build artifact context`, 'state_error');
+      }
+      report = verifyArtifacts(
+        input,
+        state.manifest.repo,
+        gitFileList(state.manifest.repo, branch.start_point),
+        Object.keys(state.workflow_baseline),
+        step.id,
+        step.gate.unit_id,
+      );
+      break;
+    }
+    case 'build-ship':
+      report = verifyShip(state);
+      break;
+    case 'shell':
+      throw new FlowError(`${step.id} authority shell is not a build authority`, 'state_error');
+  }
+  return normalizeGate(step, state.manifest.repo, startedAt, report);
+}

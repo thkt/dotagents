@@ -4,20 +4,17 @@
     "erasableSyntaxOnly": true,
     "module": "nodenext",
     "noEmit": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "rewriteRelativeImportExtensions": true,
     "strict": true,
     "target": "esnext",
     "types": ["node"],
     "verbatimModuleSyntax": true
   },
-  "include": [
-    "runtime/**/*.ts",
-    "hooks/**/*.ts",
-    "workflows/core/**/*.ts",
-    "workflows/tests/**/*.ts",
-    "skills/build/scripts/**/*.ts",
-    "skills/build/tests/**/*.ts",
-    "tools/**/*.ts",
-    "../.codex/hooks/textlint-fix.ts"
-  ]
+  "include": ["hooks/**/*.ts", "workflows/**/*.ts", "workflows/tests/**/*.ts", "skills/**/*.ts"]
 }
