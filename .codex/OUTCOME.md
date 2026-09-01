@@ -1,14 +1,14 @@
 # Project outcome
 
-一度の依頼で、一次ソースに基づく Think/Research の判断と設計を高品質な Issue として publish できること。
+Enable a single request to publish high-quality Issues containing Think/Research decisions and designs grounded in primary sources.
 
-## 検証可能な境界
+## Verifiable boundaries
 
-- Think と Research の全 model stage は、開始時に取得した immutable repository snapshot を読み、実行中の共有 worktree 変更で結果が変わらない。
-- current source の引用と Build Plan dependency は handoff 時に再検証し、stale または scope 外なら具体的な path を報告する。
-- Issue は Outcome、Decision、実装に必要な Plan を構造化して一回で publish し、確立した契約はこの repository の documentation から再利用できる。
-- Build は published Issue だけを実装・検証・semantic review・commit の契約として消費する。
-- 確立した知識は repository docs に戻し、将来の Plan が引用できる。
-- terminal model failure は intent を消費して停止し、入力・binding 検証失敗だけは修正のため intent を保持する。
+- Every Think and Research model stage reads the immutable repository snapshot captured at startup, so changes to the shared worktree during execution do not alter its results.
+- Current-source citations and Build Plan dependencies are revalidated at handoff, with concrete paths reported when they are stale or out of scope.
+- An Issue structures and publishes the Outcome, Decision, and implementation-ready Plan in one pass, while established contracts remain reusable from this repository's documentation.
+- Build consumes only the published Issue as its contract for implementation, verification, semantic review, and commit.
+- Established knowledge is returned to repository documentation so future Plans can cite it.
+- A terminal model failure consumes the intent and stops; only input or binding validation failures preserve the intent for correction.
 
-検証は focused regression tests、`bun test`、typecheck、lint、format:check で行う。依存関係は `bun.lock` を正本とし、`bun install --frozen-lockfile --ignore-scripts` で再現する。
+Verification uses focused regression tests, `bun test`, typecheck, lint, and format:check. `bun.lock` is the source of truth for dependencies, reproduced with `bun install --frozen-lockfile --ignore-scripts`.
