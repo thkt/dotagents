@@ -1,7 +1,7 @@
 /** @file Outcome: Model-authored Plans have one build-owned schema, parser, runtime value, and human view. */
 
 import { FlowError } from '../../shared/errors.ts';
-import type { ConfiguredLanguage } from '../../shared/environment.ts';
+import type { ConfiguredLanguage } from '../../shared/language.ts';
 import { isObject, rejectUnknownKeys, stringArray, type JsonObject } from '../../shared/schema.ts';
 import { oneLine, sentenceItems } from '../../shared/text.ts';
 
@@ -34,6 +34,42 @@ export interface BuildPlanAuthoring {
 }
 
 export const STRING_ARRAY_SCHEMA = { type: 'array', items: { type: 'string' } } as const;
+const PLAN_LABELS = {
+  japanese: {
+    outcome: '成果',
+    rootCause: '根本原因',
+    testCommand: 'テストコマンド',
+    reference: '参照実装',
+    path: '基準 path',
+    instances: '既存 instance 数',
+    file: '関連 file',
+    convention: '規約',
+    rules: 'ルール',
+    preconditions: '前提条件',
+    contract: '契約',
+    acceptance: '受け入れテスト',
+    manual: '手動確認',
+    backlog: 'バックログ候補',
+    none: 'なし。',
+  },
+  english: {
+    outcome: 'Outcome',
+    rootCause: 'Root cause',
+    testCommand: 'Test command',
+    reference: 'Reference module',
+    path: 'path',
+    instances: 'instances',
+    file: 'file',
+    convention: 'convention',
+    rules: 'Rules',
+    preconditions: 'Preconditions',
+    contract: 'Contract',
+    acceptance: 'Acceptance tests',
+    manual: 'Manual verification',
+    backlog: 'Backlog candidates',
+    none: 'None.',
+  },
+} as const;
 const REFERENCE_SCHEMA = {
   type: 'object',
   properties: {
@@ -297,42 +333,7 @@ export function renderPlanMarkdown(
   language: ConfiguredLanguage = 'english',
 ): string {
   const reference = plan.reference_module;
-  const labels =
-    language === 'japanese'
-      ? {
-          outcome: '成果',
-          rootCause: '根本原因',
-          testCommand: 'テストコマンド',
-          reference: '参照実装',
-          path: '基準 path',
-          instances: '既存 instance 数',
-          file: '関連 file',
-          convention: '規約',
-          rules: 'ルール',
-          preconditions: '前提条件',
-          contract: '契約',
-          acceptance: '受け入れテスト',
-          manual: '手動確認',
-          backlog: 'バックログ候補',
-          none: 'なし。',
-        }
-      : {
-          outcome: 'Outcome',
-          rootCause: 'Root cause',
-          testCommand: 'Test command',
-          reference: 'Reference module',
-          path: 'path',
-          instances: 'instances',
-          file: 'file',
-          convention: 'convention',
-          rules: 'Rules',
-          preconditions: 'Preconditions',
-          contract: 'Contract',
-          acceptance: 'Acceptance tests',
-          manual: 'Manual verification',
-          backlog: 'Backlog candidates',
-          none: 'None.',
-        };
+  const labels = PLAN_LABELS[language];
   const lines = [
     '## Plan',
     '',

@@ -3,12 +3,12 @@
 
 import { clearIntent, requireResearchIntent } from '../invocation.ts';
 import { parseCommand, requireExactFlags } from '../shared/cli.ts';
+import { RESEARCH_COMMAND, isMainModule } from '../shared/environment.ts';
 import {
-  configuredCodexLanguage,
-  RESEARCH_COMMAND,
-  isMainModule,
+  requireConfiguredLanguage,
+  resolveConfiguredLanguage,
   type ConfiguredLanguage,
-} from '../shared/environment.ts';
+} from '../shared/language.ts';
 import { FlowError } from '../shared/errors.ts';
 import { readAbsoluteJson, runCli } from '../shared/runtime.ts';
 import {
@@ -58,7 +58,7 @@ export interface ResearchCommandResult {
 
 /** Exposes the authoring contract without starting a workflow or model. */
 export function describeResearch(
-  language: ConfiguredLanguage = configuredCodexLanguage('japanese'),
+  language: ConfiguredLanguage = resolveConfiguredLanguage('japanese'),
 ): ResearchDescription {
   return {
     protocol: RESEARCH_DESCRIPTION_PROTOCOL,
@@ -97,10 +97,7 @@ export async function runResearchWorkflow(
 ): Promise<ResearchCommandResult> {
   const input = validateResearchInput(readAbsoluteJson(inputFile, 'research'));
   requireResearchIntent(runId, input.repo, inputFile);
-  const configuredLanguage = configuredCodexLanguage(input.language);
-  if (input.language !== configuredLanguage) {
-    throw new FlowError(`research input.language must match Codex config: ${configuredLanguage}`);
-  }
+  requireConfiguredLanguage(input.language);
   const result = await runResearch(input, agent);
   clearIntent(runId);
   return {

@@ -9,8 +9,12 @@ import { validatePlan } from '../flow/build/plan.ts';
 import { revalidatePlan } from '../flow/build/revalidate.ts';
 import { readRepositoryEvidence, sha256 } from '../shared/evidence.ts';
 import { FlowError } from '../shared/errors.ts';
-import { configuredCodexLanguage, type ConfiguredLanguage } from '../shared/environment.ts';
-import { sentenceItems, textMatchesLanguage } from '../shared/text.ts';
+import {
+  requireLanguageText,
+  resolveConfiguredLanguage,
+  type ConfiguredLanguage,
+} from '../shared/language.ts';
+import { sentenceItems } from '../shared/text.ts';
 import {
   realpathInside,
   repositoryInvariant,
@@ -54,6 +58,10 @@ export interface IssuePublishResult {
 const TYPE_PREFIX = {
   english: { bug: '[Bug]', feature: '[Feature]', docs: '[Docs]', chore: '[Chore]' },
   japanese: { bug: '[バグ]', feature: '[機能]', docs: '[ドキュメント]', chore: '[保守]' },
+} as const;
+const BODY_LABELS = {
+  english: { outcome: 'Outcome', decision: 'Decision', rationale: 'Rationale' },
+  japanese: { outcome: '目的', decision: '決定', rationale: '理由' },
 } as const;
 
 type ReadyThinkReport = ThinkReport & {
@@ -114,9 +122,7 @@ function repositoryFingerprint(invariant: RepositoryInvariant): string {
 }
 
 function requireTitleLanguage(title: string, language: ConfiguredLanguage): void {
-  if (!textMatchesLanguage(title, language)) {
-    throw new FlowError(`issue input.title must be written in ${language}`, 'decision_error');
-  }
+  requireLanguageText(title, language, 'issue input.title');
 }
 
 function createTitle(
@@ -133,10 +139,7 @@ function proseParagraphs(value: string): string[] {
 }
 
 function createBody(report: ReadyThinkReport, language: ConfiguredLanguage): string {
-  const labels =
-    language === 'japanese'
-      ? { outcome: '目的', decision: '決定', rationale: '理由' }
-      : { outcome: 'Outcome', decision: 'Decision', rationale: 'Rationale' };
+  const labels = BODY_LABELS[language];
   return [
     `## ${labels.outcome}`,
     '',
@@ -192,7 +195,7 @@ function requireValidPlan(
 export function draftIssue(
   input: IssueInput,
   gateway: IssueGateway = new GhIssueGateway(),
-  configuredLanguage?: ConfiguredLanguage,
+  languageOverride?: ConfiguredLanguage,
 ): IssueDraftResult {
   const before = repositoryInvariant(input.repo);
   const source = loadThinkReport(input.repo, input.think_report);
@@ -205,7 +208,7 @@ export function draftIssue(
   assertGitHubRemote(input.repo, input.remote, input.repository);
   const existing =
     input.mode === 'attach-plan' ? gateway.view(input.repository, input.target_issue!) : null;
-  const language = configuredLanguage ?? configuredCodexLanguage(source.report.language);
+  const language = languageOverride ?? resolveConfiguredLanguage(source.report.language);
   if (source.report.language !== language) {
     throw new FlowError(
       `think report.language must match the configured Codex language: ${language}`,

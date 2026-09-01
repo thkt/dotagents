@@ -19,8 +19,8 @@ import type {
   UnitActionStep,
 } from '../contracts.ts';
 import { shellSafeText } from '../../shared/command.ts';
-import { configuredCodexLanguage } from '../../shared/environment.ts';
 import { FlowError, errorCode } from '../../shared/errors.ts';
+import { requireLanguageText, resolveConfiguredLanguage } from '../../shared/language.ts';
 import {
   gitOutput,
   gitText,
@@ -30,7 +30,6 @@ import {
 } from '../../shared/repository.ts';
 import { isObject } from '../../shared/schema.ts';
 import { atomicWrite, prBodyPath, prInputPath } from '../../shared/storage.ts';
-import { textMatchesLanguage } from '../../shared/text.ts';
 
 type ActionDirective = Extract<FlowDirective, { kind: 'run-action' }>;
 
@@ -213,13 +212,8 @@ export function actionDirective(state: FlowState, step: ActionStep): RunActionDi
 /** Materializes the verified facts consumed by deterministic PR rendering. */
 export function prepareShipInput(state: FlowState): void {
   if (!state.build_plan) throw new FlowError('ship has no validated Plan context', 'state_error');
-  const language = configuredCodexLanguage('japanese');
-  if (!textMatchesLanguage(state.build_plan.title, language)) {
-    throw new FlowError(
-      `published issue title must match the configured Codex language: ${language}`,
-      'decision_error',
-    );
-  }
+  const language = resolveConfiguredLanguage('japanese');
+  requireLanguageText(state.build_plan.title, language, 'published issue title');
   const currentReports = [
     ...new Map(state.gate_reports.map((report) => [report.gate_id, report])).values(),
   ];

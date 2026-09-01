@@ -17,7 +17,6 @@ Inspect the current workflow and Plan contract with `codex-flow describe --workf
 - For a tested unit, any Plan file absent when the workflow starts must be included in both the Red and Green actor allowed files. Existing files may remain split between Red and Green.
 - This workflow authorizes creation of the declared local branch and verified unit commits.
 - Include Ship only when the user explicitly authorizes both push and draft PR creation.
-- Use the language configured by Codex for the PR title and human prose. Preserve GitHub keywords, identifiers, paths, commands, and test names.
 - Report backlog candidates without creating them.
 
 ## Escalation

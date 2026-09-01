@@ -4,12 +4,8 @@
 import { clearIntent, consumeIssueApproval, requireIssueIntent } from '../invocation.ts';
 import { BUILD_SOURCE_PROTOCOL } from '../flow/build/handoff.ts';
 import { parseCommand, requireExactFlags } from '../shared/cli.ts';
-import {
-  configuredCodexLanguage,
-  ISSUE_COMMAND,
-  isMainModule,
-  type ConfiguredLanguage,
-} from '../shared/environment.ts';
+import { ISSUE_COMMAND, isMainModule } from '../shared/environment.ts';
+import { resolveConfiguredLanguage, type ConfiguredLanguage } from '../shared/language.ts';
 import { FlowError } from '../shared/errors.ts';
 import { readAbsoluteJson, runCli } from '../shared/runtime.ts';
 import { ProgressReporter, workflowProgress } from '../shared/progress.ts';
@@ -56,7 +52,7 @@ export interface IssuePublishCommandResult {
 
 /** Exposes the human decisions while leaving Plan rendering and publication mechanics to code. */
 export function describeIssue(
-  language: ConfiguredLanguage = configuredCodexLanguage('japanese'),
+  language: ConfiguredLanguage = resolveConfiguredLanguage('japanese'),
 ): IssueDescription {
   return {
     protocol: ISSUE_DESCRIPTION_PROTOCOL,

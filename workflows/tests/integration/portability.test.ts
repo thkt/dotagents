@@ -10,10 +10,10 @@ import { fileURLToPath } from 'node:url';
 
 import {
   AGENTS_ROOT,
-  configuredCodexLanguage,
   defaultWorkflowStateDirectory,
   resolveCodexHome,
 } from '../../shared/environment.ts';
+import { resolveConfiguredLanguage } from '../../shared/language.ts';
 
 const EXPECTED_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const CODEX_ROOT = path.resolve(EXPECTED_ROOT, '../.codex');
@@ -121,11 +121,11 @@ test('resolves the workflow language from the Codex desktop locale', (t) => {
     path.join(codex, 'config.toml'),
     'model = "gpt"\n\n[desktop]\nlocaleOverride = "ja-JP"\n\n[features]\nhooks = true\n',
   );
-  assert.equal(configuredCodexLanguage('english', {}, home), 'japanese');
+  assert.equal(resolveConfiguredLanguage('english', {}, home), 'japanese');
   fs.writeFileSync(path.join(codex, 'config.toml'), '[desktop]\nlocaleOverride = "en-US"\n');
-  assert.equal(configuredCodexLanguage('japanese', {}, home), 'english');
+  assert.equal(resolveConfiguredLanguage('japanese', {}, home), 'english');
   fs.writeFileSync(path.join(codex, 'config.toml'), '[desktop]\nlocaleOverride = "fr-FR"\n');
-  assert.throws(() => configuredCodexLanguage('english', {}, home), /not supported.*fr-FR/);
+  assert.throws(() => resolveConfiguredLanguage('english', {}, home), /not supported.*fr-FR/);
 });
 
 test('publishes stable CLI names for every documented executable', () => {
