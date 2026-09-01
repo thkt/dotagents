@@ -15,7 +15,12 @@ import { BUILD_SOURCE_PROTOCOL, PUBLISHED_ISSUE_PROTOCOL } from '../../flow/buil
 import * as flow from '../../flow/controller.ts';
 import * as intent from '../../invocation.ts';
 import { sha256 } from '../../shared/evidence.ts';
-import { intentPath, issueArtifactDirectory, workflowInputPath } from '../../shared/storage.ts';
+import {
+  buildShipApprovalPath,
+  intentPath,
+  issueArtifactDirectory,
+  workflowInputPath,
+} from '../../shared/storage.ts';
 import type {
   ActionStep,
   ActorStep,
@@ -219,7 +224,26 @@ function requireActor(manifest: FixtureManifest): ActorStep {
   return step;
 }
 
-function startFlow(runId: string, manifestFile: string): PublicState {
+function enableShipping(manifest: FixtureManifest): void {
+  manifest.shipping_authorized = true;
+  manifest.steps.push(
+    {
+      id: 'ship',
+      kind: 'action',
+      action: 'ship',
+      remote: 'origin',
+      repository: 'owner/project',
+      base_branch: 'main',
+    },
+    {
+      id: 'ship:verify',
+      kind: 'gate',
+      gate: { authority: 'build-ship', failure_route: 'blocked' },
+    },
+  );
+}
+
+function startFlow(runId: string, manifestFile: string, beforeStart?: () => void): PublicState {
   const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8')) as FlowManifest;
   const pending = intent.armIntent({
     runId,
@@ -298,6 +322,7 @@ function startFlow(runId: string, manifestFile: string): PublicState {
   } else {
     fs.copyFileSync(manifestFile, pending.input_path);
   }
+  beforeStart?.();
   return flow.startWorkflow(runId, pending.input_path);
 }
 
@@ -572,27 +597,28 @@ test('enforces build Branch and commit postconditions before ship-ready', (t) =>
   assert.equal(flow.currentDirective(turn).kind, 'ship-ready');
 });
 
+test('a shipping build cannot start without its explicit invocation approval', (t) => {
+  const { manifest, manifestFile } = fixture(t, { workflow: 'build' });
+  enableShipping(manifest);
+  fs.writeFileSync(manifestFile, JSON.stringify(manifest));
+  const runId = 'turn-build-ship-missing-approval';
+
+  assert.throws(
+    () =>
+      startFlow(runId, manifestFile, () => {
+        fs.unlinkSync(buildShipApprovalPath(runId));
+      }),
+    /explicit \$build Ship approval is required/,
+  );
+});
+
 test('Ship directive owns its PR input, render path, and external targets', (t) => {
   const { manifest, manifestFile, repo, startPoint } = fixture(t, { workflow: 'build' });
-  manifest.shipping_authorized = true;
-  manifest.steps.push(
-    {
-      id: 'ship',
-      kind: 'action',
-      action: 'ship',
-      remote: 'origin',
-      repository: 'owner/project',
-      base_branch: 'main',
-    },
-    {
-      id: 'ship:verify',
-      kind: 'gate',
-      gate: { authority: 'build-ship', failure_route: 'blocked' },
-    },
-  );
+  enableShipping(manifest);
   fs.writeFileSync(manifestFile, JSON.stringify(manifest));
   const turn = 'turn-ship-contract';
   startFlow(turn, manifestFile);
+  assert.equal(fs.existsSync(buildShipApprovalPath(turn)), false);
   flow.completeCurrentDirective(turn, 'load:plan');
   flow.completeCurrentDirective(turn, 'revalidate:plan');
   spawnSync('git', ['-C', repo, 'switch', '-q', '-c', 'codex/flow-test', startPoint]);
@@ -914,6 +940,40 @@ test('explicit issue invocation communicates its single-publication authorizatio
   );
 });
 
+test('explicit build invocation communicates and records its single-Ship authorization', (t) => {
+  const { repo } = fixture(t);
+  const runId = 'turn-explicit-build-ship';
+  const response = hook.handle({
+    hook_event_name: 'UserPromptSubmit',
+    session_id: runId,
+    cwd: repo,
+    prompt: '$build implement the published issue',
+  });
+
+  assert.match(
+    response.hookSpecificOutput?.additionalContext || '',
+    /authorizes exactly one push and one draft PR creation/,
+  );
+  assert.match(response.hookSpecificOutput?.additionalContext || '', /include Ship unless/);
+  assert.match(response.hookSpecificOutput?.additionalContext || '', /do not request another/);
+  assert.equal(fs.existsSync(buildShipApprovalPath(runId)), true);
+});
+
+test('build Ship approval is task- and repository-bound', (t) => {
+  const { repo } = fixture(t);
+  const runId = 'turn-build-ship-approval-binding';
+  intent.armIntent({ runId, workflow: 'build', cwd: repo });
+  assert.doesNotThrow(() => intent.requireBuildShipApproval(runId, repo));
+
+  const file = buildShipApprovalPath(runId);
+  const approval = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+  fs.writeFileSync(file, JSON.stringify({ ...approval, repo: path.dirname(repo) }));
+  assert.throws(
+    () => intent.requireBuildShipApproval(runId, repo),
+    /build Ship approval has an invalid shape/,
+  );
+});
+
 test('pending intent permits workflow input preparation and blocks unrelated mutation', (t) => {
   const { repo } = fixture(t);
   const turn = 'turn-pending-policy';
@@ -1211,22 +1271,7 @@ test('structured gates reject shell-only configuration', (t) => {
 
 test('Ship rejects a remote that is not the declared GitHub repository', (t) => {
   const { manifest, repo } = fixture(t, { workflow: 'build' });
-  manifest.shipping_authorized = true;
-  manifest.steps.push(
-    {
-      id: 'ship',
-      kind: 'action',
-      action: 'ship',
-      remote: 'origin',
-      repository: 'owner/project',
-      base_branch: 'main',
-    },
-    {
-      id: 'ship:verify',
-      kind: 'gate',
-      gate: { authority: 'build-ship', failure_route: 'blocked' },
-    },
-  );
+  enableShipping(manifest);
   spawnSync('git', [
     '-C',
     repo,

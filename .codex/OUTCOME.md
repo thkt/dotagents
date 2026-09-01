@@ -7,7 +7,7 @@ Enable a single request to publish high-quality Issues containing Think/Research
 - Every Think and Research model stage reads the immutable repository snapshot captured at startup, so changes to the shared worktree during execution do not alter its results.
 - Current-source citations and Build Plan dependencies are revalidated at handoff, with concrete paths reported when they are stale or out of scope.
 - An Issue structures and publishes the Outcome, Decision, and implementation-ready Plan in one pass, while established contracts remain reusable from this repository's documentation.
-- Build consumes only the published Issue as its contract for implementation, verification, semantic review, and commit.
+- Build consumes only the published Issue as its contract for implementation, verification, semantic review, commit, push, and verified draft PR creation unless the invoking user explicitly excludes Ship.
 - Established knowledge is returned to repository documentation so future Plans can cite it.
 - A terminal model failure consumes the intent and stops; only input or binding validation failures preserve the intent for correction.
 

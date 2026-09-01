@@ -289,14 +289,16 @@ function userPromptSubmit(input: HookInput): HookResponse {
         : '';
     const { executable, flag, start, noun } = invocationRuntime(pending);
     const command = `${executable} ${start} ${flag} ${shellArgument(pending.input_path)}`;
-    const publicationApproval =
+    const externalWriteApproval =
       workflow === 'issue'
         ? " The user's leading explicit $issue invocation authorizes exactly one GitHub Issue create or edit for this task and repository; no additional publication confirmation is required."
-        : '';
+        : workflow === 'build'
+          ? " The user's leading explicit $build invocation authorizes exactly one push and one draft PR creation for this task and repository; include Ship unless the same request explicitly excludes push or draft PR creation, and do not request another Ship confirmation."
+          : '';
     return {
       hookSpecificOutput: {
         hookEventName: 'UserPromptSubmit',
-        additionalContext: `Explicit $${workflow} is armed.${publicationApproval} Write the ${noun} only to the hook-supplied path ${pending.input_path}.${buildPaths} Then run ${command}.`,
+        additionalContext: `Explicit $${workflow} is armed.${externalWriteApproval} Write the ${noun} only to the hook-supplied path ${pending.input_path}.${buildPaths} Then run ${command}.`,
       },
     };
   } catch (error) {

@@ -8,6 +8,7 @@ import { errorCode, errorMessage } from './shared/errors.ts';
 import { gitRoot } from './shared/repository.ts';
 import {
   atomicWrite,
+  buildShipApprovalPath,
   buildSourcePath,
   intentPath,
   issueApprovalPath,
@@ -17,7 +18,32 @@ import {
 
 const INTENT_PROTOCOL = 'codex-workflow-intent/v4' as const;
 const ISSUE_APPROVAL_PROTOCOL = 'codex-issue-approval/v1' as const;
+const BUILD_SHIP_APPROVAL_PROTOCOL = 'codex-build-ship-approval/v1' as const;
 type WorkflowInvocation = Workflow | 'issue' | 'research' | 'think';
+
+interface ApprovalSpec {
+  protocol: string;
+  operation: string;
+  path(runId: string): string;
+  label: string;
+  missing: string;
+}
+
+const ISSUE_APPROVAL: ApprovalSpec = {
+  protocol: ISSUE_APPROVAL_PROTOCOL,
+  operation: 'publish-one-github-issue',
+  path: issueApprovalPath,
+  label: 'issue publication approval',
+  missing: 'explicit $issue publication approval is required',
+};
+
+const BUILD_SHIP_APPROVAL: ApprovalSpec = {
+  protocol: BUILD_SHIP_APPROVAL_PROTOCOL,
+  operation: 'push-and-create-one-draft-pr',
+  path: buildShipApprovalPath,
+  label: 'build Ship approval',
+  missing: 'explicit $build Ship approval is required',
+};
 
 interface StoredWorkflowIntent {
   protocol: typeof INTENT_PROTOCOL;
@@ -35,13 +61,6 @@ interface ArmIntentOptions {
   runId: string;
   workflow: WorkflowInvocation;
   cwd: string;
-}
-
-interface StoredIssueApproval {
-  protocol: typeof ISSUE_APPROVAL_PROTOCOL;
-  run_id: string;
-  repo: string;
-  operation: 'publish-one-github-issue';
 }
 
 function hasRunningFlow(runId: string): boolean {
@@ -73,13 +92,66 @@ function hydrateIntent(intent: StoredWorkflowIntent): WorkflowIntent {
   };
 }
 
+function approvalFor(workflow: WorkflowInvocation): ApprovalSpec | null {
+  if (workflow === 'issue') return ISSUE_APPROVAL;
+  if (workflow === 'build') return BUILD_SHIP_APPROVAL;
+  return null;
+}
+
+function armApproval(spec: ApprovalSpec, runId: string, repo: string): void {
+  atomicWrite(spec.path(runId), {
+    protocol: spec.protocol,
+    run_id: runId,
+    repo,
+    operation: spec.operation,
+  });
+}
+
+function requireApproval(spec: ApprovalSpec, runId: string, repo: string): string {
+  const approvalFile = spec.path(runId);
+  let value: unknown;
+  try {
+    value = JSON.parse(fs.readFileSync(approvalFile, 'utf8')) as unknown;
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') throw new Error(spec.missing);
+    throw new Error(`${spec.label} is unreadable: ${errorMessage(error)}`);
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${spec.label} has an invalid shape`);
+  }
+  const record = value as Record<string, unknown>;
+  const fields = ['protocol', 'run_id', 'repo', 'operation'];
+  if (
+    Object.keys(record).length !== fields.length ||
+    fields.some((field) => !Object.hasOwn(record, field)) ||
+    record.protocol !== spec.protocol ||
+    record.run_id !== runId ||
+    record.repo !== repo ||
+    record.operation !== spec.operation
+  ) {
+    throw new Error(`${spec.label} has an invalid shape`);
+  }
+  return approvalFile;
+}
+
+function consumeApproval(spec: ApprovalSpec, runId: string, repo: string): void {
+  const approvalFile = requireApproval(spec, runId, repo);
+  try {
+    fs.unlinkSync(approvalFile);
+  } catch (error) {
+    if (errorCode(error) === 'ENOENT') throw new Error(spec.missing);
+    throw error;
+  }
+}
+
 /** Binds one explicit invocation to its task, workflow, repository, and private paths. */
 function armIntent({ runId, workflow, cwd }: ArmIntentOptions): WorkflowIntent {
   if (hasRunningFlow(runId)) throw new Error('a workflow is already active for this task');
   const repo = gitRoot(cwd, 'explicit workflow invocation requires a Git worktree');
   const existing = loadIntent(runId);
   if (existing && existing.workflow === workflow && existing.repo === repo) {
-    if (workflow === 'issue') armIssueApproval(runId, repo);
+    const approval = approvalFor(workflow);
+    if (approval) armApproval(approval, runId, repo);
     return existing;
   }
   const stored: StoredWorkflowIntent = {
@@ -93,56 +165,19 @@ function armIntent({ runId, workflow, cwd }: ArmIntentOptions): WorkflowIntent {
     if (file) fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   }
   atomicWrite(intentPath(runId), stored);
-  if (workflow === 'issue') armIssueApproval(runId, repo);
+  const approval = approvalFor(workflow);
+  if (approval) armApproval(approval, runId, repo);
   return intent;
 }
 
-/** Records the one GitHub publication authorized by a leading explicit $issue invocation. */
-function armIssueApproval(runId: string, repo: string): void {
-  const approval: StoredIssueApproval = {
-    protocol: ISSUE_APPROVAL_PROTOCOL,
-    run_id: runId,
-    repo,
-    operation: 'publish-one-github-issue',
-  };
-  atomicWrite(issueApprovalPath(runId), approval);
+/** Validates the task- and repository-bound authority before Ship enters controller state. */
+function requireBuildShipApproval(runId: string, repo: string): void {
+  requireApproval(BUILD_SHIP_APPROVAL, runId, repo);
 }
 
 /** Atomically consumes the task- and repository-bound approval before the GitHub write starts. */
 function consumeIssueApproval(runId: string, repo: string): void {
-  let value: unknown;
-  const approvalFile = issueApprovalPath(runId);
-  try {
-    value = JSON.parse(fs.readFileSync(approvalFile, 'utf8')) as unknown;
-  } catch (error) {
-    if (errorCode(error) === 'ENOENT') {
-      throw new Error('explicit $issue publication approval is required');
-    }
-    throw new Error(`issue publication approval is unreadable: ${errorMessage(error)}`);
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('issue publication approval has an invalid shape');
-  }
-  const record = value as Record<string, unknown>;
-  const fields = ['protocol', 'run_id', 'repo', 'operation'];
-  if (
-    Object.keys(record).length !== fields.length ||
-    fields.some((field) => !Object.hasOwn(record, field)) ||
-    record.protocol !== ISSUE_APPROVAL_PROTOCOL ||
-    record.run_id !== runId ||
-    record.repo !== repo ||
-    record.operation !== 'publish-one-github-issue'
-  ) {
-    throw new Error('issue publication approval has an invalid shape');
-  }
-  try {
-    fs.unlinkSync(approvalFile);
-  } catch (error) {
-    if (errorCode(error) === 'ENOENT') {
-      throw new Error('explicit $issue publication approval is required');
-    }
-    throw error;
-  }
+  consumeApproval(ISSUE_APPROVAL, runId, repo);
 }
 
 /** Loads and validates an armed intent without trusting persisted JSON. */
@@ -224,9 +259,9 @@ function requireIssueIntent(runId: string, repo: string, inputFile: string): Wor
   return requireBoundIntent(runId, 'issue', repo, inputFile, 'issue input');
 }
 
-/** Clears the task-scoped intent and any publication authority derived from it. */
+/** Clears the task-scoped intent and any external-write authority derived from it. */
 function clearIntent(runId: string): void {
-  for (const file of [intentPath(runId), issueApprovalPath(runId)]) {
+  for (const file of [intentPath(runId), issueApprovalPath(runId), buildShipApprovalPath(runId)]) {
     try {
       fs.unlinkSync(file);
     } catch (error) {
@@ -241,6 +276,7 @@ export {
   consumeIssueApproval,
   loadIntent,
   parseExplicitInvocation,
+  requireBuildShipApproval,
   requireIntent,
   requireIssueIntent,
   requireResearchIntent,
