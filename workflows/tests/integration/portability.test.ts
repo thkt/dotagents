@@ -70,6 +70,37 @@ test('groups workflow modules by outcome without feature dependencies in shared'
   }
 });
 
+test('centralizes every runtime GitHub CLI invocation in the shared registry', () => {
+  const owner = path.join(EXPECTED_ROOT, 'workflows/shared/github.ts');
+  const runtimeFiles = [
+    ...typeScriptFiles(path.join(EXPECTED_ROOT, 'hooks')),
+    ...typeScriptFiles(path.join(EXPECTED_ROOT, 'workflows')).filter(
+      (file) => !file.includes(`${path.sep}workflows${path.sep}tests${path.sep}`),
+    ),
+  ];
+  for (const file of runtimeFiles) {
+    if (file === owner) continue;
+    assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /['"]gh['"]/u, file);
+  }
+});
+
+test('uses only stable versionless protocol identifiers at runtime', () => {
+  const runtimeFiles = [
+    ...typeScriptFiles(path.join(EXPECTED_ROOT, 'hooks')),
+    ...typeScriptFiles(path.join(EXPECTED_ROOT, 'workflows')).filter(
+      (file) => !file.includes(`${path.sep}workflows${path.sep}tests${path.sep}`),
+    ),
+  ];
+  const actual = [
+    ...new Set(
+      runtimeFiles
+        .flatMap((file) => [...fs.readFileSync(file, 'utf8').matchAll(/codex-[a-z0-9-]+\/v\d+/gu)])
+        .map((match) => match[0]),
+    ),
+  ].sort();
+  assert.deepEqual(actual, []);
+});
+
 test('keeps build implementation and workflow tests with their owning workflow', () => {
   assert.equal(fs.existsSync(path.join(EXPECTED_ROOT, 'skills/build/scripts')), false);
   assert.deepEqual(
@@ -83,6 +114,7 @@ test('keeps build implementation and workflow tests with their owning workflow',
       'authoring.ts',
       'cli.ts',
       'gates.ts',
+      'github.ts',
       'handoff.ts',
       'plan.ts',
       'pr-body.ts',
@@ -171,39 +203,34 @@ test('executes every CLI through a package-manager symlink', () => {
       'codex-flow',
       'workflows/flow/runner.ts',
       ['describe', '--workflow', 'code'],
-      'codex-flow-description/v7',
+      'codex-flow-description',
     ],
-    [
-      'codex-research',
-      'workflows/research/runner.ts',
-      ['describe'],
-      'codex-research-description/v1',
-    ],
-    ['codex-think', 'workflows/think/runner.ts', ['describe'], 'codex-think-description/v1'],
-    ['codex-issue', 'workflows/issue/runner.ts', ['describe'], 'codex-issue-description/v2'],
+    ['codex-research', 'workflows/research/runner.ts', ['describe'], 'codex-research-description'],
+    ['codex-think', 'workflows/think/runner.ts', ['describe'], 'codex-think-description'],
+    ['codex-issue', 'workflows/issue/runner.ts', ['describe'], 'codex-issue-description'],
     [
       'codex-build-artifacts',
       'workflows/flow/build/artifacts.ts',
       ['describe'],
-      'codex-build-artifacts-description/v2',
+      'codex-build-artifacts-description',
     ],
     [
       'codex-build-plan',
       'workflows/flow/build/plan.ts',
       ['describe'],
-      'codex-build-plan-description/v3',
+      'codex-build-plan-description',
     ],
     [
       'codex-build-pr-body',
       'workflows/flow/build/pr-body.ts',
       ['describe'],
-      'codex-build-pr-body-description/v1',
+      'codex-build-pr-body-description',
     ],
     [
       'codex-build-revalidate',
       'workflows/flow/build/revalidate.ts',
       ['describe'],
-      'codex-build-revalidate-description/v1',
+      'codex-build-revalidate-description',
     ],
     ['codex-workflow-hook', 'hooks/workflow-enforcer.ts', [], null],
     ['codex-post-edit', 'hooks/post-edit.ts', [], null],

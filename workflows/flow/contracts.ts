@@ -1,15 +1,15 @@
-/** @file Outcome: All flow components share one versioned model of legal states and messages. */
+/** @file Outcome: All flow components share one current model of legal states and messages. */
 
 import type { RepositoryInvariant, RepoSnapshot } from '../shared/repository.ts';
 
-export const MANIFEST_PROTOCOL = 'codex-flow-manifest/v5' as const;
-export const STATE_PROTOCOL = 'codex-flow-state/v9' as const;
-export const RESULT_PROTOCOL = 'codex-flow-control/v5' as const;
+export const MANIFEST_PROTOCOL = 'codex-flow-manifest' as const;
+export const STATE_PROTOCOL = 'codex-flow-state' as const;
+export const RESULT_PROTOCOL = 'codex-flow-control' as const;
 /** Step and gate identifiers: printable, shell-safe, at most 128 characters. */
 export const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 
-export const GATE_PROTOCOL = 'codex-code-gate/v3' as const;
-export const DESCRIPTION_PROTOCOL = 'codex-flow-description/v7' as const;
+export const GATE_PROTOCOL = 'codex-code-gate' as const;
+export const DESCRIPTION_PROTOCOL = 'codex-flow-description' as const;
 
 export type Workflow = 'code' | 'build';
 export type FlowStatus = 'running' | 'completed' | 'ship-ready' | 'blocked' | 'cancelled';
@@ -311,7 +311,7 @@ interface BuildReviewFinding {
 }
 
 export interface BuildReviewResult extends StructuredGateResult {
-  protocol: 'codex-build-review/v1';
+  protocol: 'codex-build-review';
   verdict: 'pass' | 'fail';
   classification: 'pass' | 'semantic_review_failed';
   reason_codes: string[];

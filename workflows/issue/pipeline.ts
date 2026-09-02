@@ -230,6 +230,7 @@ export function draftIssue(
       'state_error',
     );
   }
+  if (input.mode === 'create') gateway.checkAccess(input.repository);
   const generatedAt = new Date().toISOString();
   const persisted = persistIssueDraft(
     {
@@ -307,7 +308,7 @@ function verifyPublished(draft: IssueDraft, body: string, issue: GitHubIssue): v
 export function publishIssue(
   draftFile: string,
   expectedDraftSha256: string,
-  gateway: IssueGateway = new GhIssueGateway(),
+  gateway: IssueGateway,
 ): IssuePublishResult {
   if (!path.isAbsolute(draftFile)) throw new FlowError('--draft must be absolute');
   const receipt = receiptPath(draftFile);

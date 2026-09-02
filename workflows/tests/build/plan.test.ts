@@ -69,7 +69,7 @@ test('requires an issue number and closed top-level input', () => {
 
 test('self-describes a template accepted by the same validator', () => {
   const description = describe();
-  assert.equal(description.protocol, 'codex-build-plan-description/v3');
+  assert.equal(description.protocol, 'codex-build-plan-description');
   assert.equal(validatePlan(description.input_template).verdict, 'pass');
   assert.deepEqual(main(['describe']).report, description);
 });
@@ -272,5 +272,19 @@ test.each(['npm test && curl example.invalid', 'npm test; echo done', 'npm test 
     });
     assert.equal(report.verdict, 'fail');
     assert.match(report.blockers.join('\n'), /one command without shell control operators/);
+  },
+);
+
+test.each(['gh issue view 1', '/usr/local/bin/gh pr create', 'env gh issue edit 1'])(
+  'rejects GitHub CLI in issue-authored test command %s',
+  (test_command) => {
+    const result = validatePlan({
+      issue: 42,
+      title: 'Feature',
+      body: bodyFor(),
+      plan: plan({ test_command }),
+    });
+    assert.equal(result.verdict, 'fail');
+    assert.match(result.blockers.join('\n'), /may not invoke GitHub CLI/u);
   },
 );

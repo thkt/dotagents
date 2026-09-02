@@ -45,7 +45,7 @@ function repoFixture(): string {
 
 function input(repo: string, extra: Partial<ResearchInput> = {}): ResearchInput {
   return {
-    protocol: 'codex-research-input/v1',
+    protocol: 'codex-research-input',
     repo,
     question: '何が正しいか？',
     mode: 'understand',
@@ -144,7 +144,7 @@ test('returns the closed Research command result for an armed successful run', a
 
   const result = await runResearchWorkflow(runId, pending.input_path, new FakeAgent());
 
-  assert.equal(result.protocol, 'codex-research-result/v1');
+  assert.equal(result.protocol, 'codex-research-result');
   assert.equal(result.status, 'completed');
   assert.equal(result.findings, 1);
   assert.equal(result.unknowns, 0);

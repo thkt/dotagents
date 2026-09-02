@@ -9,7 +9,8 @@ description: 公開GitHub Issue contract 1件を、検証済みの実装単位�
 
 ## 入力
 
-- 明示的な invocation では`#123`のような Issue shorthand を受け付け、現在の worktree の`origin` GitHub repository から選ぶ。準備済みの source をそのまま使い、Issue の検索や source の再構築は行わない。
+- 明示的な invocation では`#123`のような Issue shorthand を受け付け、現在の worktree の`origin` GitHub repository から選ぶ。manifest を作成する前に source が固定した`gh issue view`コマンドで、その Issue を読む。別の Issue を検索したり置き換えたりしない。
+- 固定済み Issue の読み取りと controller は GitHub network access を有効にして実行する。execution sandbox が`api.github.com`を拒否した場合は、同じ固定済みコマンドを network escalation 付きで再実行する。ブラウザの内容を contract の代わりにしない。
 - 公開 contract は正確な GitHub `repository` と `issue_number` で選ぶ。公開者のローカル receipt は必須ではない。
 - issue workflow が埋め込んだ canonical machine Plan と、人が読む Plan および body digest の完全一致を要求する。
 - 各 unit の outcome と test command をその公開 Plan に束縛する。manifest の文言を実装意図の別 source にしない。

@@ -8,6 +8,7 @@ import { test } from 'bun:test';
 
 import { executeAction, type CommandInvocation } from '../../flow/build/actions.ts';
 import * as flow from '../../flow/controller.ts';
+import { validateManifest } from '../../flow/manifest.ts';
 import { buildShipApprovalPath } from '../../shared/storage.ts';
 
 import {
@@ -61,6 +62,28 @@ test('advances only through the declared actor and deterministic gates', () => {
   assert.equal(final.exitCode, 0);
   assert.equal(final.result.status, 'completed');
   assert.equal(flow.currentDirective(turn).kind, 'done');
+});
+
+test('rejects an obsolete manifest and requires regeneration from the current contract', () => {
+  const { manifest } = fixture();
+  assert.throws(
+    () => validateManifest({ ...manifest, protocol: 'codex-flow-manifest/v5' }),
+    /obsolete contract; regenerate it from the current codex-flow describe output/u,
+  );
+});
+
+test('rejects obsolete workflow state instead of migrating an active run', () => {
+  const { manifestFile } = fixture();
+  const turn = 'turn-obsolete-state';
+  startFlow(turn, manifestFile);
+  const stateFile = flow.statePath(turn);
+  const state = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as Record<string, unknown>;
+  fs.writeFileSync(stateFile, JSON.stringify({ ...state, protocol: 'codex-flow-state/v9' }));
+
+  assert.throws(
+    () => flow.currentDirective(turn),
+    /obsolete contract; start a new workflow from current inputs/u,
+  );
 });
 
 test('routes a failed gate to its owner and blocks after correction budget', () => {
@@ -255,7 +278,7 @@ test('enforces build Branch and commit postconditions before ship-ready', () => 
   assert.equal(loaded.result.gate?.evidence.kind, 'structured');
   if (loaded.result.gate?.evidence.kind !== 'structured') return;
   assert.equal('expected' in loaded.result.gate, false);
-  assert.equal(loaded.result.gate.evidence.report.protocol, 'codex-build-plan/v3');
+  assert.equal(loaded.result.gate.evidence.report.protocol, 'codex-build-plan');
   assert.equal(loaded.result.gate_reports.length, 1);
   const revalidated = flow.completeCurrentDirective(turn, 'revalidate:plan');
   assert.equal(revalidated.result.status, 'running', JSON.stringify(revalidated.result.last_gate));
@@ -496,8 +519,8 @@ test('detects modification of a dirty file that predates actor entry', () => {
 
 test('self-describes the manifest contract without workflow state', () => {
   const code = flow.describe('code');
-  assert.equal(code.protocol, 'codex-flow-description/v7');
-  assert.equal(code.manifest_template.protocol, 'codex-flow-manifest/v5');
+  assert.equal(code.protocol, 'codex-flow-description');
+  assert.equal(code.manifest_template.protocol, 'codex-flow-manifest');
   assert.deepEqual(code.cli, {
     describe: 'codex-flow describe --workflow code',
     run: 'codex-flow run --manifest <absolute-json>',
@@ -512,7 +535,7 @@ test('self-describes the manifest contract without workflow state', () => {
   );
   const build = flow.describe('build');
   assert.equal(code.inputs, undefined);
-  assert.equal(build.inputs?.source.template.protocol, 'codex-build-source/v2');
+  assert.equal(build.inputs?.source.template.protocol, 'codex-build-source');
   assert.equal(build.inputs?.source.template.repository, 'owner/name');
   assert.equal(build.inputs?.source.template.issue_number, 123);
   assert.equal(

@@ -8,12 +8,20 @@ import { test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 
 import * as hook from '../../../hooks/workflow-enforcer.ts';
+import type { GateReport, StructuredGateResult } from '../../flow/contracts.ts';
 import { runStructuredBuildGate } from '../../flow/build/gates.ts';
 import { parsePublicIssueBody, renderPublicIssueBody } from '../../issue/public-contract.ts';
+import { stopIssueWorkflow } from '../../issue/runner.ts';
 import * as flow from '../../flow/controller.ts';
 import { main as flowMain } from '../../flow/runner.ts';
 import * as intent from '../../invocation.ts';
-import { buildShipApprovalPath, intentPath, workflowInputPath } from '../../shared/storage.ts';
+import {
+  buildShipApprovalPath,
+  intentPath,
+  issueApprovalPath,
+  workflowInputPath,
+} from '../../shared/storage.ts';
+import { githubIssueView, githubShellCommand } from '../../shared/github.ts';
 import {
   enableShipping,
   fixture,
@@ -24,6 +32,13 @@ import {
 
 const AGENTS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const HOOKS_CONFIG = path.resolve(AGENTS_ROOT, 'hooks/hooks.json');
+
+function structuredResult(report: GateReport | null): StructuredGateResult {
+  if (!report || report.evidence.kind !== 'structured') {
+    throw new Error('expected a structured gate report');
+  }
+  return report.evidence.report;
+}
 
 test('starts only from the manifest armed by an explicit workflow invocation', () => {
   const { manifestFile, repo } = fixture();
@@ -75,12 +90,13 @@ test('UserPromptSubmit arms only a leading explicit workflow invocation', () => 
     explicit.hookSpecificOutput?.additionalContext || '',
     new RegExp(pending!.input_path),
   );
-  assert.match(
-    explicit.hookSpecificOutput?.additionalContext || '',
-    /source for owner\/project#123 is already prepared/,
+  assert.ok(
+    (explicit.hookSpecificOutput?.additionalContext || '').includes(
+      githubShellCommand(githubIssueView('owner/project', 123)),
+    ),
   );
   assert.deepEqual(JSON.parse(fs.readFileSync(pending!.build_source_path!, 'utf8')), {
-    protocol: 'codex-build-source/v2',
+    protocol: 'codex-build-source',
     repository: 'owner/project',
     issue_number: 123,
   });
@@ -152,12 +168,52 @@ test('explicit issue invocation communicates its single-publication authorizatio
 
   assert.match(
     response.hookSpecificOutput?.additionalContext || '',
-    /authorizes exactly one GitHub Issue create or edit/,
+    /authorizes at most one GitHub Issue create or edit/,
   );
+  assert.match(response.hookSpecificOutput?.additionalContext || '', /priority label/);
   assert.match(
     response.hookSpecificOutput?.additionalContext || '',
     /no additional publication confirmation/,
   );
+  assert.match(response.hookSpecificOutput?.additionalContext || '', /codex-issue stop --input/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(issueApprovalPath('turn-explicit-issue'), 'utf8')), {
+    protocol: 'codex-issue-approval',
+    run_id: 'turn-explicit-issue',
+    repo: fs.realpathSync(repo),
+    operation: 'publish-one-github-issue-and-ensure-priority-label',
+  });
+});
+
+test('pending Issue permits only its exact missing-Think stop command', () => {
+  const { repo } = fixture();
+  const turn = 'turn-stop-pending-issue';
+  const pending = intent.armIntent({ runId: turn, workflow: 'issue', cwd: repo });
+
+  const wrong = hook.preToolUse({
+    hook_event_name: 'PreToolUse',
+    session_id: turn,
+    tool_name: 'Bash',
+    cwd: repo,
+    tool_input: { command: 'codex-issue stop --input /tmp/other.json' },
+  });
+  assert.equal(wrong.hookSpecificOutput?.permissionDecision, 'deny');
+
+  const allowed = hook.preToolUse({
+    hook_event_name: 'PreToolUse',
+    session_id: turn,
+    tool_name: 'Bash',
+    cwd: repo,
+    tool_input: { command: `codex-issue stop --input ${pending.input_path}` },
+  });
+  assert.equal(
+    allowed.hookSpecificOutput?.updatedInput?.command,
+    `codex-issue stop --input ${pending.input_path} --run-id '${turn}'`,
+  );
+  assert.match(hook.stop({ session_id: turn }).reason || '', /codex-issue stop --input/u);
+
+  assert.equal(stopIssueWorkflow(turn, pending.input_path).classification, 'missing_decision');
+  assert.deepEqual(hook.stop({ session_id: turn }), {});
+  assert.equal(fs.existsSync(issueApprovalPath(turn)), false);
 });
 
 test('explicit build invocation communicates and records its single-Ship authorization', () => {
@@ -187,7 +243,7 @@ test('build Ship approval is task- and repository-bound', () => {
   const approval = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
   assert.deepEqual(approval, {
     operation: 'push-and-create-one-draft-pr',
-    protocol: 'codex-build-ship-approval/v1',
+    protocol: 'codex-build-ship-approval',
     repo: armed.repo,
     run_id: runId,
   });
@@ -282,8 +338,19 @@ test('pending build permits only its published source and manifest files', () =>
   const turn = 'turn-pending-build-policy';
   const pending = intent.armIntent({ runId: turn, workflow: 'build', cwd: repo });
   if (!pending.build_source_path) throw new Error('missing build source path');
+  fs.writeFileSync(
+    pending.build_source_path,
+    JSON.stringify({
+      protocol: 'codex-build-source',
+      repository: 'owner/project',
+      issue_number: 42,
+    }),
+  );
   assert.equal(fs.statSync(path.dirname(pending.build_source_path)).isDirectory(), true);
-  for (const command of ['codex-flow describe --workflow build']) {
+  for (const command of [
+    'codex-flow describe --workflow build',
+    'gh issue view 42 --repo owner/project --json number,title,body,url,labels',
+  ]) {
     assert.deepEqual(
       hook.preToolUse({
         hook_event_name: 'PreToolUse',
@@ -312,6 +379,8 @@ test('pending build permits only its published source and manifest files', () =>
     'codex-build-artifacts describe',
     'codex-build-pr-body describe',
     'gh issue view 42 --repo owner/project --json number,title,body',
+    'gh issue view 43 --repo owner/project --json number,title,body,url,labels',
+    'gh issue view 42 --repo other/project --json number,title,body,url,labels',
     'gh issue edit 42 --title changed',
     'gh issue view 42 --web',
     'gh issue view branch --repo owner/project',
@@ -461,8 +530,12 @@ test('Ship revalidation rejects an Issue body edited after load:plan', () => {
   const issueFile = path.join(path.dirname(repo), 'github-issue.json');
   const issue = JSON.parse(fs.readFileSync(issueFile, 'utf8')) as Record<string, unknown>;
   const parsed = parsePublicIssueBody(String(issue.body));
+  const unsealedVisibleBody = parsed.visibleBody.replace(
+    /\n\n<!-- codex-issue-publication\npublication_id:[^\n]+\n-->\n\n/u,
+    '\n\n',
+  );
   issue.body = renderPublicIssueBody(
-    `Edited after Build started.\n\n${parsed.visibleBody}`,
+    `Edited after Build started.\n\n${unsealedVisibleBody}`,
     parsed.plan,
     'english',
     '00000000-0000-4000-8000-000000000003',
@@ -478,6 +551,88 @@ test('Ship revalidation rejects an Issue body edited after load:plan', () => {
   assert.equal(report.verdict, 'blocked');
   assert.equal(report.classification, 'issue_contract_stale');
   assert.deepEqual(report.reason_codes, ['issue_contract_stale']);
+});
+
+test('a cursor-zero GitHub access failure resumes only the same unchanged Build', () => {
+  const { manifestFile, repo } = fixture({ workflow: 'build' });
+  const gh = path.join(path.dirname(repo), 'bin', 'gh');
+  const issueFile = path.join(path.dirname(repo), 'github-issue.json');
+  const turn = 'turn-retry-github-access';
+  startFlow(turn, manifestFile, () => {
+    fs.writeFileSync(
+      gh,
+      "#!/bin/sh\nprintf '%s' 'error connecting to api.github.com' >&2\nexit 1\n",
+      { mode: 0o700 },
+    );
+  });
+  const expected = workflowInputPath(turn);
+
+  const blocked = flow.completeCurrentDirective(turn, 'load:plan').result;
+  assert.equal(blocked.status, 'blocked');
+  assert.equal(blocked.cursor, 0);
+  assert.equal(blocked.last_gate?.classification, 'github_issue_read_failed');
+  assert.deepEqual(blocked.last_gate?.reason_codes, ['github_issue_read_failed']);
+  assert.equal(structuredResult(blocked.last_gate).retryable, true);
+  const legacyState = structuredClone(flow.loadWorkflowState(turn).state);
+  const legacyGate = legacyState.gate_reports.at(-1);
+  if (!legacyGate || legacyGate.evidence.kind !== 'structured') {
+    throw new Error('missing legacy gate fixture');
+  }
+  legacyGate.classification = 'issue_contract_invalid';
+  delete legacyGate.evidence.report.retryable;
+  assert.equal(flow.isRetryableGitHubAccessBlock(legacyState), true);
+
+  const resume = hook.preToolUse({
+    hook_event_name: 'PreToolUse',
+    session_id: turn,
+    tool_name: 'Bash',
+    cwd: repo,
+    tool_input: { command: `codex-flow run --manifest ${expected}` },
+  });
+  assert.equal(resume.hookSpecificOutput?.permissionDecision, 'allow');
+  const originalManifest = fs.readFileSync(expected);
+  const changedManifest = JSON.parse(originalManifest.toString('utf8')) as Record<string, unknown>;
+  changedManifest.max_corrections = Number(changedManifest.max_corrections) + 1;
+  fs.writeFileSync(expected, JSON.stringify(changedManifest));
+  assert.throws(() => flow.startOrResumeWorkflow(turn, expected), /original blocked manifest/);
+  fs.writeFileSync(expected, originalManifest);
+  fs.writeFileSync(gh, `#!/bin/sh\nexec /bin/cat '${issueFile}'\n`, { mode: 0o700 });
+  assert.equal(flow.startOrResumeWorkflow(turn, expected).current_step?.id, 'load:plan');
+  assert.equal(flow.completeCurrentDirective(turn, 'load:plan').result.status, 'running');
+});
+
+test('a GitHub command failure is blocked at cursor zero but is not network-retryable', () => {
+  const { manifestFile, repo } = fixture({ workflow: 'build' });
+  const gh = path.join(path.dirname(repo), 'bin', 'gh');
+  const turn = 'turn-nonretry-github-command';
+  startFlow(turn, manifestFile, () => {
+    fs.writeFileSync(gh, "#!/bin/sh\nprintf '%s' 'issue not found' >&2\nexit 1\n", {
+      mode: 0o700,
+    });
+  });
+  const blocked = flow.completeCurrentDirective(turn, 'load:plan').result;
+  assert.equal(blocked.status, 'blocked');
+  assert.equal(blocked.last_gate?.classification, 'github_issue_read_failed');
+  assert.equal(structuredResult(blocked.last_gate).retryable, false);
+  assert.equal(flow.isRetryableGitHubAccessBlock(flow.loadWorkflowState(turn).state), false);
+  assert.throws(
+    () => flow.startOrResumeWorkflow(turn, workflowInputPath(turn)),
+    /explicit \$build invocation is required/u,
+  );
+});
+
+test('malformed GitHub Issue output is a contract failure, not a network retry', () => {
+  const { manifestFile, repo } = fixture({ workflow: 'build' });
+  const gh = path.join(path.dirname(repo), 'bin', 'gh');
+  const turn = 'turn-invalid-github-response';
+  startFlow(turn, manifestFile, () => {
+    fs.writeFileSync(gh, "#!/bin/sh\nprintf '%s' '{broken'\n", { mode: 0o700 });
+  });
+  const blocked = flow.completeCurrentDirective(turn, 'load:plan').result;
+  assert.equal(blocked.status, 'blocked');
+  assert.equal(blocked.last_gate?.classification, 'issue_contract_invalid');
+  assert.equal(structuredResult(blocked.last_gate).retryable, false);
+  assert.equal(flow.isRetryableGitHubAccessBlock(flow.loadWorkflowState(turn).state), false);
 });
 
 test('corrupt workflow intent blocks hook execution instead of disabling enforcement', () => {

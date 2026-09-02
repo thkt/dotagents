@@ -16,9 +16,9 @@ import {
   workflowInputPath,
 } from './shared/storage.ts';
 
-const INTENT_PROTOCOL = 'codex-workflow-intent/v4' as const;
-const ISSUE_APPROVAL_PROTOCOL = 'codex-issue-approval/v1' as const;
-const BUILD_SHIP_APPROVAL_PROTOCOL = 'codex-build-ship-approval/v1' as const;
+const INTENT_PROTOCOL = 'codex-workflow-intent' as const;
+const ISSUE_APPROVAL_PROTOCOL = 'codex-issue-approval' as const;
+const BUILD_SHIP_APPROVAL_PROTOCOL = 'codex-build-ship-approval' as const;
 type WorkflowInvocation = Workflow | 'issue' | 'research' | 'think';
 
 interface ApprovalSpec {
@@ -31,7 +31,7 @@ interface ApprovalSpec {
 
 const ISSUE_APPROVAL: ApprovalSpec = {
   protocol: ISSUE_APPROVAL_PROTOCOL,
-  operation: 'publish-one-github-issue',
+  operation: 'publish-one-github-issue-and-ensure-priority-label',
   path: issueApprovalPath,
   label: 'issue publication approval',
   missing: 'explicit $issue publication approval is required',
@@ -239,13 +239,35 @@ function requireBoundIntent(
   inputFile: string,
   inputName: 'manifest' | 'issue input' | 'research input' | 'think input',
 ): WorkflowIntent {
+  const intent = requireBoundInput(runId, workflow, inputFile, inputName);
+  if (intent.repo !== repo) throw new Error('workflow intent belongs to a different Git worktree');
+  return intent;
+}
+
+function requireBoundInput(
+  runId: string,
+  workflow: WorkflowInvocation,
+  inputFile: string,
+  inputName: 'manifest' | 'issue input' | 'research input' | 'think input',
+): WorkflowIntent {
   const intent = loadIntent(runId);
   if (!intent || intent.workflow !== workflow)
     throw new Error(`explicit $${workflow} invocation is required`);
-  if (intent.repo !== repo) throw new Error('workflow intent belongs to a different Git worktree');
   if (path.resolve(inputFile) !== intent.input_path) {
     throw new Error(`use the ${inputName} path supplied by the workflow hook`);
   }
+  return intent;
+}
+
+/** Terminates an unstarted explicit workflow through its exact task-bound input path. */
+function stopPendingIntent(
+  runId: string,
+  workflow: WorkflowInvocation,
+  inputFile: string,
+  inputName: 'manifest' | 'issue input' | 'research input' | 'think input',
+): WorkflowIntent {
+  const intent = requireBoundInput(runId, workflow, inputFile, inputName);
+  clearIntent(runId);
   return intent;
 }
 
@@ -304,5 +326,6 @@ export {
   requireIssueIntent,
   requireResearchIntent,
   requireThinkIntent,
+  stopPendingIntent,
 };
 export type { WorkflowIntent };

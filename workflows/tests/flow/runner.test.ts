@@ -80,7 +80,7 @@ const REVIEW_DIRECTIVE: ReviewDirective = {
 };
 
 const PASSING_REVIEW = {
-  protocol: 'codex-build-review/v1' as const,
+  protocol: 'codex-build-review' as const,
   verdict: 'pass' as const,
   classification: 'pass' as const,
   reason_codes: [],
@@ -573,7 +573,7 @@ test('blocks and discards sandbox edits on actor escalation, then resumes withou
   const first = await runWorkflow(runId, pending.input_path, runtime);
   assert.equal(first.exitCode, 2);
   assert.equal('status' in first.result && first.result.status, 'blocked');
-  assert.equal(first.result.protocol, 'codex-flow-control/v5');
+  assert.equal(first.result.protocol, 'codex-flow-control');
   assert.deepEqual('escalation' in first.result && first.result.escalation, {
     step_id: 'U-001:direct',
     next_step: 'think',
@@ -593,7 +593,7 @@ test('CLI exposes only describe, run, and task-bound cancel', async () => {
   const described = await main(['describe', '--workflow', 'code']);
   assert.equal(
     'protocol' in described.result && described.result.protocol,
-    'codex-flow-description/v7',
+    'codex-flow-description',
   );
   await assert.rejects(main(['status']), /unknown command: status/);
   await assert.rejects(

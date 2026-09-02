@@ -44,7 +44,7 @@ function repoFixture(): string {
 }
 function input(repo: string, extra: Partial<ThinkInput> = {}): ThinkInput {
   return {
-    protocol: 'codex-think-input/v1',
+    protocol: 'codex-think-input',
     repo,
     request: 'どう変更するか？',
     task_type: 'feature',

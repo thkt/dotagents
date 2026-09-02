@@ -22,7 +22,7 @@ test('Think Markdown exposes fixed stage timings', () => {
     decision: 'd',
     rationale: 'r',
     next_step: 'research',
-    protocol: 'codex-think-report/v3',
+    protocol: 'codex-think-report',
     generated_at: '2026-09-01T00:00:00.000Z',
     research_reports: [],
     timings: {

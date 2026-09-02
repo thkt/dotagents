@@ -41,7 +41,7 @@ function fixture() {
 }
 
 const reportBase = {
-  protocol: 'codex-research-report/v3',
+  protocol: 'codex-research-report',
   generated_at: new Date().toISOString(),
   question: 'q',
   mode: 'plan',
@@ -264,6 +264,7 @@ test('valid published issue receipt with sibling draft and ready Think artifact 
       url: 'https://github.com/owner/repo/issues/1',
       labels: [],
     };
+    checkAccess() {}
     view() {
       return this.issue;
     }
@@ -293,7 +294,7 @@ test('valid published issue receipt with sibling draft and ready Think artifact 
   );
   const preview = draftIssue(
     {
-      protocol: 'codex-issue-input/v1',
+      protocol: 'codex-issue-input',
       repo: root,
       repository: 'owner/repo',
       remote: 'origin',

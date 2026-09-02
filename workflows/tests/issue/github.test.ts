@@ -7,8 +7,12 @@ import path from 'node:path';
 import { onTestFinished, test } from 'bun:test';
 
 import { GhIssueGateway } from '../../issue/github.ts';
+import type { GitHubWriteAuthority } from '../../shared/github.ts';
 
-function fakeGh(body: string): { gateway: GhIssueGateway; invocations(): string[][] } {
+function fakeGh(
+  body: string,
+  authority: GitHubWriteAuthority | null = null,
+): { gateway: GhIssueGateway; invocations(): string[][] } {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-gh-gateway-'));
   const executable = path.join(root, 'gh');
   const log = path.join(root, 'calls.ndjson');
@@ -29,10 +33,9 @@ ${body}
     fs.rmSync(root, { recursive: true, force: true });
   });
   return {
-    gateway: new GhIssueGateway(),
+    gateway: new GhIssueGateway(authority),
     invocations: () =>
-      fs
-        .readFileSync(log, 'utf8')
+      (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '')
         .trim()
         .split('\n')
         .filter(Boolean)
@@ -48,12 +51,24 @@ const issue = {
   labels: [{ name: 'priority:medium' }],
 };
 
-test('create passes title and body path as literal gh arguments, then verifies the created Issue', () => {
+test('checkAccess verifies the exact repository through a read-only gh command', () => {
   const fake = fakeGh(`
+if (args[0] === 'repo' && args[1] === 'view') console.log(JSON.stringify({ nameWithOwner: 'owner/repo' }));
+else process.exit(2);
+`);
+  fake.gateway.checkAccess('owner/repo');
+  assert.deepEqual(fake.invocations(), [['repo', 'view', 'owner/repo', '--json', 'nameWithOwner']]);
+});
+
+test('create passes title and body path as literal gh arguments, then verifies the created Issue', () => {
+  const fake = fakeGh(
+    `
 if (args[0] === 'issue' && args[1] === 'create') console.log(${JSON.stringify(issue.url)});
 else if (args[0] === 'issue' && args[1] === 'view') console.log(${JSON.stringify(JSON.stringify(issue))});
 else process.exit(2);
-`);
+`,
+    'issue-publication',
+  );
   const created = fake.gateway.create(
     'owner/repo',
     issue.title,
@@ -80,11 +95,14 @@ else process.exit(2);
 });
 
 test('ensureLabel creates a missing supported priority and refuses unsupported labels', () => {
-  const fake = fakeGh(`
+  const fake = fakeGh(
+    `
 if (args[0] === 'label' && args[1] === 'list') console.log('[]');
 else if (args[0] === 'label' && args[1] === 'create') process.exit(0);
 else process.exit(2);
-`);
+`,
+    'issue-publication',
+  );
   fake.gateway.ensureLabel('owner/repo', 'priority:high');
   assert.deepEqual(fake.invocations()[1], [
     'label',
@@ -103,6 +121,15 @@ else process.exit(2);
     /Unsupported issue label/u,
   );
   assert.equal(fake.invocations().filter((args) => args[1] === 'create').length, 1);
+});
+
+test('write methods reject a read-only gateway before spawning gh', () => {
+  const fake = fakeGh(`process.exit(2);`);
+  assert.throws(
+    () => fake.gateway.create('owner/repo', 'title', '/tmp/body', 'priority:low'),
+    /requires issue-publication/u,
+  );
+  assert.equal(fake.invocations().length, 0);
 });
 
 test('finds one prior publication by its public id for crash recovery', () => {

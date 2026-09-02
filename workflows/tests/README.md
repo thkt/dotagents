@@ -10,7 +10,7 @@ observe the result.
 - `*.smoke.test.ts`: one primary path through real local components with external writes replaced
   at the boundary.
 
-`bun test --parallel=8 --no-isolate workflows/tests skills/tests` discovers nested `*.test.ts` files,
+`bun test --parallel=4 --no-isolate workflows/tests skills/tests` discovers nested `*.test.ts` files,
 so a domain may add subdirectories without changing `package.json`. `--no-isolate` stays on because
 bun 1.4.0's per-file isolation, when a worker moves from one file to the next, loses the exit of a
 child started by `spawnSync`. The child becomes a zombie and the test blocks until its timeout. Under

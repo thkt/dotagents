@@ -11,7 +11,13 @@ import {
   repositoryName,
 } from '../../issue/public-contract.ts';
 
-export const BUILD_SOURCE_PROTOCOL = 'codex-build-source/v2' as const;
+export const BUILD_SOURCE_PROTOCOL = 'codex-build-source' as const;
+
+export interface BuildSource {
+  protocol: typeof BUILD_SOURCE_PROTOCOL;
+  repository: string;
+  issue_number: number;
+}
 
 export interface ResolvedBuildSource {
   repository: string;
@@ -22,18 +28,28 @@ export interface ResolvedBuildSource {
   plan: ReturnType<typeof buildPlanValue>;
 }
 
+/** Validates the portable selector without fetching its selected Issue. */
+export function parseBuildSource(raw: unknown): BuildSource {
+  if (!isObject(raw) || raw.protocol !== BUILD_SOURCE_PROTOCOL) {
+    throw new FlowError(`build source.protocol must be ${BUILD_SOURCE_PROTOCOL}`);
+  }
+  rejectUnknownKeys(raw, ['protocol', 'repository', 'issue_number'], 'build source');
+  return {
+    protocol: BUILD_SOURCE_PROTOCOL,
+    repository: repositoryName(raw.repository, 'build source.repository'),
+    issue_number: positiveIssue(raw.issue_number, 'build source.issue_number'),
+  };
+}
+
 /** Fetches the authoritative public Issue selected by repository and issue number. */
 export function resolveBuildSource(
   raw: unknown,
   repo: string,
   gateway: Pick<IssueGateway, 'view'> = new GhIssueGateway(),
 ): ResolvedBuildSource {
-  if (!isObject(raw) || raw.protocol !== BUILD_SOURCE_PROTOCOL) {
-    throw new FlowError(`build source.protocol must be ${BUILD_SOURCE_PROTOCOL}`);
-  }
-  rejectUnknownKeys(raw, ['protocol', 'repository', 'issue_number'], 'build source');
-  const repository = repositoryName(raw.repository, 'build source.repository');
-  const issueNumber = positiveIssue(raw.issue_number, 'build source.issue_number');
+  const source = parseBuildSource(raw);
+  const repository = source.repository;
+  const issueNumber = source.issue_number;
   assertGitHubRepository(repo, repository);
   const issue = gateway.view(repository, issueNumber);
   if (

@@ -17,8 +17,8 @@ import type { StructuredGateResult } from '../contracts.ts';
 import { isMainModule } from '../../shared/environment.ts';
 import { realpathInside } from '../../shared/repository.ts';
 
-const PROTOCOL = 'codex-build-revalidate/v1';
-const DESCRIPTION_PROTOCOL = 'codex-build-revalidate-description/v1';
+const PROTOCOL = 'codex-build-revalidate';
+const DESCRIPTION_PROTOCOL = 'codex-build-revalidate-description';
 
 interface ValidationTarget {
   source: 'precondition' | 'reference_module' | 'rule';

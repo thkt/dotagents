@@ -1,7 +1,12 @@
 #!/usr/bin/env bun
 /** @file Outcome: One explicit command validates and publishes one exact issue draft. */
 
-import { clearIntent, consumeIssueApproval, requireIssueIntent } from '../invocation.ts';
+import {
+  clearIntent,
+  consumeIssueApproval,
+  requireIssueIntent,
+  stopPendingIntent,
+} from '../invocation.ts';
 import { BUILD_SOURCE_PROTOCOL } from '../flow/build/handoff.ts';
 import { parseCommand, requireExactFlags } from '../shared/cli.ts';
 import { ISSUE_COMMAND, isMainModule } from '../shared/environment.ts';
@@ -15,7 +20,7 @@ import {
   ISSUE_RESULT_PROTOCOL,
   validateIssueInput,
 } from './contracts.ts';
-import type { IssueGateway } from './github.ts';
+import { GhIssueGateway, type IssueGateway } from './github.ts';
 import { draftIssue, publishIssue } from './pipeline.ts';
 
 interface IssueDescription {
@@ -24,6 +29,7 @@ interface IssueDescription {
   cli: {
     describe: string;
     draft: string;
+    stop: string;
     task_binding: 'hook-injected';
   };
   input_template: {
@@ -37,7 +43,18 @@ interface IssueDescription {
     target_issue: null;
     priority: 'medium';
   };
-  contracts: { source: string; preview: string; publish: string };
+  attach_plan_template: {
+    protocol: typeof ISSUE_INPUT_PROTOCOL;
+    repo: string;
+    repository: string;
+    remote: 'origin';
+    mode: 'attach-plan';
+    think_report: string;
+    title: null;
+    target_issue: number;
+    priority: 'medium';
+  };
+  contracts: { source: string; missing_source: string; preview: string; publish: string };
 }
 
 export interface IssuePublishCommandResult {
@@ -54,6 +71,16 @@ export interface IssuePublishCommandResult {
   next_step: 'build';
 }
 
+export interface IssueStopCommandResult {
+  protocol: typeof ISSUE_RESULT_PROTOCOL;
+  status: 'blocked';
+  classification: 'missing_decision';
+  error: 'ready Think artifact is required before Issue publication';
+  next_step: 'think';
+}
+
+type IssueCommandResult = IssuePublishCommandResult | IssueStopCommandResult;
+
 /** Exposes the human decisions while leaving Plan rendering and publication mechanics to code. */
 export function describeIssue(
   language: ConfiguredLanguage = resolveConfiguredLanguage('japanese'),
@@ -64,6 +91,7 @@ export function describeIssue(
     cli: {
       describe: `${ISSUE_COMMAND} describe`,
       draft: `${ISSUE_COMMAND} draft --input <absolute-json>`,
+      stop: `${ISSUE_COMMAND} stop --input <hook-supplied-json>`,
       task_binding: 'hook-injected',
     },
     input_template: {
@@ -80,11 +108,36 @@ export function describeIssue(
       target_issue: null,
       priority: 'medium',
     },
+    attach_plan_template: {
+      protocol: ISSUE_INPUT_PROTOCOL,
+      repo: '/absolute/git-root',
+      repository: 'owner/name',
+      remote: 'origin',
+      mode: 'attach-plan',
+      think_report: '/absolute/private-think-report.json',
+      title: null,
+      target_issue: 123,
+      priority: 'medium',
+    },
     contracts: {
       source: 'think_report must be ready, share the current HEAD, and retain valid evidence',
+      missing_source:
+        'stop consumes the pending intent and publication approval without creating an input or writing to GitHub',
       preview: 'draft is validated and publication verifies the exact draft before writing',
       publish: 'the validated draft is published atomically from the caller perspective',
     },
+  };
+}
+
+/** Stops an Issue invocation that cannot select the required ready Think artifact. */
+export function stopIssueWorkflow(runId: string, inputFile: string): IssueStopCommandResult {
+  stopPendingIntent(runId, 'issue', inputFile, 'issue input');
+  return {
+    protocol: ISSUE_RESULT_PROTOCOL,
+    status: 'blocked',
+    classification: 'missing_decision',
+    error: 'ready Think artifact is required before Issue publication',
+    next_step: 'think',
   };
 }
 
@@ -97,13 +150,15 @@ export function draftIssueWorkflow(
 ): IssuePublishCommandResult {
   const input = validateIssueInput(readAbsoluteJson(inputFile, 'issue'));
   requireIssueIntent(runId, input.repo, inputFile);
+  const draftGateway = gateway ?? new GhIssueGateway();
   const result = progress.runSync({ workflow: 'issue', stage: 'issue_draft' }, () =>
-    draftIssue(input, gateway),
+    draftIssue(input, draftGateway),
   );
   consumeIssueApproval(runId, input.repo);
   clearIntent(runId);
+  const publishGateway = gateway ?? new GhIssueGateway('issue-publication');
   const published = progress.runSync({ workflow: 'issue', stage: 'issue_publish' }, () =>
-    publishIssue(result.draft_json, result.draft_sha256, gateway),
+    publishIssue(result.draft_json, result.draft_sha256, publishGateway),
   );
   return {
     protocol: ISSUE_RESULT_PROTOCOL,
@@ -122,7 +177,7 @@ export function draftIssueWorkflow(
 
 export function main(
   argv: string[] = process.argv.slice(2),
-): IssueDescription | IssuePublishCommandResult {
+): IssueDescription | IssueCommandResult {
   const { command, flags } = parseCommand(argv);
   if (command === 'describe') {
     requireExactFlags(flags, []);
@@ -131,6 +186,10 @@ export function main(
   if (command === 'draft') {
     requireExactFlags(flags, ['--input', '--run-id']);
     return draftIssueWorkflow(flags['--run-id']!, flags['--input']!);
+  }
+  if (command === 'stop') {
+    requireExactFlags(flags, ['--input', '--run-id']);
+    return stopIssueWorkflow(flags['--run-id']!, flags['--input']!);
   }
   throw new FlowError(`unknown command: ${command}`);
 }
