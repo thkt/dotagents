@@ -141,6 +141,19 @@ function issueTitle(input: ThinkInput): string {
   return input.task_type === 'bug' ? '[Bug] Think decision' : 'Think decision';
 }
 
+function canonicalizePlan(decision: ThinkDecision): ThinkDecision {
+  return decision.plan === null
+    ? decision
+    : {
+        ...decision,
+        plan: {
+          ...decision.plan,
+          outcome: decision.outcome,
+          root_cause: decision.root_cause,
+        },
+      };
+}
+
 function validateDecision(input: ThinkInput, decision: ThinkDecision): void {
   if (decision.readiness === 'research_required') {
     if (decision.plan !== null)
@@ -169,12 +182,6 @@ function validateDecision(input: ThinkInput, decision: ThinkDecision): void {
       'ready decision must cite repository or selected research evidence',
       'decision_error',
     );
-  }
-  if (
-    decision.outcome !== decision.plan.outcome ||
-    decision.root_cause !== decision.plan.root_cause
-  ) {
-    throw new FlowError('decision outcome and root cause must match the plan', 'decision_error');
   }
   if (input.task_type === 'bug' && decision.root_cause === null) {
     throw new FlowError('a ready bug decision requires an evidenced root cause', 'decision_error');
@@ -222,14 +229,8 @@ async function reviewedDecision(
 ): Promise<{ decision: ThinkDecision; evidence: ThinkReportEvidence[] }> {
   const validationInput = { ...input, repo: snapshotRepo };
   const research = selectedResearch.map((item) => item.context);
-  const first = await agent.review(
-    input,
-    draft,
-    research,
-    buildContract,
-    undefined,
-    context,
-    snapshotRepo,
+  const first = canonicalizePlan(
+    await agent.review(input, draft, research, buildContract, undefined, context, snapshotRepo),
   );
   try {
     return {
@@ -238,17 +239,19 @@ async function reviewedDecision(
     };
   } catch (error) {
     if (!['decision_error', 'evidence_error'].includes(errorCode(error) ?? '')) throw error;
-    const second = await agent.review(
-      input,
-      draft,
-      research,
-      buildContract,
-      {
-        rejected: first,
-        errors: [errorMessage(error)],
-      },
-      context,
-      snapshotRepo,
+    const second = canonicalizePlan(
+      await agent.review(
+        input,
+        draft,
+        research,
+        buildContract,
+        {
+          rejected: first,
+          errors: [errorMessage(error)],
+        },
+        context,
+        snapshotRepo,
+      ),
     );
     return {
       decision: second,

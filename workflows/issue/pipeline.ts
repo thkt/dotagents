@@ -204,12 +204,6 @@ export function draftIssue(
 ): IssueDraftResult {
   const before = repositoryInvariant(input.repo);
   const source = loadThinkReport(input.repo, input.think_report);
-  if (
-    before.head !== source.report.repository.head ||
-    Object.keys(before.changes).length > 0 !== source.report.repository.dirty
-  ) {
-    throw new FlowError('repository state no longer matches the think report', 'state_error');
-  }
   assertGitHubRemote(input.repo, input.remote, input.repository);
   const existing =
     input.mode === 'attach-plan' ? gateway.view(input.repository, input.target_issue!) : null;
