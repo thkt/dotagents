@@ -17,7 +17,6 @@ import {
   type ThinkInput,
 } from './contracts.ts';
 import { composePrompt } from '../shared/prompt.ts';
-import { FlowError } from '../shared/errors.ts';
 import { ProgressReporter, workflowProgress } from '../shared/progress.ts';
 
 export interface ThinkResearchContext {
@@ -62,8 +61,6 @@ export interface ThinkAgent {
   ): Promise<ThinkDecision>;
 }
 
-const DESIGN_TIMEOUT_MS = 10 * 60_000;
-const REVIEW_TIMEOUT_MS = 8 * 60_000;
 const CONTEXT_LABEL = 'KNOWLEDGE AND DECISION CONTEXT';
 const CONTEXT_BOUNDARY = `${CONTEXT_LABEL} is advisory input compiled from authoritative artifacts; revalidate it against the current repository or selected research before relying on it.`;
 
@@ -146,24 +143,6 @@ export function reviewPrompt(
   );
 }
 
-async function runStage(
-  stage: 'designer' | 'reviewer',
-  run: () => Promise<{ finalResponse: string }>,
-  timeoutMs: number,
-): Promise<{ finalResponse: string }> {
-  try {
-    return await run();
-  } catch (error) {
-    if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
-      throw new FlowError(
-        `think ${stage} timed out after ${timeoutMs}ms`,
-        `think_${stage}_timeout`,
-      );
-    }
-    throw error;
-  }
-}
-
 /** Runs design and review in separate SDK threads so the recommendation cannot approve itself. */
 export class CodexThinkAgent implements ThinkAgent {
   private readonly client: CodexClientLike;
@@ -185,16 +164,17 @@ export class CodexThinkAgent implements ThinkAgent {
     snapshotRepo: string,
   ): Promise<ThinkDraft> {
     const thread = this.client.startThread(readOnlyThreadOptions(snapshotRepo));
-    const result = await runStage(
-      'designer',
-      () =>
-        this.progress.run({ workflow: 'think', stage: 'designer_model_call' }, () =>
-          thread.run(designPrompt(input, research, buildContract, context), {
-            outputSchema: THINK_DRAFT_SCHEMA,
-            signal: AbortSignal.timeout(DESIGN_TIMEOUT_MS),
-          }),
-        ),
-      DESIGN_TIMEOUT_MS,
+    const result = await this.progress.run(
+      { workflow: 'think', stage: 'designer_model_call' },
+      (stage) =>
+        thread.run(designPrompt(input, research, buildContract, context), {
+          outputSchema: THINK_DRAFT_SCHEMA,
+          modelRun: {
+            label: 'think designer',
+            idleCode: 'think_designer_idle_timeout',
+            onActivity: (activity) => stage.activity(activity),
+          },
+        }),
     );
     return this.progress.runSync(
       { workflow: 'think', stage: 'designer_structured_validation' },
@@ -212,22 +192,21 @@ export class CodexThinkAgent implements ThinkAgent {
     snapshotRepo: string,
   ): Promise<ThinkDecision> {
     const thread = this.client.startThread(readOnlyThreadOptions(snapshotRepo));
-    const result = await runStage(
-      'reviewer',
-      () =>
-        this.progress.run(
-          {
-            workflow: 'think',
-            stage: 'reviewer_model_call',
-            ...(correction ? { attempt: 2 } : {}),
+    const result = await this.progress.run(
+      {
+        workflow: 'think',
+        stage: 'reviewer_model_call',
+        ...(correction ? { attempt: 2 } : {}),
+      },
+      (stage) =>
+        thread.run(reviewPrompt(input, draft, research, buildContract, correction, context), {
+          outputSchema: THINK_REVIEW_SCHEMA,
+          modelRun: {
+            label: 'think reviewer',
+            idleCode: 'think_reviewer_idle_timeout',
+            onActivity: (activity) => stage.activity(activity),
           },
-          () =>
-            thread.run(reviewPrompt(input, draft, research, buildContract, correction, context), {
-              outputSchema: THINK_REVIEW_SCHEMA,
-              signal: AbortSignal.timeout(REVIEW_TIMEOUT_MS),
-            }),
-        ),
-      REVIEW_TIMEOUT_MS,
+        }),
     );
     return this.progress.runSync(
       {

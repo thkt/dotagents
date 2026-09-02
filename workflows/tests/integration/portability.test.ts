@@ -100,6 +100,21 @@ test('centralizes every runtime Codex SDK client behind the sandboxed environmen
   }
 });
 
+test('routes every model turn through streaming activity and idle detection', () => {
+  for (const relative of [
+    'workflows/think/agent.ts',
+    'workflows/research/agent.ts',
+    'workflows/flow/agent.ts',
+  ]) {
+    const source = fs.readFileSync(path.join(EXPECTED_ROOT, relative), 'utf8');
+    assert.match(source, /modelRun:/u, relative);
+    assert.doesNotMatch(source, /AbortSignal\.timeout/u, relative);
+  }
+  const boundary = fs.readFileSync(path.join(EXPECTED_ROOT, 'workflows/shared/codex.ts'), 'utf8');
+  assert.match(boundary, /\.runStreamed\(/u);
+  assert.match(boundary, /idleController\.abort/u);
+});
+
 test('uses only stable versionless protocol identifiers at runtime', () => {
   const runtimeFiles = [
     ...typeScriptFiles(path.join(EXPECTED_ROOT, 'hooks')),

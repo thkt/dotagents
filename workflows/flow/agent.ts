@@ -9,6 +9,7 @@ import {
   readOnlyThreadOptions,
   structuredResponseObject,
   type CodexClientLike,
+  type ModelActivitySink,
 } from '../shared/codex.ts';
 import { FlowError } from '../shared/errors.ts';
 import type { BuildReviewResult, FlowDirective } from './contracts.ts';
@@ -19,9 +20,17 @@ type SealDirective = Extract<FlowDirective, { kind: 'seal-gate' }>;
 type ReviewDirective = Extract<FlowDirective, { kind: 'run-review' }>;
 
 export interface WorkflowAgent {
-  runActor(repo: string, directive: ActorDirective): Promise<void>;
-  selectEvidenceCandidate(repo: string, directive: SealDirective): Promise<string>;
-  reviewBuild(repo: string, directive: ReviewDirective): Promise<BuildReviewResult>;
+  runActor(repo: string, directive: ActorDirective, onActivity?: ModelActivitySink): Promise<void>;
+  selectEvidenceCandidate(
+    repo: string,
+    directive: SealDirective,
+    onActivity?: ModelActivitySink,
+  ): Promise<string>;
+  reviewBuild(
+    repo: string,
+    directive: ReviewDirective,
+    onActivity?: ModelActivitySink,
+  ): Promise<BuildReviewResult>;
 }
 
 const ACTOR_RESULT_SCHEMA = {
@@ -92,9 +101,6 @@ const BUILD_REVIEW_RESULT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-const ACTOR_TIMEOUT_MS = 15 * 60_000;
-const EVIDENCE_TIMEOUT_MS = 2 * 60_000;
-const REVIEW_TIMEOUT_MS = 10 * 60_000;
 function roleInstruction(stepId: string): string {
   if (stepId.endsWith(':red'))
     return 'Make every planned test discoverable and runnable, with the intended new behavior failing at an assertion. If an allowed production file is absent, create only the smallest API scaffold needed to run them. Do not implement behavior that makes them pass. Import/module-resolution, syntax/parse, typecheck, and discovery failures are invalid Red evidence.';
@@ -233,7 +239,11 @@ export class CodexWorkflowAgent implements WorkflowAgent {
     this.client = client;
   }
 
-  async runActor(repo: string, directive: ActorDirective): Promise<void> {
+  async runActor(
+    repo: string,
+    directive: ActorDirective,
+    onActivity?: ModelActivitySink,
+  ): Promise<void> {
     const thread = this.client.startThread({
       ...IMPLEMENTATION_THREAD_OPTIONS,
       workingDirectory: repo,
@@ -244,7 +254,11 @@ export class CodexWorkflowAgent implements WorkflowAgent {
     });
     const result = await thread.run(actorPrompt(directive), {
       outputSchema: ACTOR_RESULT_SCHEMA,
-      signal: AbortSignal.timeout(ACTOR_TIMEOUT_MS),
+      modelRun: {
+        label: `workflow actor ${directive.step_id}`,
+        idleCode: 'actor_model_idle_timeout',
+        ...(onActivity ? { onActivity } : {}),
+      },
     });
     const response = structuredResponseObject(result.finalResponse, directive.step_id);
     if (
@@ -271,7 +285,11 @@ export class CodexWorkflowAgent implements WorkflowAgent {
       );
   }
 
-  async selectEvidenceCandidate(repo: string, directive: SealDirective): Promise<string> {
+  async selectEvidenceCandidate(
+    repo: string,
+    directive: SealDirective,
+    onActivity?: ModelActivitySink,
+  ): Promise<string> {
     const thread = this.client.startThread({
       ...THINKING_THREAD_OPTIONS,
       workingDirectory: repo,
@@ -282,7 +300,11 @@ export class CodexWorkflowAgent implements WorkflowAgent {
     });
     const result = await thread.run(evidencePrompt(directive, crypto.randomUUID()), {
       outputSchema: EVIDENCE_RESULT_SCHEMA,
-      signal: AbortSignal.timeout(EVIDENCE_TIMEOUT_MS),
+      modelRun: {
+        label: `gate calibration ${directive.step_id}`,
+        idleCode: 'gate_calibration_idle_timeout',
+        ...(onActivity ? { onActivity } : {}),
+      },
     });
     const candidateId = structuredResponseObject(
       result.finalResponse,
@@ -297,11 +319,19 @@ export class CodexWorkflowAgent implements WorkflowAgent {
     return candidateId;
   }
 
-  async reviewBuild(repo: string, directive: ReviewDirective): Promise<BuildReviewResult> {
+  async reviewBuild(
+    repo: string,
+    directive: ReviewDirective,
+    onActivity?: ModelActivitySink,
+  ): Promise<BuildReviewResult> {
     const thread = this.client.startThread(readOnlyThreadOptions(repo));
     const result = await thread.run(buildReviewPrompt(directive, crypto.randomUUID()), {
       outputSchema: BUILD_REVIEW_RESULT_SCHEMA,
-      signal: AbortSignal.timeout(REVIEW_TIMEOUT_MS),
+      modelRun: {
+        label: `build review ${directive.step_id}`,
+        idleCode: 'build_review_idle_timeout',
+        ...(onActivity ? { onActivity } : {}),
+      },
     });
     return parseBuildReviewResult(
       structuredResponseObject(result.finalResponse, directive.step_id),

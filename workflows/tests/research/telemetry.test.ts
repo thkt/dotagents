@@ -7,6 +7,7 @@ import { parseResearchReport } from '../../../workflows/research/contracts.ts';
 import { CodexResearchAgent } from '../../../workflows/research/agent.ts';
 import type { CodexClientLike } from '../../../workflows/shared/codex.ts';
 import type { ResearchInput } from '../../../workflows/research/contracts.ts';
+import { FlowError, errorCode } from '../../../workflows/shared/errors.ts';
 import { ProgressReporter, type ProgressEvent } from '../../../workflows/shared/progress.ts';
 
 const timings = {
@@ -120,4 +121,21 @@ test('Research model failure keeps model stage and elapsed duration', async () =
     agent.investigate(input, [], [], input.repo),
     /research investigator model call failed after \d+ms/u,
   );
+});
+
+test('Research model failure preserves the idle classification from the shared boundary', async () => {
+  const client: CodexClientLike = {
+    startThread: () => ({
+      run: async (_prompt, options) => {
+        assert.equal(options.modelRun.idleCode, 'research_investigator_idle_timeout');
+        throw new FlowError('idle stream', 'research_investigator_idle_timeout');
+      },
+    }),
+  };
+  const agent = new CodexResearchAgent(client);
+  await assert.rejects(agent.investigate(input, [], [], input.repo), (error: unknown) => {
+    assert.equal(errorCode(error), 'research_investigator_idle_timeout');
+    assert.match(String((error as Error).message), /idle stream/u);
+    return true;
+  });
 });

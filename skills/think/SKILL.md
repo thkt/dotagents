@@ -13,7 +13,7 @@ Inspect the current input and decision contract with `codex-think describe`.
 ## Decisions
 
 - State one change and the observable state that should exist when it is done.
-- Classify it as a bug, feature, documentation change, or maintenance task.
+- Classify it as `bug`, `feature`, `docs`, or `chore`; use `chore` for a maintenance task.
 - Include only planning research reports that bear directly on the decision.
 - Read [decision writing](references/decision-writing.md) when wording the outcome and Plan.
 

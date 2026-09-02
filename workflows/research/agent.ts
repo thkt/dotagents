@@ -15,7 +15,7 @@ import {
   type ResearchDraft,
   type ResearchInput,
 } from './contracts.ts';
-import { FlowError, errorMessage } from '../shared/errors.ts';
+import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
 import { elapsedMs } from '../shared/codex.ts';
 import { researchArtifactDirectory } from '../shared/storage.ts';
 import { composePrompt } from '../shared/prompt.ts';
@@ -51,8 +51,6 @@ export interface ResearchAgent {
   ): Promise<ResearchAudit>;
 }
 
-const INVESTIGATOR_TIMEOUT_MS = 10 * 60_000;
-const AUDITOR_TIMEOUT_MS = 8 * 60_000;
 const CONTEXT_LABEL = 'KNOWLEDGE CONTEXT';
 const CONTEXT_BOUNDARY =
   'Knowledge context entries are leads only, never proof or citations; re-verify every claim against current sources.';
@@ -179,16 +177,20 @@ export class CodexResearchAgent implements ResearchAgent {
     try {
       result = await this.progress.run(
         { workflow: 'research', stage: 'investigator_model_call' },
-        () =>
+        (stage) =>
           thread.run(investigationPrompt(input, prior, context), {
             outputSchema: RESEARCH_DRAFT_SCHEMA,
-            signal: AbortSignal.timeout(INVESTIGATOR_TIMEOUT_MS),
+            modelRun: {
+              label: 'research investigator',
+              idleCode: 'research_investigator_idle_timeout',
+              onActivity: (activity) => stage.activity(activity),
+            },
           }),
       );
     } catch (error) {
       throw new FlowError(
         `research investigator model call failed after ${elapsedMs(started)}ms: ${errorMessage(error)}`,
-        'execution_error',
+        errorCode(error) ?? 'execution_error',
       );
     }
     const validationStarted = performance.now();
@@ -218,10 +220,14 @@ export class CodexResearchAgent implements ResearchAgent {
     const thread = this.client.startThread(threadOptions(input, prior, snapshotRepo));
     const result = await this.progress.run(
       { workflow: 'research', stage: 'auditor_model_call' },
-      () =>
+      (stage) =>
         thread.run(auditPrompt(input, draft, prior, context), {
           outputSchema: RESEARCH_AUDIT_SCHEMA,
-          signal: AbortSignal.timeout(AUDITOR_TIMEOUT_MS),
+          modelRun: {
+            label: 'research auditor',
+            idleCode: 'research_auditor_idle_timeout',
+            onActivity: (activity) => stage.activity(activity),
+          },
         }),
     );
     return this.progress.runSync(
