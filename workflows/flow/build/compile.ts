@@ -2,6 +2,7 @@
 
 import type { ActorRole, BuildPlanContext, FlowManifest, GateExpectation } from '../contracts.ts';
 import { DEFAULT_MAX_CORRECTIONS, validateManifest } from '../manifest.ts';
+import { FlowError } from '../../shared/errors.ts';
 
 interface CompileBuildOptions {
   repo: string;
@@ -9,7 +10,7 @@ interface CompileBuildOptions {
   plan: BuildPlanContext;
   branchName: string;
   startPoint: string;
-  baseBranch: string;
+  baseBranch?: string;
   ship: boolean;
 }
 
@@ -39,11 +40,11 @@ function shellGate(
 
 function unitCommitSubject(unit: BuildPlanContext['units'][number]): string {
   const prefix = `chore(${unit.id.toLowerCase()}): `;
-  const summary =
-    unit.goal
-      .toLowerCase()
-      .replace(/[^a-z0-9._/-]+/gu, ' ')
-      .trim() || 'implement published plan unit';
+  const normalized = unit.goal
+    .toLowerCase()
+    .replace(/[^a-z0-9._/-]+/gu, ' ')
+    .trim();
+  const summary = normalized.replace(/^[^a-z0-9]+/u, '') || 'implement published plan unit';
   return `${prefix}${summary}`.slice(0, 72).trimEnd();
 }
 
@@ -147,6 +148,7 @@ export function compileBuildManifest({
     },
   ];
   if (ship) {
+    if (!baseBranch) throw new FlowError('shipping Build requires a base branch', 'state_error');
     steps.push(
       {
         id: 'revalidate:ship',

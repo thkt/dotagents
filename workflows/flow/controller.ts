@@ -654,15 +654,15 @@ function compileLoadedBuild(state: FlowState, step: Extract<FlowStep, { kind: 'g
   if (!branch || branch.action !== 'branch') {
     throw new FlowError('Build input has no branch seed', 'state_error');
   }
-  const baseBranch = defaultBaseBranch(state.manifest.repo);
+  const ship = state.manifest.shipping_authorized;
   const compiled = compileBuildManifest({
     repo: state.manifest.repo,
     input: step.gate.input,
     plan: state.build_plan,
     branchName: branch.branch_name,
     startPoint: branch.start_point,
-    baseBranch,
-    ship: state.manifest.shipping_authorized,
+    ...(ship ? { baseBranch: defaultBaseBranch(state.manifest.repo) } : {}),
+    ship,
   });
   const actorFiles = new Set(
     compiled.steps

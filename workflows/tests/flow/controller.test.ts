@@ -320,6 +320,22 @@ test('a detached Build uses origin HEAD as its Ship base', () => {
   assert.equal(ship?.action === 'ship' && ship.base_branch, 'main');
 });
 
+test('a ship-disabled Build does not require origin HEAD', () => {
+  const { manifestFile, repo } = fixture({ workflow: 'build' });
+  const turn = 'turn-build-without-remote-head';
+  startFlow(turn, manifestFile, () => {
+    spawnSync('git', ['-C', repo, 'symbolic-ref', '--delete', 'refs/remotes/origin/HEAD']);
+  });
+  const loaded = flow.completeCurrentDirective(turn, 'load:plan');
+  assert.equal(loaded.result.status, 'running', JSON.stringify(loaded.result.last_gate));
+  assert.equal(
+    flow
+      .loadWorkflowState(turn)
+      .state.manifest.steps.some((step) => step.kind === 'action' && step.action === 'ship'),
+    false,
+  );
+});
+
 test('Build reuses an existing branch only at its exact start point', () => {
   const { manifestFile, repo, startPoint } = fixture({ workflow: 'build' });
   spawnSync('git', ['-C', repo, 'branch', 'codex/issue-42', startPoint]);

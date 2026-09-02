@@ -150,6 +150,52 @@ test('adds only the closed Ship sequence when the Build input authorizes it', ()
   );
 });
 
+test('normalizes Japanese unit goals to valid commit subjects', () => {
+  const { repo, head } = repository();
+  const localizedPlan: BuildPlanContext = {
+    ...plan,
+    units: [
+      {
+        ...plan.units[1]!,
+        id: 'U-001',
+        goal: '`.codex/OUTCOME.md` を更新する',
+        files: ['README.md'],
+      },
+      {
+        ...plan.units[1]!,
+        id: 'U-002',
+        goal: '-v フラグを受け付ける',
+        files: ['flags.md'],
+      },
+      {
+        ...plan.units[1]!,
+        id: 'U-003',
+        goal: '表示を更新する',
+        files: ['display.md'],
+      },
+    ],
+  };
+  const manifest = compileBuildManifest({
+    repo,
+    input: path.join(repo, '.build-input.json'),
+    plan: localizedPlan,
+    branchName: 'codex/issue-123',
+    startPoint: head,
+    ship: false,
+  });
+
+  assert.deepEqual(
+    manifest.steps
+      .filter((step) => step.kind === 'action' && step.action === 'commit')
+      .map((step) => step.subject),
+    [
+      'chore(u-001): codex/outcome.md',
+      'chore(u-002): v',
+      'chore(u-003): implement published plan unit',
+    ],
+  );
+});
+
 test('refuses an existing Build branch at a different start point', () => {
   const { repo, head } = repository();
   spawnSync('git', ['-C', repo, 'branch', 'codex/issue-123', head]);
@@ -168,7 +214,6 @@ test('refuses an existing Build branch at a different start point', () => {
         plan,
         branchName: 'codex/issue-123',
         startPoint: next,
-        baseBranch: 'main',
         ship: false,
       }),
     /branch_name already exists at a different commit/u,
