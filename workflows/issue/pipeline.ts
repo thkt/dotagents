@@ -401,15 +401,9 @@ export function publishIssue(
     published_at: new Date().toISOString(),
     repo: draft.repo,
     repository: draft.repository,
-    remote: draft.remote,
     publication_id: draft.publication_id,
     draft_sha256: sha256(loaded.content),
     issue_number: issue.number,
-    url: issue.url,
-    title: issue.title,
-    body: issue.body,
-    body_sha256: sha256(issue.body),
-    plan: draft.plan,
   });
   return { issue, receipt_json: receipt };
 }

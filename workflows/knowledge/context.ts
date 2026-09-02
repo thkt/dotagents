@@ -129,6 +129,11 @@ function collectDecisionEntries(repo: string): { entries: ContextEntry[]; degrad
       const draftBytes = fs.readFileSync(draftFile);
       if (sha256(draftBytes) !== receipt.draft_sha256) throw new Error('digest');
       const draft = parseIssueDraft(JSON.parse(draftBytes.toString('utf8')));
+      if (
+        draft.publication_id !== receipt.publication_id ||
+        draft.repository !== receipt.repository
+      )
+        throw new Error('publication');
       const thinkFile = path.resolve(draft.think_report);
       const thinkDir = path.resolve(thinkArtifactDirectory(repo));
       if (!thinkFile.startsWith(`${thinkDir}${path.sep}`)) throw new Error('think path');

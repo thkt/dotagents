@@ -259,10 +259,21 @@ test('one explicit issue invocation publishes the exact draft and returns build 
     compileContext(repo, 'think').entries.some((e) => e.kind === 'decision'),
     true,
   );
-  assert.equal(
-    JSON.parse(fs.readFileSync(publishedResult.receipt_json, 'utf8')).body,
-    gateway.issue.body,
-  );
+  const receipt = JSON.parse(fs.readFileSync(publishedResult.receipt_json, 'utf8')) as Record<
+    string,
+    unknown
+  >;
+  assert.deepEqual(Object.keys(receipt).sort(), [
+    'draft_sha256',
+    'issue_number',
+    'protocol',
+    'publication_id',
+    'published_at',
+    'repo',
+    'repository',
+  ]);
+  assert.equal(receipt.publication_id, publicationId);
+  assert.equal('body' in receipt, false);
   const resolved = resolveBuildSource(
     {
       protocol: BUILD_SOURCE_PROTOCOL,
