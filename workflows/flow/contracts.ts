@@ -273,7 +273,6 @@ export interface FlowState {
   status: FlowStatus;
   correction_counts: Record<string, number>;
   sealed_gates: Record<string, string[]>;
-  calibrations: Record<string, Calibration>;
   gate_reports: GateReport[];
   build_plan: BuildPlanContext | null;
   workflow_baseline: RepoSnapshot;
@@ -383,11 +382,6 @@ export type FlowDirective =
   | {
       kind: 'calibrate-gate';
       step_id: string;
-    }
-  | {
-      kind: 'seal-gate';
-      step_id: string;
-      calibration: Calibration;
     }
   | {
       kind: 'run-gate';

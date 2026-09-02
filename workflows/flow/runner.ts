@@ -54,9 +54,6 @@ function progressContext(
     case 'run-review':
       stage = 'build_semantic_review';
       break;
-    case 'seal-gate':
-      stage = 'controller_evidence_validation';
-      break;
     case 'run-action':
       stage = `action_${directive.action}`;
       break;
@@ -150,17 +147,6 @@ export async function driveWorkflow(
             completeCurrentDirective(runId, directive.step_id),
           );
           break;
-        case 'seal-gate': {
-          await progress.run(progressContext(workflow, directive), async (stage) => {
-            const candidateId = await runtime.agent.selectEvidenceCandidate(
-              repo,
-              directive,
-              (activity) => stage.activity(activity),
-            );
-            completeCurrentDirective(runId, directive.step_id, candidateId);
-          });
-          break;
-        }
       }
     } catch (error) {
       if (error instanceof ActorEscalation && failedDirective?.kind === 'run-actor') {

@@ -236,6 +236,20 @@ export function calibrationCandidates(
   return candidates;
 }
 
+/** Selects the first observed failure for each planned test, or the first generic failure. */
+export function calibrationAnchors(
+  candidates: readonly CalibrationCandidate[],
+  plannedTests: readonly PlannedFailure[] | null,
+): string[] | null {
+  if (plannedTests === null) return candidates[0] ? [candidates[0].text] : null;
+  const selected = plannedTests.map((test) =>
+    candidates.find((candidate) => candidate.test_id === test.id),
+  );
+  return selected.every((candidate) => candidate !== undefined)
+    ? selected.map((candidate) => candidate!.text)
+    : null;
+}
+
 /** Executes one command and reports bounded exit/output evidence deterministically. */
 export function runShellVerification(
   options: GateOptions,

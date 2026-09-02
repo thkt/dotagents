@@ -111,7 +111,7 @@ test('routes a failed gate to its owner and blocks after correction budget', () 
   assert.equal(second.result.status, 'blocked');
 });
 
-test('seals a Red fingerprint only from observed calibration output', () => {
+test('seals the first observed Red fingerprint without model selection', () => {
   const { manifest, manifestFile, repo } = fixture();
   fs.writeFileSync(
     path.join(repo, 'red.js'),
@@ -144,21 +144,13 @@ test('seals a Red fingerprint only from observed calibration output', () => {
   assert.equal(calibrationDirective.kind, 'calibrate-gate');
   const calibrated = flow.completeCurrentDirective(turn, 'U-001:red:gate');
   assert.equal(calibrated.exitCode, 0);
-  const sealDirective = flow.currentDirective(turn);
-  assert.equal(sealDirective.kind, 'seal-gate');
-  if (sealDirective.kind !== 'seal-gate') return;
-  assert.deepEqual(sealDirective.calibration.candidates, [
+  assert.deepEqual(calibrated.result.calibration?.candidates, [
     { id: 'stderr:L1', text: 'not ok T-001 rejects invalid input' },
   ]);
-  assert.throws(
-    () => flow.completeCurrentDirective(turn, 'U-001:red:gate', 'not present'),
-    /not a calibration candidate/u,
-  );
-  flow.completeCurrentDirective(
-    turn,
-    'U-001:red:gate',
-    sealDirective.calibration.candidates[0]!.id,
-  );
+  assert.deepEqual(calibrated.result.sealed_gates['U-001:red:gate'], [
+    'not ok T-001 rejects invalid input',
+  ]);
+  assert.equal(flow.currentDirective(turn).kind, 'run-gate');
   const gated = flow.completeCurrentDirective(turn, 'U-001:red:gate');
   assert.equal(gated.exitCode, 0);
   assert.equal(gated.result.current_step?.id, 'U-001:green');

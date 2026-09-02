@@ -14,7 +14,7 @@ import { FlowError } from './errors.ts';
 import { isObject, rejectUnknownKeys, type JsonObject } from './schema.ts';
 
 /** Read-only investigation and decision threads always use the strongest reasoning profile. */
-export const THINKING_THREAD_OPTIONS = {
+const THINKING_THREAD_OPTIONS = {
   model: 'gpt-5.6-sol',
   modelReasoningEffort: 'high',
 } as const satisfies ThreadOptions;

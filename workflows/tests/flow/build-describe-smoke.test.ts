@@ -127,9 +127,6 @@ test('describe(build) materializes a public Issue source and reaches ship-ready'
       async runActor(sandboxRepo) {
         fs.appendFileSync(path.join(sandboxRepo, 'unit.ts'), 'export const smoke = true;\n');
       },
-      async selectEvidenceCandidate() {
-        throw new Error('unexpected evidence selection');
-      },
       async reviewBuild() {
         return {
           protocol: 'codex-build-review' as const,

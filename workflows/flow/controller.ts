@@ -32,6 +32,7 @@ import {
 import {
   DEFAULT_TAIL_BYTES,
   DEFAULT_TIMEOUT_MS,
+  calibrationAnchors,
   parseArgs as parseGateArgs,
 } from './shell-gate.ts';
 import { clearIntent, loadIntent, requireBuildShipApproval, requireIntent } from '../invocation.ts';
@@ -235,7 +236,6 @@ function startWorkflow(runId: string, manifestFile: string): PublicState {
     status: 'running',
     correction_counts: {},
     sealed_gates: {},
-    calibrations: {},
     gate_reports: [],
     build_plan: null,
     workflow_baseline: workflowBaseline,
@@ -633,7 +633,7 @@ function plannedCalibrationTests(
   return unit.tests;
 }
 
-/** Observes an expected failure before an agent selects its stable evidence anchor. */
+/** Observes an expected failure and seals deterministic evidence for its planned tests. */
 function runCalibration(runId: string, stepId: string): { result: PublicState; exitCode: number } {
   const { file, state } = loadWorkflowState(runId);
   const step = requireStep(state, stepId, ['gate']);
@@ -654,12 +654,14 @@ function runCalibration(runId: string, stepId: string): { result: PublicState; e
     requiredOutput: [],
     forbiddenOutput: step.gate.forbid_output,
   };
+  const plannedTests = plannedCalibrationTests(state, step);
   const { report: observedReport, candidates } = runIsolatedShellVerification(
     options,
-    plannedCalibrationTests(state, step),
+    plannedTests,
   );
+  const anchors = calibrationAnchors(candidates, plannedTests);
   const report =
-    observedReport.verdict === 'pass' && candidates.length === 0
+    observedReport.verdict === 'pass' && anchors === null
       ? {
           ...observedReport,
           verdict: 'fail' as const,
@@ -685,31 +687,10 @@ function runCalibration(runId: string, stepId: string): { result: PublicState; e
     stderr_tail: report.evidence.stderr_tail,
     candidates,
   };
-  state.calibrations[step.id] = calibration;
+  state.sealed_gates[step.id] = anchors!;
   const result = save(file, state);
   result.calibration = calibration;
   return { result, exitCode: 0 };
-}
-
-/** Seals a calibrated gate with one controller-extracted candidate. */
-function sealGate(runId: string, stepId: string, candidateId: string | undefined): PublicState {
-  const { file, state } = loadWorkflowState(runId);
-  const step = requireStep(state, stepId, ['gate']);
-  if (step.gate.authority !== 'shell')
-    throw new FlowError(`${step.id} sealing requires shell authority`, 'state_error');
-  if (!step.gate.calibrate)
-    throw new FlowError(`${step.id} is not a calibration gate`, 'order_error');
-  if (typeof candidateId !== 'string' || !candidateId.trim() || candidateId.length > 128) {
-    throw new FlowError('--candidate-id must be a non-empty id of at most 128 characters');
-  }
-  const calibration = state.calibrations[step.id];
-  if (!calibration) throw new FlowError(`${step.id} has no calibration result`, 'order_error');
-  const candidate = calibration.candidates.find(({ id }) => id === candidateId);
-  if (!candidate)
-    throw new FlowError('--candidate-id is not a calibration candidate', 'evidence_error');
-  state.sealed_gates[step.id] = [candidate.text];
-  delete state.calibrations[step.id];
-  return save(file, state);
 }
 
 function workflowStatus(runId: string): PublicState {
@@ -815,17 +796,9 @@ function directiveForState(state: FlowState): FlowDirective {
     };
   }
   if (step.gate.authority === 'shell' && step.gate.calibrate && !state.sealed_gates[step.id]) {
-    const calibration = state.calibrations[step.id];
-    if (!calibration) {
-      return {
-        kind: 'calibrate-gate',
-        step_id: step.id,
-      };
-    }
     return {
-      kind: 'seal-gate',
+      kind: 'calibrate-gate',
       step_id: step.id,
-      calibration,
     };
   }
   return {
@@ -862,7 +835,6 @@ function currentDirective(runId: string): FlowDirective {
 function completeCurrentDirective(
   runId: string,
   stepId: string,
-  candidateId?: string,
 ): { result: PublicState; exitCode: number } {
   const directive = currentDirective(runId);
   if (!('step_id' in directive))
@@ -881,8 +853,6 @@ function completeCurrentDirective(
       throw new FlowError('run-review requires a structured SDK result', 'order_error');
     case 'calibrate-gate':
       return runCalibration(runId, stepId);
-    case 'seal-gate':
-      return { result: sealGate(runId, stepId, candidateId), exitCode: 0 };
     case 'run-gate':
       return runGate(runId, stepId);
   }

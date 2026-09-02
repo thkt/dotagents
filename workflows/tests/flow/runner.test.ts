@@ -13,7 +13,6 @@ import {
   ActorEscalation,
   buildReviewPrompt,
   CodexWorkflowAgent,
-  evidencePrompt,
   parseBuildReviewResult,
   type WorkflowAgent,
 } from '../../flow/agent.ts';
@@ -26,7 +25,6 @@ import { main, runWorkflow, type WorkflowRuntime } from '../../flow/runner.ts';
 import { armIntent } from '../../invocation.ts';
 
 type ActorDirective = Extract<FlowDirective, { kind: 'run-actor' }>;
-type SealDirective = Extract<FlowDirective, { kind: 'seal-gate' }>;
 type ReviewDirective = Extract<FlowDirective, { kind: 'run-review' }>;
 
 const ACTOR_DIRECTIVE: ActorDirective = {
@@ -37,18 +35,6 @@ const ACTOR_DIRECTIVE: ActorDirective = {
   files: ['value.txt'],
   verification: { command: 'node verify.js', expect: 'pass' },
   correction: null,
-};
-
-const SEAL_DIRECTIVE: SealDirective = {
-  kind: 'seal-gate',
-  step_id: 'U-001:red:gate',
-  calibration: {
-    command: 'node test.js',
-    exit_code: 1,
-    stdout_tail: 'expected failure\n',
-    stderr_tail: '',
-    candidates: [{ id: 'stdout:L1', text: 'expected failure', test_id: 'T-001' }],
-  },
 };
 
 const REVIEW_DIRECTIVE: ReviewDirective = {
@@ -186,13 +172,12 @@ test('binds semantic review to the published Plan and rejects inconsistent verdi
   );
 });
 
-test('uses write scope for actors and read-only scope for calibration evidence', async () => {
+test('uses write scope for actors and read-only scope for semantic review', async () => {
   const starts: unknown[] = [];
   const prompts: string[] = [];
   const idleCodes: string[] = [];
   const responses = [
     JSON.stringify({ status: 'completed', summary: 'written', route: null, question: null }),
-    JSON.stringify({ candidate_id: 'stdout:L1' }),
     JSON.stringify(PASSING_REVIEW),
   ];
   const client = {
@@ -210,7 +195,6 @@ test('uses write scope for actors and read-only scope for calibration evidence',
   const agent = new CodexWorkflowAgent(client);
   await agent.runActor('/tmp/repo', ACTOR_DIRECTIVE);
 
-  assert.equal(await agent.selectEvidenceCandidate('/tmp/repo', SEAL_DIRECTIVE), 'stdout:L1');
   assert.deepEqual(await agent.reviewBuild('/tmp/repo', REVIEW_DIRECTIVE), PASSING_REVIEW);
   assert.deepEqual(starts, [
     {
@@ -231,26 +215,9 @@ test('uses write scope for actors and read-only scope for calibration evidence',
       networkAccessEnabled: false,
       webSearchMode: 'disabled',
     },
-    {
-      model: 'gpt-5.6-sol',
-      modelReasoningEffort: 'high',
-      workingDirectory: '/tmp/repo',
-      sandboxMode: 'read-only',
-      approvalPolicy: 'never',
-      networkAccessEnabled: false,
-      webSearchMode: 'disabled',
-    },
   ]);
-  assert.deepEqual(idleCodes, [
-    'actor_model_idle_timeout',
-    'gate_calibration_idle_timeout',
-    'build_review_idle_timeout',
-  ]);
-  assert.match(prompts[1]!, /BEGIN OBSERVED OUTPUT [0-9a-f-]{36}/u);
-  assert.match(prompts[1]!, /"id":"stdout:L1"/u);
-  assert.doesNotMatch(prompts[1]!, /stdout_tail/u);
-  assert.match(evidencePrompt(SEAL_DIRECTIVE, 'fixed-nonce'), /END OBSERVED OUTPUT fixed-nonce/u);
-  assert.match(prompts[2]!, /BEGIN PUBLISHED BUILD CONTRACT [0-9a-f-]{36}/u);
+  assert.deepEqual(idleCodes, ['actor_model_idle_timeout', 'build_review_idle_timeout']);
+  assert.match(prompts[1]!, /BEGIN PUBLISHED BUILD CONTRACT [0-9a-f-]{36}/u);
 });
 
 test('publishes only allowed changes from an isolated actor', async () => {
@@ -447,9 +414,6 @@ test('blocks in-process actor errors and retries only model unavailability', asy
       if (failure) throw failure;
       fs.writeFileSync(path.join(actorRepo, 'value.txt'), 'done\n');
     },
-    async selectEvidenceCandidate() {
-      throw new Error('calibration is not expected');
-    },
     async reviewBuild() {
       throw new Error('build review is not expected');
     },
@@ -595,9 +559,6 @@ test('blocks and discards sandbox edits on actor escalation, then resumes withou
         actorCalls += 1;
         fs.writeFileSync(path.join(actorRepo, 'value.txt'), 'discarded\n');
         throw new ActorEscalation('think', 'Which contract should apply?', 'Decision missing');
-      },
-      async selectEvidenceCandidate() {
-        throw new Error('not expected');
       },
       async reviewBuild() {
         throw new Error('not expected');

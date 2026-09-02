@@ -92,9 +92,6 @@ test('described code manifest reaches terminal state with fake actor runtime', a
   const runtime: WorkflowRuntime = {
     agent: {
       async runActor() {},
-      async selectEvidenceCandidate() {
-        throw new Error('unexpected calibration');
-      },
       async reviewBuild() {
         throw new Error('unexpected build review');
       },
