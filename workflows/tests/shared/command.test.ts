@@ -7,7 +7,7 @@ import * as os from 'node:os';
 import path from 'node:path';
 import { onTestFinished, test } from 'bun:test';
 
-import { shellCommand } from '../../shared/command.ts';
+import { shellCommand, shellSafeText } from '../../shared/command.ts';
 
 test('quotes controller-supplied shell arguments without evaluating their contents', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-shell-command-'));
@@ -22,4 +22,19 @@ test('quotes controller-supplied shell arguments without evaluating their conten
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, argument);
   assert.equal(fs.existsSync(marker), false);
+});
+
+test('flattens shell control sequences to single spaces and keeps every other character', () => {
+  const cases: [string, string][] = [
+    ['plain title', 'plain title'],
+    ['  padded\ttabs  ', 'padded tabs'],
+    ['line\nbreak\r\nreturn', 'line break return'],
+    ['a && b || c', 'a b c'],
+    ['a; b & c | d', 'a b c d'],
+    ['`cmd` $(cmd) <in >out', 'cmd cmd) in out'],
+    ['quotes \' " and $VAR stay', 'quotes \' " and $VAR stay'],
+  ];
+  for (const [input, expected] of cases) {
+    assert.equal(shellSafeText(input), expected, JSON.stringify(input));
+  }
 });

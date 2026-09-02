@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { FlowError } from '../shared/errors.ts';
 import { readRepositoryEvidence } from '../shared/evidence.ts';
-import { repositoryInvariant, sameWorkflowRepositoryInvariant } from '../shared/repository.ts';
+import { repositoryInvariant, requireUnchangedRepository } from '../shared/repository.ts';
 import {
   RESEARCH_REPORT_PROTOCOL,
   parseResearchReport,
@@ -20,7 +20,7 @@ import {
 import { CodexResearchAgent, type PriorResearchSummary, type ResearchAgent } from './agent.ts';
 import { researchArtifactDirectory } from '../shared/storage.ts';
 import { persistResearchReport } from './artifact.ts';
-import { compileContext } from '../knowledge/context.ts';
+import { compileContextOrDegraded } from '../knowledge/context.ts';
 import { emptyStageTimings } from '../shared/codex.ts';
 import { withRepositorySnapshot } from '../flow/isolation.ts';
 
@@ -161,14 +161,11 @@ export async function runResearch(
   const { audit, contextLoad, findings } = await withRepositorySnapshot(
     input.repo,
     async (snapshotRepo) => {
+      // Source reads go to the snapshot. Artifact and knowledge lookups stay on input.repo;
+      // ignored repository-local artifacts are intentionally absent from the snapshot.
       const validationInput = { ...input, repo: snapshotRepo };
       const prior = readPriorResearch(input.repo);
-      let contextLoad: ReturnType<typeof compileContext>;
-      try {
-        contextLoad = compileContext(input.repo, 'research');
-      } catch {
-        contextLoad = { status: 'degraded', entries: [] };
-      }
+      const contextLoad = compileContextOrDegraded(input.repo, 'research');
       const context = contextLoad.entries
         .filter((e) => e.kind === 'knowledge')
         .map(({ id, statement, source_artifact, source_id, status }) => ({
@@ -191,9 +188,7 @@ export async function runResearch(
       return { audit, contextLoad, findings };
     },
   );
-  if (!sameWorkflowRepositoryInvariant(before, repositoryInvariant(input.repo))) {
-    throw new FlowError('repository changed while research was running', 'state_error');
-  }
+  requireUnchangedRepository(before, input.repo, 'research');
   const generatedAt = new Date();
   const report: ResearchReport = {
     protocol: RESEARCH_REPORT_PROTOCOL,

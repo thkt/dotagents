@@ -7,6 +7,7 @@ import {
   thinkArtifactDirectory,
 } from '../shared/storage.ts';
 import { readRepositoryEvidence, sha256 } from '../shared/evidence.ts';
+import { errorMessage } from '../shared/errors.ts';
 import { parseResearchReport } from '../research/contracts.ts';
 import { parseThinkReport } from '../think/contracts.ts';
 import { parseIssueDraft } from '../issue/contracts.ts';
@@ -149,6 +150,16 @@ function collectDecisionEntries(repo: string): { entries: ContextEntry[]; degrad
       degraded = true;
     }
   return { entries, degraded };
+}
+
+/** Keeps a workflow running on an empty context when artifact reading fails, and says why on stderr. */
+export function compileContextOrDegraded(repo: string, mode: 'research' | 'think'): ContextResult {
+  try {
+    return compileContext(repo, mode);
+  } catch (error) {
+    process.stderr.write(`${mode} knowledge context degraded: ${errorMessage(error)}\n`);
+    return { status: 'degraded', entries: [] };
+  }
 }
 
 export function compileContext(repo: string, mode: 'research' | 'think'): ContextResult {

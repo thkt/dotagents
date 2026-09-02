@@ -14,10 +14,13 @@ const plan: BuildPlanContext = {
   issue: 123,
   title: 'Feature',
   body_sha256: '0'.repeat(64),
+  outcome: 'Feature is delivered.',
+  test_command: 'npm test',
   manual_verification: [],
   units: [
     {
       id: 'U-001',
+      goal: 'Preserve the value contract.',
       contract: 'tested behavior',
       files: ['src/value.ts', 'tests/value.test.ts'],
       tests: [{ id: 'T-001', name: 'empty input returns an error' }],
@@ -25,6 +28,7 @@ const plan: BuildPlanContext = {
     },
     {
       id: 'U-002',
+      goal: 'Document the value contract.',
       contract: 'documentation',
       files: ['README.md'],
       tests: [],
@@ -114,9 +118,24 @@ test('requires initially absent tested-unit files in both Red and Green scopes',
   const repo = tempRepo();
   const result = buildManifestPlanBlockers(
     manifest([
-      { id: 'U-001:red', kind: 'actor', outcome: 'x', files: ['tests/value.test.ts'] },
-      { id: 'U-001:green', kind: 'actor', outcome: 'x', files: ['src/value.ts'] },
-      { id: 'U-002:direct', kind: 'actor', outcome: 'x', files: ['README.md'] },
+      {
+        id: 'U-001:red',
+        kind: 'actor',
+        outcome: 'Preserve the value contract.',
+        files: ['tests/value.test.ts'],
+      },
+      {
+        id: 'U-001:green',
+        kind: 'actor',
+        outcome: 'Preserve the value contract.',
+        files: ['src/value.ts'],
+      },
+      {
+        id: 'U-002:direct',
+        kind: 'actor',
+        outcome: 'Document the value contract.',
+        files: ['README.md'],
+      },
     ]),
     plan,
     repo,
@@ -135,20 +154,98 @@ test('accepts initially absent files when both actors include them', () => {
         {
           id: 'U-001:red',
           kind: 'actor',
-          outcome: 'x',
+          outcome: 'Preserve the value contract.',
           files: ['tests/value.test.ts', 'src/value.ts'],
         },
         {
           id: 'U-001:green',
           kind: 'actor',
-          outcome: 'x',
+          outcome: 'Preserve the value contract.',
           files: ['src/value.ts', 'tests/value.test.ts'],
         },
-        { id: 'U-002:direct', kind: 'actor', outcome: 'x', files: ['README.md'] },
+        {
+          id: 'U-002:direct',
+          kind: 'actor',
+          outcome: 'Document the value contract.',
+          files: ['README.md'],
+        },
       ]),
       plan,
       repo,
     ),
     [],
   );
+});
+
+test('rejects manifest outcomes and test commands that rewrite the published Plan', () => {
+  const repo = tempRepo(['src/value.ts', 'tests/value.test.ts']);
+  const result = buildManifestPlanBlockers(
+    manifest([
+      {
+        id: 'baseline:test',
+        kind: 'gate',
+        gate: {
+          authority: 'shell',
+          command: 'true',
+          expect: 'pass',
+          calibrate: false,
+          failure_route: 'blocked',
+          require_output: [],
+          forbid_output: [],
+        },
+      },
+      {
+        id: 'U-001:red',
+        kind: 'actor',
+        outcome: 'Delete unrelated behavior.',
+        files: ['tests/value.test.ts'],
+      },
+      {
+        id: 'U-001:red:gate',
+        kind: 'gate',
+        owner: 'U-001:red',
+        gate: {
+          authority: 'shell',
+          command: 'true',
+          expect: 'fail',
+          calibrate: true,
+          failure_route: 'red:U-001',
+          require_output: [],
+          forbid_output: [],
+        },
+      },
+      {
+        id: 'U-001:green',
+        kind: 'actor',
+        outcome: 'Preserve the value contract.',
+        files: ['src/value.ts'],
+      },
+      {
+        id: 'U-002:direct',
+        kind: 'actor',
+        outcome: 'Document the value contract.',
+        files: ['README.md'],
+      },
+      {
+        id: 'final:test',
+        kind: 'gate',
+        gate: {
+          authority: 'shell',
+          command: 'npm test',
+          expect: 'pass',
+          calibrate: false,
+          failure_route: 'blocked',
+          require_output: [],
+          forbid_output: [],
+        },
+      },
+    ]),
+    plan,
+    repo,
+  );
+  assert.deepEqual(result, [
+    'U-001:red.outcome must equal U-001.goal from the Plan',
+    'baseline:test.gate.command must equal Plan test_command',
+    'U-001:red:gate.gate.command must equal Plan test_command',
+  ]);
 });

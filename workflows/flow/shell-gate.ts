@@ -7,6 +7,7 @@ import path from 'node:path';
 
 import {
   GATE_PROTOCOL,
+  SAFE_ID,
   type CalibrationCandidate,
   type GateCheck,
   type GateOptions,
@@ -35,7 +36,6 @@ const SINGLE_FLAGS = new Set([
 const REPEATABLE_FLAGS = new Set(['--require-output', '--forbid-output']);
 const ROUTE_PATTERN =
   /^(?:blocked|triage|(?:red|green|direct):[A-Za-z0-9][A-Za-z0-9._-]*|cleanup:[A-Za-z0-9][A-Za-z0-9._-]*)$/;
-const GATE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 
 function parsePositiveInteger(value: string, flag: string): number {
   const parsed = Number(value);
@@ -114,7 +114,7 @@ export function parseArgs(argv: string[]): GateOptions {
 
   if (!options.gateId) throw usageError('--gate-id is required');
   const gateId = options.gateId;
-  if (!GATE_ID_PATTERN.test(gateId) || gateId.length > 128) {
+  if (!SAFE_ID.test(gateId)) {
     throw usageError('--gate-id has an invalid shape');
   }
   if (!options.failureRoute) throw usageError('--failure-route is required');

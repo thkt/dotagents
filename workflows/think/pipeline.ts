@@ -12,11 +12,11 @@ import { errorCode, errorMessage, FlowError } from '../shared/errors.ts';
 import {
   realpathInside,
   repositoryInvariant,
-  sameWorkflowRepositoryInvariant,
+  requireUnchangedRepository,
 } from '../shared/repository.ts';
 import { researchArtifactDirectory } from '../shared/storage.ts';
 import { persistThinkReport } from './artifact.ts';
-import { compileContext } from '../knowledge/context.ts';
+import { compileContextOrDegraded } from '../knowledge/context.ts';
 import { withRepositorySnapshot } from '../flow/isolation.ts';
 import {
   CodexThinkAgent,
@@ -209,14 +209,14 @@ function validateAndSeal(
 /** Gives one invalid final handoff back to the reviewer with the controller's concrete blockers. */
 async function reviewedDecision(
   input: ThinkInput,
-  validationInput: ThinkInput,
   draft: ThinkDraft,
   selectedResearch: SelectedResearch[],
   buildContract: unknown,
   agent: ThinkAgent,
-  context: ThinkContextSummary[] = [],
+  context: ThinkContextSummary[],
   snapshotRepo: string,
 ): Promise<{ decision: ThinkDecision; evidence: ThinkReportEvidence[] }> {
+  const validationInput = { ...input, repo: snapshotRepo };
   const research = selectedResearch.map((item) => item.context);
   const first = await agent.review(
     input,
@@ -262,18 +262,14 @@ export async function runThink(
   const { contextLoad, decision, evidence, research } = await withRepositorySnapshot(
     input.repo,
     async (snapshotRepo) => {
-      const validationInput = { ...input, repo: snapshotRepo };
+      // Source reads go to the snapshot. Artifact and knowledge lookups stay on input.repo;
+      // ignored repository-local artifacts are intentionally absent from the snapshot.
       const selectedResearch = input.research_reports.map((file, index) =>
         reportContext(input.repo, snapshotRepo, file, index),
       );
       const research = selectedResearch.map((item) => item.context);
       const buildContract = describeBuildPlan();
-      let contextLoad: ReturnType<typeof compileContext>;
-      try {
-        contextLoad = compileContext(input.repo, 'think');
-      } catch {
-        contextLoad = { status: 'degraded', entries: [] };
-      }
+      const contextLoad = compileContextOrDegraded(input.repo, 'think');
       const context: ThinkContextSummary[] = contextLoad.entries
         .filter((e) => e.status === 'active')
         .map(({ id, kind, statement, source_artifact, source_id }) => ({
@@ -287,7 +283,6 @@ export async function runThink(
       const draft = await agent.design(input, research, buildContract, context, snapshotRepo);
       const reviewed = await reviewedDecision(
         input,
-        validationInput,
         draft,
         selectedResearch,
         buildContract,
@@ -298,9 +293,7 @@ export async function runThink(
       return { contextLoad, research, ...reviewed };
     },
   );
-  if (!sameWorkflowRepositoryInvariant(before, repositoryInvariant(input.repo))) {
-    throw new FlowError('repository changed while think was running', 'state_error');
-  }
+  requireUnchangedRepository(before, input.repo, 'think');
   const report: ThinkReport = {
     protocol: THINK_REPORT_PROTOCOL,
     generated_at: new Date().toISOString(),

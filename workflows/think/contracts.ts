@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 
 import { FlowError } from '../shared/errors.ts';
+import { CONFIGURED_LANGUAGES, type ConfiguredLanguage } from '../shared/language.ts';
 import { gitRoot } from '../shared/repository.ts';
 import { isObject, rejectUnknownKeys, stringArray, type JsonObject } from '../shared/schema.ts';
 import {
@@ -22,7 +23,6 @@ export const THINK_RESULT_PROTOCOL = 'codex-think-result/v1' as const;
 export const THINK_DESCRIPTION_PROTOCOL = 'codex-think-description/v1' as const;
 
 type ThinkTaskType = 'bug' | 'feature' | 'docs' | 'chore';
-type ThinkLanguage = 'english' | 'japanese';
 type ThinkReadiness = 'ready' | 'research_required';
 
 export interface ThinkInput {
@@ -31,7 +31,7 @@ export interface ThinkInput {
   request: string;
   task_type: ThinkTaskType;
   research_reports: string[];
-  language: ThinkLanguage;
+  language: ConfiguredLanguage;
 }
 
 interface ThinkApproach {
@@ -81,7 +81,7 @@ export interface ThinkReport extends Omit<ThinkDecision, 'evidence'> {
   generated_at: string;
   request: string;
   task_type: ThinkTaskType;
-  language: ThinkLanguage;
+  language: ConfiguredLanguage;
   repository: { head: string | null; dirty: boolean };
   evidence: ThinkReportEvidence[];
   research_reports: string[];
@@ -238,7 +238,7 @@ export function validateThinkInput(raw: unknown): ThinkInput {
       'think input.task_type',
     ),
     research_reports: [...new Set(reports)],
-    language: enumValue(raw.language, ['english', 'japanese'] as const, 'think input.language'),
+    language: enumValue(raw.language, CONFIGURED_LANGUAGES, 'think input.language'),
   };
 }
 
@@ -458,7 +458,7 @@ export function parseThinkReport(raw: unknown): ThinkReport {
       ['bug', 'feature', 'docs', 'chore'] as const,
       'think report.task_type',
     ),
-    language: enumValue(raw.language, ['english', 'japanese'] as const, 'think report.language'),
+    language: enumValue(raw.language, CONFIGURED_LANGUAGES, 'think report.language'),
     repository: {
       head:
         raw.repository.head === null

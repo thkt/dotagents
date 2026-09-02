@@ -16,6 +16,7 @@ export interface GitHubIssue {
 
 export interface IssueGateway {
   view(repository: string, issue: number): GitHubIssue;
+  findByPublicationId(repository: string, publicationId: string): GitHubIssue | null;
   ensureLabel(repository: string, label: string): void;
   create(repository: string, title: string, bodyFile: string, label: string): GitHubIssue;
   edit(repository: string, issue: number, bodyFile: string, label: string): GitHubIssue;
@@ -68,6 +69,13 @@ function parseLabelNames(raw: unknown): string[] {
   });
 }
 
+function parseIssueList(raw: unknown): GitHubIssue[] {
+  if (!Array.isArray(raw)) {
+    throw new FlowError('GitHub returned an invalid issue list', 'external_error');
+  }
+  return raw.map(parseIssue);
+}
+
 function issueNumber(url: string): number {
   const match = /\/issues\/(\d+)\/?$/u.exec(url);
   if (!match) throw new FlowError('GitHub did not return an issue URL', 'external_error');
@@ -109,6 +117,39 @@ function view(repository: string, issue: number): GitHubIssue {
 export class GhIssueGateway implements IssueGateway {
   view(repository: string, issue: number): GitHubIssue {
     return view(repository, issue);
+  }
+
+  findByPublicationId(repository: string, publicationId: string): GitHubIssue | null {
+    const output = command(
+      [
+        'issue',
+        'list',
+        '--repo',
+        repository,
+        '--state',
+        'all',
+        '--search',
+        `${publicationId} in:body`,
+        '--limit',
+        '100',
+        '--json',
+        'number,title,body,url,labels',
+      ],
+      'gh issue list',
+    );
+    let matches: GitHubIssue[];
+    try {
+      matches = parseIssueList(JSON.parse(output) as unknown).filter((issue) =>
+        issue.body.includes(`publication_id:${publicationId}`),
+      );
+    } catch (error) {
+      if (error instanceof FlowError) throw error;
+      throw new FlowError('GitHub issue list output is not valid JSON', 'external_error');
+    }
+    if (matches.length > 1) {
+      throw new FlowError('GitHub returned duplicate issue publications', 'external_error');
+    }
+    return matches[0] ?? null;
   }
 
   ensureLabel(repository: string, label: string): void {
@@ -190,14 +231,27 @@ export class GhIssueGateway implements IssueGateway {
   }
 }
 
-/** Proves that the selected owner/name is one configured remote of the current worktree. */
-export function assertGitHubRemote(repo: string, remote: string, repository: string): void {
-  const url = gitText(repo, ['remote', 'get-url', '--push', remote], `Git remote ${remote}`);
+function githubRepositoryFromUrl(url: string): string | null {
   const match =
     /^(?:git@github\.com:|https:\/\/github\.com\/|ssh:\/\/git@github\.com\/)([^/]+\/[^/]+?)(?:\.git)?\/?$/u.exec(
       url,
     );
-  if (match?.[1] !== repository) {
+  return match?.[1] ?? null;
+}
+
+/** Resolves one configured GitHub remote to its portable owner/name identifier. */
+export function githubRepositoryForRemote(repo: string, remote: string = 'origin'): string {
+  const url = gitText(repo, ['remote', 'get-url', '--push', remote], `Git remote ${remote}`);
+  const repository = githubRepositoryFromUrl(url);
+  if (!repository) {
+    throw new FlowError(`Git remote ${remote} is not a github.com repository`, 'state_error');
+  }
+  return repository;
+}
+
+/** Proves that the selected owner/name is one configured remote of the current worktree. */
+export function assertGitHubRemote(repo: string, remote: string, repository: string): void {
+  if (githubRepositoryForRemote(repo, remote) !== repository) {
     throw new FlowError(`Git remote ${remote} does not resolve to ${repository}`, 'state_error');
   }
 }

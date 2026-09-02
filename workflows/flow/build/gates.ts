@@ -11,8 +11,10 @@ import { revalidatePlan } from './revalidate.ts';
 import {
   GATE_PROTOCOL,
   type ActionStep,
+  type ActorStep,
   type ActorRole,
   type BuildPlanContext,
+  type BuildReviewResult,
   type FlowDescription,
   type FlowManifest,
   type FlowState,
@@ -21,8 +23,8 @@ import {
   type StructuredGateResult,
 } from '../contracts.ts';
 import { UNIT_ACTOR } from '../manifest.ts';
-import { shellSafeText } from '../../shared/command.ts';
 import { FlowError, errorMessage } from '../../shared/errors.ts';
+import { prBodyPath } from '../../shared/storage.ts';
 
 function readJson(file: string, label: string): unknown {
   if (!path.isAbsolute(file)) throw new FlowError(`${label} must be absolute`);
@@ -39,10 +41,13 @@ function buildPlanContext(value: ResolvedBuildSource): BuildPlanContext {
     issue: value.issue,
     title: value.title,
     body_sha256: value.body_sha256,
+    outcome: value.plan.outcome,
+    test_command: value.plan.test_command,
     manual_verification: value.plan.manual_verification,
     units: value.plan.units.map((unit) => ({
       id: unit.id,
-      contract: shellSafeText(unit.contract),
+      goal: unit.goal,
+      contract: unit.contract,
       files: unit.files,
       tests: unit.tests,
       seam: unit.seam,
@@ -120,6 +125,14 @@ export function buildManifestPlanBlockers(
     if (manifestUnit.roles.join(',') !== expectedRoles) {
       blockers.push(`${planUnit.id} requires ${expectedRoles} actors from its Plan tests`);
     }
+    const unitActors = manifest.steps.filter(
+      (step): step is ActorStep => step.kind === 'actor' && step.id.startsWith(`${planUnit.id}:`),
+    );
+    for (const actor of unitActors) {
+      if (actor.outcome !== planUnit.goal) {
+        blockers.push(`${actor.id}.outcome must equal ${planUnit.id}.goal from the Plan`);
+      }
+    }
     const plannedFiles = new Set(planUnit.files);
     const missingFiles = planUnit.files.filter((file) => !manifestUnit.files.has(file));
     const extraFiles = [...manifestUnit.files].filter((file) => !plannedFiles.has(file));
@@ -143,6 +156,18 @@ export function buildManifestPlanBlockers(
           }
         }
       }
+    }
+  }
+  for (const step of manifest.steps) {
+    if (
+      step.kind !== 'gate' ||
+      step.gate.authority !== 'shell' ||
+      !/^(?:baseline:|final:|U-\d{3}:(?:red|green|direct):gate$)/u.test(step.id)
+    ) {
+      continue;
+    }
+    if (step.gate.command !== plan.test_command) {
+      blockers.push(`${step.id}.gate.command must equal Plan test_command`);
     }
   }
   return blockers;
@@ -169,7 +194,7 @@ function verifyShip(state: FlowState): StructuredGateResult {
       '--repo',
       ship.repository,
       '--json',
-      'url,isDraft,baseRefName,headRefName',
+      'url,isDraft,baseRefName,headRefName,title,body',
     ],
     { encoding: 'utf8' },
   );
@@ -184,6 +209,8 @@ function verifyShip(state: FlowState): StructuredGateResult {
     value.isDraft === true &&
     value.baseRefName === ship.base_branch &&
     value.headRefName === branch.branch_name &&
+    value.title === state.build_plan?.title &&
+    value.body === fs.readFileSync(prBodyPath(state.run_id), 'utf8') &&
     typeof value.url === 'string';
   return {
     protocol: 'codex-build-ship/v1',
@@ -214,6 +241,28 @@ function normalizeGate(
     cwd: repo,
     duration_ms: Date.now() - startedAt,
     evidence: { kind: 'structured', report: value },
+  };
+}
+
+/** Normalizes an SDK semantic review into the same durable evidence model as other gates. */
+export function buildReviewGateReport(
+  step: GateStep,
+  repo: string,
+  result: BuildReviewResult,
+  durationMs: number,
+): GateReport {
+  return {
+    protocol: GATE_PROTOCOL,
+    gate_id: step.id,
+    verdict: result.verdict,
+    classification: result.classification,
+    reason_codes: result.reason_codes,
+    failure_route: result.failure_route,
+    configured_failure_route: step.gate.failure_route,
+    command: step.gate.command,
+    cwd: repo,
+    duration_ms: durationMs,
+    evidence: { kind: 'structured', report: result },
   };
 }
 
@@ -306,6 +355,8 @@ export function runStructuredBuildGate(state: FlowState, step: GateStep): GateRe
       );
       break;
     }
+    case 'build-review':
+      throw new FlowError(`${step.id} must run through SDK review authority`, 'state_error');
     case 'build-ship':
       report = verifyShip(state);
       break;

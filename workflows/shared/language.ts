@@ -7,7 +7,8 @@ import path from 'node:path';
 import { resolveCodexHome } from './environment.ts';
 import { FlowError } from './errors.ts';
 
-export type ConfiguredLanguage = 'english' | 'japanese';
+export const CONFIGURED_LANGUAGES = ['english', 'japanese'] as const;
+export type ConfiguredLanguage = (typeof CONFIGURED_LANGUAGES)[number];
 
 export function resolveConfiguredLanguage(
   fallback: ConfiguredLanguage,

@@ -1,6 +1,7 @@
 /** @file Outcome: A ready think Plan becomes one validated, stale-safe, and verified GitHub issue. */
 
 import * as fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 
 import { buildPlanValue, renderPlanMarkdown } from '../flow/build/authoring.ts';
@@ -220,7 +221,8 @@ export function draftIssue(
   const visibleBody = existing
     ? appendPlan(existing.body, source.report, language)
     : createBody(source.report, language);
-  const body = renderPublicIssueBody(visibleBody, source.report.plan, language);
+  const publicationId = crypto.randomUUID();
+  const body = renderPublicIssueBody(visibleBody, source.report.plan, language, publicationId);
   requireValidPlan(input.target_issue ?? 1, title, body, source.report, input.repo);
   if (!sameWorkflowRepositoryInvariant(before, repositoryInvariant(input.repo))) {
     throw new FlowError(
@@ -240,6 +242,7 @@ export function draftIssue(
       issue_number: input.target_issue,
       title,
       priority_label: `priority:${input.priority}`,
+      publication_id: publicationId,
       body_sha256: sha256(body),
       think_report: input.think_report,
       think_sha256: sha256(source.content),
@@ -317,6 +320,9 @@ export function publishIssue(
   const body = currentBody(draft);
   const report = verifySource(draft);
   const publicContract = parsePublicIssueBody(body);
+  if (publicContract.publication_id !== draft.publication_id) {
+    throw new FlowError('issue draft publication id does not match its public build contract');
+  }
   if (JSON.stringify(publicContract.plan) !== JSON.stringify(draft.plan)) {
     throw new FlowError('issue draft Plan does not match its public build contract');
   }
@@ -325,20 +331,65 @@ export function publishIssue(
   }
   requireValidPlan(draft.issue_number ?? 1, draft.title, body, report, draft.repo);
   assertGitHubRemote(draft.repo, draft.remote, draft.repository);
-  if (draft.existing_issue && draft.issue_number !== null) {
+  gateway.ensureLabel(draft.repository, draft.priority_label);
+  let issue: GitHubIssue;
+  if (draft.issue_number === null) {
+    const recovered = gateway.findByPublicationId(draft.repository, draft.publication_id);
+    if (recovered) {
+      issue = recovered;
+    } else {
+      try {
+        issue = gateway.create(
+          draft.repository,
+          draft.title,
+          draft.body_file,
+          draft.priority_label,
+        );
+      } catch (error) {
+        const recoveredAfterError = gateway.findByPublicationId(
+          draft.repository,
+          draft.publication_id,
+        );
+        if (!recoveredAfterError) throw error;
+        issue = recoveredAfterError;
+      }
+    }
+  } else {
+    if (!draft.existing_issue) throw new FlowError('attach-plan draft has no target snapshot');
     const current = gateway.view(draft.repository, draft.issue_number);
     if (
-      current.title !== draft.existing_issue.title ||
-      sha256(current.body) !== draft.existing_issue.body_sha256
+      current.title === draft.title &&
+      current.body === body &&
+      current.labels.includes(draft.priority_label)
     ) {
-      throw new FlowError('target issue changed after draft validation', 'state_error');
+      issue = current;
+    } else {
+      if (
+        current.title !== draft.existing_issue.title ||
+        sha256(current.body) !== draft.existing_issue.body_sha256
+      ) {
+        throw new FlowError('target issue changed after draft validation', 'state_error');
+      }
+      try {
+        issue = gateway.edit(
+          draft.repository,
+          draft.issue_number,
+          draft.body_file,
+          draft.priority_label,
+        );
+      } catch (error) {
+        const recovered = gateway.view(draft.repository, draft.issue_number);
+        if (
+          recovered.title !== draft.title ||
+          recovered.body !== body ||
+          !recovered.labels.includes(draft.priority_label)
+        ) {
+          throw error;
+        }
+        issue = recovered;
+      }
     }
   }
-  gateway.ensureLabel(draft.repository, draft.priority_label);
-  const issue =
-    draft.issue_number === null
-      ? gateway.create(draft.repository, draft.title, draft.body_file, draft.priority_label)
-      : gateway.edit(draft.repository, draft.issue_number, draft.body_file, draft.priority_label);
   verifyPublished(draft, body, issue);
   atomicWrite(receipt, {
     protocol: PUBLISHED_ISSUE_PROTOCOL,
@@ -346,6 +397,7 @@ export function publishIssue(
     repo: draft.repo,
     repository: draft.repository,
     remote: draft.remote,
+    publication_id: draft.publication_id,
     draft_sha256: sha256(loaded.content),
     issue_number: issue.number,
     url: issue.url,

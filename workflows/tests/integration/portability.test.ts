@@ -10,10 +10,11 @@ import { fileURLToPath } from 'node:url';
 
 import {
   AGENTS_ROOT,
-  defaultWorkflowStateDirectory,
+  defaultWorkflowRuntimeDirectory,
   resolveCodexHome,
 } from '../../shared/environment.ts';
 import { resolveConfiguredLanguage } from '../../shared/language.ts';
+import { workflowArtifactDirectory } from '../../shared/storage.ts';
 
 const EXPECTED_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const CODEX_ROOT = path.resolve(EXPECTED_ROOT, '../.codex');
@@ -102,14 +103,26 @@ test('keeps build implementation and workflow tests with their owning workflow',
   }
 });
 
-test('resolves package and Codex state paths without a user-specific home', () => {
+test('resolves package and stable sandbox-writable runtime paths without a user-specific home', () => {
   assert.equal(AGENTS_ROOT, EXPECTED_ROOT);
   assert.equal(resolveCodexHome({}, '/Users/example'), '/Users/example/.codex');
   assert.equal(resolveCodexHome({ CODEX_HOME: '/opt/codex' }, '/Users/example'), '/opt/codex');
   assert.equal(
-    defaultWorkflowStateDirectory({ CODEX_HOME: '/opt/codex' }, '/Users/example'),
-    '/opt/codex/workflow-state/v6',
+    defaultWorkflowRuntimeDirectory('/private/tmp/example', 501),
+    '/private/tmp/example/codex-flow-runtime-501',
   );
+});
+
+test('keeps durable handoff cache repository-local, ignored, and versionless', () => {
+  const directory = workflowArtifactDirectory(EXPECTED_ROOT);
+  assert.equal(directory, path.join(EXPECTED_ROOT, '.codex', 'workflow-artifacts'));
+  assert.doesNotMatch(directory, /(?:^|[/\\])v\d+(?:$|[/\\])/u);
+  const ignored = spawnSync(
+    'git',
+    ['check-ignore', '--quiet', '.codex/workflow-artifacts/probe.json'],
+    { cwd: EXPECTED_ROOT },
+  );
+  assert.equal(ignored.status, 0);
 });
 
 test('resolves the workflow language from the Codex desktop locale', () => {
@@ -158,7 +171,7 @@ test('executes every CLI through a package-manager symlink', () => {
       'codex-flow',
       'workflows/flow/runner.ts',
       ['describe', '--workflow', 'code'],
-      'codex-flow-description/v6',
+      'codex-flow-description/v7',
     ],
     [
       'codex-research',

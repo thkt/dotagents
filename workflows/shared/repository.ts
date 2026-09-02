@@ -83,7 +83,7 @@ export function gitText(repo: string, args: string[], label: string): string {
   return gitOutput(repo, args, label).toString('utf8').trim();
 }
 
-function gitOptionalText(repo: string, args: string[]): string | null {
+export function gitOptionalText(repo: string, args: string[]): string | null {
   const result = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
   return result.status === 0 ? result.stdout.trim() : null;
 }
@@ -245,4 +245,15 @@ export function snapshotChanges(
   return [...new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})])]
     .filter((relative) => before?.[relative] !== after?.[relative])
     .sort();
+}
+
+/** Rejects the run when the live repository moved while a workflow read from its snapshot. */
+export function requireUnchangedRepository(
+  before: RepositoryInvariant,
+  repo: string,
+  workflow: string,
+): void {
+  if (!sameWorkflowRepositoryInvariant(before, repositoryInvariant(repo))) {
+    throw new FlowError(`repository changed while ${workflow} was running`, 'state_error');
+  }
 }

@@ -32,9 +32,10 @@ export function resolveCodexHome(
   return configured ? path.resolve(configured) : path.join(home, '.codex');
 }
 
-export function defaultWorkflowStateDirectory(
-  env: NodeJS.ProcessEnv = process.env,
-  home: string = os.homedir(),
+/** Returns the stable sandbox-writable root beneath which hooks create task run directories. */
+export function defaultWorkflowRuntimeDirectory(
+  temporaryDirectory: string = os.tmpdir(),
+  uid: number | string = typeof process.getuid === 'function' ? process.getuid() : 'user',
 ): string {
-  return path.join(resolveCodexHome(env, home), 'workflow-state', 'v6');
+  return path.join(path.resolve(temporaryDirectory), `codex-flow-runtime-${uid}`);
 }

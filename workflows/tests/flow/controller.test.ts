@@ -10,7 +10,13 @@ import { executeAction, type CommandInvocation } from '../../flow/build/actions.
 import * as flow from '../../flow/controller.ts';
 import { buildShipApprovalPath } from '../../shared/storage.ts';
 
-import { enableShipping, fixture, requireGate, startFlow } from './controller-fixture.ts';
+import {
+  enableShipping,
+  fixture,
+  passBuildReview,
+  requireGate,
+  startFlow,
+} from './controller-fixture.ts';
 
 test('advances only through the declared actor and deterministic gates', () => {
   const { manifestFile } = fixture();
@@ -169,7 +175,7 @@ test('returns Red to its owner when calibration has no failure evidence', () => 
   assert.equal(result.result.last_gate?.classification, 'calibration_missing_calibration_evidence');
 });
 
-test('rejects a build manifest that omits required artifact and commit gates', () => {
+test('rejects a build manifest that omits required artifact and commit actions', () => {
   const { manifest } = fixture();
   manifest.workflow = 'build';
   assert.throws(() => flow.validateManifest(manifest), /build must start/);
@@ -180,7 +186,7 @@ test('requires Build Red gates to use runtime calibration instead of manual anch
   const start = manifest.steps.findIndex((step) => step.id === 'U-001:direct');
   manifest.steps.splice(
     start,
-    5,
+    4,
     {
       id: 'U-001:red',
       kind: 'actor',
@@ -217,11 +223,6 @@ test('requires Build Red gates to use runtime calibration instead of manual anch
       },
     },
     { id: 'U-001:commit', kind: 'action', action: 'commit', subject: 'chore: fixture' },
-    {
-      id: 'U-001:commit:verify',
-      kind: 'gate',
-      gate: { command: 'git status --porcelain', expect: 'pass', failure_route: 'blocked' },
-    },
   );
   assert.throws(() => flow.validateManifest(manifest), /calibrated shell failure gate/);
   const redGate = requireGate(manifest, 'U-001:red:gate').gate;
@@ -265,10 +266,10 @@ test('enforces build Branch and commit postconditions before ship-ready', () => 
   const branchParameters = branch.parameters;
   assert.equal(branchParameters.branch_name, 'codex/flow-test');
   assert.equal(branchParameters.start_point, startPoint);
+  assert.equal(flow.reconcileCurrentAction(turn, 'branch'), false);
   assert.throws(() => flow.completeCurrentDirective(turn, 'branch'), /did not reach/);
   executeAction(repo, branch);
-  flow.completeCurrentDirective(turn, 'branch');
-  flow.completeCurrentDirective(turn, 'branch:verify');
+  assert.equal(flow.reconcileCurrentAction(turn, 'branch'), true);
   flow.completeCurrentDirective(turn, 'baseline:test');
   fs.writeFileSync(path.join(repo, 'src.js'), 'module.exports = 1;\n');
   flow.completeCurrentDirective(turn, 'U-001:direct');
@@ -278,10 +279,13 @@ test('enforces build Branch and commit postconditions before ship-ready', () => 
   assert.equal(commit.kind, 'run-action');
   if (commit.kind !== 'run-action' || commit.action !== 'commit')
     throw new Error('expected commit action');
+  assert.equal(flow.reconcileCurrentAction(turn, 'U-001:commit'), false);
   executeAction(repo, commit);
-  flow.completeCurrentDirective(turn, 'U-001:commit');
-  flow.completeCurrentDirective(turn, 'U-001:commit:verify');
+  assert.equal(flow.reconcileCurrentAction(turn, 'U-001:commit'), true);
   flow.completeCurrentDirective(turn, 'final:test');
+  flow.completeCurrentDirective(turn, 'revalidate:review');
+  assert.equal(flow.currentDirective(turn).kind, 'run-review');
+  passBuildReview(turn);
   assert.equal(flow.currentDirective(turn).kind, 'ship-ready');
 });
 
@@ -313,7 +317,6 @@ test('Ship directive owns its PR input, render path, and external targets', () =
   assert.equal(revalidated.result.status, 'running', JSON.stringify(revalidated.result.last_gate));
   spawnSync('git', ['-C', repo, 'switch', '-q', '-c', 'codex/flow-test', startPoint]);
   flow.completeCurrentDirective(turn, 'branch');
-  flow.completeCurrentDirective(turn, 'branch:verify');
   flow.completeCurrentDirective(turn, 'baseline:test');
   fs.writeFileSync(path.join(repo, 'src.js'), 'module.exports = 1;\n');
   flow.completeCurrentDirective(turn, 'U-001:direct');
@@ -334,7 +337,6 @@ test('Ship directive owns its PR input, render path, and external targets', () =
     'Issue: #42',
   ]);
   flow.completeCurrentDirective(turn, 'U-001:commit');
-  flow.completeCurrentDirective(turn, 'U-001:commit:verify');
   const state = flow.loadWorkflowState(turn).state;
   const staleFinalFailure = structuredClone(state.gate_reports.at(-1)!);
   staleFinalFailure.gate_id = 'final:test';
@@ -344,6 +346,7 @@ test('Ship directive owns its PR input, render path, and external targets', () =
   state.gate_reports.push(staleFinalFailure);
   fs.writeFileSync(flow.statePath(turn), JSON.stringify(state));
   flow.completeCurrentDirective(turn, 'final:test');
+  passBuildReview(turn);
   const shipRevalidation = flow.completeCurrentDirective(turn, 'revalidate:ship');
   assert.equal(shipRevalidation.result.gate?.verdict, 'pass');
 
@@ -493,8 +496,8 @@ test('detects modification of a dirty file that predates actor entry', () => {
 
 test('self-describes the manifest contract without workflow state', () => {
   const code = flow.describe('code');
-  assert.equal(code.protocol, 'codex-flow-description/v6');
-  assert.equal(code.manifest_template.protocol, 'codex-flow-manifest/v4');
+  assert.equal(code.protocol, 'codex-flow-description/v7');
+  assert.equal(code.manifest_template.protocol, 'codex-flow-manifest/v5');
   assert.deepEqual(code.cli, {
     describe: 'codex-flow describe --workflow code',
     run: 'codex-flow run --manifest <absolute-json>',
@@ -516,12 +519,7 @@ test('self-describes the manifest contract without workflow state', () => {
     build.step_contracts.some((contract) => contract.kind === 'action'),
     true,
   );
-  assert.deepEqual(build.sequence.opening.slice(0, 4), [
-    'load:plan',
-    'revalidate:plan',
-    'branch',
-    'branch:verify',
-  ]);
+  assert.deepEqual(build.sequence.opening.slice(0, 3), ['load:plan', 'revalidate:plan', 'branch']);
   const gateContract = build.step_contracts.find((contract) => contract.kind === 'gate');
   assert.deepEqual(gateContract?.conditional_required?.['build-artifacts'], [
     'gate.input',

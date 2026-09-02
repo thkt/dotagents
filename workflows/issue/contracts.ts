@@ -9,9 +9,10 @@ import { gitRoot } from '../shared/repository.ts';
 import { isObject, rejectUnknownKeys } from '../shared/schema.ts';
 
 export const ISSUE_INPUT_PROTOCOL = 'codex-issue-input/v1' as const;
-export const ISSUE_DRAFT_PROTOCOL = 'codex-issue-draft/v2' as const;
+export const ISSUE_DRAFT_PROTOCOL = 'codex-issue-draft/v3' as const;
 export const ISSUE_RESULT_PROTOCOL = 'codex-issue-result/v2' as const;
 export const ISSUE_DESCRIPTION_PROTOCOL = 'codex-issue-description/v2' as const;
+const PUBLICATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 type IssueMode = 'create' | 'attach-plan';
 type IssuePriority = 'critical' | 'high' | 'medium' | 'low';
@@ -43,6 +44,7 @@ export interface IssueDraft {
   issue_number: number | null;
   title: string;
   priority_label: string;
+  publication_id: string;
   body_file: string;
   body_sha256: string;
   think_report: string;
@@ -185,6 +187,7 @@ export function parseIssueDraft(raw: unknown): IssueDraft {
       'issue_number',
       'title',
       'priority_label',
+      'publication_id',
       'body_file',
       'body_sha256',
       'think_report',
@@ -238,6 +241,13 @@ export function parseIssueDraft(raw: unknown): IssueDraft {
       ['priority:critical', 'priority:high', 'priority:medium', 'priority:low'] as const,
       'issue draft.priority_label',
     ),
+    publication_id: (() => {
+      const value = requiredString(raw.publication_id, 'issue draft.publication_id');
+      if (!PUBLICATION_ID.test(value)) {
+        throw new FlowError('issue draft.publication_id must be a UUIDv4');
+      }
+      return value;
+    })(),
     body_file: absolutePath(raw.body_file, 'issue draft.body_file'),
     body_sha256: digest(raw.body_sha256, 'issue draft.body_sha256'),
     think_report: absolutePath(raw.think_report, 'issue draft.think_report'),

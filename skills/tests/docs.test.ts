@@ -191,7 +191,7 @@ test('keeps the shared Bun toolchain at the agents root', () => {
     'lint:fix': 'oxlint --fix .',
     'lint:text': "textlint '.ja/**/*.md'",
     knip: 'knip',
-    test: 'bun test --parallel=8 workflows/tests skills/tests',
+    test: 'bun test --timeout=15000 --parallel=8 --no-isolate workflows/tests skills/tests',
     typecheck: 'tsc -p tsconfig.json',
     'verify:clean': 'bun install --frozen-lockfile --ignore-scripts && bun run check',
     'validate:skills': 'bun skills/validate.ts',

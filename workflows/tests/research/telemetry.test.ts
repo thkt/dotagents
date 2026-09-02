@@ -93,7 +93,7 @@ test('Research invalid structured output keeps stage and elapsed duration', asyn
     }),
   );
   await assert.rejects(
-    agent.investigate(input),
+    agent.investigate(input, [], [], input.repo),
     /research investigator structured validation failed after \d+ms/u,
   );
   assert.deepEqual(
@@ -117,7 +117,7 @@ test('Research model failure keeps model stage and elapsed duration', async () =
   };
   const agent = new CodexResearchAgent(client);
   await assert.rejects(
-    agent.investigate(input),
+    agent.investigate(input, [], [], input.repo),
     /research investigator model call failed after \d+ms/u,
   );
 });

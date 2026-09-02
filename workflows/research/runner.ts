@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /** @file Outcome: One explicit command turns a closed research question into verified JSON and Markdown artifacts. */
 
-import { clearIntent, requireResearchIntent } from '../invocation.ts';
+import { consumeIntentAfter, requireResearchIntent } from '../invocation.ts';
 import { parseCommand, requireExactFlags } from '../shared/cli.ts';
 import { RESEARCH_COMMAND, isMainModule } from '../shared/environment.ts';
 import {
@@ -84,7 +84,7 @@ export function describeResearch(
         'empty means the repository; otherwise every repository citation stays inside these paths',
       external_sources: 'none, primary, or broad',
       artifacts:
-        'private Codex state holds authoritative JSON with sealed repository citations and paired Markdown',
+        'repository-local ignored cache holds the JSON handoff and paired Markdown; it is not Build authority',
     },
   };
 }
@@ -98,12 +98,7 @@ export async function runResearchWorkflow(
   const input = validateResearchInput(readAbsoluteJson(inputFile, 'research'));
   requireResearchIntent(runId, input.repo, inputFile);
   requireConfiguredLanguage(input.language);
-  let result: ResearchRunResult;
-  try {
-    result = await runResearch(input, agent);
-  } finally {
-    clearIntent(runId);
-  }
+  const result = await consumeIntentAfter(runId, () => runResearch(input, agent));
   return {
     protocol: RESEARCH_RESULT_PROTOCOL,
     status: 'completed',

@@ -15,7 +15,7 @@ const REQUIRED_KEYS = ['issue', 'tests_pass', 'gates_pass'];
 const LABELS = {
   english: {
     header:
-      '_Automated build verification. It checks the diff against the issue plan; it is not a deep code review._',
+      '_Automated build verification, including an independent semantic review of the diff against the published issue Plan._',
     manual: 'Manual verification checklist (complete before merge)',
     scope: "Files outside the plan's scope",
     untouched: 'Planned files never changed',
@@ -24,8 +24,7 @@ const LABELS = {
     output: 'verify output',
   },
   japanese: {
-    header:
-      '_build の自動検証結果。issue plan と diff の機械的な突合であり、深いコードレビューではない。_',
+    header: '_build の自動検証結果。公開 issue Plan に対する差分の独立 semantic review を含む。_',
     manual: '実機確認（merge 前に実施）',
     scope: 'Plan スコープ外の変更ファイル',
     untouched: '一度も変更されていない plan の files',

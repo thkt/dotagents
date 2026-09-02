@@ -12,6 +12,7 @@ import {
   type ActorStep,
   type ActorVerification,
   type BuildPlanUnit,
+  type BuildReviewInput,
   type CorrectionContext,
   type FlowDirective,
   type FlowDescription,
@@ -55,8 +56,18 @@ import {
 } from './manifest.ts';
 import { isObject } from '../shared/schema.ts';
 import { runIsolatedShellVerification } from './isolation.ts';
-import { actionDirective, prepareShipInput, validateActionCompletion } from './build/actions.ts';
-import { describeBuildSourceInput, runStructuredBuildGate } from './build/gates.ts';
+import {
+  actionAlreadyCompleted,
+  actionDirective,
+  prepareShipInput,
+  validateActionCompletion,
+} from './build/actions.ts';
+import {
+  buildReviewGateReport,
+  describeBuildSourceInput,
+  runStructuredBuildGate,
+} from './build/gates.ts';
+import { parseBuildReviewResult } from './agent.ts';
 
 function readJson(file: string, label: string): unknown {
   if (!path.isAbsolute(file)) throw new FlowError(`${label} must be absolute`);
@@ -339,6 +350,22 @@ function completeActorOrAction(runId: string, stepId: string): PublicState {
   return save(file, state);
 }
 
+/** Advances an action whose externally observable postcondition survived an interrupted run. */
+function reconcileCurrentAction(runId: string, stepId: string): boolean {
+  const { file, state } = loadWorkflowState(runId);
+  const step = requireStep(state, stepId, ['action']);
+  if (
+    step.action === 'ship' &&
+    (!state.manifest.shipping_authorized || state.ship_authorization_revoked)
+  ) {
+    throw new FlowError('shipping is not authorized', 'authorization_error');
+  }
+  if (!actionAlreadyCompleted(state, step)) return false;
+  advanceToNextStep(state);
+  save(file, state);
+  return true;
+}
+
 function gateArgs(
   stepId: string,
   gate: ShellGateSpec,
@@ -564,8 +591,50 @@ function actorVerification(state: FlowState, step: ActorStep): ActorVerification
     throw new FlowError(`${step.id} verification must use shell authority`, 'state_error');
   }
   return {
-    command: gate.gate.command,
+    command:
+      state.workflow === 'build' && UNIT_ACTOR.test(step.id)
+        ? requireBuildPlanUnit(state, step.id).testCommand
+        : gate.gate.command,
     expect: gate.gate.expect,
+  };
+}
+
+function buildReviewInput(state: FlowState): BuildReviewInput {
+  if (!state.build_plan) {
+    throw new FlowError('review:build has no validated Plan context', 'state_error');
+  }
+  const branch = state.manifest.steps.find(
+    (step) => step.kind === 'action' && step.action === 'branch',
+  );
+  if (!branch || branch.action !== 'branch') {
+    throw new FlowError('review:build has no branch context', 'state_error');
+  }
+  return {
+    issue: state.build_plan.issue,
+    base_ref: branch.start_point,
+    plan: state.build_plan,
+    verification: state.gate_reports.map((report) => ({
+      gate_id: report.gate_id,
+      verdict: report.verdict,
+      classification: report.classification,
+    })),
+  };
+}
+
+function requireBuildPlanUnit(
+  state: FlowState,
+  actorId: string,
+): { goal: string; contract: string; testCommand: string } {
+  if (!state.build_plan) {
+    throw new FlowError(`${actorId} has no validated Plan context`, 'state_error');
+  }
+  const unitId = UNIT_ACTOR.exec(actorId)?.[1];
+  const unit = state.build_plan.units.find((candidate) => candidate.id === unitId);
+  if (!unit) throw new FlowError(`${actorId} has no validated Plan unit`, 'state_error');
+  return {
+    goal: unit.goal,
+    contract: unit.contract,
+    testCommand: state.build_plan.test_command,
   };
 }
 
@@ -586,10 +655,15 @@ function directiveForState(state: FlowState): FlowDirective {
   const step = state.manifest.steps[state.cursor];
   if (!step) throw new FlowError('running workflow has no current step', 'state_error');
   if (step.kind === 'actor') {
+    const planUnit =
+      state.workflow === 'build' && UNIT_ACTOR.test(step.id)
+        ? requireBuildPlanUnit(state, step.id)
+        : null;
     return {
       kind: 'run-actor',
       step_id: step.id,
-      outcome: step.outcome,
+      outcome: planUnit?.goal ?? step.outcome,
+      contract: planUnit?.contract ?? null,
       files: step.files,
       verification: actorVerification(state, step),
       correction: correctionContext(state, step.id),
@@ -597,6 +671,13 @@ function directiveForState(state: FlowState): FlowDirective {
   }
   if (step.kind === 'action') {
     return actionDirective(state, step);
+  }
+  if (step.gate.authority === 'build-review') {
+    return {
+      kind: 'run-review',
+      step_id: 'review:build',
+      input: buildReviewInput(state),
+    };
   }
   if (step.gate.authority === 'shell' && step.gate.calibrate && !state.sealed_gates[step.id]) {
     const calibration = state.calibrations[step.id];
@@ -616,6 +697,26 @@ function directiveForState(state: FlowState): FlowDirective {
     kind: 'run-gate',
     step_id: step.id,
   };
+}
+
+/** Records the independent SDK review only for the current typed review gate. */
+function completeBuildReview(
+  runId: string,
+  stepId: string,
+  rawResult: unknown,
+  durationMs: number,
+): { result: PublicState; exitCode: number } {
+  const { file, state } = loadWorkflowState(runId);
+  const step = requireStep(state, stepId, ['gate']);
+  if (step.id !== 'review:build' || step.gate.authority !== 'build-review') {
+    throw new FlowError(`${step.id} is not the semantic build review`, 'order_error');
+  }
+  const review = parseBuildReviewResult(rawResult);
+  const report = buildReviewGateReport(step, state.manifest.repo, review, durationMs);
+  applyGateOutcome(state, step, report, true);
+  const result = save(file, state);
+  result.gate = report;
+  return { result, exitCode: report.verdict === 'pass' ? 0 : 2 };
 }
 
 function currentDirective(runId: string): FlowDirective {
@@ -641,6 +742,8 @@ function completeCurrentDirective(
     case 'run-actor':
     case 'run-action':
       return { result: completeActorOrAction(runId, stepId), exitCode: 0 };
+    case 'run-review':
+      throw new FlowError('run-review requires a structured SDK result', 'order_error');
     case 'calibrate-gate':
       return runCalibration(runId, stepId);
     case 'seal-gate':
@@ -669,6 +772,7 @@ function describe(workflow: Workflow): FlowDescription {
         'build-plan': ['gate.input'],
         'build-revalidate': ['gate.input'],
         'build-artifacts': ['gate.input', 'gate.unit_id'],
+        'build-review': [],
         'build-ship': [],
       },
       conditional_optional: {
@@ -676,6 +780,7 @@ function describe(workflow: Workflow): FlowDescription {
         'build-plan': [],
         'build-revalidate': [],
         'build-artifacts': [],
+        'build-review': [],
         'build-ship': [],
       },
     },
@@ -716,7 +821,7 @@ function describe(workflow: Workflow): FlowDescription {
     },
     executable_example: {
       required_sequence:
-        workflow === 'build' ? ['branch', 'baseline', 'final'] : ['baseline', 'final'],
+        workflow === 'build' ? ['branch', 'baseline', 'final', 'review'] : ['baseline', 'final'],
       manifest: {
         protocol: MANIFEST_PROTOCOL,
         workflow,
@@ -750,19 +855,6 @@ function describe(workflow: Workflow): FlowDescription {
                   action: 'branch',
                   branch_name: 'codex/example',
                   start_point: '<git-ref>',
-                },
-                {
-                  id: 'branch:verify',
-                  kind: 'gate',
-                  gate: {
-                    authority: 'shell',
-                    command: 'true',
-                    expect: 'pass',
-                    calibrate: false,
-                    failure_route: 'triage',
-                    require_output: [],
-                    forbid_output: [],
-                  },
                 },
                 {
                   id: 'baseline:direct',
@@ -810,7 +902,7 @@ function describe(workflow: Workflow): FlowDescription {
                 },
                 { id: 'U-001:commit', kind: 'action', action: 'commit', subject: 'feat: unit' },
                 {
-                  id: 'U-001:commit:verify',
+                  id: 'final:direct',
                   kind: 'gate',
                   gate: {
                     authority: 'shell',
@@ -823,16 +915,20 @@ function describe(workflow: Workflow): FlowDescription {
                   },
                 },
                 {
-                  id: 'final:direct',
+                  id: 'revalidate:review',
                   kind: 'gate',
                   gate: {
-                    authority: 'shell',
-                    command: 'true',
-                    expect: 'pass',
-                    calibrate: false,
-                    failure_route: 'triage',
-                    require_output: [],
-                    forbid_output: [],
+                    authority: 'build-revalidate',
+                    input: '<absolute-build-source-json>',
+                    failure_route: 'blocked',
+                  },
+                },
+                {
+                  id: 'review:build',
+                  kind: 'gate',
+                  gate: {
+                    authority: 'build-review',
+                    failure_route: 'blocked',
                   },
                 },
               ]
@@ -901,7 +997,14 @@ function describe(workflow: Workflow): FlowDescription {
       },
       closing:
         workflow === 'build'
-          ? ['final:*', 'revalidate:ship?', 'ship?', 'ship:verify?']
+          ? [
+              'final:*',
+              'revalidate:review',
+              'review:build',
+              'revalidate:ship?',
+              'ship?',
+              'ship:verify?',
+            ]
           : ['final:*'],
     },
   };
@@ -910,10 +1013,12 @@ function describe(workflow: Workflow): FlowDescription {
 export {
   MANIFEST_PROTOCOL,
   completeCurrentDirective,
+  completeBuildReview,
   cancelWorkflow,
   currentDirective,
   describe,
   loadWorkflowState,
+  reconcileCurrentAction,
   startOrResumeWorkflow,
   startWorkflow,
   statePath,

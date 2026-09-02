@@ -26,9 +26,10 @@ import {
   BUILD_SOURCE_PROTOCOL,
   resolveBuildSource,
 } from '../../../workflows/flow/build/handoff.ts';
-import { temporaryDirectory, useTemporaryStateDirectory } from '../shared/fixtures.ts';
+import { renderPlanMarkdown } from '../../../workflows/flow/build/authoring.ts';
+import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 
-useTemporaryStateDirectory('codex-issue-state-');
+useTemporaryWorkflowStorage('codex-issue-storage-');
 
 function repoFixture(): string {
   const repo = temporaryDirectory('codex-issue-');
@@ -128,6 +129,9 @@ class Gateway implements IssueGateway {
   view() {
     return this.issue;
   }
+  findByPublicationId(_r: string, publicationId: string) {
+    return this.issue.body.includes(`publication_id:${publicationId}`) ? this.issue : null;
+  }
   ensureLabel(_r: string, label: string) {
     this.issue.labels = [label];
   }
@@ -219,6 +223,37 @@ test('one explicit issue invocation publishes the exact draft and returns build 
   );
 });
 
+test('Build remains compatible with an already published v1 public contract', () => {
+  const repo = repoFixture();
+  const visibleBody = renderPlanMarkdown(plan, 'japanese').trimEnd();
+  const contract = Buffer.from(
+    JSON.stringify({
+      protocol: 'codex-public-build-contract/v1',
+      body_sha256: sha256(visibleBody),
+      plan,
+    }),
+  ).toString('base64url');
+  const gateway = new Gateway();
+  gateway.issue = {
+    number: 7,
+    title: '[機能] 既存の Issue',
+    body: `${visibleBody}\n\n<!-- codex-public-build-contract/v1\n${contract}\n-->\n`,
+    url: 'https://github.com/owner/repo/issues/7',
+    labels: ['priority:medium'],
+  };
+
+  const resolved = resolveBuildSource(
+    { protocol: BUILD_SOURCE_PROTOCOL, repository: 'owner/repo', issue_number: 7 },
+    repo,
+    gateway,
+  );
+
+  assert.equal(resolved.issue, 7);
+  assert.equal(resolved.plan.outcome, plan.outcome);
+  assert.equal(resolved.plan.test_command, plan.test_command);
+  assert.deepEqual(resolved.plan.units, plan.units);
+});
+
 test('new issue title and report must match the language configured by Codex', () => {
   const repo = repoFixture();
   const gateway = new Gateway();
@@ -289,6 +324,27 @@ test('GitHub write failures cannot reuse a consumed publication approval', () =>
   assert.equal(gateway.writes, 1);
   assert.equal(fs.existsSync(issueApprovalPath(runId)), false);
   assert.equal(fs.existsSync(intentPath(runId)), false);
+});
+
+test('recovers an exact issue when creation succeeds before the local receipt is written', () => {
+  const repo = repoFixture();
+  const gateway = new Gateway();
+  const preview = draftIssue(input(repo, think(repo)), gateway);
+  const create = gateway.create.bind(gateway);
+  gateway.create = (repository, title, bodyFile, label) => {
+    create(repository, title, bodyFile, label);
+    throw new Error('connection dropped after create');
+  };
+
+  const published = publishIssue(preview.draft_json, preview.draft_sha256, gateway);
+
+  assert.equal(gateway.writes, 1);
+  assert.equal(published.issue.number, gateway.issue.number);
+  assert.equal(fs.existsSync(published.receipt_json), true);
+  assert.match(
+    gateway.issue.body,
+    new RegExp(`publication_id:${preview.draft.publication_id}`, 'u'),
+  );
 });
 
 test('rejects stale/changed evidence and preserves ignored-only changes', () => {

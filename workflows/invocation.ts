@@ -84,6 +84,21 @@ function parseExplicitInvocation(prompt: string | undefined): WorkflowInvocation
   return (linked?.[1] as WorkflowInvocation | undefined) ?? null;
 }
 
+/** Reads the optional Issue shorthand immediately following an explicit Build invocation. */
+function parseBuildIssueNumber(prompt: string | undefined): number | null {
+  const value = prompt ?? '';
+  const match = /^\s*(?:\$build|\[\$build\]\([^)\r\n]+\))\s+#([^\s]+)/u.exec(value);
+  if (!match) return null;
+  if (!/^[1-9]\d*$/u.test(match[1]!)) {
+    throw new Error('build Issue shorthand must be a positive integer such as #123');
+  }
+  const issue = Number(match[1]);
+  if (!Number.isSafeInteger(issue)) {
+    throw new Error('build Issue shorthand is outside the supported integer range');
+  }
+  return issue;
+}
+
 function hydrateIntent(intent: StoredWorkflowIntent): WorkflowIntent {
   return {
     ...intent,
@@ -259,6 +274,12 @@ function requireIssueIntent(runId: string, repo: string, inputFile: string): Wor
   return requireBoundIntent(runId, 'issue', repo, inputFile, 'issue input');
 }
 
+/** Runs one model-backed workflow and consumes its intent afterwards, whether it completed or threw. */
+async function consumeIntentAfter<T>(runId: string, run: () => Promise<T>): Promise<T> {
+  using _intent = { [Symbol.dispose]: () => clearIntent(runId) };
+  return await run();
+}
+
 /** Clears the task-scoped intent and any external-write authority derived from it. */
 function clearIntent(runId: string): void {
   for (const file of [intentPath(runId), issueApprovalPath(runId), buildShipApprovalPath(runId)]) {
@@ -273,8 +294,10 @@ function clearIntent(runId: string): void {
 export {
   armIntent,
   clearIntent,
+  consumeIntentAfter,
   consumeIssueApproval,
   loadIntent,
+  parseBuildIssueNumber,
   parseExplicitInvocation,
   requireBuildShipApproval,
   requireIntent,

@@ -11,6 +11,18 @@ export const THINKING_THREAD_OPTIONS = {
   modelReasoningEffort: 'high',
 } as const satisfies ThreadOptions;
 
+/** Read-only investigation and decision threads work inside one repository snapshot and never call out. */
+export function readOnlyThreadOptions(workingDirectory: string): ThreadOptions {
+  return {
+    ...THINKING_THREAD_OPTIONS,
+    workingDirectory,
+    sandboxMode: 'read-only',
+    approvalPolicy: 'never',
+    networkAccessEnabled: false,
+    webSearchMode: 'disabled',
+  };
+}
+
 /** Repository-editing actors always use the lightweight implementation profile. */
 export const IMPLEMENTATION_THREAD_OPTIONS = {
   model: 'gpt-5.6-luna',

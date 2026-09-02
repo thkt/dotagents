@@ -20,8 +20,8 @@ import { temporaryDirectory } from '../shared/fixtures.ts';
 function fixture() {
   const root = temporaryDirectory('knowledge-context-');
   const state = temporaryDirectory('knowledge-state-');
-  const previous = process.env.CODEX_FLOW_STATE_DIR;
-  process.env.CODEX_FLOW_STATE_DIR = state;
+  const previous = process.env.CODEX_FLOW_ARTIFACT_DIR;
+  process.env.CODEX_FLOW_ARTIFACT_DIR = state;
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
   fs.writeFileSync(path.join(root, 'src.ts'), 'export const x = 1;\n');
   execFileSync('git', ['add', '.'], { cwd: root });
@@ -34,8 +34,8 @@ function fixture() {
     cwd: root,
   });
   onTestFinished(() => {
-    if (previous === undefined) delete process.env.CODEX_FLOW_STATE_DIR;
-    else process.env.CODEX_FLOW_STATE_DIR = previous;
+    if (previous === undefined) delete process.env.CODEX_FLOW_ARTIFACT_DIR;
+    else process.env.CODEX_FLOW_ARTIFACT_DIR = previous;
   });
   return { root, state };
 }
@@ -266,6 +266,9 @@ test('valid published issue receipt with sibling draft and ready Think artifact 
     };
     view() {
       return this.issue;
+    }
+    findByPublicationId(_r: string, publicationId: string) {
+      return this.issue.body.includes(`publication_id:${publicationId}`) ? this.issue : null;
     }
     ensureLabel(_r: string, label: string) {
       this.issue.labels = [label];

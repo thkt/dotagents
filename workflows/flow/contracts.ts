@@ -2,11 +2,14 @@
 
 import type { RepositoryInvariant, RepoSnapshot } from '../shared/repository.ts';
 
-export const MANIFEST_PROTOCOL = 'codex-flow-manifest/v4' as const;
-export const STATE_PROTOCOL = 'codex-flow-state/v8' as const;
+export const MANIFEST_PROTOCOL = 'codex-flow-manifest/v5' as const;
+export const STATE_PROTOCOL = 'codex-flow-state/v9' as const;
 export const RESULT_PROTOCOL = 'codex-flow-control/v5' as const;
+/** Step and gate identifiers: printable, shell-safe, at most 128 characters. */
+export const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
+
 export const GATE_PROTOCOL = 'codex-code-gate/v3' as const;
-export const DESCRIPTION_PROTOCOL = 'codex-flow-description/v6' as const;
+export const DESCRIPTION_PROTOCOL = 'codex-flow-description/v7' as const;
 
 export type Workflow = 'code' | 'build';
 export type FlowStatus = 'running' | 'completed' | 'ship-ready' | 'blocked' | 'cancelled';
@@ -23,6 +26,7 @@ export type GateAuthority =
   | 'build-plan'
   | 'build-revalidate'
   | 'build-artifacts'
+  | 'build-review'
   | 'build-ship';
 export type ActionName = 'branch' | 'commit' | 'ship';
 export type ActorRole = 'red' | 'green' | 'direct';
@@ -57,6 +61,10 @@ interface BuildArtifactsGateSpec extends GateSpecBase {
   unit_id: string;
 }
 
+interface BuildReviewGateSpec extends GateSpecBase {
+  authority: 'build-review';
+}
+
 interface BuildShipGateSpec extends GateSpecBase {
   authority: 'build-ship';
 }
@@ -66,6 +74,7 @@ export type GateSpec =
   | BuildPlanGateSpec
   | BuildRevalidateGateSpec
   | BuildArtifactsGateSpec
+  | BuildReviewGateSpec
   | BuildShipGateSpec;
 
 export interface ActorStep {
@@ -265,6 +274,7 @@ export interface FlowState {
 
 export interface BuildPlanUnit {
   id: string;
+  goal: string;
   contract: string;
   files: string[];
   tests: Array<{ id: string; name: string }>;
@@ -276,8 +286,38 @@ export interface BuildPlanContext {
   issue: number;
   title: string;
   body_sha256: string;
+  outcome: string;
+  test_command: string;
   manual_verification: string[];
   units: BuildPlanUnit[];
+}
+
+export interface BuildReviewInput {
+  issue: number;
+  base_ref: string;
+  plan: BuildPlanContext;
+  verification: Array<{
+    gate_id: string;
+    verdict: GateVerdict;
+    classification: string;
+  }>;
+}
+
+interface BuildReviewFinding {
+  severity: 'blocking' | 'advisory';
+  code: string;
+  message: string;
+  files: string[];
+}
+
+export interface BuildReviewResult extends StructuredGateResult {
+  protocol: 'codex-build-review/v1';
+  verdict: 'pass' | 'fail';
+  classification: 'pass' | 'semantic_review_failed';
+  reason_codes: string[];
+  failure_route: 'blocked' | null;
+  summary: string;
+  findings: BuildReviewFinding[];
 }
 
 export interface PublicState {
@@ -314,11 +354,17 @@ export type FlowDirective =
       kind: 'run-actor';
       step_id: string;
       outcome: string;
+      contract: string | null;
       files: string[];
       verification: ActorVerification;
       correction: CorrectionContext | null;
     }
   | RunActionDirective
+  | {
+      kind: 'run-review';
+      step_id: 'review:build';
+      input: BuildReviewInput;
+    }
   | {
       kind: 'calibrate-gate';
       step_id: string;

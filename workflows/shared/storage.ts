@@ -1,69 +1,82 @@
-/** @file Outcome: Per-task workflow records use private, portable paths and atomic replacement. */
+/** @file Outcome: Ephemeral task runs and repository-local artifacts have separate stable storage ownership. */
 
 import crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import path from 'node:path';
 
-import { defaultWorkflowStateDirectory } from './environment.ts';
+import { defaultWorkflowRuntimeDirectory } from './environment.ts';
 import { FlowError } from './errors.ts';
 
-const DEFAULT_STATE_DIR = defaultWorkflowStateDirectory();
+const DEFAULT_RUNTIME_DIR = defaultWorkflowRuntimeDirectory();
 
 function runKey(runId: string): string {
   if (!runId || runId.length > 256) throw new FlowError('--run-id is required');
   return crypto.createHash('sha256').update(runId).digest('hex');
 }
 
-function stateDirectory(): string {
-  return process.env.CODEX_FLOW_STATE_DIR || DEFAULT_STATE_DIR;
+function runtimeRoot(): string {
+  return path.resolve(process.env.CODEX_FLOW_RUNTIME_DIR || DEFAULT_RUNTIME_DIR);
 }
 
 function repositoryStateKey(repo: string): string {
   return crypto.createHash('sha256').update(fs.realpathSync(repo)).digest('hex');
 }
 
+/** One hook-created directory owns every ephemeral record for one task. */
+export function workflowRunDirectory(runId: string): string {
+  return path.join(runtimeRoot(), runKey(runId));
+}
+
 export function statePath(runId: string): string {
-  return path.join(stateDirectory(), `${runKey(runId)}.json`);
+  return path.join(workflowRunDirectory(runId), 'state.json');
 }
 
 export function intentPath(runId: string): string {
-  return path.join(stateDirectory(), 'intents', `${runKey(runId)}.json`);
+  return path.join(workflowRunDirectory(runId), 'intent.json');
 }
 
 export function issueApprovalPath(runId: string): string {
-  return path.join(stateDirectory(), 'issue-approvals', `${runKey(runId)}.json`);
+  return path.join(workflowRunDirectory(runId), 'issue-approval.json');
 }
 
 export function buildShipApprovalPath(runId: string): string {
-  return path.join(stateDirectory(), 'build-ship-approvals', `${runKey(runId)}.json`);
+  return path.join(workflowRunDirectory(runId), 'build-ship-approval.json');
 }
 
 export function workflowInputPath(runId: string): string {
-  return path.join(stateDirectory(), 'inputs', `${runKey(runId)}.json`);
+  return path.join(workflowRunDirectory(runId), 'input.json');
 }
 
 export function buildSourcePath(runId: string): string {
-  return path.join(stateDirectory(), 'build-sources', `${runKey(runId)}.json`);
+  return path.join(workflowRunDirectory(runId), 'build-source.json');
 }
 
 export function prInputPath(runId: string): string {
-  return path.join(stateDirectory(), 'pr-inputs', `${runKey(runId)}.json`);
+  return path.join(workflowRunDirectory(runId), 'pr-input.json');
 }
 
 export function prBodyPath(runId: string): string {
-  return path.join(stateDirectory(), 'pr-bodies', `${runKey(runId)}.md`);
+  return path.join(workflowRunDirectory(runId), 'pr-body.md');
+}
+
+/** Repository-local artifacts are durable handoff and audit cache, never Build authority. */
+export function workflowArtifactDirectory(repo: string): string {
+  const configured = process.env.CODEX_FLOW_ARTIFACT_DIR?.trim();
+  return configured
+    ? path.join(path.resolve(configured), repositoryStateKey(repo))
+    : path.join(fs.realpathSync(repo), '.codex', 'workflow-artifacts');
 }
 
 export function researchArtifactDirectory(repo: string): string {
-  return path.join(stateDirectory(), 'research', repositoryStateKey(repo));
+  return path.join(workflowArtifactDirectory(repo), 'research');
 }
 
 export function thinkArtifactDirectory(repo: string): string {
-  return path.join(stateDirectory(), 'think', repositoryStateKey(repo));
+  return path.join(workflowArtifactDirectory(repo), 'think');
 }
 
 export function issueArtifactDirectory(repo: string): string {
-  return path.join(stateDirectory(), 'issue', repositoryStateKey(repo));
+  return path.join(workflowArtifactDirectory(repo), 'issue');
 }
 
 /** Replaces a private state record atomically so readers never observe partial JSON. */
@@ -75,6 +88,11 @@ export function atomicWrite(file: string, value: unknown): void {
 export function atomicWriteText(file: string, value: string): void {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const temporary = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(temporary, value, { mode: 0o600 });
-  fs.renameSync(temporary, file);
+  try {
+    fs.writeFileSync(temporary, value, { mode: 0o600 });
+    fs.renameSync(temporary, file);
+  } catch (error) {
+    fs.rmSync(temporary, { force: true });
+    throw error;
+  }
 }

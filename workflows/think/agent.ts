@@ -1,10 +1,8 @@
 /** @file Outcome: Independent read-only Codex threads compare designs and challenge the selected build plan. */
 
-import type { ThreadOptions } from '@openai/codex-sdk';
-
 import {
-  THINKING_THREAD_OPTIONS,
   createSignedInCodexClient,
+  readOnlyThreadOptions,
   structuredResponseObject,
   type CodexClientLike,
 } from '../shared/codex.ts';
@@ -44,22 +42,23 @@ export interface ThinkReviewCorrection {
   errors: readonly string[];
 }
 
+/** Reads source only from snapshotRepo; input.repo names the live repository for artifact lookups. */
 export interface ThinkAgent {
   design(
     input: ThinkInput,
     research: ThinkResearchContext[],
     buildContract: unknown,
-    context?: ThinkContextSummary[],
-    snapshotRepo?: string,
+    context: ThinkContextSummary[],
+    snapshotRepo: string,
   ): Promise<ThinkDraft>;
   review(
     input: ThinkInput,
     draft: ThinkDraft,
     research: ThinkResearchContext[],
     buildContract: unknown,
-    correction?: ThinkReviewCorrection,
-    context?: ThinkContextSummary[],
-    snapshotRepo?: string,
+    correction: ThinkReviewCorrection | undefined,
+    context: ThinkContextSummary[],
+    snapshotRepo: string,
   ): Promise<ThinkDecision>;
 }
 
@@ -164,17 +163,6 @@ async function runStage(
   }
 }
 
-function threadOptions(input: ThinkInput, snapshotRepo: string = input.repo): ThreadOptions {
-  return {
-    ...THINKING_THREAD_OPTIONS,
-    workingDirectory: snapshotRepo,
-    sandboxMode: 'read-only',
-    approvalPolicy: 'never',
-    networkAccessEnabled: false,
-    webSearchMode: 'disabled',
-  };
-}
-
 /** Runs design and review in separate SDK threads so the recommendation cannot approve itself. */
 export class CodexThinkAgent implements ThinkAgent {
   private readonly client: CodexClientLike;
@@ -192,10 +180,10 @@ export class CodexThinkAgent implements ThinkAgent {
     input: ThinkInput,
     research: ThinkResearchContext[],
     buildContract: unknown,
-    context: ThinkContextSummary[] = [],
-    snapshotRepo: string = input.repo,
+    context: ThinkContextSummary[],
+    snapshotRepo: string,
   ): Promise<ThinkDraft> {
-    const thread = this.client.startThread(threadOptions(input, snapshotRepo));
+    const thread = this.client.startThread(readOnlyThreadOptions(snapshotRepo));
     const result = await runStage(
       'designer',
       () =>
@@ -218,11 +206,11 @@ export class CodexThinkAgent implements ThinkAgent {
     draft: ThinkDraft,
     research: ThinkResearchContext[],
     buildContract: unknown,
-    correction?: ThinkReviewCorrection,
-    context: ThinkContextSummary[] = [],
-    snapshotRepo: string = input.repo,
+    correction: ThinkReviewCorrection | undefined,
+    context: ThinkContextSummary[],
+    snapshotRepo: string,
   ): Promise<ThinkDecision> {
-    const thread = this.client.startThread(threadOptions(input, snapshotRepo));
+    const thread = this.client.startThread(readOnlyThreadOptions(snapshotRepo));
     const result = await runStage(
       'reviewer',
       () =>
