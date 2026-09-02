@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 
 import { digest, positiveIssue, repositoryName } from './public-contract.ts';
 import { FlowError } from '../shared/errors.ts';
-import { isObject, rejectUnknownKeys } from '../shared/schema.ts';
+import { isObject, rejectUnknownKeys, requiredString } from '../shared/schema.ts';
 
 export const PUBLISHED_ISSUE_PROTOCOL = 'codex-build-issue' as const;
 
@@ -16,11 +16,6 @@ export interface PublishedIssueReceipt {
   publication_id: string;
   draft_sha256: string;
   issue_number: number;
-}
-
-function requiredString(value: unknown, label: string): string {
-  if (typeof value !== 'string' || !value.trim()) throw new FlowError(`${label} is required`);
-  return value;
 }
 
 /** Parses a local publication receipt retained only as cache and audit evidence. */
