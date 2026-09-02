@@ -42,6 +42,12 @@ export interface BuildPlanAuthoring {
   }>;
 }
 
+export interface CompiledBuildPlan {
+  authoring: BuildPlanAuthoring;
+  value: ReturnType<typeof buildPlanValue>;
+  markdown: string;
+}
+
 export const STRING_ARRAY_SCHEMA = { type: 'array', items: { type: 'string' } } as const;
 const PLAN_LABELS = {
   japanese: {
@@ -321,7 +327,7 @@ export function parseBuildPlanAuthoring(raw: unknown): BuildPlanAuthoring {
 }
 
 /** Removes nullable authoring fields so the value matches build's exact Plan contract. */
-export function buildPlanValue(plan: BuildPlanAuthoring) {
+function buildPlanValue(plan: BuildPlanAuthoring) {
   const reference = plan.reference_module;
   return {
     outcome: plan.outcome,
@@ -441,4 +447,16 @@ export function renderPlanMarkdown(
       : [`- ${labels.none}`]),
   );
   return `${lines.join('\n')}\n`;
+}
+
+/** Builds the runtime and human forms together so callers cannot wire them independently. */
+export function compileBuildPlan(
+  authoring: BuildPlanAuthoring,
+  language: ConfiguredLanguage = 'english',
+): CompiledBuildPlan {
+  return {
+    authoring,
+    value: buildPlanValue(authoring),
+    markdown: renderPlanMarkdown(authoring, language),
+  };
 }

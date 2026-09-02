@@ -6,7 +6,7 @@ import * as os from 'node:os';
 import path from 'node:path';
 import { onTestFinished } from 'bun:test';
 
-import { renderPlanMarkdown, type BuildPlanAuthoring } from '../../flow/build/authoring.ts';
+import { compileBuildPlan, type BuildPlanAuthoring } from '../../flow/build/authoring.ts';
 import { BUILD_SOURCE_PROTOCOL } from '../../flow/build/handoff.ts';
 import { renderPublicIssueBody } from '../../issue/public-contract.ts';
 import * as flow from '../../flow/controller.ts';
@@ -312,10 +312,10 @@ export function startFlow(
         },
       ],
     };
+    const compiledPlan = compileBuildPlan(plan);
     const body = renderPublicIssueBody(
-      renderPlanMarkdown(plan),
-      plan,
-      'english',
+      compiledPlan.markdown,
+      compiledPlan,
       '00000000-0000-4000-8000-000000000001',
     );
     const issueFile = path.join(path.dirname(manifest.repo), 'github-issue.json');

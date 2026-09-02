@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
 
-import { buildPlanValue, renderPlanMarkdown } from '../flow/build/authoring.ts';
+import { compileBuildPlan, type CompiledBuildPlan } from '../flow/build/authoring.ts';
 import { parsePublicIssueBody, renderPublicIssueBody } from './public-contract.ts';
 import { validatePlan } from '../flow/build/plan.ts';
 import { revalidatePlan } from '../flow/build/revalidate.ts';
@@ -140,7 +140,11 @@ function proseParagraphs(value: string): string[] {
   return sentenceItems(value).flatMap((sentence) => [sentence, '']);
 }
 
-function createBody(report: ReadyThinkReport, language: ConfiguredLanguage): string {
+function createBody(
+  report: ReadyThinkReport,
+  language: ConfiguredLanguage,
+  planMarkdown: string,
+): string {
   const labels = BODY_LABELS[language];
   return [
     `## ${labels.outcome}`,
@@ -152,27 +156,26 @@ function createBody(report: ReadyThinkReport, language: ConfiguredLanguage): str
     `### ${labels.rationale}`,
     '',
     ...proseParagraphs(report.rationale),
-    renderPlanMarkdown(report.plan, language).trimEnd(),
+    planMarkdown.trimEnd(),
     '',
   ].join('\n');
 }
 
-function appendPlan(body: string, report: ReadyThinkReport, language: ConfiguredLanguage): string {
+function appendPlan(body: string, planMarkdown: string): string {
   if (/^##\s+Plan\b/mu.test(body)) {
     throw new FlowError('target issue already has a ## Plan section', 'decision_error');
   }
-  return `${body.trimEnd()}${body.trim() ? '\n\n' : ''}${renderPlanMarkdown(report.plan, language)}`;
+  return `${body.trimEnd()}${body.trim() ? '\n\n' : ''}${planMarkdown}`;
 }
 
 function requireValidPlan(
   issue: number,
   title: string,
   body: string,
-  report: ReadyThinkReport,
+  plan: CompiledBuildPlan,
   repo: string,
 ): void {
-  const plan = buildPlanValue(report.plan);
-  const validation = validatePlan({ issue, title, body, plan });
+  const validation = validatePlan({ issue, title, body, plan: plan.value });
   if (validation.verdict !== 'pass') {
     throw new FlowError(
       `issue Plan violates the build contract: ${[
@@ -182,7 +185,7 @@ function requireValidPlan(
       'decision_error',
     );
   }
-  const revalidation = revalidatePlan(plan, repo);
+  const revalidation = revalidatePlan(plan.value, repo);
   if (revalidation.verdict !== 'pass') {
     throw new FlowError(
       `issue Plan references stale repository state: ${revalidation.drift
@@ -217,13 +220,14 @@ export function draftIssue(
       'decision_error',
     );
   }
+  const plan = compileBuildPlan(source.report.plan, language);
   const title = existing ? existing.title : createTitle(source.report, input.title!, language);
   const visibleBody = existing
-    ? appendPlan(existing.body, source.report, language)
-    : createBody(source.report, language);
+    ? appendPlan(existing.body, plan.markdown)
+    : createBody(source.report, language, plan.markdown);
   const publicationId = crypto.randomUUID();
-  const body = renderPublicIssueBody(visibleBody, source.report.plan, language, publicationId);
-  requireValidPlan(input.target_issue ?? 1, title, body, source.report, input.repo);
+  const body = renderPublicIssueBody(visibleBody, plan, publicationId);
+  requireValidPlan(input.target_issue ?? 1, title, body, plan, input.repo);
   if (!sameWorkflowRepositoryInvariant(before, repositoryInvariant(input.repo))) {
     throw new FlowError(
       'repository changed while the issue draft was being prepared',
@@ -319,18 +323,18 @@ export function publishIssue(
   }
   const { draft } = loaded;
   const body = currentBody(draft);
-  const report = verifySource(draft);
+  verifySource(draft);
   const publicContract = parsePublicIssueBody(body);
   if (publicContract.publication_id !== draft.publication_id) {
     throw new FlowError('issue draft publication id does not match its public build contract');
   }
-  if (JSON.stringify(publicContract.plan) !== JSON.stringify(draft.plan)) {
+  if (JSON.stringify(publicContract.plan.authoring) !== JSON.stringify(draft.plan)) {
     throw new FlowError('issue draft Plan does not match its public build contract');
   }
   if (repositoryFingerprint(repositoryInvariant(draft.repo)) !== draft.repository_fingerprint) {
     throw new FlowError('repository changed after draft validation', 'state_error');
   }
-  requireValidPlan(draft.issue_number ?? 1, draft.title, body, report, draft.repo);
+  requireValidPlan(draft.issue_number ?? 1, draft.title, body, publicContract.plan, draft.repo);
   assertGitHubRemote(draft.repo, draft.remote, draft.repository);
   gateway.ensureLabel(draft.repository, draft.priority_label);
   let issue: GitHubIssue;

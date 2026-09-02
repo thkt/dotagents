@@ -1,9 +1,12 @@
 /** @file Outcome: One public GitHub Issue carries an exact human and machine Build contract. */
 
-import { parseBuildPlanAuthoring, renderPlanMarkdown } from '../flow/build/authoring.ts';
+import {
+  compileBuildPlan,
+  parseBuildPlanAuthoring,
+  type CompiledBuildPlan,
+} from '../flow/build/authoring.ts';
 import { sha256 } from '../shared/evidence.ts';
 import { FlowError, errorMessage } from '../shared/errors.ts';
-import type { ConfiguredLanguage } from '../shared/language.ts';
 import { isObject, rejectUnknownKeys } from '../shared/schema.ts';
 
 // Public Issues outlive any one harness release. The semantic name is stable while the schema is
@@ -44,8 +47,7 @@ export function positiveIssue(value: unknown, label: string): number {
 /** Seals the human-readable body and canonical Plan into one publicly portable Issue contract. */
 export function renderPublicIssueBody(
   body: string,
-  rawPlan: unknown,
-  language: ConfiguredLanguage,
+  plan: CompiledBuildPlan,
   publicationId: string,
 ): string {
   if (/<!-- codex-public-build-contract\/v\d+\n/u.test(body)) {
@@ -57,12 +59,11 @@ export function renderPublicIssueBody(
   if (body.includes(CONTRACT_OPEN) || body.includes(PUBLICATION_METADATA_OPEN)) {
     throw new FlowError('issue body already contains a public build contract', 'decision_error');
   }
-  const plan = parseBuildPlanAuthoring(rawPlan);
   if (!PUBLICATION_ID.test(publicationId)) {
     throw new FlowError('issue publication_id must be a UUIDv4', 'decision_error');
   }
   const visibleBody = body.trimEnd();
-  const canonicalPlan = renderPlanMarkdown(plan, language).trimEnd();
+  const canonicalPlan = plan.markdown.trimEnd();
   if (!visibleBody.endsWith(canonicalPlan)) {
     throw new FlowError('issue body does not contain its exact canonical Plan', 'decision_error');
   }
@@ -75,7 +76,7 @@ export function renderPublicIssueBody(
   const contract = {
     protocol: PUBLIC_ISSUE_CONTRACT_PROTOCOL,
     body_sha256: sha256(portableVisibleBody),
-    plan,
+    plan: plan.authoring,
   };
   const encoded = Buffer.from(JSON.stringify(contract)).toString('base64url');
   return `${portableVisibleBody}\n\n${CONTRACT_OPEN}${encoded}${CONTRACT_CLOSE}\n`;
@@ -114,7 +115,7 @@ function publicationMetadata(body: string): {
 export function parsePublicIssueBody(body: string): {
   visibleBody: string;
   publication_id: string;
-  plan: ReturnType<typeof parseBuildPlanAuthoring>;
+  plan: CompiledBuildPlan;
 } {
   if (/<!-- codex-public-build-contract\/v\d+\n/u.test(body)) {
     throw new FlowError(
@@ -145,18 +146,18 @@ export function parsePublicIssueBody(body: string): {
   if (sha256(sealedVisibleBody) !== digest(raw.body_sha256, 'GitHub Issue contract.body_sha256')) {
     throw new FlowError('GitHub Issue visible body digest is stale');
   }
-  let plan: ReturnType<typeof parseBuildPlanAuthoring>;
+  let authoring: ReturnType<typeof parseBuildPlanAuthoring>;
   try {
-    plan = parseBuildPlanAuthoring(raw.plan);
+    authoring = parseBuildPlanAuthoring(raw.plan);
   } catch (error) {
     throw new FlowError(
       `GitHub Issue Plan is not current; recreate it with the current $issue workflow: ${errorMessage(error)}`,
     );
   }
-  const exactPlan = (['english', 'japanese'] as const).some((language) =>
-    sealedVisibleBody.endsWith(renderPlanMarkdown(plan, language).trimEnd()),
-  );
-  if (!exactPlan) throw new FlowError('GitHub Issue body does not contain its exact Plan');
+  const plan = (['english', 'japanese'] as const)
+    .map((language) => compileBuildPlan(authoring, language))
+    .find((candidate) => sealedVisibleBody.endsWith(candidate.markdown.trimEnd()));
+  if (!plan) throw new FlowError('GitHub Issue body does not contain its exact Plan');
   const metadata = publicationMetadata(sealedVisibleBody);
   if (metadata.publicationId === null) {
     throw new FlowError(

@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 
 import { describe as describeBuildPlan, validatePlan } from '../flow/build/plan.ts';
-import { buildPlanValue, renderPlanMarkdown } from '../flow/build/authoring.ts';
+import { compileBuildPlan } from '../flow/build/authoring.ts';
 import { revalidatePlan } from '../flow/build/revalidate.ts';
 import { parseResearchReport } from '../research/contracts.ts';
 import { readRepositoryEvidence, sha256 } from '../shared/evidence.ts';
@@ -179,16 +179,20 @@ function validateDecision(input: ThinkInput, decision: ThinkDecision): void {
   if (input.task_type === 'bug' && decision.root_cause === null) {
     throw new FlowError('a ready bug decision requires an evidenced root cause', 'decision_error');
   }
-  const plan = buildPlanValue(decision.plan);
-  const body = renderPlanMarkdown(decision.plan, input.language);
-  const report = validatePlan({ issue: 1, title: issueTitle(input), body, plan });
+  const plan = compileBuildPlan(decision.plan, input.language);
+  const report = validatePlan({
+    issue: 1,
+    title: issueTitle(input),
+    body: plan.markdown,
+    plan: plan.value,
+  });
   if (report.verdict !== 'pass') {
     throw new FlowError(
       `think plan violates the build contract: ${[...report.blockers, ...report.reason_codes].join('; ')}`,
       'decision_error',
     );
   }
-  const revalidation = revalidatePlan(plan, input.repo);
+  const revalidation = revalidatePlan(plan.value, input.repo);
   if (revalidation.verdict !== 'pass') {
     throw new FlowError(
       `think plan references missing or stale repository state: ${revalidation.drift.map((item) => item.path).join(', ')}`,

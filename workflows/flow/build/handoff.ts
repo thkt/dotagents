@@ -1,6 +1,6 @@
 /** @file Outcome: Build consumes only the exact Plan published in the selected GitHub Issue. */
 
-import { buildPlanValue } from './authoring.ts';
+import type { CompiledBuildPlan } from './authoring.ts';
 import { sha256 } from '../../shared/evidence.ts';
 import { FlowError } from '../../shared/errors.ts';
 import { isObject, rejectUnknownKeys } from '../../shared/schema.ts';
@@ -25,7 +25,7 @@ export interface ResolvedBuildSource {
   title: string;
   body: string;
   body_sha256: string;
-  plan: ReturnType<typeof buildPlanValue>;
+  plan: CompiledBuildPlan['value'];
 }
 
 /** Validates the portable selector without fetching its selected Issue. */
@@ -65,7 +65,7 @@ export function resolveBuildSource(
     title: issue.title,
     body: issue.body,
     body_sha256: sha256(issue.body),
-    plan: buildPlanValue(parsed.plan),
+    plan: parsed.plan.value,
   };
 }
 

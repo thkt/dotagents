@@ -85,7 +85,7 @@ export function parsePublishedIssueReceipt(raw: unknown, repo: string): Publishe
     throw new FlowError('build receipt publication id does not match its public Issue contract');
   }
   const plan = parseBuildPlanAuthoring(raw.plan);
-  if (JSON.stringify(plan) !== JSON.stringify(parsed.plan)) {
+  if (JSON.stringify(plan) !== JSON.stringify(parsed.plan.authoring)) {
     throw new FlowError('build receipt Plan does not match its public Issue contract');
   }
   const remote = requiredString(raw.remote, 'build receipt.remote');

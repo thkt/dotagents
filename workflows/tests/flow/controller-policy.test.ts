@@ -537,7 +537,6 @@ test('Ship revalidation rejects an Issue body edited after load:plan', () => {
   issue.body = renderPublicIssueBody(
     `Edited after Build started.\n\n${unsealedVisibleBody}`,
     parsed.plan,
-    'english',
     '00000000-0000-4000-8000-000000000003',
   );
   fs.writeFileSync(issueFile, JSON.stringify(issue));

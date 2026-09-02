@@ -11,7 +11,7 @@ import { describe } from '../../flow/controller.ts';
 import { validateManifest } from '../../flow/manifest.ts';
 import { executeAction } from '../../flow/build/actions.ts';
 import { BUILD_SOURCE_PROTOCOL } from '../../flow/build/handoff.ts';
-import { renderPlanMarkdown, type BuildPlanAuthoring } from '../../flow/build/authoring.ts';
+import { compileBuildPlan, type BuildPlanAuthoring } from '../../flow/build/authoring.ts';
 import { runWorkflow, type WorkflowRuntime } from '../../flow/runner.ts';
 import { renderPublicIssueBody } from '../../issue/public-contract.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
@@ -69,10 +69,10 @@ test('describe(build) materializes a public Issue source and reaches ship-ready'
       },
     ],
   };
+  const compiledPlan = compileBuildPlan(plan);
   const body = renderPublicIssueBody(
-    renderPlanMarkdown(plan),
-    plan,
-    'english',
+    compiledPlan.markdown,
+    compiledPlan,
     '00000000-0000-4000-8000-000000000002',
   );
   const issueFile = `${repo}.issue.json`;
