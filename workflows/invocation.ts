@@ -296,10 +296,16 @@ function requireIssueIntent(runId: string, repo: string, inputFile: string): Wor
   return requireBoundIntent(runId, 'issue', repo, inputFile, 'issue input');
 }
 
-/** Runs one model-backed workflow and consumes its intent afterwards, whether it completed or threw. */
+/** Consumes terminal model intent while preserving an exact retry after transport unavailability. */
 async function consumeIntentAfter<T>(runId: string, run: () => Promise<T>): Promise<T> {
-  using _intent = { [Symbol.dispose]: () => clearIntent(runId) };
-  return await run();
+  try {
+    const result = await run();
+    clearIntent(runId);
+    return result;
+  } catch (error) {
+    if (errorCode(error) !== 'model_unavailable') clearIntent(runId);
+    throw error;
+  }
 }
 
 /** Clears the task-scoped intent and any external-write authority derived from it. */

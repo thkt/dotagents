@@ -10,7 +10,7 @@
 - 公開 Issue は task-local record ではなく、ハーネスをまたいで残る durable authority である。publication は固定の `codex-public-build-contract` envelope と別途 hash された publication identity を使う。Build は古い envelope を拒否し、現行 Issue workflow による再公開を要求する。
 - Build は読み込んだ公開 Plan から actor goal、contract、verification command を導出する。最終テスト後、独立した read-only Codex SDK review が完全な diff を検査してから Ship へ進む。
 - external branch、commit、push、draft PR action は、中断した controller の再開時に observable postcondition から reconcile する。
-- terminal model failure は intent を消費し、入力または binding 検証失敗は保持する。
+- terminal model failure は intent を消費する。`model_unavailable` transport failure は正確な再実行のため intent を保持し、入力または binding 検証失敗も保持する。
 - ready Think artifact がない pending Issue は、task-bound な`codex-issue stop`でだけ終了する。placeholder input や GitHub access を要求せず publication authority を失効させる。
 - Issue は canonical Plan から可視 body と machine contract を生成し、current source と完全一致を再検証して一度 publish する。Build は開始時、semantic review 前、Ship 前に同じ公開 Issue を再検証する。
 - 確立した decision は repository documentation に戻し、将来の Plan が knowledge として引用できるようにする。

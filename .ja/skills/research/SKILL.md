@@ -6,6 +6,7 @@ description: プロジェクトまたは技術上の問い1つを調査し、別
 # Research
 
 `codex-research describe`で現在の入力形式と成果物の契約を確認する。
+束縛された workflow command は network access 付きで実行する。sandbox が入れ子 Codex の接続を拒否した場合は、同じ command を network escalation で再実行する。`model_unavailable` はその再実行のため intent を保持する。
 
 ## 判断
 

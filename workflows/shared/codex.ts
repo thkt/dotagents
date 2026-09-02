@@ -116,6 +116,7 @@ export async function runStreamedCodexTurn(
   let lastActivity = 'request_started';
   let finalResponse = '';
   let completed = false;
+  let terminalFailed = false;
   let streamError: Error | undefined;
 
   const armWatchdog = (): void => {
@@ -135,10 +136,12 @@ export async function runStreamedCodexTurn(
     for await (const event of events) {
       eventCount += 1;
       const activity = modelActivity(event, eventCount);
-      lastActivity = activity.item_type
-        ? `${activity.event_type}:${activity.item_type}`
-        : event.type;
-      armWatchdog();
+      if (event.type !== 'error') {
+        lastActivity = activity.item_type
+          ? `${activity.event_type}:${activity.item_type}`
+          : event.type;
+        armWatchdog();
+      }
       try {
         modelRun.onActivity?.(activity);
       } catch {
@@ -150,6 +153,7 @@ export async function runStreamedCodexTurn(
       } else if (event.type === 'turn.completed') {
         completed = true;
       } else if (event.type === 'turn.failed') {
+        terminalFailed = true;
         throw new Error(event.error.message);
       } else if (event.type === 'error') {
         // The CLI can emit reconnect diagnostics before a later lifecycle terminal.
@@ -158,14 +162,26 @@ export async function runStreamedCodexTurn(
       }
     }
     if (!completed) {
-      throw (
-        streamError ??
-        new FlowError(`${modelRun.label} stream ended without turn.completed`, 'execution_error')
+      if (streamError) throw new FlowError(streamError.message, 'model_unavailable');
+      throw new FlowError(
+        `${modelRun.label} stream ended without turn.completed`,
+        'execution_error',
       );
     }
     return { finalResponse };
   } catch (error) {
-    if (idleFailure) throw idleFailure;
+    if (idleFailure) {
+      if (streamError) {
+        throw new FlowError(
+          `${idleFailure.message}; last stream error: ${streamError.message}`,
+          'model_unavailable',
+        );
+      }
+      throw idleFailure;
+    }
+    if (streamError && !terminalFailed) {
+      throw new FlowError(streamError.message, 'model_unavailable');
+    }
     throw error;
   } finally {
     cancelIdle();

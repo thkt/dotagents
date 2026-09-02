@@ -521,6 +521,24 @@ test('a terminal model failure consumes the armed intent', async () => {
   assert.equal(loadIntent(failedRun), null);
 });
 
+test('model unavailability preserves the armed intent for an exact retry', async () => {
+  const repo = repoFixture();
+  const runId = `think-model-unavailable-${crypto.randomUUID()}`;
+  const pending = armIntent({ runId, workflow: 'think', cwd: repo });
+  onTestFinished(() => clearIntent(runId));
+  fs.writeFileSync(pending.input_path, JSON.stringify(input(repo)));
+  const unavailable: ThinkAgent = {
+    async design() {
+      throw new FlowError('nested Codex connection unavailable', 'model_unavailable');
+    },
+    async review() {
+      throw new Error('unexpected review');
+    },
+  };
+  await assert.rejects(runThinkWorkflow(runId, pending.input_path, unavailable), /unavailable/u);
+  assert.ok(loadIntent(runId));
+});
+
 test('an input validation failure preserves the armed intent', async () => {
   const repo = repoFixture();
   const invalidRun = `think-invalid-input-${crypto.randomUUID()}`;

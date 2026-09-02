@@ -9,6 +9,7 @@ When present, read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) and record stabl
 Use the relevant [workflow contracts](../../workflows/README.md) when recording those rules.
 
 Inspect the current input and decision contract with `codex-think describe`.
+Run the bound workflow command with network access. If the sandbox blocks the nested Codex connection, retry the same command with network escalation; `model_unavailable` preserves the intent for that retry.
 
 ## Decisions
 
