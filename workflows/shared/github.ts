@@ -8,6 +8,7 @@ import { FlowError } from './errors.ts';
 export const GITHUB_ACCESS_ERROR = 'github_access_error' as const;
 export const GITHUB_COMMAND_ERROR = 'github_command_error' as const;
 export const GITHUB_RESPONSE_ERROR = 'github_response_error' as const;
+export const GITHUB_EXECUTABLE = 'gh' as const;
 
 export type GitHubWriteAuthority = 'issue-publication' | 'build-ship';
 export type GitHubOperation =
@@ -43,7 +44,7 @@ const REGISTERED_GITHUB_INVOCATION: unique symbol = Symbol('registered GitHub in
 
 export interface GitHubInvocation {
   readonly [REGISTERED_GITHUB_INVOCATION]: true;
-  readonly executable: 'gh';
+  readonly executable: typeof GITHUB_EXECUTABLE;
   readonly operation: GitHubOperation;
   readonly args: readonly string[];
 }
@@ -55,7 +56,7 @@ export interface GitHubAttachment {
 
 function invocation(operation: GitHubOperation, args: string[]): GitHubInvocation {
   const request = {
-    executable: 'gh',
+    executable: GITHUB_EXECUTABLE,
     operation,
     args: Object.freeze([...args]),
   } as GitHubInvocation;

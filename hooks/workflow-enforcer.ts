@@ -31,6 +31,7 @@ import {
 import { errorCode, errorMessage } from '../workflows/shared/errors.ts';
 import {
   GITHUB_OPERATION_POLICIES,
+  GITHUB_EXECUTABLE,
   githubIssueView,
   githubShellCommand,
   type GitHubInvocation,
@@ -250,7 +251,7 @@ function isReadOnlySegment(segment: string, allowGitHubView: boolean): boolean {
   if (executable === 'git') return isReadOnlyGit(words);
   return (
     allowGitHubView &&
-    executable === 'gh' &&
+    executable === GITHUB_EXECUTABLE &&
     READ_ONLY_GH_GROUPS.has(words[1] || '') &&
     words[2] === 'view' &&
     !words.includes('--web')
