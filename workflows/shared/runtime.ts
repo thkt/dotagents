@@ -5,11 +5,11 @@ import path from 'node:path';
 import { errorCode, errorMessage, FlowError } from './errors.ts';
 
 export function readAbsoluteJson(file: string, label: string): unknown {
-  if (!path.isAbsolute(file)) throw new FlowError('--input must be absolute');
+  if (!path.isAbsolute(file)) throw new FlowError(`${label} must be absolute`);
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
   } catch (error) {
-    throw new FlowError(`${label} input is unreadable: ${errorMessage(error)}`);
+    throw new FlowError(`${label} is unreadable JSON: ${errorMessage(error)}`);
   }
 }
 

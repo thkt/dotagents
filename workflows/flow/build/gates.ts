@@ -25,16 +25,8 @@ import {
 import { UNIT_ACTOR } from '../manifest.ts';
 import { FlowError, errorCode, errorMessage } from '../../shared/errors.ts';
 import { GITHUB_ACCESS_ERROR, GITHUB_COMMAND_ERROR } from '../../shared/github.ts';
+import { readAbsoluteJson } from '../../shared/runtime.ts';
 import { prBodyPath } from '../../shared/storage.ts';
-
-function readJson(file: string, label: string): unknown {
-  if (!path.isAbsolute(file)) throw new FlowError(`${label} must be absolute`);
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (error) {
-    throw new FlowError(`${label} is not readable JSON: ${errorMessage(error)}`);
-  }
-}
 
 function buildPlanContext(value: ResolvedBuildSource): BuildPlanContext {
   return {
@@ -264,7 +256,8 @@ export function buildReviewGateReport(
 /** Runs one typed build authority and normalizes its result into controller evidence. */
 export function runStructuredBuildGate(state: FlowState, step: GateStep): GateReport {
   const startedAt = Date.now();
-  const source = 'input' in step.gate ? readJson(step.gate.input, `${step.id}.gate.input`) : null;
+  const source =
+    'input' in step.gate ? readAbsoluteJson(step.gate.input, `${step.id}.gate.input`) : null;
   let input: ReturnType<typeof resolveBuildSource> | null = null;
   if ('input' in step.gate) {
     try {

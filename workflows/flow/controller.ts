@@ -35,6 +35,7 @@ import {
 } from './shell-gate.ts';
 import { clearIntent, loadIntent, requireBuildShipApproval, requireIntent } from '../invocation.ts';
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
+import { readAbsoluteJson } from '../shared/runtime.ts';
 import { atomicWrite, statePath, workflowInputPath } from '../shared/storage.ts';
 import {
   gitOutput,
@@ -71,15 +72,6 @@ import {
   runStructuredBuildGate,
 } from './build/gates.ts';
 import { parseBuildReviewResult } from './agent.ts';
-
-function readJson(file: string, label: string): unknown {
-  if (!path.isAbsolute(file)) throw new FlowError(`${label} must be absolute`);
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (error) {
-    throw new FlowError(`${label} is not readable JSON: ${errorMessage(error)}`);
-  }
-}
 
 /** Loads the task-bound state and rejects stale or malformed records. */
 function loadWorkflowState(runId: string): { file: string; state: FlowState } {
@@ -165,7 +157,7 @@ function save(file: string, state: FlowState): PublicState {
 
 /** Starts an armed workflow after capturing its immutable repository baseline. */
 function startWorkflow(runId: string, manifestFile: string): PublicState {
-  const manifest = validateManifest(readJson(manifestFile, '--manifest'));
+  const manifest = validateManifest(readAbsoluteJson(manifestFile, '--manifest'));
   const file = statePath(runId);
   if (fs.existsSync(file)) {
     const existing = loadWorkflowState(runId).state;
@@ -261,7 +253,7 @@ function startOrResumeWorkflow(runId: string, manifestFile: string): PublicState
       if (path.resolve(manifestFile) !== workflowInputPath(runId)) {
         throw new FlowError('resume requires the hook-supplied manifest path', 'state_error');
       }
-      const manifest = validateManifest(readJson(manifestFile, '--manifest'));
+      const manifest = validateManifest(readAbsoluteJson(manifestFile, '--manifest'));
       if (manifestHash(manifest) !== existing.manifest_hash) {
         throw new FlowError('resume requires the original blocked manifest', 'state_error');
       }
