@@ -2,6 +2,7 @@
 
 import { Codex, type ThreadOptions, type TurnOptions } from '@openai/codex-sdk';
 
+import { sandboxCodexEnvironment } from './codex-home.ts';
 import { FlowError } from './errors.ts';
 import { isObject, rejectUnknownKeys, type JsonObject } from './schema.ts';
 
@@ -94,18 +95,8 @@ export function elapsedMs(startedAt: number): number {
   return Math.max(0, Math.round(performance.now() - startedAt));
 }
 
-/** Removes API-key overrides so workflow agents consume the signed-in Codex account. */
-export function cleanCodexEnvironment(env: NodeJS.ProcessEnv): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(env).filter(
-      (entry): entry is [string, string] =>
-        entry[1] !== undefined && entry[0] !== 'OPENAI_API_KEY' && entry[0] !== 'CODEX_API_KEY',
-    ),
-  );
-}
-
 export function createSignedInCodexClient(env: NodeJS.ProcessEnv = process.env): CodexClientLike {
-  return new Codex({ env: cleanCodexEnvironment(env) });
+  return new Codex({ env: sandboxCodexEnvironment(env) });
 }
 
 /** Normalizes malformed SDK output before workflow-specific parsing. */

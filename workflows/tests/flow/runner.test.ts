@@ -17,7 +17,7 @@ import {
   parseBuildReviewResult,
   type WorkflowAgent,
 } from '../../flow/agent.ts';
-import { cleanCodexEnvironment } from '../../shared/codex.ts';
+import { cleanCodexEnvironment } from '../../shared/codex-home.ts';
 import { ProgressReporter, type ProgressEvent } from '../../shared/progress.ts';
 import { MANIFEST_PROTOCOL, type FlowDirective, type FlowManifest } from '../../flow/contracts.ts';
 import { runIsolatedActor, runIsolatedShellVerification } from '../../flow/isolation.ts';

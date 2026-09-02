@@ -3,11 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'bun:test';
 
-import {
-  STAGE_TIMING_KEYS,
-  emptyStageTimings,
-  parseStageTimings,
-} from '../../../workflows/shared/codex.ts';
+import { STAGE_TIMING_KEYS, emptyStageTimings, parseStageTimings } from '../../shared/codex.ts';
 
 test('emptyStageTimings returns every timing key as zero', () => {
   const timings = emptyStageTimings();
