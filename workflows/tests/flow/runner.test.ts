@@ -445,7 +445,7 @@ test('blocks in-process actor errors and retries only model unavailability', asy
   assert.equal('status' in unchanged.result && unchanged.result.status, 'blocked');
   assert.equal(actorCalls, 1);
 
-  await main(['cancel', '--manifest', pending.input_path, '--run-id', runId]);
+  await main(['cancel', '--input', pending.input_path, '--run-id', runId]);
   armIntent({ runId, workflow: 'code', cwd: repo });
   const unavailable = await runWorkflow(runId, pending.input_path, runtime);
   assert.equal(unavailable.exitCode, 2);

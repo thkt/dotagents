@@ -2,7 +2,6 @@
 
 import { spawnSync } from 'node:child_process';
 
-import { shellCommand } from './command.ts';
 import { FlowError } from './errors.ts';
 
 export const GITHUB_ACCESS_ERROR = 'github_access_error' as const;
@@ -209,10 +208,6 @@ export function githubPrView(repository: string, branch: string): GitHubInvocati
     '--json',
     'url,isDraft,baseRefName,headRefName,title,body',
   ]);
-}
-
-export function githubShellCommand(request: GitHubInvocation): string {
-  return shellCommand(request.executable, [...request.args]);
 }
 
 const GITHUB_ACCESS_FAILURE =

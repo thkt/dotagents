@@ -154,6 +154,12 @@ export async function runStreamedCodexTurn(
         completed = true;
       } else if (event.type === 'turn.failed') {
         terminalFailed = true;
+        if (streamError) {
+          throw new FlowError(
+            `${event.error.message}; last stream error: ${streamError.message}`,
+            'model_unavailable',
+          );
+        }
         throw new Error(event.error.message);
       } else if (event.type === 'error') {
         // The CLI can emit reconnect diagnostics before a later lifecycle terminal.

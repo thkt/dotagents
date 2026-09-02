@@ -269,6 +269,7 @@ export interface FlowState {
   workflow: Workflow;
   manifest: FlowManifest;
   manifest_hash: string;
+  input_sha256: string;
   cursor: number;
   status: FlowStatus;
   correction_counts: Record<string, number>;
@@ -340,7 +341,7 @@ export interface PublicState {
   current_step: FlowStep | null;
   cursor: number;
   total_steps: number;
-  manifest_hash: string;
+  execution_hash: string;
   correction_counts: Record<string, number>;
   sealed_gates: Record<string, string[]>;
   last_gate: GateReport | null;
@@ -416,7 +417,13 @@ export interface FlowDescription {
   defaults: {
     gate_timeout_ms: number;
   };
-  manifest_template: {
+  input_template?: Record<string, unknown>;
+  execution?: {
+    source_of_truth: 'public-issue-plan';
+    compiled: true;
+    persisted: true;
+  };
+  manifest_template?: {
     protocol: typeof MANIFEST_PROTOCOL;
     workflow: Workflow;
     repo: '<absolute-git-root>';
@@ -424,20 +431,15 @@ export interface FlowDescription {
     shipping_authorized: false;
     steps: [];
   };
-  executable_example: {
+  executable_example?: {
     required_sequence: string[];
     manifest: Record<string, unknown>;
   };
   cli_contracts: {
     reports: Array<{ protocol: string; command: string }>;
   };
-  inputs?: {
-    source: {
-      template: Record<string, unknown>;
-    };
-  };
-  step_contracts: StepDescription[];
-  sequence: {
+  step_contracts?: StepDescription[];
+  sequence?: {
     opening: string[];
     unit_modes: {
       red_green: string[];

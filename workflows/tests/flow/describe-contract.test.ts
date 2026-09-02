@@ -20,16 +20,19 @@ function materialize(value: unknown, replacements: Record<string, string>): unkn
   return JSON.parse(json) as unknown;
 }
 
-test('describe exposes a complete executable sequence for code and build', () => {
-  for (const workflow of ['code', 'build'] as const) {
-    const result = describe(workflow);
-    assert.ok(result.executable_example);
-    assert.equal(result.executable_example!.required_sequence.length > 0, true);
-    assert.ok(result.cli_contracts?.reports.every((report) => report.protocol && report.command));
+test('describe exposes a manifest for Code and a small compiled input for Build', () => {
+  const code = describe('code');
+  assert.ok(code.executable_example);
+  assert.equal(code.executable_example!.required_sequence.length > 0, true);
+  const build = describe('build');
+  assert.equal(build.executable_example, undefined);
+  assert.equal(build.input_template?.protocol, 'codex-build-run');
+  for (const result of [code, build]) {
+    assert.ok(result.cli_contracts.reports.every((report) => report.protocol && report.command));
   }
 });
 
-test('described manifests materialize and pass the real validator', () => {
+test('the described Code manifest materializes and passes the real validator', () => {
   const root = temporaryDirectory('codex-flow-describe-');
   spawnSync('git', ['init', '-q', root]);
   spawnSync('git', ['-C', root, 'config', 'user.email', 'test@example.test']);
@@ -37,34 +40,22 @@ test('described manifests materialize and pass the real validator', () => {
   fs.writeFileSync(path.join(root, 'unit.ts'), 'export {}\n');
   spawnSync('git', ['-C', root, 'add', 'unit.ts']);
   spawnSync('git', ['-C', root, 'commit', '-qm', 'init']);
-  const head = spawnSync('git', ['-C', root, 'rev-parse', 'HEAD'], {
-    encoding: 'utf8',
-  }).stdout.trim();
-  const source = path.join(root, 'source.json');
-  fs.writeFileSync(source, '{}');
-  for (const workflow of ['code', 'build'] as const) {
-    const description = describe(workflow);
-    const manifest = validateManifest(
-      materialize(description.executable_example!.manifest, {
-        '<absolute-build-source-json>': source,
-        '<repo-relative-file>': 'unit.ts',
-        '<unit-outcome>': 'done',
-        '<unit-summary>': 'unit',
-        '<git-ref>': head,
-        '<absolute-git-root>': root,
-      }),
-    );
-    assert.equal(manifest.workflow, workflow);
-    assert.equal(manifest.repo, fs.realpathSync(root));
-    const materializedSequence = manifest.steps.flatMap((step) => {
-      if (step.kind === 'action' && step.action === 'branch') return ['branch'];
-      if (step.id.startsWith('baseline:')) return ['baseline'];
-      if (step.id.startsWith('final:')) return ['final'];
-      if (step.id === 'review:build') return ['review'];
-      return [];
-    });
-    assert.deepEqual(materializedSequence, description.executable_example!.required_sequence);
-  }
+  const description = describe('code');
+  const manifest = validateManifest(
+    materialize(description.executable_example!.manifest, {
+      '<repo-relative-file>': 'unit.ts',
+      '<unit-outcome>': 'done',
+      '<absolute-git-root>': root,
+    }),
+  );
+  assert.equal(manifest.workflow, 'code');
+  assert.equal(manifest.repo, fs.realpathSync(root));
+  const materializedSequence = manifest.steps.flatMap((step) => {
+    if (step.id.startsWith('baseline:')) return ['baseline'];
+    if (step.id.startsWith('final:')) return ['final'];
+    return [];
+  });
+  assert.deepEqual(materializedSequence, description.executable_example!.required_sequence);
 });
 
 test('described code manifest reaches terminal state with fake actor runtime', async () => {

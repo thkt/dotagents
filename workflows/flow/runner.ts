@@ -175,10 +175,10 @@ export async function driveWorkflow(
 /** Starts or resumes one task-bound workflow, then drives it to a stop state. */
 export async function runWorkflow(
   runId: string,
-  manifestFile: string,
+  inputFile: string,
   runtime: WorkflowRuntime = defaultRuntime(),
 ): Promise<CommandResult> {
-  startOrResumeWorkflow(runId, manifestFile);
+  startOrResumeWorkflow(runId, inputFile);
   return driveWorkflow(runId, runtime);
 }
 
@@ -194,12 +194,12 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<Comm
     return { result: describe(workflow), exitCode: 0 };
   }
   if (command === 'run') {
-    requireExactFlags(flags, ['--manifest', '--run-id']);
-    return runWorkflow(flags['--run-id']!, flags['--manifest']!);
+    requireExactFlags(flags, ['--input', '--run-id']);
+    return runWorkflow(flags['--run-id']!, flags['--input']!);
   }
   if (command === 'cancel') {
-    requireExactFlags(flags, ['--manifest', '--run-id']);
-    return { result: cancelWorkflow(flags['--run-id']!, flags['--manifest']!), exitCode: 0 };
+    requireExactFlags(flags, ['--input', '--run-id']);
+    return { result: cancelWorkflow(flags['--run-id']!, flags['--input']!), exitCode: 0 };
   }
   throw new FlowError(`unknown command: ${command}`);
 }

@@ -183,6 +183,25 @@ test('streaming turn fails immediately on turn.failed', async () => {
   );
 });
 
+test('turn.failed after reconnect exhaustion is model unavailable', async () => {
+  await assert.rejects(
+    runStreamedCodexTurn(
+      streamed(
+        { type: 'error', message: 'Reconnecting... 5/5: DNS unavailable' },
+        { type: 'turn.failed', error: { message: 'connection retries exhausted' } },
+      ),
+      'prompt',
+      { modelRun: { label: 'offline model', idleCode: 'offline_model_idle' } },
+    ),
+    (error: unknown) => {
+      assert.equal(errorCode(error), 'model_unavailable');
+      assert.match(String((error as Error).message), /connection retries exhausted/u);
+      assert.match(String((error as Error).message), /DNS unavailable/u);
+      return true;
+    },
+  );
+});
+
 test('streaming turn stops only after an idle window and preserves the idle diagnosis', async () => {
   let timeout: (() => void) | undefined;
   let scheduledFor = 0;

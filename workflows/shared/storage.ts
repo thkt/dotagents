@@ -47,10 +47,6 @@ export function workflowInputPath(runId: string): string {
   return path.join(workflowRunDirectory(runId), 'input.json');
 }
 
-export function buildSourcePath(runId: string): string {
-  return path.join(workflowRunDirectory(runId), 'build-source.json');
-}
-
 export function prInputPath(runId: string): string {
   return path.join(workflowRunDirectory(runId), 'pr-input.json');
 }

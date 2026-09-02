@@ -35,11 +35,19 @@ import {
   calibrationAnchors,
   parseArgs as parseGateArgs,
 } from './shell-gate.ts';
-import { clearIntent, loadIntent, requireBuildShipApproval, requireIntent } from '../invocation.ts';
+import {
+  clearIntent,
+  loadIntent,
+  requireBuildIntent,
+  requireBuildShipApproval,
+  requireIntent,
+} from '../invocation.ts';
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
 import { readAbsoluteJson } from '../shared/runtime.ts';
 import { atomicWrite, statePath, workflowInputPath } from '../shared/storage.ts';
 import {
+  gitText,
+  gitOptionalText,
   gitOutput,
   nulPaths,
   repositoryControlChanges,
@@ -50,10 +58,9 @@ import {
   snapshotChanges,
   workflowRepositoryInvariant,
 } from '../shared/repository.ts';
+import { shellCommand } from '../shared/command.ts';
 import { isGitHubAccessFailureMessage } from '../shared/github.ts';
 import {
-  ACTIONS,
-  BUILD_OPENING_IDS,
   CLEANUP_ACTOR,
   DEFAULT_MAX_CORRECTIONS,
   UNIT_ACTOR,
@@ -69,11 +76,9 @@ import {
   validateActionCompletion,
 } from './build/actions.ts';
 import { actorScreenshotAttachments, sealScreenshotAttachments } from './build/screenshots.ts';
-import {
-  buildReviewGateReport,
-  describeBuildSourceInput,
-  runStructuredBuildGate,
-} from './build/gates.ts';
+import { buildReviewGateReport, runStructuredBuildGate } from './build/gates.ts';
+import { compileBuildManifest } from './build/compile.ts';
+import { BUILD_RUN_PROTOCOL, describeBuildRunInput, parseBuildRunInput } from './build/handoff.ts';
 import { parseBuildReviewResult } from './agent.ts';
 
 /** Loads the task-bound state and rejects stale or malformed records. */
@@ -106,6 +111,87 @@ function manifestHash(manifest: FlowManifest): string {
   return crypto.createHash('sha256').update(JSON.stringify(manifest)).digest('hex');
 }
 
+function inputHash(inputFile: string): string {
+  return crypto.createHash('sha256').update(fs.readFileSync(inputFile)).digest('hex');
+}
+
+/** Seeds only the public Plan load; the complete manifest is validated after that Plan is known. */
+function initialBuildManifest(
+  repo: string,
+  inputFile: string,
+  issue: number,
+  ship: boolean,
+): FlowManifest {
+  const startPoint = gitText(repo, ['rev-parse', 'HEAD'], 'build start point');
+  return {
+    protocol: MANIFEST_PROTOCOL,
+    workflow: 'build',
+    repo,
+    max_corrections: DEFAULT_MAX_CORRECTIONS,
+    shipping_authorized: ship,
+    steps: [
+      {
+        id: 'load:plan',
+        kind: 'gate',
+        gate: {
+          authority: 'build-plan',
+          command: shellCommand('codex-build-plan', ['--input', inputFile]),
+          input: inputFile,
+          failure_route: 'blocked',
+        },
+      },
+      {
+        id: 'revalidate:plan',
+        kind: 'gate',
+        gate: {
+          authority: 'build-revalidate',
+          command: shellCommand('codex-build-revalidate', ['--input', inputFile, '--repo', repo]),
+          input: inputFile,
+          failure_route: 'blocked',
+        },
+      },
+      {
+        id: 'branch',
+        kind: 'action',
+        action: 'branch',
+        branch_name: `codex/issue-${issue}`,
+        start_point: startPoint,
+      },
+    ],
+  };
+}
+
+function defaultBaseBranch(repo: string): string {
+  const remoteHead = gitOptionalText(repo, [
+    'symbolic-ref',
+    '--quiet',
+    '--short',
+    'refs/remotes/origin/HEAD',
+  ]);
+  if (!remoteHead?.startsWith('origin/') || remoteHead.length === 'origin/'.length) {
+    throw new FlowError(
+      'Build requires origin/HEAD to name the default base branch',
+      'state_error',
+    );
+  }
+  return remoteHead.slice('origin/'.length);
+}
+
+function startManifest(runId: string, inputFile: string): FlowManifest {
+  const raw = readAbsoluteJson(inputFile, '--input');
+  if (isObject(raw) && raw.protocol === BUILD_RUN_PROTOCOL) {
+    const intent = requireBuildIntent(runId, inputFile);
+    const request = parseBuildRunInput(raw);
+    return initialBuildManifest(intent.repo, inputFile, request.source.issue_number, request.ship);
+  }
+  const manifest = validateManifest(raw);
+  if (manifest.workflow === 'build') {
+    throw new FlowError(`Build input must use ${BUILD_RUN_PROTOCOL}`);
+  }
+  requireIntent(runId, manifest.workflow, manifest.repo, inputFile);
+  return manifest;
+}
+
 function terminalStatus(state: FlowState): FlowStatus {
   if (state.cursor < state.manifest.steps.length) return 'running';
   if (state.workflow === 'build' && !state.manifest.shipping_authorized) return 'ship-ready';
@@ -122,7 +208,7 @@ function publicState(state: FlowState): PublicState {
     current_step: current,
     cursor: state.cursor,
     total_steps: state.manifest.steps.length,
-    manifest_hash: state.manifest_hash,
+    execution_hash: state.manifest_hash,
     correction_counts: state.correction_counts,
     sealed_gates: state.sealed_gates,
     last_gate: state.gate_reports.at(-1) ?? null,
@@ -176,15 +262,14 @@ function save(file: string, state: FlowState): PublicState {
 }
 
 /** Starts an armed workflow after capturing its immutable repository baseline. */
-function startWorkflow(runId: string, manifestFile: string): PublicState {
-  const manifest = validateManifest(readAbsoluteJson(manifestFile, '--manifest'));
+function startWorkflow(runId: string, inputFile: string): PublicState {
+  const manifest = startManifest(runId, inputFile);
   const file = statePath(runId);
   if (fs.existsSync(file)) {
     const existing = loadWorkflowState(runId).state;
     if (existing.status === 'running')
       throw new FlowError('a workflow is already active for this task', 'state_error');
   }
-  const intent = requireIntent(runId, manifest.workflow, manifest.repo, manifestFile);
   if (manifest.workflow === 'build' && manifest.shipping_authorized) {
     requireBuildShipApproval(runId, manifest.repo);
   }
@@ -209,22 +294,6 @@ function startWorkflow(runId: string, manifestFile: string): PublicState {
         `build requires clean actor files; pre-existing changes: ${dirtyTargets.join(', ')}`,
       );
     }
-    if (!intent.build_source_path) {
-      throw new FlowError('build workflow has no hook-supplied source path');
-    }
-    const mismatched = manifest.steps.filter(
-      (step) =>
-        step.kind === 'gate' &&
-        (step.gate.authority === 'build-plan' ||
-          step.gate.authority === 'build-revalidate' ||
-          step.gate.authority === 'build-artifacts') &&
-        step.gate.input !== intent.build_source_path,
-    );
-    if (mismatched.length) {
-      throw new FlowError(
-        `build gates must use the hook-supplied source path: ${intent.build_source_path}`,
-      );
-    }
   }
   const state: FlowState = {
     protocol: STATE_PROTOCOL,
@@ -232,6 +301,7 @@ function startWorkflow(runId: string, manifestFile: string): PublicState {
     workflow: manifest.workflow,
     manifest,
     manifest_hash: manifestHash(manifest),
+    input_sha256: inputHash(inputFile),
     cursor: 0,
     status: 'running',
     correction_counts: {},
@@ -248,6 +318,15 @@ function startWorkflow(runId: string, manifestFile: string): PublicState {
   const result = save(file, state);
   clearIntent(runId);
   return result;
+}
+
+function requireOriginalInput(state: FlowState, inputFile: string): void {
+  if (path.resolve(inputFile) !== workflowInputPath(state.run_id)) {
+    throw new FlowError('resume requires the hook-supplied input path', 'state_error');
+  }
+  if (inputHash(inputFile) !== state.input_sha256) {
+    throw new FlowError('resume requires the original workflow input', 'state_error');
+  }
 }
 
 export function escalateWorkflow(
@@ -302,18 +381,12 @@ export function blockWorkflowOnRuntimeFailure(
 }
 
 /** Resumes the active workflow, or starts it when no state exists. */
-function startOrResumeWorkflow(runId: string, manifestFile: string): PublicState {
+function startOrResumeWorkflow(runId: string, inputFile: string): PublicState {
   try {
     const loaded = loadWorkflowState(runId);
     const existing = loaded.state;
     if (isRetryableGitHubAccessBlock(existing)) {
-      if (path.resolve(manifestFile) !== workflowInputPath(runId)) {
-        throw new FlowError('resume requires the hook-supplied manifest path', 'state_error');
-      }
-      const manifest = validateManifest(readAbsoluteJson(manifestFile, '--manifest'));
-      if (manifestHash(manifest) !== existing.manifest_hash) {
-        throw new FlowError('resume requires the original blocked manifest', 'state_error');
-      }
+      requireOriginalInput(existing, inputFile);
       const branch = existing.manifest.steps.find(
         (step) => step.kind === 'action' && step.action === 'branch',
       );
@@ -327,13 +400,7 @@ function startOrResumeWorkflow(runId: string, manifestFile: string): PublicState
       return save(loaded.file, existing);
     }
     if (isRetryableRuntimeFailure(existing)) {
-      if (path.resolve(manifestFile) !== workflowInputPath(runId)) {
-        throw new FlowError('resume requires the hook-supplied manifest path', 'state_error');
-      }
-      const manifest = validateManifest(readAbsoluteJson(manifestFile, '--manifest'));
-      if (manifestHash(manifest) !== existing.manifest_hash) {
-        throw new FlowError('resume requires the original blocked manifest', 'state_error');
-      }
+      requireOriginalInput(existing, inputFile);
       if (
         repositoryStateHash(existing.manifest.repo) !== existing.runtime_failure!.repository_sha256
       ) {
@@ -352,28 +419,26 @@ function startOrResumeWorkflow(runId: string, manifestFile: string): PublicState
         (existing.escalation !== null || existing.runtime_failure != null) &&
         !loadIntent(runId)
       ) {
-        if (path.resolve(manifestFile) !== workflowInputPath(runId)) {
-          throw new FlowError('resume requires the hook-supplied manifest path', 'state_error');
+        if (path.resolve(inputFile) !== workflowInputPath(runId)) {
+          throw new FlowError('resume requires the hook-supplied input path', 'state_error');
         }
         return publicState(existing);
       }
-      return startWorkflow(runId, manifestFile);
+      return startWorkflow(runId, inputFile);
     }
-    if (path.resolve(manifestFile) !== workflowInputPath(runId)) {
-      throw new FlowError('resume requires the hook-supplied manifest path', 'state_error');
-    }
+    requireOriginalInput(existing, inputFile);
     return publicState(existing);
   } catch (error) {
-    if (errorCode(error) === 'no_flow') return startWorkflow(runId, manifestFile);
+    if (errorCode(error) === 'no_flow') return startWorkflow(runId, inputFile);
     throw error;
   }
 }
 
-/** Cancels only the exact active controller bound to this task and hook-supplied manifest. */
-function cancelWorkflow(runId: string, manifestFile: string): PublicState {
+/** Cancels only the exact active controller bound to this task and hook-supplied input. */
+function cancelWorkflow(runId: string, inputFile: string): PublicState {
   const { file, state } = loadWorkflowState(runId);
-  if (path.resolve(manifestFile) !== workflowInputPath(runId)) {
-    throw new FlowError('cancel requires the hook-supplied manifest path', 'state_error');
+  if (path.resolve(inputFile) !== workflowInputPath(runId)) {
+    throw new FlowError('cancel requires the hook-supplied input path', 'state_error');
   }
   if (state.status === 'cancelled') return publicState(state);
   if (
@@ -581,6 +646,62 @@ function applyGateOutcome(
   prepareCurrentStep(state);
 }
 
+function compileLoadedBuild(state: FlowState, step: Extract<FlowStep, { kind: 'gate' }>): void {
+  if (step.gate.authority !== 'build-plan' || !state.build_plan || !('input' in step.gate)) return;
+  const branch = state.manifest.steps.find(
+    (candidate) => candidate.kind === 'action' && candidate.action === 'branch',
+  );
+  if (!branch || branch.action !== 'branch') {
+    throw new FlowError('Build input has no branch seed', 'state_error');
+  }
+  const baseBranch = defaultBaseBranch(state.manifest.repo);
+  const compiled = compileBuildManifest({
+    repo: state.manifest.repo,
+    input: step.gate.input,
+    plan: state.build_plan,
+    branchName: branch.branch_name,
+    startPoint: branch.start_point,
+    baseBranch,
+    ship: state.manifest.shipping_authorized,
+  });
+  const actorFiles = new Set(
+    compiled.steps
+      .filter((candidate): candidate is ActorStep => candidate.kind === 'actor')
+      .flatMap((candidate) => candidate.files),
+  );
+  const dirtyTargets = Object.keys(state.workflow_baseline).filter((file) => actorFiles.has(file));
+  if (dirtyTargets.length) {
+    throw new FlowError(
+      `build requires clean actor files; pre-existing changes: ${dirtyTargets.join(', ')}`,
+      'scope_error',
+    );
+  }
+  state.manifest = compiled;
+  state.manifest_hash = manifestHash(compiled);
+}
+
+function compilationFailure(report: GateReport, error: unknown): GateReport {
+  const classification = errorCode(error) || 'build_execution_invalid';
+  const details = {
+    verdict: 'blocked' as const,
+    classification,
+    reason_codes: [classification],
+    failure_route: 'blocked' as const,
+    error: errorMessage(error),
+  };
+  return {
+    ...report,
+    ...details,
+    evidence: {
+      kind: 'structured',
+      report: {
+        ...(report.evidence.kind === 'structured' ? report.evidence.report : {}),
+        ...details,
+      },
+    },
+  };
+}
+
 /** Runs the current gate and either advances, reroutes to its owner, or blocks. */
 function runGate(runId: string, stepId: string): { result: PublicState; exitCode: number } {
   const { file, state } = loadWorkflowState(runId);
@@ -602,6 +723,14 @@ function runGate(runId: string, stepId: string): { result: PublicState; exitCode
   } else {
     const before = repositoryInvariant(state.manifest.repo);
     report = runStructuredBuildGate(state, step);
+    if (report.verdict === 'pass' && step.gate.authority === 'build-plan') {
+      try {
+        compileLoadedBuild(state, step);
+      } catch (error) {
+        state.build_plan = null;
+        report = compilationFailure(report, error);
+      }
+    }
     const after = repositoryInvariant(state.manifest.repo);
     if (!sameRepositoryInvariant(before, after)) {
       report = {
@@ -859,6 +988,29 @@ function completeCurrentDirective(
 }
 
 function describe(workflow: Workflow): FlowDescription {
+  const cli = {
+    describe: `codex-flow describe --workflow ${workflow}`,
+    run: 'codex-flow run --input <absolute-json>',
+    cancel: 'codex-flow cancel --input <hook-supplied-json>',
+    task_binding: 'hook-injected' as const,
+  };
+  if (workflow === 'build') {
+    return {
+      protocol: DESCRIPTION_PROTOCOL,
+      workflow,
+      cli,
+      defaults: { gate_timeout_ms: DEFAULT_TIMEOUT_MS },
+      input_template: describeBuildRunInput(),
+      execution: {
+        source_of_truth: 'public-issue-plan',
+        compiled: true,
+        persisted: true,
+      },
+      cli_contracts: {
+        reports: [{ protocol: RESULT_PROTOCOL, command: 'codex-flow run --input <absolute-json>' }],
+      },
+    };
+  }
   const stepContracts: StepDescription[] = [
     {
       kind: 'actor',
@@ -874,45 +1026,16 @@ function describe(workflow: Workflow): FlowDescription {
       derived: ['gate.failure_route:owner'],
       conditional_required: {
         shell: ['gate.command', 'gate.expect'],
-        'build-plan': ['gate.input'],
-        'build-revalidate': ['gate.input'],
-        'build-artifacts': ['gate.input', 'gate.unit_id'],
-        'build-review': [],
-        'build-ship': [],
       },
       conditional_optional: {
         shell: ['gate.calibrate', 'gate.timeout_ms', 'gate.require_output', 'gate.forbid_output'],
-        'build-plan': [],
-        'build-revalidate': [],
-        'build-artifacts': [],
-        'build-review': [],
-        'build-ship': [],
       },
     },
   ];
-  if (workflow === 'build') {
-    stepContracts.push({
-      kind: 'action',
-      required: ['id', 'kind', 'action'],
-      optional: ['branch_name', 'start_point', 'subject', 'remote', 'repository', 'base_branch'],
-      derived: [],
-      actions: [...ACTIONS],
-      conditional_required: {
-        branch: ['branch_name', 'start_point'],
-        commit: ['subject'],
-        ship: ['remote', 'repository', 'base_branch'],
-      },
-    });
-  }
   return {
     protocol: DESCRIPTION_PROTOCOL,
     workflow,
-    cli: {
-      describe: `codex-flow describe --workflow ${workflow}`,
-      run: 'codex-flow run --manifest <absolute-json>',
-      cancel: 'codex-flow cancel --manifest <hook-supplied-json>',
-      task_binding: 'hook-injected',
-    },
+    cli,
     defaults: {
       gate_timeout_ms: DEFAULT_TIMEOUT_MS,
     },
@@ -925,192 +1048,74 @@ function describe(workflow: Workflow): FlowDescription {
       steps: [],
     },
     executable_example: {
-      required_sequence:
-        workflow === 'build' ? ['branch', 'baseline', 'final', 'review'] : ['baseline', 'final'],
+      required_sequence: ['baseline', 'final'],
       manifest: {
         protocol: MANIFEST_PROTOCOL,
         workflow,
         repo: '<absolute-git-root>',
         max_corrections: DEFAULT_MAX_CORRECTIONS,
         shipping_authorized: false,
-        steps:
-          workflow === 'build'
-            ? [
-                {
-                  id: 'load:plan',
-                  kind: 'gate',
-                  gate: {
-                    authority: 'build-plan',
-                    input: '<absolute-build-source-json>',
-                    failure_route: 'triage',
-                  },
-                },
-                {
-                  id: 'revalidate:plan',
-                  kind: 'gate',
-                  gate: {
-                    authority: 'build-revalidate',
-                    input: '<absolute-build-source-json>',
-                    failure_route: 'triage',
-                  },
-                },
-                {
-                  id: 'branch',
-                  kind: 'action',
-                  action: 'branch',
-                  branch_name: 'codex/example',
-                  start_point: '<git-ref>',
-                },
-                {
-                  id: 'baseline:direct',
-                  kind: 'gate',
-                  gate: {
-                    authority: 'shell',
-                    command: 'true',
-                    expect: 'pass',
-                    calibrate: false,
-                    failure_route: 'triage',
-                    require_output: [],
-                    forbid_output: [],
-                  },
-                },
-                {
-                  id: 'U-001:direct',
-                  kind: 'actor',
-                  outcome: '<unit-outcome>',
-                  files: ['<repo-relative-file>'],
-                },
-                {
-                  id: 'U-001:direct:gate',
-                  kind: 'gate',
-                  owner: 'U-001:direct',
-                  gate: {
-                    authority: 'shell',
-                    command: 'true',
-                    expect: 'pass',
-                    calibrate: false,
-                    failure_route: 'direct:U-001',
-                    require_output: [],
-                    forbid_output: [],
-                  },
-                },
-                {
-                  id: 'U-001:artifacts',
-                  kind: 'gate',
-                  owner: 'U-001:direct',
-                  gate: {
-                    authority: 'build-artifacts',
-                    input: '<absolute-build-source-json>',
-                    unit_id: 'U-001',
-                    failure_route: 'direct:U-001',
-                  },
-                },
-                { id: 'U-001:commit', kind: 'action', action: 'commit', subject: 'feat: unit' },
-                {
-                  id: 'final:direct',
-                  kind: 'gate',
-                  gate: {
-                    authority: 'shell',
-                    command: 'true',
-                    expect: 'pass',
-                    calibrate: false,
-                    failure_route: 'triage',
-                    require_output: [],
-                    forbid_output: [],
-                  },
-                },
-                {
-                  id: 'revalidate:review',
-                  kind: 'gate',
-                  gate: {
-                    authority: 'build-revalidate',
-                    input: '<absolute-build-source-json>',
-                    failure_route: 'blocked',
-                  },
-                },
-                {
-                  id: 'review:build',
-                  kind: 'gate',
-                  gate: {
-                    authority: 'build-review',
-                    failure_route: 'blocked',
-                  },
-                },
-              ]
-            : [
-                {
-                  id: 'baseline:direct',
-                  kind: 'gate',
-                  gate: {
-                    authority: 'shell',
-                    command: 'true',
-                    expect: 'pass',
-                    calibrate: false,
-                    failure_route: 'triage',
-                    require_output: [],
-                    forbid_output: [],
-                  },
-                },
-                {
-                  id: 'U-001:direct',
-                  kind: 'actor',
-                  outcome: '<unit-outcome>',
-                  files: ['<repo-relative-file>'],
-                },
-                {
-                  id: 'U-001:direct:gate',
-                  kind: 'gate',
-                  owner: 'U-001:direct',
-                  gate: {
-                    authority: 'shell',
-                    command: 'true',
-                    expect: 'pass',
-                    calibrate: false,
-                    failure_route: 'direct:U-001',
-                    require_output: [],
-                    forbid_output: [],
-                  },
-                },
-                {
-                  id: 'final:direct',
-                  kind: 'gate',
-                  gate: {
-                    authority: 'shell',
-                    command: 'true',
-                    expect: 'pass',
-                    calibrate: false,
-                    failure_route: 'triage',
-                    require_output: [],
-                    forbid_output: [],
-                  },
-                },
-              ],
+        steps: [
+          {
+            id: 'baseline:direct',
+            kind: 'gate',
+            gate: {
+              authority: 'shell',
+              command: 'true',
+              expect: 'pass',
+              calibrate: false,
+              failure_route: 'triage',
+              require_output: [],
+              forbid_output: [],
+            },
+          },
+          {
+            id: 'U-001:direct',
+            kind: 'actor',
+            outcome: '<unit-outcome>',
+            files: ['<repo-relative-file>'],
+          },
+          {
+            id: 'U-001:direct:gate',
+            kind: 'gate',
+            owner: 'U-001:direct',
+            gate: {
+              authority: 'shell',
+              command: 'true',
+              expect: 'pass',
+              calibrate: false,
+              failure_route: 'direct:U-001',
+              require_output: [],
+              forbid_output: [],
+            },
+          },
+          {
+            id: 'final:direct',
+            kind: 'gate',
+            gate: {
+              authority: 'shell',
+              command: 'true',
+              expect: 'pass',
+              calibrate: false,
+              failure_route: 'triage',
+              require_output: [],
+              forbid_output: [],
+            },
+          },
+        ],
       },
     },
     cli_contracts: {
-      reports: [
-        { protocol: RESULT_PROTOCOL, command: 'codex-flow run --manifest <absolute-json>' },
-      ],
+      reports: [{ protocol: RESULT_PROTOCOL, command: 'codex-flow run --input <absolute-json>' }],
     },
-    ...(workflow === 'build' ? { inputs: { source: describeBuildSourceInput() } } : {}),
     step_contracts: stepContracts,
     sequence: {
-      opening: workflow === 'build' ? [...BUILD_OPENING_IDS, 'baseline:*'] : ['baseline:*'],
+      opening: ['baseline:*'],
       unit_modes: {
-        red_green: unitStepIds('U-NNN', ['red', 'green'], workflow),
-        direct: unitStepIds('U-NNN', ['direct'], workflow),
+        red_green: unitStepIds('U-NNN', ['red', 'green'], 'code'),
+        direct: unitStepIds('U-NNN', ['direct'], 'code'),
       },
-      closing:
-        workflow === 'build'
-          ? [
-              'final:*',
-              'revalidate:review',
-              'review:build',
-              'revalidate:ship?',
-              'ship?',
-              'ship:verify?',
-            ]
-          : ['final:*'],
+      closing: ['final:*'],
     },
   };
 }

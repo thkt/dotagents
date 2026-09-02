@@ -12,11 +12,18 @@ import {
 } from '../../issue/public-contract.ts';
 
 export const BUILD_SOURCE_PROTOCOL = 'codex-build-source' as const;
+export const BUILD_RUN_PROTOCOL = 'codex-build-run' as const;
 
-export interface BuildSource {
+interface BuildSource {
   protocol: typeof BUILD_SOURCE_PROTOCOL;
   repository: string;
   issue_number: number;
+}
+
+export interface BuildRunInput {
+  protocol: typeof BUILD_RUN_PROTOCOL;
+  source: Omit<BuildSource, 'protocol'>;
+  ship: boolean;
 }
 
 export interface ResolvedBuildSource {
@@ -29,7 +36,7 @@ export interface ResolvedBuildSource {
 }
 
 /** Validates the portable selector without fetching its selected Issue. */
-export function parseBuildSource(raw: unknown): BuildSource {
+function parseBuildSource(raw: unknown): BuildSource {
   if (!isObject(raw) || raw.protocol !== BUILD_SOURCE_PROTOCOL) {
     throw new FlowError(`build source.protocol must be ${BUILD_SOURCE_PROTOCOL}`);
   }
@@ -41,13 +48,33 @@ export function parseBuildSource(raw: unknown): BuildSource {
   };
 }
 
+/** Parses the complete caller-authored Build input; execution steps are derived later. */
+export function parseBuildRunInput(raw: unknown): BuildRunInput {
+  if (!isObject(raw) || raw.protocol !== BUILD_RUN_PROTOCOL) {
+    throw new FlowError(`build run.protocol must be ${BUILD_RUN_PROTOCOL}`);
+  }
+  rejectUnknownKeys(raw, ['protocol', 'source', 'ship'], 'build run');
+  if (!isObject(raw.source)) throw new FlowError('build run.source must be an object');
+  rejectUnknownKeys(raw.source, ['repository', 'issue_number'], 'build run.source');
+  const source = parseBuildSource({ protocol: BUILD_SOURCE_PROTOCOL, ...raw.source });
+  if (typeof raw.ship !== 'boolean') throw new FlowError('build run.ship must be boolean');
+  return {
+    protocol: BUILD_RUN_PROTOCOL,
+    source: { repository: source.repository, issue_number: source.issue_number },
+    ship: raw.ship,
+  };
+}
+
 /** Fetches the authoritative public Issue selected by repository and issue number. */
 export function resolveBuildSource(
   raw: unknown,
   repo: string,
   gateway: Pick<IssueGateway, 'view'> = new GhIssueGateway(),
 ): ResolvedBuildSource {
-  const source = parseBuildSource(raw);
+  const source =
+    isObject(raw) && raw.protocol === BUILD_RUN_PROTOCOL
+      ? parseBuildSource({ protocol: BUILD_SOURCE_PROTOCOL, ...parseBuildRunInput(raw).source })
+      : parseBuildSource(raw);
   const repository = source.repository;
   const issueNumber = source.issue_number;
   assertGitHubRepository(repo, repository);
@@ -69,6 +96,10 @@ export function resolveBuildSource(
   };
 }
 
-export function describeBuildSource() {
-  return { protocol: BUILD_SOURCE_PROTOCOL, repository: 'owner/name', issue_number: 123 };
+export function describeBuildRunInput() {
+  return {
+    protocol: BUILD_RUN_PROTOCOL,
+    source: { repository: 'owner/name', issue_number: 123 },
+    ship: true,
+  };
 }

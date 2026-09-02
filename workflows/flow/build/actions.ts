@@ -26,6 +26,7 @@ import { githubPrCreate, runGitHub, type GitHubInvocation } from '../../shared/g
 import { requireLanguageText, resolveConfiguredLanguage } from '../../shared/language.ts';
 import {
   gitOutput,
+  gitOptionalText,
   gitText,
   nulPaths,
   repositoryInvariant,
@@ -63,20 +64,31 @@ function execute(invocation: CommandInvocation): void {
 /** Translates a typed action directive into the exact external commands it permits. */
 export function actionInvocations(repo: string, directive: ActionDirective): CommandInvocation[] {
   switch (directive.action) {
-    case 'branch':
+    case 'branch': {
+      const existing = gitOptionalText(repo, [
+        'rev-parse',
+        `refs/heads/${directive.parameters.branch_name}^{commit}`,
+      ]);
+      if (existing !== null && existing !== directive.parameters.start_point) {
+        throw new FlowError('branch changed after manifest validation', 'state_error');
+      }
       return [
         {
           executable: 'git',
-          args: [
-            '-C',
-            repo,
-            'switch',
-            '-c',
-            directive.parameters.branch_name,
-            directive.parameters.start_point,
-          ],
+          args:
+            existing === directive.parameters.start_point
+              ? ['-C', repo, 'switch', directive.parameters.branch_name]
+              : [
+                  '-C',
+                  repo,
+                  'switch',
+                  '-c',
+                  directive.parameters.branch_name,
+                  directive.parameters.start_point,
+                ],
         },
       ];
+    }
     case 'commit':
       return [
         { executable: 'git', args: ['-C', repo, 'add', '--', ...directive.parameters.files] },
