@@ -188,6 +188,7 @@ test('binds semantic review to the published Plan and rejects inconsistent verdi
 test('uses write scope for actors and read-only scope for calibration evidence', async () => {
   const starts: unknown[] = [];
   const prompts: string[] = [];
+  const idleCodes: string[] = [];
   const responses = [
     JSON.stringify({ status: 'completed', summary: 'written', route: null, question: null }),
     JSON.stringify({ candidate_id: 'stdout:L1' }),
@@ -197,8 +198,9 @@ test('uses write scope for actors and read-only scope for calibration evidence',
     startThread(options: unknown) {
       starts.push(options);
       return {
-        async run(prompt: string) {
+        async run(prompt: string, turnOptions: { modelRun: { idleCode: string } }) {
           prompts.push(prompt);
+          idleCodes.push(turnOptions.modelRun.idleCode);
           return { finalResponse: responses.shift()! };
         },
       };
@@ -237,6 +239,11 @@ test('uses write scope for actors and read-only scope for calibration evidence',
       networkAccessEnabled: false,
       webSearchMode: 'disabled',
     },
+  ]);
+  assert.deepEqual(idleCodes, [
+    'actor_model_idle_timeout',
+    'gate_calibration_idle_timeout',
+    'build_review_idle_timeout',
   ]);
   assert.match(prompts[1]!, /BEGIN OBSERVED OUTPUT [0-9a-f-]{36}/u);
   assert.match(prompts[1]!, /"id":"stdout:L1"/u);
@@ -426,10 +433,12 @@ test('resumes an SDK actor after a transient runner failure', async () => {
   let actorCalls = 0;
   let failOnce = true;
   const agent: WorkflowAgent = {
-    async runActor(actorRepo, directive) {
+    async runActor(actorRepo, directive, onActivity) {
       actorCalls += 1;
       assert.notEqual(actorRepo, realRepo);
       assert.equal(directive.outcome, 'value.txt contains done.');
+      assert.ok(onActivity);
+      onActivity?.({ event_type: 'turn.started', event_count: actorCalls });
       if (failOnce) {
         failOnce = false;
         throw new Error('transient SDK failure');

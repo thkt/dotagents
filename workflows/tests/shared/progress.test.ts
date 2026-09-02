@@ -49,6 +49,44 @@ test('emits a deterministic heartbeat and clears it after completion', () => {
   assert.equal(cleared, 1);
 });
 
+test('annotates the heartbeat with the latest SDK activity', () => {
+  const lines: string[] = [];
+  let now = 0;
+  let heartbeat: (() => void) | undefined;
+  const progress = new ProgressReporter({
+    write: (line) => lines.push(line),
+    now: () => now,
+    setInterval: (callback) => {
+      heartbeat = callback;
+      return {};
+    },
+    clearInterval: () => undefined,
+  });
+
+  const stage = progress.start({ workflow: 'think', stage: 'designer_model_call' });
+  now = 100;
+  stage.activity({ event_type: 'turn.started', event_count: 1 });
+  now = 200;
+  stage.activity({ event_type: 'item.updated', item_type: 'reasoning', event_count: 2 });
+  now = 30_000;
+  heartbeat?.();
+  stage.complete();
+
+  assert.deepEqual(
+    events(lines).map(({ status, event_type, item_type, event_count }) => [
+      status,
+      event_type,
+      item_type,
+      event_count,
+    ]),
+    [
+      ['started', undefined, undefined, undefined],
+      ['still_running', 'item.updated', 'reasoning', 2],
+      ['completed', undefined, undefined, undefined],
+    ],
+  );
+});
+
 test('failure emits only a classification and always clears the heartbeat', () => {
   const lines: string[] = [];
   let cleared = 0;

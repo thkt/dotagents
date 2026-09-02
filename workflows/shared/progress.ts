@@ -1,7 +1,7 @@
 /** @file Outcome: Long workflow stages are observable on stderr without changing result contracts. */
 
 import { errorCode } from './errors.ts';
-import type { StageTimings } from './codex.ts';
+import type { ModelActivity, StageTimings } from './codex.ts';
 
 export type ProgressWorkflow = 'think' | 'research' | 'issue' | 'build' | 'code';
 export type ProgressStatus = 'started' | 'still_running' | 'completed' | 'failed';
@@ -31,6 +31,9 @@ export interface ProgressEvent extends ProgressContext {
   status: ProgressStatus;
   elapsed_ms: number;
   classification?: string;
+  event_type?: ModelActivity['event_type'];
+  item_type?: ModelActivity['item_type'];
+  event_count?: number;
 }
 
 interface IntervalHandle {
@@ -46,6 +49,7 @@ export interface ProgressReporterOptions {
 }
 
 export interface ProgressStage {
+  activity(activity: ModelActivity): void;
   complete(): void;
   fail(error: unknown): void;
 }
@@ -83,7 +87,12 @@ export class ProgressReporter {
     }
     let finished = false;
     let timer: IntervalHandle | undefined;
-    const emit = (status: ProgressStatus, classification?: string): void => {
+    let latestActivity: ModelActivity | undefined;
+    const emit = (
+      status: ProgressStatus,
+      classification?: string,
+      activity?: ModelActivity,
+    ): void => {
       try {
         const elapsed = Math.max(0, Math.round(this.now() - startedAt));
         const event: ProgressEvent = {
@@ -91,6 +100,7 @@ export class ProgressReporter {
           status,
           elapsed_ms: status === 'started' ? 0 : elapsed,
           ...(classification ? { classification } : {}),
+          ...activity,
         };
         this.write(`${JSON.stringify(event)}\n`);
       } catch {
@@ -109,26 +119,33 @@ export class ProgressReporter {
       }
       emit(status, status === 'failed' ? failureClassification(error) : undefined);
     };
+    const activity = (event: ModelActivity): void => {
+      if (!finished) latestActivity = event;
+    };
 
     emit('started');
     try {
       timer = this.schedule(() => {
-        if (!finished) emit('still_running');
+        if (!finished) emit('still_running', undefined, latestActivity);
       }, this.heartbeatMs);
       timer.unref?.();
     } catch {
       // A missing heartbeat must not stop the stage.
     }
     return {
+      activity,
       complete: () => finish('completed'),
       fail: (error) => finish('failed', error),
     };
   }
 
-  async run<T>(context: ProgressContext, operation: () => Promise<T>): Promise<T> {
+  async run<T>(
+    context: ProgressContext,
+    operation: (stage: ProgressStage) => Promise<T>,
+  ): Promise<T> {
     const stage = this.start(context);
     try {
-      const result = await operation();
+      const result = await operation(stage);
       stage.complete();
       return result;
     } catch (error) {

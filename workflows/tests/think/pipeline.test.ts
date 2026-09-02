@@ -23,7 +23,7 @@ import {
 import { RESEARCH_REPORT_PROTOCOL } from '../../../workflows/research/contracts.ts';
 import { emptyStageTimings } from '../../../workflows/shared/codex.ts';
 import { researchArtifactDirectory } from '../../../workflows/shared/storage.ts';
-import { errorCode } from '../../../workflows/shared/errors.ts';
+import { FlowError, errorCode } from '../../../workflows/shared/errors.ts';
 import { ProgressReporter, type ProgressEvent } from '../../../workflows/shared/progress.ts';
 import { armIntent, clearIntent, loadIntent } from '../../../workflows/invocation.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
@@ -293,33 +293,27 @@ test('think prompts apply the bounded investigation and final-only contract to r
   assert.equal((prompt.match(/return only the structured response/giu) ?? []).length, 1);
 });
 
-test('classifies designer and reviewer aborts by stage', async () => {
-  const abort = (name: string) => {
-    const error = new Error(name);
-    error.name = name;
-    return error;
-  };
-  const client = (failure: Error) => ({
+test('configures and preserves designer and reviewer idle classifications', async () => {
+  const client = (code: string) => ({
     startThread() {
       return {
-        run: async () => {
-          throw failure;
+        run: async (_prompt: string, options: { modelRun: { idleCode: string } }) => {
+          assert.equal(options.modelRun.idleCode, code);
+          throw new FlowError('model stream became idle', code);
         },
       };
     },
   });
-  const agent = new CodexThinkAgent(client(abort('AbortError')));
+  const agent = new CodexThinkAgent(client('think_designer_idle_timeout'));
   await assert.rejects(agent.design(input('/repo'), [], {}, [], '/repo'), (error: unknown) => {
-    assert.equal(errorCode(error), 'think_designer_timeout');
-    assert.match(String((error as Error).message), /designer/u);
+    assert.equal(errorCode(error), 'think_designer_idle_timeout');
     return true;
   });
-  const reviewer = new CodexThinkAgent(client(abort('TimeoutError')));
+  const reviewer = new CodexThinkAgent(client('think_reviewer_idle_timeout'));
   await assert.rejects(
     reviewer.review(input('/repo'), draft, [], {}, undefined, [], '/repo'),
     (error: unknown) => {
-      assert.equal(errorCode(error), 'think_reviewer_timeout');
-      assert.match(String((error as Error).message), /reviewer/u);
+      assert.equal(errorCode(error), 'think_reviewer_idle_timeout');
       return true;
     },
   );

@@ -11,7 +11,7 @@ description: 実装方法を比較し、変更依頼1件を、出典に基づい
 
 - 存在する場合は [.codex/OUTCOME.md](../../.codex/OUTCOME.md) を読み、安定した規則は [workflow contracts](../../workflows/README.md) の該当箇所をパスと正確な引用付きで `Plan.rules` に記載する。
 - 変更を 1 つに絞り、完了時に観測できる状態を定める。
-- バグ、機能追加、ドキュメント変更、保守作業のいずれかに分類する。
+- `bug`、`feature`、`docs`、`chore` のいずれかに分類し、保守作業には `chore` を使う。
 - 設計判断に直接関係する計画用の調査レポートだけを含める。
 - 完了状態と Plan の文言を決めるときは、[設計判断の文章](references/decision-writing.md)を読む。
 

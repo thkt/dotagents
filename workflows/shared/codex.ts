@@ -1,6 +1,13 @@
 /** @file Outcome: Every workflow SDK thread uses the signed-in Codex account and one shared response boundary. */
 
-import { Codex, type ThreadOptions, type TurnOptions } from '@openai/codex-sdk';
+import {
+  Codex,
+  type Thread,
+  type ThreadEvent,
+  type ThreadItem,
+  type ThreadOptions,
+  type TurnOptions,
+} from '@openai/codex-sdk';
 
 import { sandboxCodexEnvironment } from './codex-home.ts';
 import { FlowError } from './errors.ts';
@@ -34,12 +41,150 @@ interface ThreadResult {
   finalResponse: string;
 }
 
+const DEFAULT_MODEL_IDLE_TIMEOUT_MS = 10 * 60_000;
+
+export interface ModelActivity {
+  event_type: ThreadEvent['type'];
+  item_type?: ThreadItem['type'];
+  event_count: number;
+}
+
+export type ModelActivitySink = (activity: ModelActivity) => void;
+
+interface ModelRunPolicy {
+  /** Human-readable stage name used only in the bounded idle error. */
+  label: string;
+  /** Stable workflow classification for an idle model. */
+  idleCode: string;
+  /** Inactivity window. This is deliberately not an absolute turn deadline. */
+  idleTimeoutMs?: number;
+  /** Receives safe event metadata only; model text and tool arguments never cross this boundary. */
+  onActivity?: ModelActivitySink;
+}
+
+export interface CodexTurnOptions extends TurnOptions {
+  modelRun: ModelRunPolicy;
+}
+
 interface CodexThreadLike {
-  run(input: string, options?: TurnOptions): Promise<ThreadResult>;
+  run(input: string, options: CodexTurnOptions): Promise<ThreadResult>;
 }
 
 export interface CodexClientLike {
   startThread(options?: ThreadOptions): CodexThreadLike;
+}
+
+type StreamedThreadLike = Pick<Thread, 'runStreamed'>;
+export type IdleTimer = (callback: () => void, milliseconds: number) => () => void;
+const idleTimer: IdleTimer = (callback, milliseconds) => {
+  const timer = setTimeout(callback, milliseconds);
+  timer.unref();
+  return () => clearTimeout(timer);
+};
+
+function modelActivity(event: ThreadEvent, eventCount: number): ModelActivity {
+  return {
+    event_type: event.type,
+    ...('item' in event ? { item_type: event.item.type } : {}),
+    event_count: eventCount,
+  };
+}
+
+/**
+ * Consumes the SDK event stream, resetting the watchdog on every real event.
+ * Only an inactive stream is stopped; a model that keeps making progress has no wall-clock deadline.
+ */
+export async function runStreamedCodexTurn(
+  thread: StreamedThreadLike,
+  input: string,
+  options: CodexTurnOptions,
+  startIdleTimer: IdleTimer = idleTimer,
+): Promise<ThreadResult> {
+  const { modelRun, signal: callerSignal, ...turnOptions } = options;
+  const timeoutMs = modelRun.idleTimeoutMs ?? DEFAULT_MODEL_IDLE_TIMEOUT_MS;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new FlowError(`${modelRun.label} idle timeout must be a positive finite number`);
+  }
+
+  const idleController = new AbortController();
+  const signal = callerSignal
+    ? AbortSignal.any([callerSignal, idleController.signal])
+    : idleController.signal;
+  let cancelIdle = (): void => undefined;
+  let idleFailure: FlowError | undefined;
+  let eventCount = 0;
+  let lastActivity = 'request_started';
+  let finalResponse = '';
+  let completed = false;
+  let streamError: Error | undefined;
+
+  const armWatchdog = (): void => {
+    cancelIdle();
+    cancelIdle = startIdleTimer(() => {
+      idleFailure = new FlowError(
+        `${modelRun.label} produced no SDK event for ${timeoutMs}ms; last activity: ${lastActivity}; events: ${eventCount}`,
+        modelRun.idleCode,
+      );
+      idleController.abort(idleFailure);
+    }, timeoutMs);
+  };
+
+  armWatchdog();
+  try {
+    const { events } = await thread.runStreamed(input, { ...turnOptions, signal });
+    for await (const event of events) {
+      eventCount += 1;
+      const activity = modelActivity(event, eventCount);
+      lastActivity = activity.item_type
+        ? `${activity.event_type}:${activity.item_type}`
+        : event.type;
+      armWatchdog();
+      try {
+        modelRun.onActivity?.(activity);
+      } catch {
+        // Observability is best-effort and never changes the model verdict.
+      }
+
+      if (event.type === 'item.completed' && event.item.type === 'agent_message') {
+        finalResponse = event.item.text;
+      } else if (event.type === 'turn.completed') {
+        completed = true;
+      } else if (event.type === 'turn.failed') {
+        throw new Error(event.error.message);
+      } else if (event.type === 'error') {
+        // The CLI can emit reconnect diagnostics before a later lifecycle terminal.
+        // Preserve the latest diagnostic, but let turn.completed or turn.failed decide the verdict.
+        streamError = new Error(event.message);
+      }
+    }
+    if (!completed) {
+      throw (
+        streamError ??
+        new FlowError(`${modelRun.label} stream ended without turn.completed`, 'execution_error')
+      );
+    }
+    return { finalResponse };
+  } catch (error) {
+    if (idleFailure) throw idleFailure;
+    throw error;
+  } finally {
+    cancelIdle();
+  }
+}
+
+class StreamingCodexClient implements CodexClientLike {
+  private readonly client: Codex;
+
+  constructor(client: Codex) {
+    this.client = client;
+  }
+
+  startThread(options?: ThreadOptions): CodexThreadLike {
+    const thread: Thread = this.client.startThread(options);
+    return {
+      run: (input, turnOptions) => runStreamedCodexTurn(thread, input, turnOptions),
+    };
+  }
 }
 
 export interface StageTimings {
@@ -96,7 +241,7 @@ export function elapsedMs(startedAt: number): number {
 }
 
 export function createSignedInCodexClient(env: NodeJS.ProcessEnv = process.env): CodexClientLike {
-  return new Codex({ env: sandboxCodexEnvironment(env) });
+  return new StreamingCodexClient(new Codex({ env: sandboxCodexEnvironment(env) }));
 }
 
 /** Normalizes malformed SDK output before workflow-specific parsing. */

@@ -97,10 +97,12 @@ export async function driveWorkflow(
         return { result: workflowStatus(runId), exitCode: 0 };
       case 'run-actor':
         try {
-          await progress.run(progressContext(workflow, directive), async () => {
+          await progress.run(progressContext(workflow, directive), async (stage) => {
             resetScreenshotAttachments(runId, directive.screenshots ?? []);
             await runIsolatedActor(repo, directive.files, (sandboxRepo) =>
-              runtime.agent.runActor(sandboxRepo, directive),
+              runtime.agent.runActor(sandboxRepo, directive, (activity) =>
+                stage.activity(activity),
+              ),
             );
             completeCurrentDirective(runId, directive.step_id);
           });
@@ -125,11 +127,13 @@ export async function driveWorkflow(
         });
         break;
       case 'run-review':
-        await progress.run(progressContext(workflow, directive), async () => {
+        await progress.run(progressContext(workflow, directive), async (stage) => {
           const startedAt = performance.now();
           const before = repositoryInvariant(repo);
           const review = await withRepositorySnapshot(repo, (snapshotRepo) =>
-            runtime.agent.reviewBuild(snapshotRepo, directive),
+            runtime.agent.reviewBuild(snapshotRepo, directive, (activity) =>
+              stage.activity(activity),
+            ),
           );
           requireUnchangedRepository(before, repo, 'build semantic review');
           completeBuildReview(
@@ -147,8 +151,12 @@ export async function driveWorkflow(
         );
         break;
       case 'seal-gate': {
-        await progress.run(progressContext(workflow, directive), async () => {
-          const candidateId = await runtime.agent.selectEvidenceCandidate(repo, directive);
+        await progress.run(progressContext(workflow, directive), async (stage) => {
+          const candidateId = await runtime.agent.selectEvidenceCandidate(
+            repo,
+            directive,
+            (activity) => stage.activity(activity),
+          );
           completeCurrentDirective(runId, directive.step_id, candidateId);
         });
         break;
