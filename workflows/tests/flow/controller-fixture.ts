@@ -135,11 +135,6 @@ export function fixture({
         start_point: startPoint,
       },
       {
-        id: 'branch:verify',
-        kind: 'gate',
-        gate: { command: 'git status --porcelain', expect: 'pass', failure_route: 'blocked' },
-      },
-      {
         id: 'baseline:test',
         kind: 'gate',
         gate: { command: 'git status --porcelain', expect: 'pass', failure_route: 'blocked' },
@@ -169,14 +164,23 @@ export function fixture({
       },
       { id: 'U-001:commit', kind: 'action', action: 'commit', subject: 'chore: update fixture' },
       {
-        id: 'U-001:commit:verify',
-        kind: 'gate',
-        gate: { command: 'git status --porcelain', expect: 'pass', failure_route: 'blocked' },
-      },
-      {
         id: 'final:test',
         kind: 'gate',
         gate: { command: 'git status --porcelain', expect: 'pass', failure_route: 'triage' },
+      },
+      {
+        id: 'revalidate:review',
+        kind: 'gate',
+        gate: {
+          authority: 'build-revalidate',
+          input: path.join(root, 'plan.json'),
+          failure_route: 'blocked',
+        },
+      },
+      {
+        id: 'review:build',
+        kind: 'gate',
+        gate: { authority: 'build-review', failure_route: 'blocked' },
       },
     );
   }
@@ -189,12 +193,12 @@ export function fixture({
   };
   const manifestFile = path.join(root, 'manifest.json');
   fs.writeFileSync(manifestFile, JSON.stringify(manifest));
-  const previous = process.env.CODEX_FLOW_STATE_DIR;
-  process.env.CODEX_FLOW_STATE_DIR = state;
+  const previous = process.env.CODEX_FLOW_RUNTIME_DIR;
+  process.env.CODEX_FLOW_RUNTIME_DIR = state;
   onTestFinished(() => {
     process.env.PATH = previousPath;
-    if (previous === undefined) delete process.env.CODEX_FLOW_STATE_DIR;
-    else process.env.CODEX_FLOW_STATE_DIR = previous;
+    if (previous === undefined) delete process.env.CODEX_FLOW_RUNTIME_DIR;
+    else process.env.CODEX_FLOW_RUNTIME_DIR = previous;
     fs.rmSync(root, { recursive: true, force: true });
   });
   return { manifest, manifestFile, repo, startPoint };
@@ -244,6 +248,27 @@ export function enableShipping(manifest: FixtureManifest): void {
   );
 }
 
+export function passBuildReview(runId: string) {
+  const directive = flow.currentDirective(runId);
+  if (directive.kind === 'run-gate' && directive.step_id === 'revalidate:review') {
+    flow.completeCurrentDirective(runId, 'revalidate:review');
+  }
+  return flow.completeBuildReview(
+    runId,
+    'review:build',
+    {
+      protocol: 'codex-build-review/v1',
+      verdict: 'pass',
+      classification: 'pass',
+      reason_codes: [],
+      failure_route: null,
+      summary: 'The implementation satisfies the published Plan.',
+      findings: [],
+    },
+    1,
+  );
+}
+
 export function startFlow(
   runId: string,
   manifestFile: string,
@@ -261,7 +286,7 @@ export function startFlow(
     const plan: BuildPlanAuthoring = {
       outcome: 'fixture outcome',
       root_cause: null,
-      test_command: 'node --test',
+      test_command: 'git status --porcelain',
       reference_module: {
         kind: 'no-module',
         reason: 'fixture has no reference module',
@@ -277,7 +302,7 @@ export function startFlow(
       units: [
         {
           id: 'U-001',
-          goal: 'fixture unit',
+          goal: 'The fixture behavior is implemented.',
           files: ['src.js'],
           contract: 'preserve fixture contract',
           tests: [],
@@ -285,7 +310,12 @@ export function startFlow(
         },
       ],
     };
-    const body = renderPublicIssueBody(renderPlanMarkdown(plan), plan, 'english');
+    const body = renderPublicIssueBody(
+      renderPlanMarkdown(plan),
+      plan,
+      'english',
+      '00000000-0000-4000-8000-000000000001',
+    );
     const issueFile = path.join(path.dirname(manifest.repo), 'github-issue.json');
     fs.writeFileSync(
       issueFile,

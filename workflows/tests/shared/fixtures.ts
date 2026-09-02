@@ -12,15 +12,24 @@ export function temporaryDirectory(prefix: string): string {
   return directory;
 }
 
-/** Gives one test module a private workflow state root and restores the environment at exit. */
-export function useTemporaryStateDirectory(prefix: string): string {
-  const previous = process.env.CODEX_FLOW_STATE_DIR;
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  process.env.CODEX_FLOW_STATE_DIR = directory;
+/** Gives one test module separate private runtime and artifact roots, then restores both. */
+export function useTemporaryWorkflowStorage(prefix: string): {
+  runtime: string;
+  artifacts: string;
+} {
+  const previousRuntime = process.env.CODEX_FLOW_RUNTIME_DIR;
+  const previousArtifacts = process.env.CODEX_FLOW_ARTIFACT_DIR;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const runtime = path.join(root, 'runtime');
+  const artifacts = path.join(root, 'artifacts');
+  process.env.CODEX_FLOW_RUNTIME_DIR = runtime;
+  process.env.CODEX_FLOW_ARTIFACT_DIR = artifacts;
   afterAll(() => {
-    if (previous === undefined) delete process.env.CODEX_FLOW_STATE_DIR;
-    else process.env.CODEX_FLOW_STATE_DIR = previous;
-    fs.rmSync(directory, { recursive: true, force: true });
+    if (previousRuntime === undefined) delete process.env.CODEX_FLOW_RUNTIME_DIR;
+    else process.env.CODEX_FLOW_RUNTIME_DIR = previousRuntime;
+    if (previousArtifacts === undefined) delete process.env.CODEX_FLOW_ARTIFACT_DIR;
+    else process.env.CODEX_FLOW_ARTIFACT_DIR = previousArtifacts;
+    fs.rmSync(root, { recursive: true, force: true });
   });
-  return directory;
+  return { runtime, artifacts };
 }

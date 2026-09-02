@@ -5,9 +5,11 @@ This document is the primary source for the stable handoff boundaries:
 
 - Think and Research model stages use the same-run immutable repository snapshot.
 - Build selects a public GitHub Issue contract by `repository + issue_number`; it does not depend on a publisher-local receipt or scan for the latest artifact.
-- Semantic review and audit are independent checks.
+- A hook-created task directory owns ephemeral intent, approval, input, and controller records. Repository-local `.codex/workflow-artifacts/` is ignored handoff/audit cache, not Build authority. Paths stay stable; each JSON `protocol` owns schema compatibility.
+- Build derives actor goals, contracts, and verification commands from the loaded public Plan. After final tests, an independent read-only Codex SDK review checks the complete diff before Ship can begin.
+- External branch, commit, push, and draft-PR actions are reconciled from their observable postconditions when an interrupted controller resumes.
 - A terminal model failure consumes intent; input or binding validation failures preserve it.
-- Issue generates the visible body and machine contract from one canonical Plan, then revalidates current source and exact identity before publishing once. Build revalidates that public Issue at startup and before Ship.
+- Issue generates the visible body and machine contract from one canonical Plan, then revalidates current source and exact identity before publishing once. Build revalidates that public Issue at startup, before semantic review, and before Ship.
 - An active controller can be cancelled only through task-bound `codex-flow cancel`, which revokes Ship authorization and records terminal `cancelled` state.
 
 Think Plans should cite this document and quote the applicable rule instead of restating it.

@@ -26,9 +26,9 @@ import { researchArtifactDirectory } from '../../../workflows/shared/storage.ts'
 import { errorCode } from '../../../workflows/shared/errors.ts';
 import { ProgressReporter, type ProgressEvent } from '../../../workflows/shared/progress.ts';
 import { armIntent, clearIntent, loadIntent } from '../../../workflows/invocation.ts';
-import { temporaryDirectory, useTemporaryStateDirectory } from '../shared/fixtures.ts';
+import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 
-useTemporaryStateDirectory('codex-think-state-');
+useTemporaryWorkflowStorage('codex-think-storage-');
 
 function repoFixture(): string {
   const repo = temporaryDirectory('codex-think-');
@@ -245,6 +245,20 @@ test('designer and reviewer read the same startup snapshot while the shared work
   assert.equal(result.report.next_step, 'research');
 });
 
+test('a worktree edit left behind during design rejects the run as a state error', async () => {
+  const repo = repoFixture();
+  const agent = new FakeAgent();
+  agent.design = async (...args) => {
+    fs.writeFileSync(path.join(repo, 'README.md'), 'changed during design\n');
+    return FakeAgent.prototype.design.apply(agent, args);
+  };
+  await assert.rejects(runThink(input(repo), agent), (error: unknown) => {
+    assert.equal(errorCode(error), 'state_error');
+    assert.match(String(error), /repository changed while think was running/u);
+    return true;
+  });
+});
+
 test('think prompt labels supplied artifact context', () => {
   const prompt = designPrompt(input('/repo'), [], {}, [
     {
@@ -295,17 +309,20 @@ test('classifies designer and reviewer aborts by stage', async () => {
     },
   });
   const agent = new CodexThinkAgent(client(abort('AbortError')));
-  await assert.rejects(agent.design(input('/repo'), [], {}), (error: unknown) => {
+  await assert.rejects(agent.design(input('/repo'), [], {}, [], '/repo'), (error: unknown) => {
     assert.equal(errorCode(error), 'think_designer_timeout');
     assert.match(String((error as Error).message), /designer/u);
     return true;
   });
   const reviewer = new CodexThinkAgent(client(abort('TimeoutError')));
-  await assert.rejects(reviewer.review(input('/repo'), draft, [], {}), (error: unknown) => {
-    assert.equal(errorCode(error), 'think_reviewer_timeout');
-    assert.match(String((error as Error).message), /reviewer/u);
-    return true;
-  });
+  await assert.rejects(
+    reviewer.review(input('/repo'), draft, [], {}, undefined, [], '/repo'),
+    (error: unknown) => {
+      assert.equal(errorCode(error), 'think_reviewer_timeout');
+      assert.match(String((error as Error).message), /reviewer/u);
+      return true;
+    },
+  );
 });
 
 test('emits distinct Think model and validation progress stages', async () => {
@@ -327,7 +344,7 @@ test('emits distinct Think model and validation progress stages', async () => {
     setInterval: () => ({}),
     clearInterval: () => undefined,
   });
-  await new CodexThinkAgent(client, progress).design(input('/tmp/repo'), [], {});
+  await new CodexThinkAgent(client, progress).design(input('/tmp/repo'), [], {}, [], '/tmp/repo');
 
   assert.deepEqual(
     events.map(({ stage, status }) => [stage, status]),
@@ -489,26 +506,76 @@ test('closed input is required and unknown command is rejected', async () => {
   );
 });
 
-test('model execution consumes its intent while input validation preserves it', async () => {
+const failingThinkAgent: ThinkAgent = {
+  async design() {
+    throw new Error('terminal model failure');
+  },
+  async review() {
+    throw new Error('unexpected review');
+  },
+};
+
+test('a terminal model failure consumes the armed intent', async () => {
   const repo = repoFixture();
   const failedRun = `think-model-failure-${crypto.randomUUID()}`;
   const failed = armIntent({ runId: failedRun, workflow: 'think', cwd: repo });
   fs.writeFileSync(failed.input_path, JSON.stringify(input(repo)));
-  const failingAgent: ThinkAgent = {
-    async design() {
-      throw new Error('terminal model failure');
-    },
-    async review() {
-      throw new Error('unexpected review');
-    },
-  };
-  await assert.rejects(runThinkWorkflow(failedRun, failed.input_path, failingAgent), /terminal/u);
+  await assert.rejects(
+    runThinkWorkflow(failedRun, failed.input_path, failingThinkAgent),
+    /terminal/u,
+  );
   assert.equal(loadIntent(failedRun), null);
+});
 
+test('an input validation failure preserves the armed intent', async () => {
+  const repo = repoFixture();
   const invalidRun = `think-invalid-input-${crypto.randomUUID()}`;
   const invalid = armIntent({ runId: invalidRun, workflow: 'think', cwd: repo });
   onTestFinished(() => clearIntent(invalidRun));
   fs.writeFileSync(invalid.input_path, '{}');
-  await assert.rejects(runThinkWorkflow(invalidRun, invalid.input_path, failingAgent), /protocol/u);
+  await assert.rejects(
+    runThinkWorkflow(invalidRun, invalid.input_path, failingThinkAgent),
+    /protocol/u,
+  );
   assert.ok(loadIntent(invalidRun));
+});
+
+test('an intent bound to another run, worktree, or input path rejects startup and stays armed', async () => {
+  const repo = repoFixture();
+  const otherRepo = repoFixture();
+  const agent = new FakeAgent();
+  const unarmedRun = `think-unarmed-${crypto.randomUUID()}`;
+  const unarmedInput = path.join(repo, 'think-input.json');
+  fs.writeFileSync(unarmedInput, JSON.stringify(input(repo)));
+  await assert.rejects(
+    runThinkWorkflow(unarmedRun, unarmedInput, agent),
+    /explicit \$think invocation is required/u,
+  );
+
+  const cases = [
+    {
+      name: 'worktree',
+      cwd: otherRepo,
+      inputFile: (armed: string) => armed,
+      message: /belongs to a different Git worktree/u,
+    },
+    {
+      name: 'input path',
+      cwd: repo,
+      inputFile: () => unarmedInput,
+      message: /use the think input path supplied by the workflow hook/u,
+    },
+  ];
+  for (const bound of cases) {
+    const runId = `think-${bound.name}-${crypto.randomUUID()}`;
+    const pending = armIntent({ runId, workflow: 'think', cwd: bound.cwd });
+    onTestFinished(() => clearIntent(runId));
+    fs.writeFileSync(pending.input_path, JSON.stringify(input(repo)));
+    await assert.rejects(
+      runThinkWorkflow(runId, bound.inputFile(pending.input_path), agent),
+      bound.message,
+    );
+    assert.ok(loadIntent(runId), bound.name);
+  }
+  assert.equal(agent.designCalls, 0);
 });

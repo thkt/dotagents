@@ -175,7 +175,7 @@ function actionParameters(state: FlowState, step: ActionStep): ActionParameters 
       subject: step.subject,
       trailers: [
         `Unit: ${unit}`,
-        `Contract: ${planUnit.contract}`,
+        `Contract: ${shellSafeText(planUnit.contract)}`,
         ...(planUnit.tests.length
           ? [`Tests: ${planUnit.tests.map(({ id }) => id).join(', ')}`]
           : []),
@@ -190,7 +190,7 @@ function actionParameters(state: FlowState, step: ActionStep): ActionParameters 
     repository: step.repository,
     branch: branch.branch_name,
     base_branch: step.base_branch,
-    title: shellSafeText(state.build_plan.title),
+    title: state.build_plan.title,
     pr_input_path: prInputPath(state.run_id),
     pr_body_path: prBodyPath(state.run_id),
   };
@@ -222,6 +222,20 @@ export function prepareShipInput(state: FlowState): void {
   );
   const values = (key: string): unknown[] =>
     upstream.flatMap((report) => (Array.isArray(report[key]) ? report[key] : []));
+  const reviewAdvisories = values('findings').flatMap((finding) => {
+    if (
+      !isObject(finding) ||
+      finding.severity !== 'advisory' ||
+      typeof finding.code !== 'string' ||
+      typeof finding.message !== 'string'
+    ) {
+      return [];
+    }
+    const files = Array.isArray(finding.files)
+      ? finding.files.filter((file): file is string => typeof file === 'string')
+      : [];
+    return [`${finding.code}: ${finding.message}${files.length ? ` [${files.join(', ')}]` : ''}`];
+  });
   const allPassed = currentReports.every((report) => report.verdict === 'pass');
   atomicWrite(prInputPath(state.run_id), {
     issue: state.build_plan.issue,
@@ -231,7 +245,7 @@ export function prepareShipInput(state: FlowState): void {
     untouched_plan_files: values('untouched_plan_files'),
     missing_tests: values('missing_tests'),
     manual_checks: state.build_plan.manual_verification,
-    advisories: [],
+    advisories: reviewAdvisories,
     verification_output: '',
     language,
   });
@@ -322,6 +336,81 @@ export function validateActionCompletion(state: FlowState, step: ActionStep): vo
       ) {
         throw new FlowError('ship changed local commits or files', 'postcondition_error');
       }
+      if (!shipPublicationCompleted(state, step, current.head)) {
+        throw new FlowError(
+          'ship did not publish the verified HEAD and expected draft pull request',
+          'postcondition_error',
+        );
+      }
       break;
   }
+}
+
+function shipPublicationCompleted(
+  state: FlowState,
+  step: ShipActionStep,
+  expectedHead: string | null,
+): boolean {
+  const branch = branchAction(state).branch_name;
+  const remote = spawnSync(
+    'git',
+    ['-C', state.manifest.repo, 'ls-remote', '--exit-code', step.remote, `refs/heads/${branch}`],
+    { encoding: 'utf8' },
+  );
+  const remoteHead = remote.stdout.trim().split(/\s+/u)[0];
+  if (remote.status !== 0 || remoteHead !== expectedHead) return false;
+  const parameters = actionParameters(state, step);
+  if (!fs.existsSync(parameters.pr_body_path)) {
+    renderPrBody(['--input', parameters.pr_input_path, '--output', parameters.pr_body_path]);
+  }
+  const expectedBody = fs.readFileSync(parameters.pr_body_path, 'utf8');
+  const pullRequest = spawnSync(
+    'gh',
+    [
+      'pr',
+      'view',
+      branch,
+      '--repo',
+      step.repository,
+      '--json',
+      'url,isDraft,baseRefName,headRefName,title,body',
+    ],
+    { encoding: 'utf8' },
+  );
+  let value: Record<string, unknown> = {};
+  try {
+    value = JSON.parse(pullRequest.stdout || '{}') as Record<string, unknown>;
+  } catch {
+    value = {};
+  }
+  return (
+    pullRequest.status === 0 &&
+    value.isDraft === true &&
+    value.baseRefName === step.base_branch &&
+    value.headRefName === branch &&
+    value.title === parameters.title &&
+    value.body === expectedBody &&
+    typeof value.url === 'string'
+  );
+}
+
+/** Detects a completed external action so a resumed controller does not repeat it. */
+export function actionAlreadyCompleted(state: FlowState, step: ActionStep): boolean {
+  if (!isObject(state.action_baseline)) {
+    throw new FlowError(`${step.id} has no entry snapshot`, 'state_error');
+  }
+  const current = repositoryInvariant(state.manifest.repo);
+  if (step.action === 'branch' && current.branch !== step.branch_name) return false;
+  if (step.action === 'commit' && current.head === state.action_baseline.head) return false;
+  if (step.action === 'ship') {
+    if (
+      current.head !== state.action_baseline.head ||
+      !sameRepoSnapshot(current.changes, state.workflow_baseline)
+    ) {
+      validateActionCompletion(state, step);
+    }
+    return shipPublicationCompleted(state, step, current.head);
+  }
+  validateActionCompletion(state, step);
+  return true;
 }

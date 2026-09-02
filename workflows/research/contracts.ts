@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 
 import { FlowError } from '../shared/errors.ts';
+import { CONFIGURED_LANGUAGES, type ConfiguredLanguage } from '../shared/language.ts';
 import { gitRoot, normalizeRepoPath, realpathInside } from '../shared/repository.ts';
 import { isObject, rejectUnknownKeys, stringArray, type JsonObject } from '../shared/schema.ts';
 import { parseStageTimings, type StageTimings } from '../shared/codex.ts';
@@ -15,7 +16,6 @@ export const RESEARCH_DESCRIPTION_PROTOCOL = 'codex-research-description/v1' as 
 
 export type ResearchMode = 'understand' | 'plan' | 'diagnose';
 type ExternalSources = 'none' | 'primary' | 'broad';
-type ResearchLanguage = 'english' | 'japanese';
 type EvidenceKind = 'repository' | 'web';
 type FindingKind = 'fact' | 'inference';
 type Confidence = 'high' | 'medium' | 'low';
@@ -40,7 +40,7 @@ export interface ResearchInput {
   mode: ResearchMode;
   scope_paths: string[];
   external_sources: ExternalSources;
-  language: ResearchLanguage;
+  language: ConfiguredLanguage;
 }
 
 export interface ResearchEvidence {
@@ -107,7 +107,7 @@ export interface ResearchReport extends Omit<ResearchAudit, 'findings'> {
   generated_at: string;
   question: string;
   mode: ResearchMode;
-  language: ResearchLanguage;
+  language: ConfiguredLanguage;
   scope_paths: string[];
   external_sources: ExternalSources;
   repository: {
@@ -279,7 +279,7 @@ export function validateResearchInput(raw: unknown): ResearchInput {
       ['none', 'primary', 'broad'] as const,
       'research input.external_sources',
     ),
-    language: enumValue(raw.language, ['english', 'japanese'] as const, 'research input.language'),
+    language: enumValue(raw.language, CONFIGURED_LANGUAGES, 'research input.language'),
   };
 }
 
@@ -598,7 +598,7 @@ export function parseResearchReport(raw: unknown): ResearchReport {
     mode,
     language: enumValue(
       raw.language,
-      ['english', 'japanese'] as const,
+      CONFIGURED_LANGUAGES,
       'research report.language',
       'execution_error',
     ),

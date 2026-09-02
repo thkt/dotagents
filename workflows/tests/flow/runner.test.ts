@@ -11,8 +11,10 @@ import { actionInvocations } from '../../flow/build/actions.ts';
 import {
   actorPrompt,
   ActorEscalation,
+  buildReviewPrompt,
   CodexWorkflowAgent,
   evidencePrompt,
+  parseBuildReviewResult,
   type WorkflowAgent,
 } from '../../flow/agent.ts';
 import { cleanCodexEnvironment } from '../../shared/codex.ts';
@@ -24,11 +26,13 @@ import { armIntent } from '../../invocation.ts';
 
 type ActorDirective = Extract<FlowDirective, { kind: 'run-actor' }>;
 type SealDirective = Extract<FlowDirective, { kind: 'seal-gate' }>;
+type ReviewDirective = Extract<FlowDirective, { kind: 'run-review' }>;
 
 const ACTOR_DIRECTIVE: ActorDirective = {
   kind: 'run-actor',
   step_id: 'U-001:direct',
   outcome: 'The value is written.',
+  contract: null,
   files: ['value.txt'],
   verification: { command: 'node verify.js', expect: 'pass' },
   correction: null,
@@ -44,6 +48,45 @@ const SEAL_DIRECTIVE: SealDirective = {
     stderr_tail: '',
     candidates: [{ id: 'stdout:L1', text: 'expected failure', test_id: 'T-001' }],
   },
+};
+
+const REVIEW_DIRECTIVE: ReviewDirective = {
+  kind: 'run-review',
+  step_id: 'review:build',
+  input: {
+    issue: 42,
+    base_ref: 'abc123',
+    plan: {
+      repository: 'owner/repo',
+      issue: 42,
+      title: 'Published change',
+      body_sha256: '0'.repeat(64),
+      outcome: 'The value is persisted.',
+      test_command: 'node --test',
+      manual_verification: [],
+      units: [
+        {
+          id: 'U-001',
+          goal: 'Persist the value.',
+          contract: 'Existing reads remain compatible.',
+          files: ['value.ts'],
+          tests: [{ id: 'T-001', name: 'persists a value' }],
+          seam: false,
+        },
+      ],
+    },
+    verification: [{ gate_id: 'final:test', verdict: 'pass', classification: 'pass' }],
+  },
+};
+
+const PASSING_REVIEW = {
+  protocol: 'codex-build-review/v1' as const,
+  verdict: 'pass' as const,
+  classification: 'pass' as const,
+  reason_codes: [],
+  failure_route: null,
+  summary: 'The implementation satisfies the published contract.',
+  findings: [],
 };
 
 test('builds a self-contained actor prompt and removes API billing credentials', () => {
@@ -119,12 +162,36 @@ test('gives Red actors executable-test and scaffold constraints', () => {
   assert.match(prompt, /invalid Red evidence/u);
 });
 
+test('binds semantic review to the published Plan and rejects inconsistent verdicts', () => {
+  const prompt = buildReviewPrompt(REVIEW_DIRECTIVE, 'fixed-nonce');
+  assert.match(prompt, /diff from abc123 through HEAD/u);
+  assert.match(prompt, /Existing reads remain compatible/u);
+  assert.match(prompt, /END PUBLISHED BUILD CONTRACT fixed-nonce/u);
+  assert.deepEqual(parseBuildReviewResult(PASSING_REVIEW), PASSING_REVIEW);
+  assert.throws(
+    () =>
+      parseBuildReviewResult({
+        ...PASSING_REVIEW,
+        findings: [
+          {
+            severity: 'blocking',
+            code: 'contract_regression',
+            message: 'Existing reads fail.',
+            files: ['value.ts'],
+          },
+        ],
+      }),
+    /invalid semantic verdict/u,
+  );
+});
+
 test('uses write scope for actors and read-only scope for calibration evidence', async () => {
   const starts: unknown[] = [];
   const prompts: string[] = [];
   const responses = [
     JSON.stringify({ status: 'completed', summary: 'written', route: null, question: null }),
     JSON.stringify({ candidate_id: 'stdout:L1' }),
+    JSON.stringify(PASSING_REVIEW),
   ];
   const client = {
     startThread(options: unknown) {
@@ -141,6 +208,7 @@ test('uses write scope for actors and read-only scope for calibration evidence',
   await agent.runActor('/tmp/repo', ACTOR_DIRECTIVE);
 
   assert.equal(await agent.selectEvidenceCandidate('/tmp/repo', SEAL_DIRECTIVE), 'stdout:L1');
+  assert.deepEqual(await agent.reviewBuild('/tmp/repo', REVIEW_DIRECTIVE), PASSING_REVIEW);
   assert.deepEqual(starts, [
     {
       model: 'gpt-5.6-luna',
@@ -160,11 +228,21 @@ test('uses write scope for actors and read-only scope for calibration evidence',
       networkAccessEnabled: false,
       webSearchMode: 'disabled',
     },
+    {
+      model: 'gpt-5.6-sol',
+      modelReasoningEffort: 'high',
+      workingDirectory: '/tmp/repo',
+      sandboxMode: 'read-only',
+      approvalPolicy: 'never',
+      networkAccessEnabled: false,
+      webSearchMode: 'disabled',
+    },
   ]);
   assert.match(prompts[1]!, /BEGIN OBSERVED OUTPUT [0-9a-f-]{36}/u);
   assert.match(prompts[1]!, /"id":"stdout:L1"/u);
   assert.doesNotMatch(prompts[1]!, /stdout_tail/u);
   assert.match(evidencePrompt(SEAL_DIRECTIVE, 'fixed-nonce'), /END OBSERVED OUTPUT fixed-nonce/u);
+  assert.match(prompts[2]!, /BEGIN PUBLISHED BUILD CONTRACT [0-9a-f-]{36}/u);
 });
 
 test('publishes only allowed changes from an isolated actor', async () => {
@@ -276,11 +354,11 @@ test('resumes an SDK actor after a transient runner failure', async () => {
   spawnSync('git', ['-C', repo, 'commit', '-qm', 'fixture']);
 
   const stateDirectory = path.join(root, 'state');
-  const previousStateDirectory = process.env.CODEX_FLOW_STATE_DIR;
-  process.env.CODEX_FLOW_STATE_DIR = stateDirectory;
+  const previousStateDirectory = process.env.CODEX_FLOW_RUNTIME_DIR;
+  process.env.CODEX_FLOW_RUNTIME_DIR = stateDirectory;
   onTestFinished(() => {
-    if (previousStateDirectory === undefined) delete process.env.CODEX_FLOW_STATE_DIR;
-    else process.env.CODEX_FLOW_STATE_DIR = previousStateDirectory;
+    if (previousStateDirectory === undefined) delete process.env.CODEX_FLOW_RUNTIME_DIR;
+    else process.env.CODEX_FLOW_RUNTIME_DIR = previousStateDirectory;
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -361,6 +439,9 @@ test('resumes an SDK actor after a transient runner failure', async () => {
     async selectEvidenceCandidate() {
       throw new Error('calibration is not expected');
     },
+    async reviewBuild() {
+      throw new Error('build review is not expected');
+    },
   };
   const progressEvents: ProgressEvent[] = [];
   const runtime: WorkflowRuntime = {
@@ -409,11 +490,11 @@ test('blocks and discards sandbox edits on actor escalation, then resumes withou
   spawnSync('git', ['-C', repo, 'add', '.']);
   spawnSync('git', ['-C', repo, 'commit', '-qm', 'fixture']);
   const stateDirectory = path.join(root, 'state');
-  const previous = process.env.CODEX_FLOW_STATE_DIR;
-  process.env.CODEX_FLOW_STATE_DIR = stateDirectory;
+  const previous = process.env.CODEX_FLOW_RUNTIME_DIR;
+  process.env.CODEX_FLOW_RUNTIME_DIR = stateDirectory;
   onTestFinished(() => {
-    if (previous === undefined) delete process.env.CODEX_FLOW_STATE_DIR;
-    else process.env.CODEX_FLOW_STATE_DIR = previous;
+    if (previous === undefined) delete process.env.CODEX_FLOW_RUNTIME_DIR;
+    else process.env.CODEX_FLOW_RUNTIME_DIR = previous;
     fs.rmSync(root, { recursive: true, force: true });
   });
   const manifest: FlowManifest = {
@@ -481,6 +562,9 @@ test('blocks and discards sandbox edits on actor escalation, then resumes withou
       async selectEvidenceCandidate() {
         throw new Error('not expected');
       },
+      async reviewBuild() {
+        throw new Error('not expected');
+      },
     },
     executeAction() {
       throw new Error('not expected');
@@ -509,7 +593,7 @@ test('CLI exposes only describe, run, and task-bound cancel', async () => {
   const described = await main(['describe', '--workflow', 'code']);
   assert.equal(
     'protocol' in described.result && described.result.protocol,
-    'codex-flow-description/v6',
+    'codex-flow-description/v7',
   );
   await assert.rejects(main(['status']), /unknown command: status/);
   await assert.rejects(

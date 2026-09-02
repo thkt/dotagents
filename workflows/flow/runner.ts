@@ -7,14 +7,17 @@ import { ActorEscalation, CodexWorkflowAgent, type WorkflowAgent } from './agent
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
 import { isMainModule } from '../shared/environment.ts';
 import { parseCommand, requireExactFlags } from '../shared/cli.ts';
-import { runIsolatedActor } from './isolation.ts';
+import { runIsolatedActor, withRepositorySnapshot } from './isolation.ts';
 import { ProgressReporter, workflowProgress, type ProgressContext } from '../shared/progress.ts';
+import { repositoryInvariant, requireUnchangedRepository } from '../shared/repository.ts';
 import {
   completeCurrentDirective,
+  completeBuildReview,
   cancelWorkflow,
   currentDirective,
   describe,
   loadWorkflowState,
+  reconcileCurrentAction,
   startOrResumeWorkflow,
   workflowStatus,
   escalateWorkflow,
@@ -45,6 +48,9 @@ function progressContext(
   switch (directive.kind) {
     case 'run-actor':
       stage = 'actor_model_call';
+      break;
+    case 'run-review':
+      stage = 'build_semantic_review';
       break;
     case 'seal-gate':
       stage = 'controller_evidence_validation';
@@ -111,8 +117,25 @@ export async function driveWorkflow(
         break;
       case 'run-action':
         progress.runSync(progressContext(workflow, directive), () => {
+          if (reconcileCurrentAction(runId, directive.step_id)) return;
           runtime.executeAction(repo, directive);
           completeCurrentDirective(runId, directive.step_id);
+        });
+        break;
+      case 'run-review':
+        await progress.run(progressContext(workflow, directive), async () => {
+          const startedAt = performance.now();
+          const before = repositoryInvariant(repo);
+          const review = await withRepositorySnapshot(repo, (snapshotRepo) =>
+            runtime.agent.reviewBuild(snapshotRepo, directive),
+          );
+          requireUnchangedRepository(before, repo, 'build semantic review');
+          completeBuildReview(
+            runId,
+            directive.step_id,
+            review,
+            Math.max(0, Math.round(performance.now() - startedAt)),
+          );
         });
         break;
       case 'calibrate-gate':

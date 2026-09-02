@@ -22,7 +22,7 @@ import type {
   GateStep,
   Workflow,
 } from './contracts.ts';
-import { MANIFEST_PROTOCOL } from './contracts.ts';
+import { MANIFEST_PROTOCOL, SAFE_ID } from './contracts.ts';
 import { SHELL_CONTROL, shellCommand } from '../shared/command.ts';
 import { FlowError, errorMessage } from '../shared/errors.ts';
 import { isObject, rejectUnknownKeys, stringArray, type JsonObject } from '../shared/schema.ts';
@@ -31,19 +31,14 @@ import { parseArgs as parseGateArgs } from './shell-gate.ts';
 export const ACTIONS = new Set<ActionName>(['branch', 'commit', 'ship']);
 export const UNIT_ACTOR = /^(U-\d{3}):(red|green|direct)$/u;
 export const CLEANUP_ACTOR = /^cleanup:[A-Za-z0-9._-]+$/u;
-const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
-export const BUILD_OPENING_IDS = [
-  'load:plan',
-  'revalidate:plan',
-  'branch',
-  'branch:verify',
-] as const;
+export const BUILD_OPENING_IDS = ['load:plan', 'revalidate:plan', 'branch'] as const;
 export const DEFAULT_MAX_CORRECTIONS = 3;
 const GATE_AUTHORITIES = new Set<GateAuthority>([
   'shell',
   'build-plan',
   'build-revalidate',
   'build-artifacts',
+  'build-review',
   'build-ship',
 ]);
 const STEP_KINDS = new Set<FlowStep['kind']>(['actor', 'action', 'gate']);
@@ -106,6 +101,8 @@ function gateCommand(
         '--repo',
         repo,
       ]);
+    case 'build-review':
+      return 'codex-build-review';
     case 'build-ship':
       return 'codex-build-ship-verify';
   }
@@ -269,8 +266,7 @@ function validateGate(step: JsonObject, id: string, repo: string): GateSpec {
 /** Expands one unit mode into the exact actor, gate, artifact, and commit sequence. */
 export function unitStepIds(unit: string, roles: ActorRole[], workflow: Workflow): string[] {
   const ids = roles.flatMap((role) => [`${unit}:${role}`, `${unit}:${role}:gate`]);
-  if (workflow === 'build')
-    ids.push(`${unit}:artifacts`, `${unit}:commit`, `${unit}:commit:verify`);
+  if (workflow === 'build') ids.push(`${unit}:artifacts`, `${unit}:commit`);
   return ids;
 }
 
@@ -326,11 +322,15 @@ function validateSequence(manifest: FlowManifest, steps: FlowStep[]): void {
   }
   if (!unitRoles.size) throw new FlowError('at least one U-NNN actor is required');
   if (manifest.workflow === 'build') {
+    const cleanup = steps.find((step) => step.kind === 'actor' && CLEANUP_ACTOR.test(step.id));
+    if (cleanup) {
+      throw new FlowError(
+        `build does not accept actor outside published Plan units: ${cleanup.id}`,
+      );
+    }
     const opening = steps.slice(0, BUILD_OPENING_IDS.length).map((step) => step.id);
     if (opening.join(',') !== BUILD_OPENING_IDS.join(',')) {
-      throw new FlowError(
-        'build must start with load:plan, revalidate:plan, branch, branch:verify',
-      );
+      throw new FlowError('build must start with load:plan, revalidate:plan, branch');
     }
   }
   for (const [unit, roles] of unitRoles) {
@@ -372,8 +372,9 @@ function validateBuildSequence(
   }
   const authorityIds: Partial<Record<GateAuthority, RegExp>> = {
     'build-plan': /^load:plan$/u,
-    'build-revalidate': /^revalidate:(?:plan|ship)$/u,
+    'build-revalidate': /^revalidate:(?:plan|review|ship)$/u,
     'build-artifacts': /^U-\d{3}:artifacts$/u,
+    'build-review': /^review:build$/u,
     'build-ship': /^ship:verify$/u,
   };
   for (const step of steps) {
@@ -382,7 +383,7 @@ function validateBuildSequence(
       throw new FlowError(`${step.gate.authority} authority is not valid for ${step.id}`);
     }
   }
-  for (const required of ['load:plan', 'revalidate:plan', 'branch:verify']) {
+  for (const required of ['load:plan', 'revalidate:plan', 'revalidate:review', 'review:build']) {
     if (!steps.some((step) => step.kind === 'gate' && step.id === required)) {
       throw new FlowError(`build requires the ${required} gate`);
     }
@@ -390,6 +391,7 @@ function validateBuildSequence(
   const authorities: Record<string, GateAuthority> = {
     'load:plan': 'build-plan',
     'revalidate:plan': 'build-revalidate',
+    'review:build': 'build-review',
   };
   for (const [id, authority] of Object.entries(authorities)) {
     const gate = steps.find((step): step is GateStep => step.kind === 'gate' && step.id === id);
@@ -403,12 +405,35 @@ function validateBuildSequence(
   ) {
     throw new FlowError('build requires a branch action');
   }
-  for (const id of ['load:plan', 'revalidate:plan', 'branch:verify']) {
+  for (const id of ['load:plan', 'revalidate:plan']) {
     const requiredGate = steps.find(
       (step): step is GateStep => step.kind === 'gate' && step.id === id,
     );
     if (!requiredGate || requiredGate.owner !== undefined)
       throw new FlowError(`${id} must be fail-closed`);
+  }
+  const finalIndex = steps.findIndex(
+    (step) => step.kind === 'gate' && step.id.startsWith('final:'),
+  );
+  const reviewRevalidationIndex = steps.findIndex((step) => step.id === 'revalidate:review');
+  const reviewRevalidation = steps[reviewRevalidationIndex];
+  const reviewIndex = steps.findIndex((step) => step.id === 'review:build');
+  const review = steps[reviewIndex];
+  if (
+    reviewRevalidationIndex !== finalIndex + 1 ||
+    !reviewRevalidation ||
+    reviewRevalidation.kind !== 'gate' ||
+    reviewRevalidation.gate.authority !== 'build-revalidate' ||
+    reviewRevalidation.owner !== undefined ||
+    reviewIndex !== reviewRevalidationIndex + 1 ||
+    !review ||
+    review.kind !== 'gate' ||
+    review.gate.authority !== 'build-review' ||
+    review.owner !== undefined
+  ) {
+    throw new FlowError(
+      'final gate must be followed by fail-closed revalidate:review and review:build',
+    );
   }
   for (const [unit, roles] of unitRoles) {
     const owner = roles.includes('green') ? `${unit}:green` : `${unit}:direct`;
@@ -427,19 +452,16 @@ function validateBuildSequence(
     if (!commit || commit.action !== 'commit') {
       throw new FlowError(`${unit}:commit must use the commit action`);
     }
-    const verification = steps.find(
-      (step): step is GateStep => step.kind === 'gate' && step.id === `${unit}:commit:verify`,
-    );
-    if (!verification || verification.owner !== undefined) {
-      throw new FlowError(`${unit}:commit:verify must be fail-closed`);
-    }
   }
   const ship = steps.find((step) => step.kind === 'action' && step.action === 'ship');
   if (manifest.shipping_authorized && !ship)
     throw new FlowError('shipping_authorized requires a ship action');
   if (ship && !manifest.shipping_authorized)
     throw new FlowError('a ship action requires shipping_authorized: true');
-  if (!ship) return;
+  if (!ship) {
+    if (steps.at(-1) !== review) throw new FlowError('review:build must be the final build step');
+    return;
+  }
   const shipIndex = steps.indexOf(ship);
   const revalidation = steps[shipIndex - 1];
   if (

@@ -59,6 +59,8 @@ test('UserPromptSubmit arms only a leading explicit workflow invocation', () => 
   assert.deepEqual(natural, {});
   assert.equal(intent.loadIntent('turn-natural'), null);
 
+  spawnSync('git', ['-C', repo, 'remote', 'add', 'origin', 'https://github.com/owner/project.git']);
+
   const explicit = hook.handle({
     hook_event_name: 'UserPromptSubmit',
     session_id: 'turn-explicit-hook',
@@ -73,6 +75,47 @@ test('UserPromptSubmit arms only a leading explicit workflow invocation', () => 
     explicit.hookSpecificOutput?.additionalContext || '',
     new RegExp(pending!.input_path),
   );
+  assert.match(
+    explicit.hookSpecificOutput?.additionalContext || '',
+    /source for owner\/project#123 is already prepared/,
+  );
+  assert.deepEqual(JSON.parse(fs.readFileSync(pending!.build_source_path!, 'utf8')), {
+    protocol: 'codex-build-source/v2',
+    repository: 'owner/project',
+    issue_number: 123,
+  });
+});
+
+test('Build Issue shorthand rejects invalid numbers before arming an intent', () => {
+  const { repo } = fixture();
+  const response = hook.handle({
+    hook_event_name: 'UserPromptSubmit',
+    session_id: 'turn-invalid-build-issue',
+    cwd: repo,
+    prompt: '$build #0',
+  });
+
+  assert.match(response.reason || '', /positive integer/);
+  assert.equal(intent.loadIntent('turn-invalid-build-issue'), null);
+});
+
+test('Build source preparation failure revokes the pending intent and Ship approval', () => {
+  const { repo } = fixture();
+  const runId = 'turn-build-source-write-failure';
+  spawnSync('git', ['-C', repo, 'remote', 'add', 'origin', 'https://github.com/owner/project.git']);
+  fs.mkdirSync(intent.armIntent({ runId, workflow: 'build', cwd: repo }).build_source_path!);
+  intent.clearIntent(runId);
+
+  const response = hook.handle({
+    hook_event_name: 'UserPromptSubmit',
+    session_id: runId,
+    cwd: repo,
+    prompt: '$build #123',
+  });
+
+  assert.equal(response.decision, 'block');
+  assert.equal(intent.loadIntent(runId), null);
+  assert.equal(fs.existsSync(buildShipApprovalPath(runId)), false);
 });
 
 test('UserPromptSubmit accepts a leading Codex skill link as an explicit invocation', () => {
@@ -422,6 +465,7 @@ test('Ship revalidation rejects an Issue body edited after load:plan', () => {
     `Edited after Build started.\n\n${parsed.visibleBody}`,
     parsed.plan,
     'english',
+    '00000000-0000-4000-8000-000000000003',
   );
   fs.writeFileSync(issueFile, JSON.stringify(issue));
 
@@ -519,6 +563,32 @@ test('build required gates reject vacuous shell substitutes', () => {
   const load = requireGate(manifest, 'load:plan');
   load.gate = { command: 'git status --porcelain', expect: 'pass', failure_route: 'blocked' };
   assert.throws(() => flow.validateManifest(manifest), /load:plan must use build-plan authority/);
+});
+
+test('build rejects cleanup actors outside the published Plan units', () => {
+  const { manifest } = fixture({ workflow: 'build' });
+  const final = manifest.steps.findIndex((step) => step.id === 'final:test');
+  manifest.steps.splice(
+    final,
+    0,
+    {
+      id: 'cleanup:extra',
+      kind: 'actor',
+      outcome: 'Change an unplanned file.',
+      files: ['README.md'],
+    },
+    {
+      id: 'cleanup:extra:gate',
+      kind: 'gate',
+      owner: 'cleanup:extra',
+      gate: { command: 'true', expect: 'pass', failure_route: 'cleanup:extra' },
+    },
+  );
+
+  assert.throws(
+    () => flow.validateManifest(manifest),
+    /does not accept actor outside published Plan units/u,
+  );
 });
 
 test('structured gates reject shell-only configuration', () => {

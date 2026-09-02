@@ -105,6 +105,37 @@ else process.exit(2);
   assert.equal(fake.invocations().filter((args) => args[1] === 'create').length, 1);
 });
 
+test('finds one prior publication by its public id for crash recovery', () => {
+  const publicationId = '00000000-0000-4000-8000-000000000004';
+  const published = {
+    ...issue,
+    body: `body\npublication_id:${publicationId}`,
+  };
+  const fake = fakeGh(`
+if (args[0] === 'issue' && args[1] === 'list') console.log(${JSON.stringify(JSON.stringify([published]))});
+else process.exit(2);
+`);
+
+  assert.deepEqual(fake.gateway.findByPublicationId('owner/repo', publicationId), {
+    ...published,
+    labels: ['priority:medium'],
+  });
+  assert.deepEqual(fake.invocations()[0], [
+    'issue',
+    'list',
+    '--repo',
+    'owner/repo',
+    '--state',
+    'all',
+    '--search',
+    `${publicationId} in:body`,
+    '--limit',
+    '100',
+    '--json',
+    'number,title,body,url,labels',
+  ]);
+});
+
 test('view rejects malformed JSON and invalid Issue records from gh', () => {
   const malformed = fakeGh(`console.log('{not-json');`);
   assert.throws(() => malformed.gateway.view('owner/repo', 7), /not valid JSON/u);

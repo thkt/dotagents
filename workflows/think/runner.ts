@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /** @file Outcome: One explicit command turns a change request into a reviewed decision or a concrete research route. */
 
-import { clearIntent, requireThinkIntent } from '../invocation.ts';
+import { consumeIntentAfter, requireThinkIntent } from '../invocation.ts';
 import { parseCommand, requireExactFlags } from '../shared/cli.ts';
 import { isMainModule, THINK_COMMAND } from '../shared/environment.ts';
 import {
@@ -77,7 +77,7 @@ export function describeThink(
       readiness:
         'ready hands off a build-contract-compatible plan to issue; research_required returns no plan',
       artifacts:
-        'private Codex state holds authoritative JSON and paired Markdown without changing the worktree',
+        'repository-local ignored cache holds the JSON handoff and paired Markdown; it is not Build authority',
     },
   };
 }
@@ -91,12 +91,7 @@ export async function runThinkWorkflow(
   const input = validateThinkInput(readAbsoluteJson(inputFile, 'think'));
   requireThinkIntent(runId, input.repo, inputFile);
   requireConfiguredLanguage(input.language);
-  let result: ThinkRunResult;
-  try {
-    result = await runThink(input, agent);
-  } finally {
-    clearIntent(runId);
-  }
+  const result = await consumeIntentAfter(runId, () => runThink(input, agent));
   return {
     protocol: THINK_RESULT_PROTOCOL,
     status: 'completed',

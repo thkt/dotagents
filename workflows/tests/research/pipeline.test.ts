@@ -21,11 +21,12 @@ import type {
 } from '../../../workflows/research/agent.ts';
 import { auditPrompt, investigationPrompt } from '../../../workflows/research/agent.ts';
 import { researchArtifactDirectory } from '../../../workflows/shared/storage.ts';
+import { errorCode } from '../../../workflows/shared/errors.ts';
 import { runResearchWorkflow } from '../../../workflows/research/runner.ts';
 import { armIntent, clearIntent, loadIntent } from '../../../workflows/invocation.ts';
-import { temporaryDirectory, useTemporaryStateDirectory } from '../shared/fixtures.ts';
+import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 
-useTemporaryStateDirectory('codex-research-state-');
+useTemporaryWorkflowStorage('codex-research-storage-');
 
 function repoFixture(): string {
   const repo = temporaryDirectory('codex-research-');
@@ -189,6 +190,30 @@ test('investigator and auditor read the same startup snapshot while the shared w
   assert.equal(result.report.answer, audit.answer);
 });
 
+test('a worktree edit left behind during investigation rejects the run as a state error', async () => {
+  const repo = repoFixture();
+  const agent = new FakeAgent();
+  agent.investigate = async (...args) => {
+    fs.writeFileSync(path.join(repo, 'src/index.ts'), 'export const answer = 0;\n');
+    return FakeAgent.prototype.investigate.apply(agent, args);
+  };
+  await assert.rejects(runResearch(input(repo), agent), (error: unknown) => {
+    assert.equal(errorCode(error), 'state_error');
+    assert.match(String(error), /repository changed while research was running/u);
+    return true;
+  });
+});
+
+test('a repository without commits is investigated from its snapshot and reports a null head', async () => {
+  const repo = temporaryDirectory('codex-research-unborn-');
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+  fs.mkdirSync(path.join(repo, 'src'));
+  fs.writeFileSync(path.join(repo, 'src', 'index.ts'), 'export const answer = 42;\n');
+  const result = await runResearch(input(repo), new FakeAgent());
+  assert.equal(result.report.repository.head, null);
+  assert.equal(result.report.findings[0]?.evidence[0]?.kind, 'repository');
+});
+
 test('passes only active and review_required knowledge context, never decisions', async () => {
   const repo = repoFixture();
   const dir = researchArtifactDirectory(repo);
@@ -302,32 +327,76 @@ test('research prompt labels supplied context as knowledge context', () => {
   assert.match(prompts[1], /Open every cited repository source/u);
 });
 
-test('model execution consumes its intent while input validation preserves it', async () => {
+const failingResearchAgent: ResearchAgent = {
+  async investigate() {
+    throw new Error('terminal model failure');
+  },
+  async audit() {
+    throw new Error('unexpected audit');
+  },
+};
+
+test('a terminal model failure consumes the armed intent', async () => {
   const repo = repoFixture();
   const failedRun = `research-model-failure-${crypto.randomUUID()}`;
   const failed = armIntent({ runId: failedRun, workflow: 'research', cwd: repo });
   fs.writeFileSync(failed.input_path, JSON.stringify(input(repo)));
-  const failingAgent: ResearchAgent = {
-    async investigate() {
-      throw new Error('terminal model failure');
-    },
-    async audit() {
-      throw new Error('unexpected audit');
-    },
-  };
   await assert.rejects(
-    runResearchWorkflow(failedRun, failed.input_path, failingAgent),
+    runResearchWorkflow(failedRun, failed.input_path, failingResearchAgent),
     /terminal/u,
   );
   assert.equal(loadIntent(failedRun), null);
+});
 
+test('an input validation failure preserves the armed intent', async () => {
+  const repo = repoFixture();
   const invalidRun = `research-invalid-input-${crypto.randomUUID()}`;
   const invalid = armIntent({ runId: invalidRun, workflow: 'research', cwd: repo });
   onTestFinished(() => clearIntent(invalidRun));
   fs.writeFileSync(invalid.input_path, '{}');
   await assert.rejects(
-    runResearchWorkflow(invalidRun, invalid.input_path, failingAgent),
+    runResearchWorkflow(invalidRun, invalid.input_path, failingResearchAgent),
     /protocol/u,
   );
   assert.ok(loadIntent(invalidRun));
+});
+
+test('an intent bound to another run, worktree, or input path rejects startup and stays armed', async () => {
+  const repo = repoFixture();
+  const otherRepo = repoFixture();
+  const agent = new FakeAgent();
+  const unarmedRun = `research-unarmed-${crypto.randomUUID()}`;
+  const unarmedInput = path.join(repo, 'research-input.json');
+  fs.writeFileSync(unarmedInput, JSON.stringify(input(repo)));
+  await assert.rejects(
+    runResearchWorkflow(unarmedRun, unarmedInput, agent),
+    /explicit \$research invocation is required/u,
+  );
+
+  const cases = [
+    {
+      name: 'worktree',
+      cwd: otherRepo,
+      inputFile: (armed: string) => armed,
+      message: /belongs to a different Git worktree/u,
+    },
+    {
+      name: 'input path',
+      cwd: repo,
+      inputFile: () => unarmedInput,
+      message: /use the research input path supplied by the workflow hook/u,
+    },
+  ];
+  for (const bound of cases) {
+    const runId = `research-${bound.name}-${crypto.randomUUID()}`;
+    const pending = armIntent({ runId, workflow: 'research', cwd: bound.cwd });
+    onTestFinished(() => clearIntent(runId));
+    fs.writeFileSync(pending.input_path, JSON.stringify(input(repo)));
+    await assert.rejects(
+      runResearchWorkflow(runId, bound.inputFile(pending.input_path), agent),
+      bound.message,
+    );
+    assert.ok(loadIntent(runId), bound.name);
+  }
+  assert.equal(agent.seen.length, 0);
 });

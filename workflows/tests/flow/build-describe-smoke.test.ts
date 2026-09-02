@@ -14,16 +14,14 @@ import { BUILD_SOURCE_PROTOCOL } from '../../flow/build/handoff.ts';
 import { renderPlanMarkdown, type BuildPlanAuthoring } from '../../flow/build/authoring.ts';
 import { runWorkflow, type WorkflowRuntime } from '../../flow/runner.ts';
 import { renderPublicIssueBody } from '../../issue/public-contract.ts';
-import { temporaryDirectory, useTemporaryStateDirectory } from '../shared/fixtures.ts';
+import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 
-useTemporaryStateDirectory('codex-flow-state-');
+useTemporaryWorkflowStorage('codex-flow-storage-');
 
-function materializeRaw(value: unknown, replacements: Record<string, string>): unknown {
+function substitutePlaceholders(value: unknown, replacements: Record<string, string>): unknown {
   let json = JSON.stringify(value);
   for (const [from, to] of Object.entries(replacements)) json = json.replaceAll(from, to);
-  const raw = JSON.parse(json) as unknown;
-  validateManifest(raw);
-  return raw;
+  return JSON.parse(json) as unknown;
 }
 
 function git(repo: string, ...args: string[]) {
@@ -70,7 +68,12 @@ test('describe(build) materializes a public Issue source and reaches ship-ready'
       },
     ],
   };
-  const body = renderPublicIssueBody(renderPlanMarkdown(plan), plan, 'english');
+  const body = renderPublicIssueBody(
+    renderPlanMarkdown(plan),
+    plan,
+    'english',
+    '00000000-0000-4000-8000-000000000002',
+  );
   const issueFile = `${repo}.issue.json`;
   fs.writeFileSync(
     issueFile,
@@ -106,14 +109,16 @@ test('describe(build) materializes a public Issue source and reaches ship-ready'
       issue_number: 1,
     }),
   );
-  const manifest = materializeRaw(describe('build').executable_example!.manifest, {
+  const manifest = substitutePlaceholders(describe('build').executable_example!.manifest, {
     '<absolute-git-root>': repo,
     '<absolute-build-source-json>': pending.build_source_path,
     '<repo-relative-file>': 'unit.ts',
-    '<unit-outcome>': 'done',
+    '<unit-outcome>': 'update unit',
     '<unit-summary>': 'unit',
     '<git-ref>': head,
   });
+  // The raw example must validate as written; the normalized value must not replace it on disk.
+  validateManifest(manifest);
   fs.writeFileSync(pending.input_path, JSON.stringify(manifest));
 
   const runtime: WorkflowRuntime = {
@@ -123,6 +128,17 @@ test('describe(build) materializes a public Issue source and reaches ship-ready'
       },
       async selectEvidenceCandidate() {
         throw new Error('unexpected evidence selection');
+      },
+      async reviewBuild() {
+        return {
+          protocol: 'codex-build-review/v1' as const,
+          verdict: 'pass' as const,
+          classification: 'pass' as const,
+          reason_codes: [],
+          failure_route: null,
+          summary: 'Smoke implementation matches the Plan.',
+          findings: [],
+        };
       },
     },
     executeAction,

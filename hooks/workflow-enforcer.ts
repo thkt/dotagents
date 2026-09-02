@@ -10,9 +10,12 @@ import {
   armIntent,
   clearIntent,
   loadIntent,
+  parseBuildIssueNumber,
   parseExplicitInvocation,
   type WorkflowIntent,
 } from '../workflows/invocation.ts';
+import { BUILD_SOURCE_PROTOCOL } from '../workflows/flow/build/handoff.ts';
+import { githubRepositoryForRemote } from '../workflows/issue/github.ts';
 import { SHELL_CONTROL, shellArgument } from '../workflows/shared/command.ts';
 import {
   FLOW_COMMAND,
@@ -22,7 +25,7 @@ import {
   isMainModule,
 } from '../workflows/shared/environment.ts';
 import { errorCode, errorMessage } from '../workflows/shared/errors.ts';
-import { workflowInputPath } from '../workflows/shared/storage.ts';
+import { atomicWrite, workflowInputPath } from '../workflows/shared/storage.ts';
 
 const READ_ONLY_COMMANDS = new Set([
   'cat',
@@ -286,10 +289,27 @@ function userPromptSubmit(input: HookInput): HookResponse {
     return { decision: 'block', reason: `explicit $${workflow} requires session_id and cwd` };
   }
   try {
+    const buildIssue = workflow === 'build' ? parseBuildIssueNumber(input.prompt) : null;
+    const buildRepository =
+      buildIssue === null ? null : githubRepositoryForRemote(input.cwd, 'origin');
     const pending = armIntent({ runId: input.session_id, workflow, cwd: input.cwd });
+    try {
+      if (buildIssue !== null && buildRepository !== null && pending.build_source_path) {
+        atomicWrite(pending.build_source_path, {
+          protocol: BUILD_SOURCE_PROTOCOL,
+          repository: buildRepository,
+          issue_number: buildIssue,
+        });
+      }
+    } catch (error) {
+      clearIntent(pending.run_id);
+      throw error;
+    }
     const buildPaths =
       pending.workflow === 'build'
-        ? ` Prepare the published-issue source at ${pending.build_source_path}.`
+        ? buildIssue === null
+          ? ` Prepare the published-issue source at ${pending.build_source_path}.`
+          : ` The published-issue source for ${buildRepository}#${buildIssue} is already prepared at ${pending.build_source_path}; use it directly without searching for the Issue.`
         : '';
     const { executable, flag, start, noun } = invocationRuntime(pending);
     const command = `${executable} ${start} ${flag} ${shellArgument(pending.input_path)}`;

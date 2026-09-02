@@ -8,14 +8,16 @@ import { sha256 } from '../shared/evidence.ts';
 import { FlowError } from '../shared/errors.ts';
 import { isObject, rejectUnknownKeys } from '../shared/schema.ts';
 
-export const PUBLISHED_ISSUE_PROTOCOL = 'codex-build-issue/v1' as const;
+const LEGACY_PUBLISHED_ISSUE_PROTOCOL = 'codex-build-issue/v1' as const;
+export const PUBLISHED_ISSUE_PROTOCOL = 'codex-build-issue/v2' as const;
 
 export interface PublishedIssueReceipt {
-  protocol: typeof PUBLISHED_ISSUE_PROTOCOL;
+  protocol: typeof PUBLISHED_ISSUE_PROTOCOL | typeof LEGACY_PUBLISHED_ISSUE_PROTOCOL;
   published_at: string;
   repo: string;
   repository: string;
   remote: string;
+  publication_id: string | null;
   draft_sha256: string;
   issue_number: number;
   url: string;
@@ -32,8 +34,13 @@ function requiredString(value: unknown, label: string): string {
 
 /** Parses a local publication receipt retained only as cache and audit evidence. */
 export function parsePublishedIssueReceipt(raw: unknown, repo: string): PublishedIssueReceipt {
-  if (!isObject(raw) || raw.protocol !== PUBLISHED_ISSUE_PROTOCOL) {
-    throw new FlowError(`build receipt.protocol must be ${PUBLISHED_ISSUE_PROTOCOL}`);
+  if (
+    !isObject(raw) ||
+    (raw.protocol !== PUBLISHED_ISSUE_PROTOCOL && raw.protocol !== LEGACY_PUBLISHED_ISSUE_PROTOCOL)
+  ) {
+    throw new FlowError(
+      `build receipt.protocol must be ${PUBLISHED_ISSUE_PROTOCOL} or ${LEGACY_PUBLISHED_ISSUE_PROTOCOL}`,
+    );
   }
   rejectUnknownKeys(
     raw,
@@ -43,6 +50,7 @@ export function parsePublishedIssueReceipt(raw: unknown, repo: string): Publishe
       'repo',
       'repository',
       'remote',
+      'publication_id',
       'draft_sha256',
       'issue_number',
       'url',
@@ -78,6 +86,16 @@ export function parsePublishedIssueReceipt(raw: unknown, repo: string): Publishe
     throw new FlowError('build receipt body digest is invalid');
   }
   const parsed = parsePublicIssueBody(body);
+  const publicationId =
+    raw.protocol === PUBLISHED_ISSUE_PROTOCOL
+      ? requiredString(raw.publication_id, 'build receipt.publication_id')
+      : null;
+  if (
+    (raw.protocol === LEGACY_PUBLISHED_ISSUE_PROTOCOL && raw.publication_id !== undefined) ||
+    publicationId !== parsed.publication_id
+  ) {
+    throw new FlowError('build receipt publication id does not match its public Issue contract');
+  }
   const plan = parseBuildPlanAuthoring(raw.plan);
   if (JSON.stringify(plan) !== JSON.stringify(parsed.plan)) {
     throw new FlowError('build receipt Plan does not match its public Issue contract');
@@ -87,11 +105,12 @@ export function parsePublishedIssueReceipt(raw: unknown, repo: string): Publishe
     throw new FlowError('build receipt.remote has invalid characters');
   }
   return {
-    protocol: PUBLISHED_ISSUE_PROTOCOL,
+    protocol: raw.protocol,
     published_at: publishedAt,
     repo: receiptRepo,
     repository,
     remote,
+    publication_id: publicationId,
     draft_sha256: digest(raw.draft_sha256, 'build receipt.draft_sha256'),
     issue_number: issueNumber,
     url,

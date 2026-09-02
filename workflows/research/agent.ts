@@ -3,8 +3,8 @@
 import type { ThreadOptions } from '@openai/codex-sdk';
 
 import {
-  THINKING_THREAD_OPTIONS,
   createSignedInCodexClient,
+  readOnlyThreadOptions,
   structuredResponseObject,
   type CodexClientLike,
 } from '../shared/codex.ts';
@@ -36,19 +36,20 @@ export interface ResearchContextSummary {
   source_id: string;
 }
 
+/** Reads source only from snapshotRepo; input.repo names the live repository for artifact lookups. */
 export interface ResearchAgent {
   investigate(
     input: ResearchInput,
     prior: PriorResearchSummary[],
-    context?: ResearchContextSummary[],
-    snapshotRepo?: string,
+    context: ResearchContextSummary[],
+    snapshotRepo: string,
   ): Promise<ResearchDraft>;
   audit(
     input: ResearchInput,
     draft: ResearchDraft,
     prior: PriorResearchSummary[],
-    context?: ResearchContextSummary[],
-    snapshotRepo?: string,
+    context: ResearchContextSummary[],
+    snapshotRepo: string,
   ): Promise<ResearchAudit>;
 }
 
@@ -146,14 +147,10 @@ export function auditPrompt(
 function threadOptions(
   input: ResearchInput,
   prior: PriorResearchSummary[],
-  snapshotRepo: string = input.repo,
+  snapshotRepo: string,
 ): ThreadOptions {
   return {
-    ...THINKING_THREAD_OPTIONS,
-    workingDirectory: snapshotRepo,
-    sandboxMode: 'read-only',
-    approvalPolicy: 'never',
-    networkAccessEnabled: false,
+    ...readOnlyThreadOptions(snapshotRepo),
     webSearchMode: input.external_sources === 'none' ? 'disabled' : 'live',
     ...(prior.length ? { additionalDirectories: [researchArtifactDirectory(input.repo)] } : {}),
   };
@@ -174,9 +171,9 @@ export class CodexResearchAgent implements ResearchAgent {
 
   async investigate(
     input: ResearchInput,
-    prior: PriorResearchSummary[] = [],
-    context: ResearchContextSummary[] = [],
-    snapshotRepo: string = input.repo,
+    prior: PriorResearchSummary[],
+    context: ResearchContextSummary[],
+    snapshotRepo: string,
   ): Promise<ResearchDraft> {
     const thread = this.client.startThread(threadOptions(input, prior, snapshotRepo));
     const started = performance.now();
@@ -216,9 +213,9 @@ export class CodexResearchAgent implements ResearchAgent {
   async audit(
     input: ResearchInput,
     draft: ResearchDraft,
-    prior: PriorResearchSummary[] = [],
-    context: ResearchContextSummary[] = [],
-    snapshotRepo: string = input.repo,
+    prior: PriorResearchSummary[],
+    context: ResearchContextSummary[],
+    snapshotRepo: string,
   ): Promise<ResearchAudit> {
     const thread = this.client.startThread(threadOptions(input, prior, snapshotRepo));
     const result = await this.progress.run(

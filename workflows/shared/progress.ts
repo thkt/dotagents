@@ -10,6 +10,7 @@ type WorkflowSpecificStage =
   | 'issue_draft'
   | 'issue_publish'
   | 'actor_model_call'
+  | 'build_semantic_review'
   | 'gate_calibration'
   | 'gate_verification'
   | 'action_branch'

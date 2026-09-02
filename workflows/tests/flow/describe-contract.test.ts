@@ -10,9 +10,9 @@ import { validateManifest } from '../../flow/manifest.ts';
 import { armIntent } from '../../invocation.ts';
 import { runWorkflow, type WorkflowRuntime } from '../../flow/runner.ts';
 import { executeAction } from '../../flow/build/actions.ts';
-import { temporaryDirectory, useTemporaryStateDirectory } from '../shared/fixtures.ts';
+import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 
-useTemporaryStateDirectory('codex-flow-state-');
+useTemporaryWorkflowStorage('codex-flow-storage-');
 
 function materialize(value: unknown, replacements: Record<string, string>): unknown {
   let json = JSON.stringify(value);
@@ -60,6 +60,7 @@ test('described manifests materialize and pass the real validator', () => {
       if (step.kind === 'action' && step.action === 'branch') return ['branch'];
       if (step.id.startsWith('baseline:')) return ['baseline'];
       if (step.id.startsWith('final:')) return ['final'];
+      if (step.id === 'review:build') return ['review'];
       return [];
     });
     assert.deepEqual(materializedSequence, description.executable_example!.required_sequence);
@@ -93,6 +94,9 @@ test('described code manifest reaches terminal state with fake actor runtime', a
       async runActor() {},
       async selectEvidenceCandidate() {
         throw new Error('unexpected calibration');
+      },
+      async reviewBuild() {
+        throw new Error('unexpected build review');
       },
     },
     executeAction,

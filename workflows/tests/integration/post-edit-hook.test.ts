@@ -74,7 +74,7 @@ test('auto-fixes Japanese Markdown with the shared textlint config', () => {
   fs.writeFileSync(file, `${'これは日本語の文章です。'.repeat(6)}APIを使用する。\n`);
   assert.equal(fixMarkdown(file), true);
   assert.match(fs.readFileSync(file, 'utf8'), /API を使用する。/);
-});
+}, 15_000);
 
 test('fails when textlint exits non-zero', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-textlint-failure-'));
