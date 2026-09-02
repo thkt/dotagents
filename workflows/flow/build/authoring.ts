@@ -4,6 +4,7 @@ import { FlowError } from '../../shared/errors.ts';
 import type { ConfiguredLanguage } from '../../shared/language.ts';
 import { isObject, rejectUnknownKeys, stringArray, type JsonObject } from '../../shared/schema.ts';
 import { oneLine, sentenceItems } from '../../shared/text.ts';
+import { SCREENSHOT_CAP, type ScreenshotSpec } from './screenshot-contract.ts';
 
 interface BuildPlanReference {
   kind: 'module' | 'no-module' | 'new-shape';
@@ -23,6 +24,7 @@ export interface BuildPlanAuthoring {
   backlog_candidates: Array<{ summary: string }>;
   rules: Array<{ source: string; quote: string }>;
   manual_verification: string[];
+  screenshots?: ScreenshotSpec[];
   units: Array<{
     id: string;
     goal: string;
@@ -119,6 +121,16 @@ export const BUILD_PLAN_AUTHORING_SCHEMA = {
       },
     },
     manual_verification: STRING_ARRAY_SCHEMA,
+    screenshots: {
+      type: 'array',
+      maxItems: SCREENSHOT_CAP,
+      items: {
+        type: 'object',
+        properties: { name: { type: 'string' }, alt: { type: 'string' } },
+        required: ['name', 'alt'],
+        additionalProperties: false,
+      },
+    },
     units: {
       type: 'array',
       items: {
@@ -153,6 +165,7 @@ export const BUILD_PLAN_AUTHORING_SCHEMA = {
     'backlog_candidates',
     'rules',
     'manual_verification',
+    'screenshots',
     'units',
   ],
   additionalProperties: false,
@@ -222,6 +235,7 @@ export function parseBuildPlanAuthoring(raw: unknown): BuildPlanAuthoring {
       'backlog_candidates',
       'rules',
       'manual_verification',
+      'screenshots',
       'units',
     ],
     'build plan',
@@ -253,6 +267,17 @@ export function parseBuildPlanAuthoring(raw: unknown): BuildPlanAuthoring {
       quote: requiredString(item.quote, `${label}.quote`),
     };
   });
+  const screenshots =
+    raw.screenshots === undefined
+      ? undefined
+      : objectArray(raw.screenshots, 'build plan.screenshots').map((item, index) => {
+          const label = `build plan.screenshots[${index}]`;
+          rejectUnknownKeys(item, ['name', 'alt'], label, 'execution_error');
+          return {
+            name: requiredString(item.name, `${label}.name`),
+            alt: requiredString(item.alt, `${label}.alt`),
+          };
+        });
   const units = objectArray(raw.units, 'build plan.units').map((item, index) => {
     const label = `build plan.units[${index}]`;
     rejectUnknownKeys(
@@ -293,6 +318,7 @@ export function parseBuildPlanAuthoring(raw: unknown): BuildPlanAuthoring {
       'build plan.manual_verification',
       'execution_error',
     ),
+    ...(screenshots === undefined ? {} : { screenshots }),
     units,
   };
 }
@@ -319,6 +345,7 @@ export function buildPlanValue(plan: BuildPlanAuthoring) {
     backlog_candidates: plan.backlog_candidates,
     rules: plan.rules,
     manual_verification: plan.manual_verification,
+    ...(plan.screenshots === undefined ? {} : { screenshots: plan.screenshots }),
     units: plan.units,
   };
 }
@@ -398,6 +425,14 @@ export function renderPlanMarkdown(
       `### ${labels.manual}`,
       '',
       ...plan.manual_verification.map((item) => `- ${oneLine(item)}`),
+      '',
+    );
+  }
+  if (plan.screenshots?.length) {
+    lines.push(
+      `### ${language === 'japanese' ? 'PR スクリーンショット' : 'PR screenshots'}`,
+      '',
+      ...plan.screenshots.map((item) => `- \`${item.name}\`: ${oneLine(item.alt)}`),
       '',
     );
   }

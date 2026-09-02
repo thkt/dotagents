@@ -64,6 +64,7 @@ import {
   prepareShipInput,
   validateActionCompletion,
 } from './build/actions.ts';
+import { actorScreenshotAttachments, sealScreenshotAttachments } from './build/screenshots.ts';
 import {
   buildReviewGateReport,
   describeBuildSourceInput,
@@ -390,6 +391,7 @@ function completeActorOrAction(runId: string, stepId: string): PublicState {
         'scope_error',
       );
     }
+    sealScreenshotAttachments(state.run_id, actorScreenshotAttachments(state, step.id));
   }
   if (step.kind === 'action') validateActionCompletion(state, step);
   if (
@@ -719,6 +721,7 @@ function directiveForState(state: FlowState): FlowDirective {
       contract: planUnit?.contract ?? null,
       files: step.files,
       verification: actorVerification(state, step),
+      screenshots: actorScreenshotAttachments(state, step.id),
       correction: correctionContext(state, step.id),
     };
   }

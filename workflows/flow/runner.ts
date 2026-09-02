@@ -3,6 +3,7 @@
 
 import { RESULT_PROTOCOL, type CommandResult, type FlowDirective } from './contracts.ts';
 import { executeAction } from './build/actions.ts';
+import { resetScreenshotAttachments } from './build/screenshots.ts';
 import { ActorEscalation, CodexWorkflowAgent, type WorkflowAgent } from './agent.ts';
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
 import { isMainModule } from '../shared/environment.ts';
@@ -97,6 +98,7 @@ export async function driveWorkflow(
       case 'run-actor':
         try {
           await progress.run(progressContext(workflow, directive), async () => {
+            resetScreenshotAttachments(runId, directive.screenshots ?? []);
             await runIsolatedActor(repo, directive.files, (sandboxRepo) =>
               runtime.agent.runActor(sandboxRepo, directive),
             );

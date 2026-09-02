@@ -273,6 +273,7 @@ export function startFlow(
   runId: string,
   manifestFile: string,
   beforeStart?: () => void,
+  screenshots: Array<{ name: string; alt: string }> = [],
 ): PublicState {
   const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8')) as FlowManifest;
   const pending = intent.armIntent({
@@ -299,6 +300,7 @@ export function startFlow(
       backlog_candidates: [],
       rules: [],
       manual_verification: ['Open the fixture and observe the rendered value.'],
+      screenshots,
       units: [
         {
           id: 'U-001',

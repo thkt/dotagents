@@ -48,6 +48,11 @@ export interface GitHubInvocation {
   readonly args: readonly string[];
 }
 
+export interface GitHubAttachment {
+  path: string;
+  alt: string;
+}
+
 function invocation(operation: GitHubOperation, args: string[]): GitHubInvocation {
   const request = {
     executable: 'gh',
@@ -173,6 +178,7 @@ export function githubPrCreate(
   base: string,
   title: string,
   bodyFile: string,
+  attachments: readonly GitHubAttachment[] = [],
 ): GitHubInvocation {
   return invocation('pr:create', [
     'pr',
@@ -188,6 +194,7 @@ export function githubPrCreate(
     title,
     '--body-file',
     bodyFile,
+    ...attachments.flatMap((attachment) => ['--attach', `${attachment.path}#${attachment.alt}`]),
   ]);
 }
 

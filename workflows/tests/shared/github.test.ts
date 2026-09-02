@@ -93,6 +93,13 @@ test('freezes registered operations and their literal arguments', () => {
   assert.equal(Object.isFrozen(request.args), true);
 });
 
+test('adds each PR attachment with its alt text to the registered create command', () => {
+  const request = githubPrCreate('owner/repo', 'head', 'main', 'title', '/tmp/body', [
+    { path: '/tmp/home.png', alt: 'Home screen' },
+  ]);
+  assert.deepEqual(request.args.slice(-2), ['--attach', '/tmp/home.png#Home screen']);
+});
+
 test('removes GitHub tokens and isolates gh configuration for shell gates', () => {
   const environment = withoutGitHubCredentials(
     {

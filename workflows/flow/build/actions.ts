@@ -5,6 +5,7 @@ import * as fs from 'node:fs';
 
 import { main as renderPrBody } from './pr-body.ts';
 import { inspectDraftPullRequest } from './github.ts';
+import { sealedScreenshotAttachments, validateSealedScreenshotAttachments } from './screenshots.ts';
 import type {
   ActionParameters,
   ActionStep,
@@ -110,6 +111,7 @@ export function actionInvocations(repo: string, directive: ActionDirective): Com
           directive.parameters.base_branch,
           directive.parameters.title,
           directive.parameters.pr_body_path,
+          directive.parameters.attachments,
         ),
       ];
   }
@@ -122,6 +124,10 @@ export function executeAction(
   runCommand: CommandExecutor = execute,
 ): void {
   if (directive.action === 'ship') {
+    validateSealedScreenshotAttachments(
+      directive.parameters.run_id,
+      directive.parameters.attachments,
+    );
     renderPrBody([
       '--input',
       directive.parameters.pr_input_path,
@@ -183,6 +189,7 @@ function actionParameters(state: FlowState, step: ActionStep): ActionParameters 
   }
   const branch = branchAction(state);
   return {
+    run_id: state.run_id,
     remote: step.remote,
     repository: step.repository,
     branch: branch.branch_name,
@@ -190,6 +197,7 @@ function actionParameters(state: FlowState, step: ActionStep): ActionParameters 
     title: state.build_plan.title,
     pr_input_path: prInputPath(state.run_id),
     pr_body_path: prBodyPath(state.run_id),
+    attachments: sealedScreenshotAttachments(state),
   };
 }
 
@@ -242,6 +250,7 @@ export function prepareShipInput(state: FlowState): void {
     untouched_plan_files: values('untouched_plan_files'),
     missing_tests: values('missing_tests'),
     manual_checks: state.build_plan.manual_verification,
+    screenshots: state.build_plan.screenshots ?? [],
     advisories: reviewAdvisories,
     verification_output: '',
     language,
@@ -375,6 +384,7 @@ function shipPublicationCompleted(
     baseBranch: step.base_branch,
     title: parameters.title,
     body: expectedBody,
+    screenshots: parameters.attachments.map(({ name, alt }) => ({ name, alt })),
   });
   if (inspection.status === 'mismatch') {
     throw new FlowError(inspection.error, 'postcondition_error');

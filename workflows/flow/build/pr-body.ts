@@ -7,6 +7,11 @@ import path from 'node:path';
 import { cli, isObject, parseSingletonArgs, readJsonFile, usageError } from './cli.ts';
 import { isMainModule } from '../../shared/environment.ts';
 import { resolveConfiguredLanguage, type ConfiguredLanguage } from '../../shared/language.ts';
+import {
+  markdownScreenshotAlt,
+  SCREENSHOT_CAP,
+  safeScreenshotName,
+} from './screenshot-contract.ts';
 
 const PROTOCOL = 'codex-build-pr-body';
 const DESCRIPTION_PROTOCOL = 'codex-build-pr-body-description';
@@ -22,6 +27,7 @@ const LABELS = {
     missing: 'Planned test statements not found',
     advisories: 'Advisory findings (not mechanically reproduced)',
     output: 'verify output',
+    screenshots: 'Screenshots',
   },
   japanese: {
     header: '_build の自動検証結果。公開 issue Plan に対する差分の独立 semantic review を含む。_',
@@ -31,6 +37,7 @@ const LABELS = {
     missing: '見つからなかった plan のテスト言明',
     advisories: '助言的な指摘（機械的な再現なし）',
     output: 'verify 出力',
+    screenshots: 'スクリーンショット',
   },
 } as const;
 
@@ -45,6 +52,7 @@ interface PrBodyPayload {
   manual_checks?: unknown;
   advisories?: unknown;
   verification_output?: unknown;
+  screenshots?: unknown;
 }
 
 function oneLine(value: unknown): string {
@@ -91,6 +99,20 @@ export function validatePayload(payload: unknown): asserts payload is PrBodyPayl
   for (const key of ['tests_pass', 'gates_pass']) {
     if (typeof payload[key] !== 'boolean') throw usageError(`${key} must be boolean`);
   }
+  const screenshots = list(payload.screenshots, 'screenshots');
+  if (screenshots.length > SCREENSHOT_CAP) {
+    throw usageError(`screenshots may contain at most ${SCREENSHOT_CAP} items`);
+  }
+  for (const [index, screenshot] of screenshots.entries()) {
+    if (
+      !isObject(screenshot) ||
+      !safeScreenshotName(screenshot.name) ||
+      typeof screenshot.alt !== 'string' ||
+      !screenshot.alt.trim()
+    ) {
+      throw usageError(`screenshots[${index}] must contain a safe image name and alt text`);
+    }
+  }
 }
 
 /** Renders verified build facts as a bounded Markdown PR body. */
@@ -104,6 +126,7 @@ export function render(payload: unknown): string {
   const missing = list(payload.missing_tests, 'missing_tests');
   const manual = list(payload.manual_checks, 'manual_checks');
   const advisories = list(payload.advisories, 'advisories');
+  const screenshots = list(payload.screenshots, 'screenshots');
   const tests = payload.tests_pass ? 'pass' : 'FAIL';
   const gates = payload.gates_pass ? 'pass' : 'FAIL';
   const status = [
@@ -137,7 +160,16 @@ export function render(payload: unknown): string {
   const verification = folded.length
     ? `<details>\n<summary>${status}</summary>\n\n${folded.join('\n\n')}\n\n</details>`
     : status;
-  return `\n\n---\n\n${labels.header}\n\nCloses #${payload.issue}\n\n${verification}\n`;
+  const visualEvidence = screenshots.length
+    ? `\n\n## ${labels.screenshots}\n\n${screenshots
+        .map((item) =>
+          isObject(item)
+            ? `![${markdownScreenshotAlt(String(item.alt))}](./${String(item.name)})`
+            : '',
+        )
+        .join('\n\n')}`
+    : '';
+  return `\n\n---\n\n${labels.header}\n\nCloses #${payload.issue}${visualEvidence}\n\n${verification}\n`;
 }
 
 export function describe(language: ConfiguredLanguage = resolveConfiguredLanguage('japanese')) {
@@ -155,6 +187,7 @@ export function describe(language: ConfiguredLanguage = resolveConfiguredLanguag
       manual_checks: [],
       advisories: [],
       verification_output: '',
+      screenshots: [],
       language,
     },
     required_keys: [...REQUIRED_KEYS],

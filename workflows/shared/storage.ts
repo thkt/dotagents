@@ -59,6 +59,14 @@ export function prBodyPath(runId: string): string {
   return path.join(workflowRunDirectory(runId), 'pr-body.md');
 }
 
+export function buildScreenshotPath(runId: string, name: string): string {
+  return path.join(workflowRunDirectory(runId), 'screenshots', name);
+}
+
+export function screenshotSealPath(runId: string): string {
+  return path.join(workflowRunDirectory(runId), 'screenshot-seal.json');
+}
+
 /** Repository-local artifacts are durable handoff and audit cache, never Build authority. */
 export function workflowArtifactDirectory(repo: string): string {
   const configured = process.env.CODEX_FLOW_ARTIFACT_DIR?.trim();
