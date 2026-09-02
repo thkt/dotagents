@@ -2,7 +2,14 @@
 
 import { FlowError } from '../../shared/errors.ts';
 import type { ConfiguredLanguage } from '../../shared/language.ts';
-import { isObject, rejectUnknownKeys, stringArray, type JsonObject } from '../../shared/schema.ts';
+import {
+  isObject,
+  nullableString as parseNullableString,
+  objectArray,
+  rejectUnknownKeys,
+  requiredString as parseRequiredString,
+  stringArray,
+} from '../../shared/schema.ts';
 import { oneLine, sentenceItems } from '../../shared/text.ts';
 import { SCREENSHOT_CAP, type ScreenshotSpec } from './screenshot-contract.ts';
 
@@ -172,21 +179,11 @@ export const BUILD_PLAN_AUTHORING_SCHEMA = {
 } as const;
 
 function requiredString(value: unknown, label: string): string {
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new FlowError(`${label} must be a non-empty string`, 'execution_error');
-  }
-  return value.trim();
+  return parseRequiredString(value, label, 'execution_error');
 }
 
 function nullableString(value: unknown, label: string): string | null {
-  return value === null ? null : requiredString(value, label);
-}
-
-function objectArray(value: unknown, label: string): JsonObject[] {
-  if (!Array.isArray(value) || value.some((item) => !isObject(item))) {
-    throw new FlowError(`${label} must be an array of objects`, 'execution_error');
-  }
-  return value;
+  return parseNullableString(value, label, 'execution_error');
 }
 
 function parseReference(raw: unknown): BuildPlanReference {

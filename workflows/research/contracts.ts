@@ -6,7 +6,15 @@ import path from 'node:path';
 import { FlowError } from '../shared/errors.ts';
 import { CONFIGURED_LANGUAGES, type ConfiguredLanguage } from '../shared/language.ts';
 import { gitRoot, normalizeRepoPath, realpathInside } from '../shared/repository.ts';
-import { isObject, rejectUnknownKeys, stringArray, type JsonObject } from '../shared/schema.ts';
+import {
+  enumValue,
+  isObject,
+  objectArray,
+  rejectUnknownKeys,
+  requiredString,
+  stringArray,
+  type JsonObject,
+} from '../shared/schema.ts';
 import { parseStageTimings, type StageTimings } from '../shared/codex.ts';
 
 export const RESEARCH_INPUT_PROTOCOL = 'codex-research-input' as const;
@@ -200,32 +208,6 @@ export const RESEARCH_AUDIT_SCHEMA = {
   required: ['answer', 'findings', 'rejected', 'unknowns', 'limitations', 'prior_reports'],
   additionalProperties: false,
 } as const;
-
-function requiredString(value: unknown, label: string, code = 'usage_error'): string {
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new FlowError(`${label} must be a non-empty string`, code);
-  }
-  return value.trim();
-}
-
-function enumValue<T extends string>(
-  value: unknown,
-  values: readonly T[],
-  label: string,
-  code = 'usage_error',
-): T {
-  if (typeof value !== 'string' || !values.includes(value as T)) {
-    throw new FlowError(`${label} must be ${values.join(', ')}`, code);
-  }
-  return value as T;
-}
-
-function objectArray(value: unknown, label: string): JsonObject[] {
-  if (!Array.isArray(value) || value.some((item) => !isObject(item))) {
-    throw new FlowError(`${label} must be an array of objects`, 'execution_error');
-  }
-  return value;
-}
 
 function validateScopePath(repo: string, value: string, label: string): string {
   const relative = normalizeRepoPath(value);
