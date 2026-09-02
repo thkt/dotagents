@@ -16,13 +16,21 @@ import {
 } from '../../flow/shell-gate.ts';
 import { temporaryDirectory } from '../shared/fixtures.ts';
 
-test('normalizes Node test reporter duration anchors and matches reruns exactly', () => {
+test('normalizes Node and Bun test reporter duration anchors across reruns', () => {
   const candidates = calibrationCandidates('✖ planned name (0.13ms)\n', '', [
     { id: 'T-001', name: 'planned name' },
   ]);
   assert.equal(candidates[0]?.text, '✖ planned name');
   assert.equal(hasExactOutputLine('✖ planned name (0.09ms)\n', '', candidates[0]!.text), true);
   assert.equal(hasExactOutputLine('✖ planned name (details)\n', '', candidates[0]!.text), false);
+
+  const bunCalibration = '(fail) planned name [4.72ms]';
+  const bunRerun = '(fail) planned name [0.29ms]';
+  const bunCandidates = calibrationCandidates(`${bunCalibration}\n`, '', [
+    { id: 'T-001', name: 'planned name' },
+  ]);
+  assert.equal(bunCandidates[0]?.text, '(fail) planned name');
+  assert.equal(hasExactOutputLine(`${bunRerun}\n`, '', bunCandidates[0]!.text), true);
 });
 
 const verifier = path.resolve(import.meta.dirname, '../../flow/shell-gate.ts');

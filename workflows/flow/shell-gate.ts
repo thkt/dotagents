@@ -176,7 +176,7 @@ export function hasExactOutputLine(stdout: string, stderr: string, evidence: str
 }
 
 function stableEvidenceLine(text: string): string {
-  return text.replace(/\s+\(\d+(?:\.\d+)?ms\)$/u, '');
+  return text.replace(/\s+(?:\(\d+(?:\.\d+)?ms\)|\[\d+(?:\.\d+)?ms\])$/u, '');
 }
 
 interface PlannedFailure {
