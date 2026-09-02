@@ -40,6 +40,7 @@ import { atomicWrite, workflowInputPath } from '../workflows/shared/storage.ts';
 const READ_ONLY_COMMANDS = new Set([
   'cat',
   'file',
+  'grep',
   'head',
   'jq',
   'ls',
@@ -51,7 +52,19 @@ const READ_ONLY_COMMANDS = new Set([
   'wc',
 ]);
 const READ_ONLY_GIT_COMMANDS = new Set(['diff', 'log', 'ls-files', 'rev-parse', 'show', 'status']);
+const READ_ONLY_GH_GROUPS = new Set(['issue', 'pr', 'release', 'repo', 'run', 'workflow']);
 const UNSAFE_GIT_READ_FLAGS = ['--ext-diff', '--output', '--textconv'] as const;
+const UNSAFE_FIND_ACTIONS = [
+  '-delete',
+  '-exec',
+  '-execdir',
+  '-fls',
+  '-fprint',
+  '-fprint0',
+  '-fprintf',
+  '-ok',
+  '-okdir',
+] as const;
 
 interface HookInput {
   cwd?: string;
@@ -187,24 +200,68 @@ function injectRunId(input: HookInput, command: string): HookResponse {
   };
 }
 
-function isReadOnlyPreparationCommand(command: string): boolean {
-  if (!command.trim() || SHELL_CONTROL.test(command)) return false;
-  const words = shellWords(command);
+function readOnlyShellSegments(command: string): string[] | null {
+  if (/(?:\r|\n|`|[<>]|\$\(|(?:^|[^&])&(?!&))/u.test(command)) return null;
+  const segments = command.split(/\s*(?:&&|\|\||[;|])\s*/u).map((segment) => segment.trim());
+  return segments.length > 0 && segments.every(Boolean) ? segments : null;
+}
+
+function isReadOnlyGit(words: string[]): boolean {
+  let index = 1;
+  if (words[index] === '-C') index += 2;
+  const subcommand = words[index] || '';
+  const args = words.slice(index + 1);
+  if (READ_ONLY_GIT_COMMANDS.has(subcommand)) {
+    return !args.some((word) =>
+      UNSAFE_GIT_READ_FLAGS.some((flag) => word === flag || word.startsWith(`${flag}=`)),
+    );
+  }
+  if (subcommand === 'branch') {
+    return args.length === 0 || (args.length === 1 && args[0] === '--show-current');
+  }
+  if (subcommand !== 'remote') return false;
+  if (args.length === 0) return true;
+  if (args.length === 1 && (args[0] === '-v' || args[0] === '--verbose')) return true;
+  if (args[0] !== 'get-url') return false;
+  const targets = args.slice(1).filter((word) => word !== '--all' && word !== '--push');
+  return targets.length === 1 && targets[0]!.length > 0;
+}
+
+function isReadOnlySegment(segment: string, allowGitHubView: boolean): boolean {
+  const words = shellWords(segment);
   const executable = path.basename(words[0] || '');
   if (READ_ONLY_COMMANDS.has(executable)) {
     return (
       executable !== 'rg' || !words.some((word) => word === '--pre' || word.startsWith('--pre='))
     );
   }
-  if (executable !== 'git') return false;
-  let index = 1;
-  if (words[index] === '-C') index += 2;
-  if (!READ_ONLY_GIT_COMMANDS.has(words[index] || '')) return false;
-  return !words
-    .slice(index + 1)
-    .some((word) =>
-      UNSAFE_GIT_READ_FLAGS.some((flag) => word === flag || word.startsWith(`${flag}=`)),
+  if (executable === 'sed') {
+    return (
+      words[1] === '-n' &&
+      /^(?:\d+|\$)(?:,(?:\d+|\$))?p$/u.test(words[2] || '') &&
+      words.slice(3).every((word) => word === '--' || !word.startsWith('-'))
     );
+  }
+  if (executable === 'find') {
+    return !words.some((word) =>
+      UNSAFE_FIND_ACTIONS.some((action) => word === action || word.startsWith(`${action}=`)),
+    );
+  }
+  if (executable === 'git') return isReadOnlyGit(words);
+  return (
+    allowGitHubView &&
+    executable === 'gh' &&
+    READ_ONLY_GH_GROUPS.has(words[1] || '') &&
+    words[2] === 'view' &&
+    !words.includes('--web')
+  );
+}
+
+function isReadOnlyPreparationCommand(command: string, allowGitHubView = true): boolean {
+  const segments = readOnlyShellSegments(command);
+  return (
+    segments !== null && segments.every((segment) => isReadOnlySegment(segment, allowGitHubView))
+  );
 }
 
 function boundBuildIssueView(pending: WorkflowIntent): GitHubInvocation | null {
@@ -291,7 +348,8 @@ function pendingPreToolUse(
   ) {
     return deny(`the pending workflow must run through ${executable}`);
   }
-  return isReadOnlyPreparationCommand(command) || isBoundBuildIssueView(command, pending)
+  return isReadOnlyPreparationCommand(command, pending.workflow !== 'build') ||
+    isBoundBuildIssueView(command, pending)
     ? {}
     : deny(
         'only read-only inspection and workflow input preparation are allowed before workflow run',

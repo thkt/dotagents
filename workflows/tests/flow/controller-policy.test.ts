@@ -407,7 +407,12 @@ test('pending intent rejects destructive forms of nominally read-only commands',
   for (const command of [
     'ls & touch outside.js',
     'find . -delete',
+    "find . -exec touch outside.js ';'",
+    "sed -n 'w outside.js' README.md",
     'git branch new-branch',
+    'git remote set-url origin https://example.invalid/owner/project.git',
+    'gh issue edit 42 --title changed',
+    'rg pattern . | head -20 && touch outside.js',
     'rg --pre touch pattern .',
     'git diff --output=outside.diff',
   ]) {
@@ -419,6 +424,35 @@ test('pending intent rejects destructive forms of nominally read-only commands',
       tool_input: { command },
     });
     assert.equal(result.hookSpecificOutput?.permissionDecision, 'deny', command);
+  }
+});
+
+test('pending Think permits common composed read-only inspection commands', () => {
+  const { repo } = fixture();
+  const turn = 'turn-pending-read-policy';
+  intent.armIntent({ runId: turn, workflow: 'think', cwd: repo });
+
+  for (const command of [
+    "sed -n '1,20p' README.md",
+    'rg pattern . | head -20',
+    'grep pattern README.md',
+    'find . -maxdepth 2 -type f',
+    'git status --short && git branch --show-current',
+    'git remote -v',
+    'git remote get-url origin',
+    'gh issue view 42 --repo owner/project',
+  ]) {
+    assert.deepEqual(
+      hook.preToolUse({
+        hook_event_name: 'PreToolUse',
+        session_id: turn,
+        tool_name: 'Bash',
+        cwd: repo,
+        tool_input: { command },
+      }),
+      {},
+      command,
+    );
   }
 });
 
