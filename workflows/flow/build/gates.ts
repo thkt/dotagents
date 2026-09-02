@@ -45,6 +45,7 @@ function buildPlanContext(value: ResolvedBuildSource): BuildPlanContext {
     outcome: value.plan.outcome,
     test_command: value.plan.test_command,
     manual_verification: value.plan.manual_verification,
+    screenshots: value.plan.screenshots ?? [],
     units: value.plan.units.map((unit) => ({
       id: unit.id,
       goal: unit.goal,

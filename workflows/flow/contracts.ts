@@ -1,6 +1,7 @@
 /** @file Outcome: All flow components share one current model of legal states and messages. */
 
 import type { RepositoryInvariant, RepoSnapshot } from '../shared/repository.ts';
+import type { ScreenshotSpec } from './build/screenshot-contract.ts';
 
 export const MANIFEST_PROTOCOL = 'codex-flow-manifest' as const;
 export const STATE_PROTOCOL = 'codex-flow-state' as const;
@@ -127,6 +128,7 @@ export interface CommitActionParameters {
 }
 
 export interface ShipActionParameters {
+  run_id: string;
   remote: string;
   repository: string;
   branch: string;
@@ -134,6 +136,7 @@ export interface ShipActionParameters {
   title: string;
   pr_input_path: string;
   pr_body_path: string;
+  attachments: Array<ScreenshotSpec & { path: string; sha256: string }>;
 }
 
 export type ActionParameters =
@@ -289,6 +292,7 @@ export interface BuildPlanContext {
   outcome: string;
   test_command: string;
   manual_verification: string[];
+  screenshots?: ScreenshotSpec[];
   units: BuildPlanUnit[];
 }
 
@@ -357,6 +361,7 @@ export type FlowDirective =
       contract: string | null;
       files: string[];
       verification: ActorVerification;
+      screenshots?: Array<ScreenshotSpec & { path: string }>;
       correction: CorrectionContext | null;
     }
   | RunActionDirective

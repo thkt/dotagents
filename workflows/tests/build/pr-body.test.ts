@@ -73,6 +73,22 @@ test('renders Japanese fixed labels without trusting agent-authored labels', () 
   assert.match(body, /実機確認/);
 });
 
+test('renders declared screenshots as local references for gh to rewrite', () => {
+  const body = render(
+    payload({ screenshots: [{ name: 'login.png', alt: 'ログイン後のホーム画面' }] }),
+  );
+  assert.match(body, /## Screenshots/u);
+  assert.match(body, /!\[ログイン後のホーム画面\]\(\.\/login\.png\)/u);
+});
+
+test('rejects more screenshots than gh can attach in one command', () => {
+  const screenshots = Array.from({ length: 51 }, (_, index) => ({
+    name: `screen-${index}.png`,
+    alt: `Screen ${index}`,
+  }));
+  assert.throws(() => render(payload({ screenshots })), /at most 50 items/u);
+});
+
 test('keeps backticks and newlines in filenames inside one safe code span', () => {
   const body = render(payload({ scope_deviations: ['dir/odd`name\nline.js'] }));
   assert.match(body, /``dir\/odd`name line\.js``/);

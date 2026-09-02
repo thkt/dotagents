@@ -23,6 +23,7 @@ description: 公開GitHub Issue contract 1件を、検証済みの実装単位�
 - ユーザーが先頭で明示した invocation を、hook が束縛したリポジトリにおける宣言済みローカルブランチ、検証済み実装単位のコミット、push 1 回、下書き PR 作成 1 回の承認として扱う。`Ship`の確認を重ねて求めない。
 - 同じ依頼で push または下書き PR 作成をユーザーが明示的に除外した場合を除き、`Ship`を含める。
 - resume 時は、外部 action を繰り返す前に branch、commit、push、draft PR の postcondition を照合する。
+- 公開 Plan が screenshots を宣言した場合は、完成した UI を render し、controller が指定した path にすべての画像を撮影する。controller が seal した画像 bytes と一致する場合だけ Ship し、画像の変更や未解決の添付があれば別 PR を作らず停止する。
 - 追加 Issue の候補は報告するだけで、作成しない。
 - active Build の取消をユーザーが求めた場合は hook-bound な`codex-flow cancel`を実行する。取消後は実装、commit、push、draft PR 作成を行わない。
 

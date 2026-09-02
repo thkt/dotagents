@@ -619,3 +619,13 @@ test('derives action subprocess arguments from typed controller parameters', () 
     },
   ]);
 });
+
+test('actor prompt requires declared screenshots at controller-owned paths', () => {
+  const prompt = actorPrompt({
+    ...ACTOR_DIRECTIVE,
+    screenshots: [{ path: '/tmp/run/screenshots/home.png', name: 'home.png', alt: 'Home screen' }],
+  });
+  assert.match(prompt, /capture these exact screenshots/u);
+  assert.match(prompt, /\/tmp\/run\/screenshots\/home\.png — Home screen/u);
+  assert.match(prompt, /do not add them to the repository/u);
+});

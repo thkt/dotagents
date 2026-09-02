@@ -109,6 +109,13 @@ export function actorPrompt(directive: ActorDirective): string {
   const correction = directive.correction
     ? ['Correction evidence from the failed gate:', JSON.stringify(directive.correction, null, 2)]
     : [];
+  const screenshots = directive.screenshots?.length
+    ? [
+        'After implementation, run the completed UI and capture these exact screenshots. Write image bytes to the absolute controller-owned paths; do not add them to the repository:',
+        ...directive.screenshots.map((item) => `- ${item.path} — ${item.alt}`),
+        'Use PNG, JPEG, GIF, or WebP. Capture the rendered UI itself, not source code or a terminal.',
+      ]
+    : [];
   return [
     `Complete workflow actor ${directive.step_id}.`,
     `Outcome:\n${directive.outcome}`,
@@ -117,6 +124,7 @@ export function actorPrompt(directive: ActorDirective): string {
     `Allowed files:\n${directive.files.map((file) => `- ${file}`).join('\n')}`,
     `Verification: ${directive.verification.command} must ${directive.verification.expect}.`,
     'Inspect and edit the repository now. Change only the allowed files.',
+    ...screenshots,
     'Do not commit, push, create a pull request, or invoke workflow-control commands.',
     'If a contract-external design decision is required, escalate to think; if facts or evidence are missing, escalate to research. Ordinary implementation or test failures must be corrected locally. Escalation discards all sandbox edits.',
     'Return a closed response: on completion use status: completed with route and question set to null; on handoff use status: escalated with a think/research route and a concrete question.',

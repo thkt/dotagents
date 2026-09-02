@@ -119,6 +119,8 @@ test('keeps build implementation and workflow tests with their owning workflow',
       'plan.ts',
       'pr-body.ts',
       'revalidate.ts',
+      'screenshot-contract.ts',
+      'screenshots.ts',
     ],
   );
   assert.deepEqual(

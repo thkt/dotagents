@@ -332,7 +332,9 @@ test('Ship directive owns its PR input, render path, and external targets', () =
   enableShipping(manifest);
   fs.writeFileSync(manifestFile, JSON.stringify(manifest));
   const turn = 'turn-ship-contract';
-  startFlow(turn, manifestFile);
+  startFlow(turn, manifestFile, undefined, [
+    { name: 'fixture.png', alt: 'Rendered fixture value' },
+  ]);
   assert.equal(fs.existsSync(buildShipApprovalPath(turn)), false);
   const loaded = flow.completeCurrentDirective(turn, 'load:plan');
   assert.equal(loaded.result.status, 'running', JSON.stringify(loaded.result.last_gate));
@@ -342,6 +344,13 @@ test('Ship directive owns its PR input, render path, and external targets', () =
   flow.completeCurrentDirective(turn, 'branch');
   flow.completeCurrentDirective(turn, 'baseline:test');
   fs.writeFileSync(path.join(repo, 'src.js'), 'module.exports = 1;\n');
+  const implementation = flow.currentDirective(turn);
+  assert.equal(implementation.kind, 'run-actor');
+  if (implementation.kind !== 'run-actor') throw new Error('expected implementation actor');
+  assert.equal(implementation.screenshots?.length, 1);
+  fs.mkdirSync(path.dirname(implementation.screenshots![0]!.path), { recursive: true });
+  const screenshotBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]);
+  fs.writeFileSync(implementation.screenshots![0]!.path, screenshotBytes);
   flow.completeCurrentDirective(turn, 'U-001:direct');
   flow.completeCurrentDirective(turn, 'U-001:direct:gate');
   flow.completeCurrentDirective(turn, 'U-001:artifacts');
@@ -383,9 +392,17 @@ test('Ship directive owns its PR input, render path, and external targets', () =
   assert.equal(payload.gates_pass, true);
   assert.equal(payload.language, 'japanese');
   assert.deepEqual(payload.manual_checks, ['Open the fixture and observe the rendered value.']);
+  assert.deepEqual(payload.screenshots, [{ name: 'fixture.png', alt: 'Rendered fixture value' }]);
   assert.equal(fs.existsSync(parameters.pr_body_path), false);
 
   const invocations: CommandInvocation[] = [];
+  fs.appendFileSync(implementation.screenshots![0]!.path, 'changed');
+  assert.throws(
+    () => executeAction(repo, directive, (invocation) => invocations.push(invocation)),
+    /required screenshot changed after actor completion/u,
+  );
+  assert.equal(invocations.length, 0);
+  fs.writeFileSync(implementation.screenshots![0]!.path, screenshotBytes);
   executeAction(repo, directive, (invocation) => invocations.push(invocation));
   assert.equal(fs.existsSync(parameters.pr_body_path), true);
   assert.deepEqual(
@@ -399,6 +416,10 @@ test('Ship directive owns its PR input, render path, and external targets', () =
     '--repo',
     'owner/project',
     '--head',
+  ]);
+  assert.deepEqual(invocations[1]?.args.slice(-2), [
+    '--attach',
+    `${implementation.screenshots![0]!.path}#Rendered fixture value`,
   ]);
   assert.equal(invocations[1]?.args[invocations[1]!.args.indexOf('--title') + 1], 'フィクスチャ');
 });

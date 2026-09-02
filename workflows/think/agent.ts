@@ -123,6 +123,7 @@ export function reviewPrompt(
       'Return ready only for one sufficient, internally consistent plan accepted by the build contract. Otherwise return research_required with plan null and concrete questions; a bug requires an evidenced root cause.',
       'When ready, retain one materially rejected alternative. Cite repository evidence by repo-relative path and Lx or Lx-Ly; cite research by report basename and F-NNN.',
       'Limit manual_verification to behavior the test command cannot execute, naming the mechanism and observable check.',
+      'For a user-visible UI change, require one or more PR screenshots with a safe image filename and meaningful alt text; otherwise use an empty screenshots array.',
       ...(correction
         ? [
             'Correct only the supplied semantic findings. Do not broaden the handoff or invent evidence; the controller owns mechanical validation.',

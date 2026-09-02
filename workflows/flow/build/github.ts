@@ -9,6 +9,7 @@ import {
   runGitHub,
 } from '../../shared/github.ts';
 import { isObject } from '../../shared/schema.ts';
+import { markdownScreenshotAlt, type ScreenshotSpec } from './screenshot-contract.ts';
 
 interface GitHubPullRequest {
   url: string;
@@ -25,6 +26,7 @@ interface DraftPullRequestExpectation {
   baseBranch: string;
   title: string;
   body: string;
+  screenshots?: ScreenshotSpec[];
 }
 
 type DraftPullRequestInspection =
@@ -72,8 +74,33 @@ function mismatchFields(
     ...(pullRequest.baseRefName === expected.baseBranch ? [] : ['baseRefName']),
     ...(pullRequest.headRefName === expected.branch ? [] : ['headRefName']),
     ...(pullRequest.title === expected.title ? [] : ['title']),
-    ...(pullRequest.body === expected.body ? [] : ['body']),
+    ...(bodyMatches(pullRequest.body, expected.body, expected.screenshots ?? []) ? [] : ['body']),
   ];
+}
+
+function regexEscape(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
+/** Matches only gh's rewrite of declared local image references to GitHub attachment URLs. */
+function bodyMatches(
+  actual: string,
+  expected: string,
+  screenshots: readonly ScreenshotSpec[],
+): boolean {
+  if (!screenshots.length) return actual === expected;
+  let cursor = 0;
+  let pattern = '^';
+  for (const screenshot of screenshots) {
+    const reference = `![${markdownScreenshotAlt(screenshot.alt)}](./${screenshot.name})`;
+    const index = expected.indexOf(reference, cursor);
+    if (index < 0) return false;
+    pattern += regexEscape(expected.slice(cursor, index));
+    pattern += `!\\[${regexEscape(markdownScreenshotAlt(screenshot.alt))}\\]\\(https:\\/\\/github\\.com\\/user-attachments\\/assets\\/[A-Za-z0-9-]+\\)`;
+    cursor = index + reference.length;
+  }
+  pattern += `${regexEscape(expected.slice(cursor))}$`;
+  return new RegExp(pattern, 'u').test(actual);
 }
 
 /** Reads a draft PR once; only an explicit not-found result is safe to treat as absent. */

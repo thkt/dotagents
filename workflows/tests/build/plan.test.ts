@@ -52,6 +52,39 @@ test('accepts a structurally valid plan whose U/T ids match the issue', () => {
   assert.deepEqual(report.counts, { units: 1, tests: 1 });
 });
 
+test('accepts declared UI screenshots and rejects unsafe or duplicate names', () => {
+  const valid = plan({ screenshots: [{ name: 'settings-dark.png', alt: 'Dark settings view' }] });
+  assert.equal(
+    validatePlan({ issue: 42, title: 'Feature', body: bodyFor(), plan: valid }).verdict,
+    'pass',
+  );
+
+  const invalid = plan({
+    screenshots: [
+      { name: '../settings.png', alt: 'Settings' },
+      { name: 'same.png', alt: 'First' },
+      { name: 'same.png', alt: 'Second' },
+    ],
+  });
+  const report = validatePlan({ issue: 42, title: 'Feature', body: bodyFor(), plan: invalid });
+  assert.match(report.blockers.join('\n'), /safe image filename/u);
+  assert.match(report.blockers.join('\n'), /duplicate screenshot name same\.png/u);
+});
+
+test('rejects more screenshots than one gh attachment command accepts', () => {
+  const screenshots = Array.from({ length: 51 }, (_, index) => ({
+    name: `screen-${index}.png`,
+    alt: `Screen ${index}`,
+  }));
+  const report = validatePlan({
+    issue: 42,
+    title: 'Feature',
+    body: bodyFor(),
+    plan: plan({ screenshots }),
+  });
+  assert.match(report.blockers.join('\n'), /screenshots may contain at most 50 items/u);
+});
+
 test('requires an issue number and closed top-level input', () => {
   const missing = validatePlan({ title: 'Feature', body: bodyFor(), plan: plan() });
   assert.equal(missing.verdict, 'fail');

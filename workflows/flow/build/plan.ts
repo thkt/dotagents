@@ -15,6 +15,7 @@ import {
 import type { StructuredGateResult } from '../contracts.ts';
 import { SHELL_CONTROL, shellWords } from '../../shared/command.ts';
 import { isMainModule } from '../../shared/environment.ts';
+import { SCREENSHOT_CAP, safeScreenshotName } from './screenshot-contract.ts';
 
 const PROTOCOL = 'codex-build-plan';
 const DESCRIPTION_PROTOCOL = 'codex-build-plan-description';
@@ -28,6 +29,7 @@ const PLAN_KEYS = new Set([
   'backlog_candidates',
   'rules',
   'manual_verification',
+  'screenshots',
   'units',
 ]);
 const INPUT_KEYS = new Set(['issue', 'title', 'body', 'plan']);
@@ -35,6 +37,7 @@ const REFERENCE_KEYS = new Set(['kind', 'reason', 'path', 'files', 'instances', 
 const PRECONDITION_KEYS = new Set(['path', 'pattern']);
 const BACKLOG_KEYS = new Set(['summary']);
 const RULE_KEYS = new Set(['source', 'quote']);
+const SCREENSHOT_KEYS = new Set(['name', 'alt']);
 const UNIT_KEYS = new Set(['id', 'goal', 'files', 'contract', 'tests', 'seam']);
 const TEST_KEYS = new Set(['id', 'name']);
 
@@ -184,6 +187,33 @@ function validateRules(value: unknown, blockers: string[]): void {
   }
 }
 
+function validateScreenshots(value: unknown, blockers: string[]): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) {
+    blockers.push('screenshots must be an array');
+    return;
+  }
+  if (value.length > SCREENSHOT_CAP) {
+    blockers.push(`screenshots may contain at most ${SCREENSHOT_CAP} items`);
+  }
+  const names = new Set<string>();
+  for (const [index, entry] of value.entries()) {
+    if (!isObject(entry)) {
+      blockers.push(`screenshots[${index}] must be an object`);
+      continue;
+    }
+    rejectUnknownKeys(entry, SCREENSHOT_KEYS, `screenshots[${index}]`, blockers);
+    if (!safeScreenshotName(entry.name)) {
+      blockers.push(`screenshots[${index}].name must be a safe image filename`);
+    } else if (names.has(entry.name.toLowerCase())) {
+      blockers.push(`duplicate screenshot name ${entry.name}`);
+    } else {
+      names.add(entry.name.toLowerCase());
+    }
+    if (!nonEmptyString(entry.alt)) blockers.push(`screenshots[${index}].alt is empty`);
+  }
+}
+
 function validateUnits(units: readonly unknown[], blockers: string[]): UnitValidation {
   const unitIds = new Set<string>();
   const testIds = new Set<string>();
@@ -309,6 +339,7 @@ export function validatePlan(input: unknown): PlanValidationReport {
   validatePreconditions(plan.preconditions, blockers);
   validateBacklogCandidates(plan.backlog_candidates, blockers);
   validateRules(plan.rules, blockers);
+  validateScreenshots(plan.screenshots, blockers);
   if (
     !Array.isArray(plan.manual_verification) ||
     plan.manual_verification.some((item) => !nonEmptyString(item))
@@ -357,6 +388,7 @@ export function describe() {
       backlog_candidates: [],
       rules: [],
       manual_verification: [],
+      screenshots: [],
       units: [
         {
           id: 'U-001',
@@ -380,6 +412,7 @@ export function describe() {
       'plan.root_cause': 'required-when-title-prefix:[Bug]|[バグ]',
       'plan.reference_module.path': 'required-when-kind:module',
       'plan.reference_module.reason': 'required-when-kind:no-module|new-shape',
+      'plan.screenshots': 'one-or-more-when:user-visible-ui-changes',
       'plan.units[].seam': 'one-required-when:two-or-more-units-have-tests',
     },
   };

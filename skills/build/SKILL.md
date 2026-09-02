@@ -23,6 +23,7 @@ Inspect the current workflow and Plan contract with `codex-flow describe --workf
 - Treat the user's leading explicit invocation as authorization for the declared local branch, verified unit commits, exactly one push, and exactly one draft PR creation in the hook-bound repository. Do not request another Ship confirmation.
 - Include Ship unless the user explicitly excludes push or draft PR creation in the same request.
 - On resume, reconcile branch, commit, push, and draft PR postconditions before repeating an external action.
+- When the published Plan declares screenshots, render the completed UI and capture every declared image at the controller-provided path. Ship only with the exact controller-sealed image bytes; a changed image or unresolved attachment blocks completion instead of creating another PR.
 - Report backlog candidates without creating them.
 - If the user cancels an active Build, run the hook-bound `codex-flow cancel` operation. Do not implement, commit, push, or create a draft PR after cancellation.
 
