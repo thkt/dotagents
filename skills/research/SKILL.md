@@ -8,6 +8,7 @@ description: Investigate one project or technical question into a source-checked
 When present, read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) and inspect only the minimal relevant primary sources.
 
 Inspect the current input and artifact contract with `codex-research describe`.
+Run the bound workflow command with network access. If the sandbox blocks the nested Codex connection, retry the same command with network escalation; `model_unavailable` preserves the intent for that retry.
 
 ## Decisions
 

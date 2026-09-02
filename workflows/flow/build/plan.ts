@@ -20,6 +20,19 @@ import { SCREENSHOT_CAP, safeScreenshotName } from './screenshot-contract.ts';
 const PROTOCOL = 'codex-build-plan';
 const DESCRIPTION_PROTOCOL = 'codex-build-plan-description';
 const UNIT_CAPS = { files: 3, tests: 4 } as const;
+const UNIT_ID_TEXT = String.raw`U-\d{3}`;
+const TEST_ID_TEXT = String.raw`T-[A-Z]*\d{3}`;
+const UNIT_ID = new RegExp(`^${UNIT_ID_TEXT}$`, 'u');
+const TEST_ID = new RegExp(`^${TEST_ID_TEXT}$`, 'u');
+const SOURCE_LOCATION_SUFFIX = /(?::L?\d+(?:-L?\d+)?|#L\d+(?:-L\d+)?)$/u;
+const SEAM_TESTED_UNIT_THRESHOLD = 2;
+const PLAN_REPO_PATH_FIELDS = [
+  'plan.reference_module.path',
+  'plan.reference_module.files[]',
+  'plan.preconditions[].path',
+  'plan.rules[].source',
+  'plan.units[].files[]',
+] as const;
 const PLAN_KEYS = new Set([
   'outcome',
   'test_command',
@@ -87,6 +100,10 @@ function invokesGitHubCli(command: string): boolean {
   return shellWords(command).some((word) => /(?:^|[\\/])gh$/u.test(word));
 }
 
+function planRepoPath(value: unknown): value is string {
+  return safeRepoPath(value) && !SOURCE_LOCATION_SUFFIX.test(value);
+}
+
 function definitionIds(planSection: string, pattern: RegExp): Set<string> {
   return new Set([...planSection.matchAll(pattern)].map((match) => match[1]!));
 }
@@ -111,7 +128,7 @@ function validateReferenceModule(reference: unknown, blockers: string[]): void {
   ) {
     blockers.push('reference_module.kind is invalid');
   } else if (reference.kind === 'module') {
-    if (!safeRepoPath(reference.path)) blockers.push('reference_module.path is invalid');
+    if (!planRepoPath(reference.path)) blockers.push('reference_module.path is invalid');
   } else if (!nonEmptyString(reference.reason)) {
     blockers.push(`reference_module.reason is empty while kind is ${reference.kind}`);
   }
@@ -119,7 +136,7 @@ function validateReferenceModule(reference: unknown, blockers: string[]): void {
     blockers.push('reference_module.files must be an array');
   } else {
     for (const file of reference.files || []) {
-      if (!safeRepoPath(file)) blockers.push(`reference_module file is invalid: ${file}`);
+      if (!planRepoPath(file)) blockers.push(`reference_module file is invalid: ${file}`);
     }
   }
   if (
@@ -148,7 +165,7 @@ function validatePreconditions(value: unknown, blockers: string[]): void {
       continue;
     }
     rejectUnknownKeys(entry, PRECONDITION_KEYS, `preconditions[${index}]`, blockers);
-    if (!safeRepoPath(entry.path)) blockers.push(`preconditions[${index}].path is invalid`);
+    if (!planRepoPath(entry.path)) blockers.push(`preconditions[${index}].path is invalid`);
     if (entry.pattern !== undefined && typeof entry.pattern !== 'string') {
       blockers.push(`preconditions[${index}].pattern must be a string`);
     }
@@ -182,7 +199,7 @@ function validateRules(value: unknown, blockers: string[]): void {
       continue;
     }
     rejectUnknownKeys(entry, RULE_KEYS, `rules[${index}]`, blockers);
-    if (!safeRepoPath(entry.source)) blockers.push(`rules[${index}].source is invalid`);
+    if (!planRepoPath(entry.source)) blockers.push(`rules[${index}].source is invalid`);
     if (!nonEmptyString(entry.quote)) blockers.push(`rules[${index}].quote is empty`);
   }
 }
@@ -228,7 +245,7 @@ function validateUnits(units: readonly unknown[], blockers: string[]): UnitValid
     }
     const unitId = stringValue(unit.id, `units[${index}]`);
     rejectUnknownKeys(unit, UNIT_KEYS, unitId, blockers);
-    if (!/^U-\d{3}$/u.test(unitId)) blockers.push(`${unitId} has an invalid id`);
+    if (!UNIT_ID.test(unitId)) blockers.push(`${unitId} has an invalid id`);
     if (unitIds.has(unitId)) blockers.push(`duplicate unit id ${unitId}`);
     unitIds.add(unitId);
     if (!nonEmptyString(unit.goal)) blockers.push(`${unitId} has an empty goal`);
@@ -239,7 +256,7 @@ function validateUnits(units: readonly unknown[], blockers: string[]): UnitValid
     } else {
       const seenFiles = new Set<unknown>();
       for (const file of unit.files) {
-        if (!safeRepoPath(file)) blockers.push(`${unitId} has an invalid file: ${file}`);
+        if (!planRepoPath(file)) blockers.push(`${unitId} has an invalid file: ${file}`);
         if (seenFiles.has(file)) blockers.push(`${unitId} has a duplicate file: ${file}`);
         seenFiles.add(file);
       }
@@ -257,7 +274,7 @@ function validateUnits(units: readonly unknown[], blockers: string[]): UnitValid
       }
       const testId = stringValue(scenario.id, `${unitId}.tests[${testIndex}]`);
       rejectUnknownKeys(scenario, TEST_KEYS, testId, blockers);
-      if (!/^T-[A-Z]*\d{3}$/u.test(testId)) blockers.push(`${testId} has an invalid id`);
+      if (!TEST_ID.test(testId)) blockers.push(`${testId} has an invalid id`);
       if (testIds.has(testId)) blockers.push(`duplicate test id ${testId}`);
       testIds.add(testId);
       if (!nonEmptyString(scenario.name)) blockers.push(`${testId} has an empty name`);
@@ -278,8 +295,11 @@ function compareExtractedIds(
   unitIds: ReadonlySet<string>,
   testIds: ReadonlySet<string>,
 ): ExtractionMismatch {
-  const bodyUnitIds = definitionIds(planSection, /^###\s+(U-\d{3})\b/gm);
-  const bodyTestIds = definitionIds(planSection, /^[ \t]*[-*+][ \t]+(T-[A-Z]*\d{3})\b/gm);
+  const bodyUnitIds = definitionIds(planSection, new RegExp(`^###\\s+(${UNIT_ID_TEXT})\\b`, 'gm'));
+  const bodyTestIds = definitionIds(
+    planSection,
+    new RegExp(`^[ \\t]*[-*+][ \\t]+(${TEST_ID_TEXT})\\b`, 'gm'),
+  );
   return {
     units_missing: [...bodyUnitIds].filter((id) => !unitIds.has(id)),
     units_extra: [...unitIds].filter((id) => !bodyUnitIds.has(id)),
@@ -347,7 +367,7 @@ export function validatePlan(input: unknown): PlanValidationReport {
     blockers.push('manual_verification must contain non-empty strings');
   }
   const { unitIds, testIds, oversized, testedUnits, seamUnits } = validateUnits(units, blockers);
-  if (testedUnits >= 2 && seamUnits === 0)
+  if (testedUnits >= SEAM_TESTED_UNIT_THRESHOLD && seamUnits === 0)
     blockers.push('two or more tested units require a seam unit');
   const mismatch = compareExtractedIds(planSection, unitIds, testIds);
   const hasMismatch = Object.values(mismatch).some((items) => items.length);
@@ -408,12 +428,27 @@ export function describe() {
     input_template: inputTemplate,
     plan_keys: [...PLAN_KEYS],
     unit_caps: UNIT_CAPS,
+    constraints: {
+      ids: {
+        unit: { pattern: UNIT_ID.source, uniqueness: 'plan-wide' },
+        test: { pattern: TEST_ID.source, uniqueness: 'plan-wide' },
+      },
+      repository_paths: {
+        fields: [...PLAN_REPO_PATH_FIELDS],
+        format: 'bare-repository-relative-path',
+        allow_source_location_suffix: false,
+      },
+      seam: {
+        required_when_tested_units_at_least: SEAM_TESTED_UNIT_THRESHOLD,
+        bypasses_unit_caps: true,
+      },
+    },
     conditional_fields: {
       'plan.root_cause': 'required-when-title-prefix:[Bug]|[バグ]',
       'plan.reference_module.path': 'required-when-kind:module',
       'plan.reference_module.reason': 'required-when-kind:no-module|new-shape',
       'plan.screenshots': 'one-or-more-when:user-visible-ui-changes',
-      'plan.units[].seam': 'one-required-when:two-or-more-units-have-tests',
+      'plan.units[].seam': `one-required-when:${SEAM_TESTED_UNIT_THRESHOLD}-or-more-units-have-tests`,
     },
   };
 }

@@ -99,8 +99,77 @@ test('streaming turn fails with the last stream error when no lifecycle terminal
       'prompt',
       { modelRun: { label: 'failed model', idleCode: 'failed_model_idle' } },
     ),
-    /connection retries exhausted/u,
+    (error: unknown) => {
+      assert.equal(errorCode(error), 'model_unavailable');
+      assert.match(String((error as Error).message), /connection retries exhausted/u);
+      return true;
+    },
   );
+});
+
+test('stream errors do not reset the idle watchdog', async () => {
+  let armed = 0;
+  await assert.rejects(
+    runStreamedCodexTurn(
+      streamed(
+        { type: 'thread.started', thread_id: 'thread-1' },
+        { type: 'error', message: 'reconnect one' },
+        { type: 'error', message: 'reconnect two' },
+      ),
+      'prompt',
+      { modelRun: { label: 'reconnecting model', idleCode: 'reconnecting_model_idle' } },
+      () => {
+        armed += 1;
+        return () => undefined;
+      },
+    ),
+    (error: unknown) => errorCode(error) === 'model_unavailable',
+  );
+  assert.equal(armed, 2);
+});
+
+test('idle after a stream error is model unavailable', async () => {
+  let timeout: (() => void) | undefined;
+  let sawError = (): void => undefined;
+  const errorObserved = new Promise<void>((resolve) => {
+    sawError = resolve;
+  });
+  const turn = runStreamedCodexTurn(
+    {
+      async runStreamed(_input, options) {
+        const signal = options?.signal;
+        return {
+          events: (async function* () {
+            yield { type: 'error' as const, message: 'DNS unavailable' };
+            await new Promise<never>((_resolve, reject) => {
+              signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+            });
+          })(),
+        };
+      },
+    },
+    'prompt',
+    {
+      modelRun: {
+        label: 'offline model',
+        idleCode: 'offline_model_idle',
+        onActivity: (activity) => {
+          if (activity.event_type === 'error') sawError();
+        },
+      },
+    },
+    (callback) => {
+      timeout = callback;
+      return () => undefined;
+    },
+  );
+  await errorObserved;
+  timeout?.();
+  await assert.rejects(turn, (error: unknown) => {
+    assert.equal(errorCode(error), 'model_unavailable');
+    assert.match(String((error as Error).message), /DNS unavailable/u);
+    return true;
+  });
 });
 
 test('streaming turn fails immediately on turn.failed', async () => {
@@ -111,6 +180,25 @@ test('streaming turn fails immediately on turn.failed', async () => {
       { modelRun: { label: 'failed model', idleCode: 'failed_model_idle' } },
     ),
     /terminal failure/u,
+  );
+});
+
+test('turn.failed after reconnect exhaustion is model unavailable', async () => {
+  await assert.rejects(
+    runStreamedCodexTurn(
+      streamed(
+        { type: 'error', message: 'Reconnecting... 5/5: DNS unavailable' },
+        { type: 'turn.failed', error: { message: 'connection retries exhausted' } },
+      ),
+      'prompt',
+      { modelRun: { label: 'offline model', idleCode: 'offline_model_idle' } },
+    ),
+    (error: unknown) => {
+      assert.equal(errorCode(error), 'model_unavailable');
+      assert.match(String((error as Error).message), /connection retries exhausted/u);
+      assert.match(String((error as Error).message), /DNS unavailable/u);
+      return true;
+    },
   );
 });
 

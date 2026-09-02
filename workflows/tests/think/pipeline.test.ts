@@ -466,6 +466,26 @@ test('sends one concrete reviewer correction and accepts the retry', async () =>
   assert.match(String((correction as { errors: string[] }).errors[0]), /plan/u);
 });
 
+test('copies decision outcome and root cause into the Plan before validation', async () => {
+  const repo = repoFixture();
+  const decision: ThinkDecision = {
+    ...readyDecision,
+    outcome: 'Controller-owned outcome',
+    root_cause: null,
+    plan: {
+      ...readyPlan,
+      outcome: 'Reviewer paraphrase',
+      root_cause: 'Reviewer-only cause',
+    },
+  };
+  const agent = new FakeAgent(decision);
+  const result = await runThink(input(repo), agent);
+  assert.equal(result.report.outcome, 'Controller-owned outcome');
+  assert.equal(result.report.plan?.outcome, 'Controller-owned outcome');
+  assert.equal(result.report.plan?.root_cause, null);
+  assert.equal(agent.reviewCalls, 1);
+});
+
 test('stops after the second invalid reviewer handoff', async () => {
   const repo = repoFixture();
   const invalid: ThinkDecision = {
@@ -519,6 +539,24 @@ test('a terminal model failure consumes the armed intent', async () => {
     /terminal/u,
   );
   assert.equal(loadIntent(failedRun), null);
+});
+
+test('model unavailability preserves the armed intent for an exact retry', async () => {
+  const repo = repoFixture();
+  const runId = `think-model-unavailable-${crypto.randomUUID()}`;
+  const pending = armIntent({ runId, workflow: 'think', cwd: repo });
+  onTestFinished(() => clearIntent(runId));
+  fs.writeFileSync(pending.input_path, JSON.stringify(input(repo)));
+  const unavailable: ThinkAgent = {
+    async design() {
+      throw new FlowError('nested Codex connection unavailable', 'model_unavailable');
+    },
+    async review() {
+      throw new Error('unexpected review');
+    },
+  };
+  await assert.rejects(runThinkWorkflow(runId, pending.input_path, unavailable), /unavailable/u);
+  assert.ok(loadIntent(runId));
 });
 
 test('an input validation failure preserves the armed intent', async () => {

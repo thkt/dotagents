@@ -6,7 +6,16 @@ import path from 'node:path';
 import { FlowError } from '../shared/errors.ts';
 import { CONFIGURED_LANGUAGES, type ConfiguredLanguage } from '../shared/language.ts';
 import { gitRoot } from '../shared/repository.ts';
-import { isObject, rejectUnknownKeys, stringArray, type JsonObject } from '../shared/schema.ts';
+import {
+  enumValue as parseEnumValue,
+  isObject,
+  nullableString,
+  objectArray,
+  rejectUnknownKeys,
+  requiredString,
+  stringArray,
+  type JsonObject,
+} from '../shared/schema.ts';
 import {
   BUILD_PLAN_AUTHORING_SCHEMA,
   STRING_ARRAY_SCHEMA,
@@ -172,29 +181,8 @@ export const THINK_REVIEW_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-function requiredString(value: unknown, label: string, code = 'usage_error'): string {
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new FlowError(`${label} must be a non-empty string`, code);
-  }
-  return value.trim();
-}
-
-function nullableString(value: unknown, label: string): string | null {
-  return value === null ? null : requiredString(value, label, 'execution_error');
-}
-
 function enumValue<T extends string>(value: unknown, values: readonly T[], label: string): T {
-  if (typeof value !== 'string' || !values.includes(value as T)) {
-    throw new FlowError(`${label} must be ${values.join(', ')}`, 'execution_error');
-  }
-  return value as T;
-}
-
-function objectArray(value: unknown, label: string): JsonObject[] {
-  if (!Array.isArray(value) || value.some((item) => !isObject(item))) {
-    throw new FlowError(`${label} must be an array of objects`, 'execution_error');
-  }
-  return value;
+  return parseEnumValue(value, values, label, 'execution_error');
 }
 
 function parseApproach(raw: JsonObject, label: string): ThinkApproach {
@@ -343,7 +331,7 @@ export function parseThinkDecision(raw: unknown): ThinkDecision {
       'think decision.readiness',
     ),
     outcome: requiredString(raw.outcome, 'think decision.outcome', 'execution_error'),
-    root_cause: nullableString(raw.root_cause, 'think decision.root_cause'),
+    root_cause: nullableString(raw.root_cause, 'think decision.root_cause', 'execution_error'),
     decision: requiredString(raw.decision, 'think decision.decision', 'execution_error'),
     rationale: requiredString(raw.rationale, 'think decision.rationale', 'execution_error'),
     alternatives,

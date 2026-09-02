@@ -22,6 +22,7 @@ import {
   startOrResumeWorkflow,
   workflowStatus,
   escalateWorkflow,
+  blockWorkflowOnRuntimeFailure,
 } from './controller.ts';
 
 type ActionDirective = Extract<FlowDirective, { kind: 'run-action' }>;
@@ -53,9 +54,6 @@ function progressContext(
     case 'run-review':
       stage = 'build_semantic_review';
       break;
-    case 'seal-gate':
-      stage = 'controller_evidence_validation';
-      break;
     case 'run-action':
       stage = `action_${directive.action}`;
       break;
@@ -85,18 +83,29 @@ export async function driveWorkflow(
   const progress = runtime.progress ?? workflowProgress;
 
   while (true) {
-    const directive = currentDirective(runId);
-    runtime.onDirective?.(directive);
-    switch (directive.kind) {
-      case 'done':
-      case 'ship-ready':
-        return { result: workflowStatus(runId), exitCode: 0 };
-      case 'blocked':
-        return { result: workflowStatus(runId), exitCode: 2 };
-      case 'cancelled':
-        return { result: workflowStatus(runId), exitCode: 0 };
-      case 'run-actor':
-        try {
+    let failedDirective: FlowDirective | null = null;
+    let stage = 'controller_dispatch';
+    try {
+      const directive = currentDirective(runId);
+      failedDirective = directive;
+      runtime.onDirective?.(directive);
+      if (
+        directive.kind !== 'done' &&
+        directive.kind !== 'ship-ready' &&
+        directive.kind !== 'blocked' &&
+        directive.kind !== 'cancelled'
+      ) {
+        stage = progressContext(workflow, directive).stage;
+      }
+      switch (directive.kind) {
+        case 'done':
+        case 'ship-ready':
+          return { result: workflowStatus(runId), exitCode: 0 };
+        case 'blocked':
+          return { result: workflowStatus(runId), exitCode: 2 };
+        case 'cancelled':
+          return { result: workflowStatus(runId), exitCode: 0 };
+        case 'run-actor':
           await progress.run(progressContext(workflow, directive), async (stage) => {
             resetScreenshotAttachments(runId, directive.screenshots ?? []);
             await runIsolatedActor(repo, directive.files, (sandboxRepo) =>
@@ -106,61 +115,59 @@ export async function driveWorkflow(
             );
             completeCurrentDirective(runId, directive.step_id);
           });
-        } catch (error) {
-          if (error instanceof ActorEscalation)
-            return {
-              result: escalateWorkflow(runId, directive.step_id, {
-                next_step: error.route,
-                question: error.question,
-                summary: error.summary,
-              }),
-              exitCode: 2,
-            };
-          throw error;
-        }
-        break;
-      case 'run-action':
-        progress.runSync(progressContext(workflow, directive), () => {
-          if (reconcileCurrentAction(runId, directive.step_id)) return;
-          runtime.executeAction(repo, directive);
-          completeCurrentDirective(runId, directive.step_id);
-        });
-        break;
-      case 'run-review':
-        await progress.run(progressContext(workflow, directive), async (stage) => {
-          const startedAt = performance.now();
-          const before = repositoryInvariant(repo);
-          const review = await withRepositorySnapshot(repo, (snapshotRepo) =>
-            runtime.agent.reviewBuild(snapshotRepo, directive, (activity) =>
-              stage.activity(activity),
-            ),
+          break;
+        case 'run-action':
+          progress.runSync(progressContext(workflow, directive), () => {
+            if (reconcileCurrentAction(runId, directive.step_id)) return;
+            runtime.executeAction(repo, directive);
+            completeCurrentDirective(runId, directive.step_id);
+          });
+          break;
+        case 'run-review':
+          await progress.run(progressContext(workflow, directive), async (stage) => {
+            const startedAt = performance.now();
+            const before = repositoryInvariant(repo);
+            const review = await withRepositorySnapshot(repo, (snapshotRepo) =>
+              runtime.agent.reviewBuild(snapshotRepo, directive, (activity) =>
+                stage.activity(activity),
+              ),
+            );
+            requireUnchangedRepository(before, repo, 'build semantic review');
+            completeBuildReview(
+              runId,
+              directive.step_id,
+              review,
+              Math.max(0, Math.round(performance.now() - startedAt)),
+            );
+          });
+          break;
+        case 'calibrate-gate':
+        case 'run-gate':
+          progress.runSync(progressContext(workflow, directive), () =>
+            completeCurrentDirective(runId, directive.step_id),
           );
-          requireUnchangedRepository(before, repo, 'build semantic review');
-          completeBuildReview(
-            runId,
-            directive.step_id,
-            review,
-            Math.max(0, Math.round(performance.now() - startedAt)),
-          );
-        });
-        break;
-      case 'calibrate-gate':
-      case 'run-gate':
-        progress.runSync(progressContext(workflow, directive), () =>
-          completeCurrentDirective(runId, directive.step_id),
-        );
-        break;
-      case 'seal-gate': {
-        await progress.run(progressContext(workflow, directive), async (stage) => {
-          const candidateId = await runtime.agent.selectEvidenceCandidate(
-            repo,
-            directive,
-            (activity) => stage.activity(activity),
-          );
-          completeCurrentDirective(runId, directive.step_id, candidateId);
-        });
-        break;
+          break;
       }
+    } catch (error) {
+      if (error instanceof ActorEscalation && failedDirective?.kind === 'run-actor') {
+        return {
+          result: escalateWorkflow(runId, failedDirective.step_id, {
+            next_step: error.route,
+            question: error.question,
+            summary: error.summary,
+          }),
+          exitCode: 2,
+        };
+      }
+      return {
+        result: blockWorkflowOnRuntimeFailure(
+          runId,
+          failedDirective && 'step_id' in failedDirective ? failedDirective.step_id : null,
+          stage,
+          error,
+        ),
+        exitCode: 2,
+      };
     }
   }
 }
@@ -168,10 +175,10 @@ export async function driveWorkflow(
 /** Starts or resumes one task-bound workflow, then drives it to a stop state. */
 export async function runWorkflow(
   runId: string,
-  manifestFile: string,
+  inputFile: string,
   runtime: WorkflowRuntime = defaultRuntime(),
 ): Promise<CommandResult> {
-  startOrResumeWorkflow(runId, manifestFile);
+  startOrResumeWorkflow(runId, inputFile);
   return driveWorkflow(runId, runtime);
 }
 
@@ -187,12 +194,12 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<Comm
     return { result: describe(workflow), exitCode: 0 };
   }
   if (command === 'run') {
-    requireExactFlags(flags, ['--manifest', '--run-id']);
-    return runWorkflow(flags['--run-id']!, flags['--manifest']!);
+    requireExactFlags(flags, ['--input', '--run-id']);
+    return runWorkflow(flags['--run-id']!, flags['--input']!);
   }
   if (command === 'cancel') {
-    requireExactFlags(flags, ['--manifest', '--run-id']);
-    return { result: cancelWorkflow(flags['--run-id']!, flags['--manifest']!), exitCode: 0 };
+    requireExactFlags(flags, ['--input', '--run-id']);
+    return { result: cancelWorkflow(flags['--run-id']!, flags['--input']!), exitCode: 0 };
   }
   throw new FlowError(`unknown command: ${command}`);
 }

@@ -1,14 +1,11 @@
 # Project outcome
 
-Enable a single request to publish high-quality Issues containing Think/Research decisions and designs grounded in primary sources.
+Turn source-grounded Think/Research decisions into one public Issue, then use that Issue as the sole contract for a verified draft PR.
 
 ## Verifiable boundaries
 
-- Every Think and Research model stage reads the immutable repository snapshot captured at startup, so changes to the shared worktree during execution do not alter its results.
-- Current-source citations and Build Plan dependencies are revalidated at handoff, with concrete paths reported when they are stale or out of scope.
-- An Issue structures and publishes the Outcome, Decision, and implementation-ready Plan in one pass, while established contracts remain reusable from this repository's documentation.
-- Build consumes only the published Issue as its contract for implementation, verification, semantic review, commit, push, and verified draft PR creation unless the invoking user explicitly excludes Ship.
-- Established knowledge is returned to repository documentation so future Plans can cite it.
-- A terminal model failure consumes the intent and stops; only input or binding validation failures preserve the intent for correction.
+- Think and Research operate on one immutable repository snapshot and revalidate changing sources before handoff.
+- Issue publishes one canonical human-readable and machine-readable contract.
+- Build follows that public contract, verifies the complete result, and Ships only with explicit authorization.
 
-Verification uses focused regression tests, `bun test`, typecheck, lint, and format:check. `bun.lock` is the source of truth for dependencies, reproduced with `bun install --frozen-lockfile --ignore-scripts`.
+Verification uses `bun run check`.

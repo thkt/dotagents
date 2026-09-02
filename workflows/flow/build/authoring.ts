@@ -2,7 +2,14 @@
 
 import { FlowError } from '../../shared/errors.ts';
 import type { ConfiguredLanguage } from '../../shared/language.ts';
-import { isObject, rejectUnknownKeys, stringArray, type JsonObject } from '../../shared/schema.ts';
+import {
+  isObject,
+  nullableString as parseNullableString,
+  objectArray,
+  rejectUnknownKeys,
+  requiredString as parseRequiredString,
+  stringArray,
+} from '../../shared/schema.ts';
 import { oneLine, sentenceItems } from '../../shared/text.ts';
 import { SCREENSHOT_CAP, type ScreenshotSpec } from './screenshot-contract.ts';
 
@@ -33,6 +40,12 @@ export interface BuildPlanAuthoring {
     tests: Array<{ id: string; name: string }>;
     seam: boolean;
   }>;
+}
+
+export interface CompiledBuildPlan {
+  authoring: BuildPlanAuthoring;
+  value: ReturnType<typeof buildPlanValue>;
+  markdown: string;
 }
 
 export const STRING_ARRAY_SCHEMA = { type: 'array', items: { type: 'string' } } as const;
@@ -172,21 +185,11 @@ export const BUILD_PLAN_AUTHORING_SCHEMA = {
 } as const;
 
 function requiredString(value: unknown, label: string): string {
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new FlowError(`${label} must be a non-empty string`, 'execution_error');
-  }
-  return value.trim();
+  return parseRequiredString(value, label, 'execution_error');
 }
 
 function nullableString(value: unknown, label: string): string | null {
-  return value === null ? null : requiredString(value, label);
-}
-
-function objectArray(value: unknown, label: string): JsonObject[] {
-  if (!Array.isArray(value) || value.some((item) => !isObject(item))) {
-    throw new FlowError(`${label} must be an array of objects`, 'execution_error');
-  }
-  return value;
+  return parseNullableString(value, label, 'execution_error');
 }
 
 function parseReference(raw: unknown): BuildPlanReference {
@@ -324,7 +327,7 @@ export function parseBuildPlanAuthoring(raw: unknown): BuildPlanAuthoring {
 }
 
 /** Removes nullable authoring fields so the value matches build's exact Plan contract. */
-export function buildPlanValue(plan: BuildPlanAuthoring) {
+function buildPlanValue(plan: BuildPlanAuthoring) {
   const reference = plan.reference_module;
   return {
     outcome: plan.outcome,
@@ -444,4 +447,16 @@ export function renderPlanMarkdown(
       : [`- ${labels.none}`]),
   );
   return `${lines.join('\n')}\n`;
+}
+
+/** Builds the runtime and human forms together so callers cannot wire them independently. */
+export function compileBuildPlan(
+  authoring: BuildPlanAuthoring,
+  language: ConfiguredLanguage = 'english',
+): CompiledBuildPlan {
+  return {
+    authoring,
+    value: buildPlanValue(authoring),
+    markdown: renderPlanMarkdown(authoring, language),
+  };
 }

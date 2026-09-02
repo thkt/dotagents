@@ -13,11 +13,11 @@ import {
   ActorEscalation,
   buildReviewPrompt,
   CodexWorkflowAgent,
-  evidencePrompt,
   parseBuildReviewResult,
   type WorkflowAgent,
 } from '../../flow/agent.ts';
 import { cleanCodexEnvironment } from '../../shared/codex-home.ts';
+import { FlowError } from '../../shared/errors.ts';
 import { ProgressReporter, type ProgressEvent } from '../../shared/progress.ts';
 import { MANIFEST_PROTOCOL, type FlowDirective, type FlowManifest } from '../../flow/contracts.ts';
 import { runIsolatedActor, runIsolatedShellVerification } from '../../flow/isolation.ts';
@@ -25,7 +25,6 @@ import { main, runWorkflow, type WorkflowRuntime } from '../../flow/runner.ts';
 import { armIntent } from '../../invocation.ts';
 
 type ActorDirective = Extract<FlowDirective, { kind: 'run-actor' }>;
-type SealDirective = Extract<FlowDirective, { kind: 'seal-gate' }>;
 type ReviewDirective = Extract<FlowDirective, { kind: 'run-review' }>;
 
 const ACTOR_DIRECTIVE: ActorDirective = {
@@ -36,18 +35,6 @@ const ACTOR_DIRECTIVE: ActorDirective = {
   files: ['value.txt'],
   verification: { command: 'node verify.js', expect: 'pass' },
   correction: null,
-};
-
-const SEAL_DIRECTIVE: SealDirective = {
-  kind: 'seal-gate',
-  step_id: 'U-001:red:gate',
-  calibration: {
-    command: 'node test.js',
-    exit_code: 1,
-    stdout_tail: 'expected failure\n',
-    stderr_tail: '',
-    candidates: [{ id: 'stdout:L1', text: 'expected failure', test_id: 'T-001' }],
-  },
 };
 
 const REVIEW_DIRECTIVE: ReviewDirective = {
@@ -185,13 +172,12 @@ test('binds semantic review to the published Plan and rejects inconsistent verdi
   );
 });
 
-test('uses write scope for actors and read-only scope for calibration evidence', async () => {
+test('uses write scope for actors and read-only scope for semantic review', async () => {
   const starts: unknown[] = [];
   const prompts: string[] = [];
   const idleCodes: string[] = [];
   const responses = [
     JSON.stringify({ status: 'completed', summary: 'written', route: null, question: null }),
-    JSON.stringify({ candidate_id: 'stdout:L1' }),
     JSON.stringify(PASSING_REVIEW),
   ];
   const client = {
@@ -209,7 +195,6 @@ test('uses write scope for actors and read-only scope for calibration evidence',
   const agent = new CodexWorkflowAgent(client);
   await agent.runActor('/tmp/repo', ACTOR_DIRECTIVE);
 
-  assert.equal(await agent.selectEvidenceCandidate('/tmp/repo', SEAL_DIRECTIVE), 'stdout:L1');
   assert.deepEqual(await agent.reviewBuild('/tmp/repo', REVIEW_DIRECTIVE), PASSING_REVIEW);
   assert.deepEqual(starts, [
     {
@@ -230,26 +215,9 @@ test('uses write scope for actors and read-only scope for calibration evidence',
       networkAccessEnabled: false,
       webSearchMode: 'disabled',
     },
-    {
-      model: 'gpt-5.6-sol',
-      modelReasoningEffort: 'high',
-      workingDirectory: '/tmp/repo',
-      sandboxMode: 'read-only',
-      approvalPolicy: 'never',
-      networkAccessEnabled: false,
-      webSearchMode: 'disabled',
-    },
   ]);
-  assert.deepEqual(idleCodes, [
-    'actor_model_idle_timeout',
-    'gate_calibration_idle_timeout',
-    'build_review_idle_timeout',
-  ]);
-  assert.match(prompts[1]!, /BEGIN OBSERVED OUTPUT [0-9a-f-]{36}/u);
-  assert.match(prompts[1]!, /"id":"stdout:L1"/u);
-  assert.doesNotMatch(prompts[1]!, /stdout_tail/u);
-  assert.match(evidencePrompt(SEAL_DIRECTIVE, 'fixed-nonce'), /END OBSERVED OUTPUT fixed-nonce/u);
-  assert.match(prompts[2]!, /BEGIN PUBLISHED BUILD CONTRACT [0-9a-f-]{36}/u);
+  assert.deepEqual(idleCodes, ['actor_model_idle_timeout', 'build_review_idle_timeout']);
+  assert.match(prompts[1]!, /BEGIN PUBLISHED BUILD CONTRACT [0-9a-f-]{36}/u);
 });
 
 test('publishes only allowed changes from an isolated actor', async () => {
@@ -345,7 +313,7 @@ test('rejects an ignored path created by an isolated actor', async () => {
   );
 });
 
-test('resumes an SDK actor after a transient runner failure', async () => {
+test('blocks in-process actor errors and retries only model unavailability', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-sdk-runner-test-'));
   const repo = path.join(root, 'repo');
   fs.mkdirSync(repo);
@@ -431,7 +399,10 @@ test('resumes an SDK actor after a transient runner failure', async () => {
   fs.writeFileSync(pending.input_path, JSON.stringify(manifest));
 
   let actorCalls = 0;
-  let failOnce = true;
+  const failures: Error[] = [
+    new Error('invalid actor result'),
+    new FlowError('model stream unavailable', 'model_unavailable'),
+  ];
   const agent: WorkflowAgent = {
     async runActor(actorRepo, directive, onActivity) {
       actorCalls += 1;
@@ -439,14 +410,9 @@ test('resumes an SDK actor after a transient runner failure', async () => {
       assert.equal(directive.outcome, 'value.txt contains done.');
       assert.ok(onActivity);
       onActivity?.({ event_type: 'turn.started', event_count: actorCalls });
-      if (failOnce) {
-        failOnce = false;
-        throw new Error('transient SDK failure');
-      }
+      const failure = failures.shift();
+      if (failure) throw failure;
       fs.writeFileSync(path.join(actorRepo, 'value.txt'), 'done\n');
-    },
-    async selectEvidenceCandidate() {
-      throw new Error('calibration is not expected');
     },
     async reviewBuild() {
       throw new Error('build review is not expected');
@@ -464,13 +430,39 @@ test('resumes an SDK actor after a transient runner failure', async () => {
       throw new Error('actions are not expected');
     },
   };
-  await assert.rejects(runWorkflow(runId, pending.input_path, runtime), /transient SDK failure/);
+  const terminalFailure = await runWorkflow(runId, pending.input_path, runtime);
+  assert.equal(terminalFailure.exitCode, 2);
+  assert.equal('status' in terminalFailure.result && terminalFailure.result.status, 'blocked');
+  if (!('runtime_failure' in terminalFailure.result)) throw new Error('missing runtime failure');
+  assert.equal(terminalFailure.result.runtime_failure?.step_id, 'U-001:direct');
+  assert.equal(terminalFailure.result.runtime_failure?.stage, 'actor_model_call');
+  assert.equal(terminalFailure.result.runtime_failure?.classification, 'execution_error');
+  assert.equal(terminalFailure.result.runtime_failure?.error, 'invalid actor result');
+  assert.equal(terminalFailure.result.runtime_failure?.retryable, false);
+  assert.match(terminalFailure.result.runtime_failure?.repository_sha256 ?? '', /^[a-f0-9]{64}$/u);
   assert.equal(fs.existsSync(path.join(repo, 'value.txt')), false);
+  const unchanged = await runWorkflow(runId, pending.input_path, runtime);
+  assert.equal('status' in unchanged.result && unchanged.result.status, 'blocked');
+  assert.equal(actorCalls, 1);
+
+  await main(['cancel', '--input', pending.input_path, '--run-id', runId]);
+  armIntent({ runId, workflow: 'code', cwd: repo });
+  const unavailable = await runWorkflow(runId, pending.input_path, runtime);
+  assert.equal(unavailable.exitCode, 2);
+  if (!('runtime_failure' in unavailable.result)) throw new Error('missing runtime failure');
+  assert.equal(unavailable.result.runtime_failure?.classification, 'model_unavailable');
+  assert.equal(unavailable.result.runtime_failure?.retryable, true);
+  fs.appendFileSync(path.join(repo, 'README.md'), 'changed\n');
+  await assert.rejects(
+    runWorkflow(runId, pending.input_path, runtime),
+    /repository changed after the retryable runtime failure/u,
+  );
+  fs.writeFileSync(path.join(repo, 'README.md'), 'fixture\n');
   const result = await runWorkflow(runId, pending.input_path, runtime);
   assert.equal(result.exitCode, 0);
   assert.equal('status' in result.result && result.result.status, 'completed');
   assert.equal('escalation' in result.result && result.result.escalation, null);
-  assert.equal(actorCalls, 2);
+  assert.equal(actorCalls, 3);
   assert.ok(progressEvents.every((event) => event.workflow === 'code'));
   assert.ok(
     progressEvents.some(
@@ -478,7 +470,7 @@ test('resumes an SDK actor after a transient runner failure', async () => {
         event.stage === 'actor_model_call' &&
         event.unit_id === 'U-001' &&
         event.status === 'failed' &&
-        event.classification === 'execution_error',
+        event.classification === 'model_unavailable',
     ),
   );
   assert.ok(
@@ -567,9 +559,6 @@ test('blocks and discards sandbox edits on actor escalation, then resumes withou
         actorCalls += 1;
         fs.writeFileSync(path.join(actorRepo, 'value.txt'), 'discarded\n');
         throw new ActorEscalation('think', 'Which contract should apply?', 'Decision missing');
-      },
-      async selectEvidenceCandidate() {
-        throw new Error('not expected');
       },
       async reviewBuild() {
         throw new Error('not expected');

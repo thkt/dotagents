@@ -144,6 +144,7 @@ test('keeps build implementation and workflow tests with their owning workflow',
       'artifacts.ts',
       'authoring.ts',
       'cli.ts',
+      'compile.ts',
       'gates.ts',
       'github.ts',
       'handoff.ts',
@@ -162,7 +163,7 @@ test('keeps build implementation and workflow tests with their owning workflow',
       .sort(),
     ['build', 'flow', 'integration', 'issue', 'knowledge', 'research', 'shared', 'think'],
   );
-  for (const file of ['workflows/flow/build/gates.ts', 'workflows/tests/build/gates.test.ts']) {
+  for (const file of ['workflows/flow/build/compile.ts', 'workflows/tests/build/compile.test.ts']) {
     const ignored = spawnSync('git', ['check-ignore', '--quiet', file], { cwd: EXPECTED_ROOT });
     assert.equal(ignored.status, 1, `${file} must override global ignore rules`);
   }

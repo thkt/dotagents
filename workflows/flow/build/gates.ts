@@ -1,40 +1,26 @@
 /** @file Outcome: Build gates derive deterministic reports from validated Plan and workflow state. */
 
 import * as fs from 'node:fs';
-import path from 'node:path';
 
 import { gitFileList, verifyArtifacts } from './artifacts.ts';
 import { inspectDraftPullRequest } from './github.ts';
-import { describeBuildSource, resolveBuildSource, type ResolvedBuildSource } from './handoff.ts';
+import { resolveBuildSource, type ResolvedBuildSource } from './handoff.ts';
 import { validatePlan } from './plan.ts';
 import { revalidatePlan } from './revalidate.ts';
 import {
   GATE_PROTOCOL,
   type ActionStep,
-  type ActorStep,
-  type ActorRole,
   type BuildPlanContext,
   type BuildReviewResult,
-  type FlowDescription,
-  type FlowManifest,
   type FlowState,
   type GateReport,
   type GateStep,
   type StructuredGateResult,
 } from '../contracts.ts';
-import { UNIT_ACTOR } from '../manifest.ts';
 import { FlowError, errorCode, errorMessage } from '../../shared/errors.ts';
 import { GITHUB_ACCESS_ERROR, GITHUB_COMMAND_ERROR } from '../../shared/github.ts';
+import { readAbsoluteJson } from '../../shared/runtime.ts';
 import { prBodyPath } from '../../shared/storage.ts';
-
-function readJson(file: string, label: string): unknown {
-  if (!path.isAbsolute(file)) throw new FlowError(`${label} must be absolute`);
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (error) {
-    throw new FlowError(`${label} is not readable JSON: ${errorMessage(error)}`);
-  }
-}
 
 function buildPlanContext(value: ResolvedBuildSource): BuildPlanContext {
   return {
@@ -55,124 +41,6 @@ function buildPlanContext(value: ResolvedBuildSource): BuildPlanContext {
       seam: unit.seam,
     })),
   };
-}
-
-/** Exposes the published-issue handoff through workflow self-description. */
-export function describeBuildSourceInput(): NonNullable<FlowDescription['inputs']>['source'] {
-  return {
-    template: describeBuildSource(),
-  };
-}
-
-type ManifestUnitScope = {
-  roles: ActorRole[];
-  files: Set<string>;
-  roleFiles: Map<ActorRole, Set<string>>;
-};
-
-function manifestUnitScopes(manifest: FlowManifest): Map<string, ManifestUnitScope> {
-  const scopes = new Map<string, ManifestUnitScope>();
-  for (const step of manifest.steps) {
-    if (step.kind !== 'actor') continue;
-    const match = UNIT_ACTOR.exec(step.id);
-    if (!match) continue;
-    const unitId = match[1]!;
-    const role = match[2] as ActorRole;
-    const scope: ManifestUnitScope = scopes.get(unitId) ?? {
-      roles: [],
-      files: new Set(),
-      roleFiles: new Map(),
-    };
-    scope.roles.push(role);
-    const roleFiles = scope.roleFiles.get(role) ?? new Set<string>();
-    for (const file of step.files) {
-      scope.files.add(file);
-      roleFiles.add(file);
-    }
-    scope.roleFiles.set(role, roleFiles);
-    scopes.set(unitId, scope);
-  }
-  return scopes;
-}
-
-function initiallyMissingTestedPlanFiles(plan: BuildPlanContext, repo: string): Set<string> {
-  return new Set(
-    [...new Set(plan.units.flatMap((unit) => (unit.tests.length ? unit.files : [])))].filter(
-      (file) => !fs.existsSync(path.resolve(repo, file)),
-    ),
-  );
-}
-
-/** Returns every unit-level mismatch between a validated Plan and its manifest. */
-export function buildManifestPlanBlockers(
-  manifest: FlowManifest,
-  plan: BuildPlanContext,
-  repo: string,
-): string[] {
-  const manifestUnits = manifestUnitScopes(manifest);
-
-  const blockers: string[] = [];
-  const initiallyMissing = initiallyMissingTestedPlanFiles(plan, repo);
-  const planIds = new Set(plan.units.map((unit) => unit.id));
-  for (const unitId of manifestUnits.keys()) {
-    if (!planIds.has(unitId)) blockers.push(`manifest has unit absent from Plan: ${unitId}`);
-  }
-  for (const planUnit of plan.units) {
-    const manifestUnit = manifestUnits.get(planUnit.id);
-    if (!manifestUnit) {
-      blockers.push(`manifest is missing Plan unit: ${planUnit.id}`);
-      continue;
-    }
-    const expectedRoles = planUnit.tests.length ? 'red,green' : 'direct';
-    if (manifestUnit.roles.join(',') !== expectedRoles) {
-      blockers.push(`${planUnit.id} requires ${expectedRoles} actors from its Plan tests`);
-    }
-    const unitActors = manifest.steps.filter(
-      (step): step is ActorStep => step.kind === 'actor' && step.id.startsWith(`${planUnit.id}:`),
-    );
-    for (const actor of unitActors) {
-      if (actor.outcome !== planUnit.goal) {
-        blockers.push(`${actor.id}.outcome must equal ${planUnit.id}.goal from the Plan`);
-      }
-    }
-    const plannedFiles = new Set(planUnit.files);
-    const missingFiles = planUnit.files.filter((file) => !manifestUnit.files.has(file));
-    const extraFiles = [...manifestUnit.files].filter((file) => !plannedFiles.has(file));
-    if (missingFiles.length) {
-      blockers.push(`${planUnit.id} actor scope is missing Plan files: ${missingFiles.join(', ')}`);
-    }
-    if (extraFiles.length) {
-      blockers.push(
-        `${planUnit.id} actor scope has files absent from Plan: ${extraFiles.join(', ')}`,
-      );
-    }
-    if (planUnit.tests.length) {
-      for (const file of planUnit.files) {
-        if (!initiallyMissing.has(file)) continue;
-        for (const role of ['red', 'green'] as const) {
-          const roleFiles = manifestUnit.roleFiles.get(role);
-          if (roleFiles && !roleFiles.has(file)) {
-            blockers.push(
-              `${planUnit.id}:${role} scope is missing initially absent Plan file: ${file}`,
-            );
-          }
-        }
-      }
-    }
-  }
-  for (const step of manifest.steps) {
-    if (
-      step.kind !== 'gate' ||
-      step.gate.authority !== 'shell' ||
-      !/^(?:baseline:|final:|U-\d{3}:(?:red|green|direct):gate$)/u.test(step.id)
-    ) {
-      continue;
-    }
-    if (step.gate.command !== plan.test_command) {
-      blockers.push(`${step.id}.gate.command must equal Plan test_command`);
-    }
-  }
-  return blockers;
 }
 
 function verifyShip(state: FlowState): StructuredGateResult {
@@ -264,7 +132,8 @@ export function buildReviewGateReport(
 /** Runs one typed build authority and normalizes its result into controller evidence. */
 export function runStructuredBuildGate(state: FlowState, step: GateStep): GateReport {
   const startedAt = Date.now();
-  const source = 'input' in step.gate ? readJson(step.gate.input, `${step.id}.gate.input`) : null;
+  const source =
+    'input' in step.gate ? readAbsoluteJson(step.gate.input, `${step.id}.gate.input`) : null;
   let input: ReturnType<typeof resolveBuildSource> | null = null;
   if ('input' in step.gate) {
     try {
@@ -318,20 +187,7 @@ export function runStructuredBuildGate(state: FlowState, step: GateStep): GateRe
       );
       if (report.verdict === 'pass') {
         if (!input) throw new FlowError('validated Plan input has no build context', 'state_error');
-        const context = buildPlanContext(input);
-        const blockers = buildManifestPlanBlockers(state.manifest, context, state.manifest.repo);
-        if (blockers.length) {
-          report = {
-            ...report,
-            verdict: 'fail',
-            classification: 'manifest_plan_mismatch',
-            reason_codes: ['manifest_plan_mismatch'],
-            failure_route: 'blocked',
-            blockers,
-          };
-        } else {
-          state.build_plan = context;
-        }
+        state.build_plan = buildPlanContext(input);
       }
       break;
     }

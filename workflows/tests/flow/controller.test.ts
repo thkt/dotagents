@@ -111,7 +111,7 @@ test('routes a failed gate to its owner and blocks after correction budget', () 
   assert.equal(second.result.status, 'blocked');
 });
 
-test('seals a Red fingerprint only from observed calibration output', () => {
+test('seals the first observed Red fingerprint without model selection', () => {
   const { manifest, manifestFile, repo } = fixture();
   fs.writeFileSync(
     path.join(repo, 'red.js'),
@@ -144,21 +144,13 @@ test('seals a Red fingerprint only from observed calibration output', () => {
   assert.equal(calibrationDirective.kind, 'calibrate-gate');
   const calibrated = flow.completeCurrentDirective(turn, 'U-001:red:gate');
   assert.equal(calibrated.exitCode, 0);
-  const sealDirective = flow.currentDirective(turn);
-  assert.equal(sealDirective.kind, 'seal-gate');
-  if (sealDirective.kind !== 'seal-gate') return;
-  assert.deepEqual(sealDirective.calibration.candidates, [
+  assert.deepEqual(calibrated.result.calibration?.candidates, [
     { id: 'stderr:L1', text: 'not ok T-001 rejects invalid input' },
   ]);
-  assert.throws(
-    () => flow.completeCurrentDirective(turn, 'U-001:red:gate', 'not present'),
-    /not a calibration candidate/u,
-  );
-  flow.completeCurrentDirective(
-    turn,
-    'U-001:red:gate',
-    sealDirective.calibration.candidates[0]!.id,
-  );
+  assert.deepEqual(calibrated.result.sealed_gates['U-001:red:gate'], [
+    'not ok T-001 rejects invalid input',
+  ]);
+  assert.equal(flow.currentDirective(turn).kind, 'run-gate');
   const gated = flow.completeCurrentDirective(turn, 'U-001:red:gate');
   assert.equal(gated.exitCode, 0);
   assert.equal(gated.result.current_step?.id, 'U-001:green');
@@ -287,7 +279,7 @@ test('enforces build Branch and commit postconditions before ship-ready', () => 
   if (branch.kind !== 'run-action' || branch.action !== 'branch')
     throw new Error('expected branch action');
   const branchParameters = branch.parameters;
-  assert.equal(branchParameters.branch_name, 'codex/flow-test');
+  assert.equal(branchParameters.branch_name, 'codex/issue-42');
   assert.equal(branchParameters.start_point, startPoint);
   assert.equal(flow.reconcileCurrentAction(turn, 'branch'), false);
   assert.throws(() => flow.completeCurrentDirective(turn, 'branch'), /did not reach/);
@@ -310,6 +302,59 @@ test('enforces build Branch and commit postconditions before ship-ready', () => 
   assert.equal(flow.currentDirective(turn).kind, 'run-review');
   passBuildReview(turn);
   assert.equal(flow.currentDirective(turn).kind, 'ship-ready');
+});
+
+test('a detached Build uses origin HEAD as its Ship base', () => {
+  const { manifest, manifestFile, repo, startPoint } = fixture({ workflow: 'build' });
+  enableShipping(manifest);
+  fs.writeFileSync(manifestFile, JSON.stringify(manifest));
+  const turn = 'turn-build-detached-base';
+  startFlow(turn, manifestFile, () => {
+    spawnSync('git', ['-C', repo, 'switch', '--detach', startPoint]);
+  });
+  const loaded = flow.completeCurrentDirective(turn, 'load:plan');
+  assert.equal(loaded.result.status, 'running', JSON.stringify(loaded.result.last_gate));
+  const ship = flow
+    .loadWorkflowState(turn)
+    .state.manifest.steps.find((step) => step.kind === 'action' && step.action === 'ship');
+  assert.equal(ship?.action === 'ship' && ship.base_branch, 'main');
+});
+
+test('a ship-disabled Build does not require origin HEAD', () => {
+  const { manifestFile, repo } = fixture({ workflow: 'build' });
+  const turn = 'turn-build-without-remote-head';
+  startFlow(turn, manifestFile, () => {
+    spawnSync('git', ['-C', repo, 'symbolic-ref', '--delete', 'refs/remotes/origin/HEAD']);
+  });
+  const loaded = flow.completeCurrentDirective(turn, 'load:plan');
+  assert.equal(loaded.result.status, 'running', JSON.stringify(loaded.result.last_gate));
+  assert.equal(
+    flow
+      .loadWorkflowState(turn)
+      .state.manifest.steps.some((step) => step.kind === 'action' && step.action === 'ship'),
+    false,
+  );
+});
+
+test('Build reuses an existing branch only at its exact start point', () => {
+  const { manifestFile, repo, startPoint } = fixture({ workflow: 'build' });
+  spawnSync('git', ['-C', repo, 'branch', 'codex/issue-42', startPoint]);
+  const turn = 'turn-build-existing-branch';
+  startFlow(turn, manifestFile);
+  const loaded = flow.completeCurrentDirective(turn, 'load:plan');
+  assert.equal(loaded.result.status, 'running', JSON.stringify(loaded.result.last_gate));
+  flow.completeCurrentDirective(turn, 'revalidate:plan');
+  const branch = flow.currentDirective(turn);
+  assert.equal(branch.kind, 'run-action');
+  if (branch.kind !== 'run-action' || branch.action !== 'branch') {
+    throw new Error('expected branch action');
+  }
+  executeAction(repo, branch);
+  assert.equal(flow.reconcileCurrentAction(turn, 'branch'), true);
+  assert.equal(
+    spawnSync('git', ['-C', repo, 'branch', '--show-current'], { encoding: 'utf8' }).stdout.trim(),
+    'codex/issue-42',
+  );
 });
 
 test('a shipping build cannot start without its explicit invocation approval', () => {
@@ -340,7 +385,7 @@ test('Ship directive owns its PR input, render path, and external targets', () =
   assert.equal(loaded.result.status, 'running', JSON.stringify(loaded.result.last_gate));
   const revalidated = flow.completeCurrentDirective(turn, 'revalidate:plan');
   assert.equal(revalidated.result.status, 'running', JSON.stringify(revalidated.result.last_gate));
-  spawnSync('git', ['-C', repo, 'switch', '-q', '-c', 'codex/flow-test', startPoint]);
+  spawnSync('git', ['-C', repo, 'switch', '-q', '-c', 'codex/issue-42', startPoint]);
   flow.completeCurrentDirective(turn, 'branch');
   flow.completeCurrentDirective(turn, 'baseline:test');
   fs.writeFileSync(path.join(repo, 'src.js'), 'module.exports = 1;\n');
@@ -360,7 +405,7 @@ test('Ship directive owns its PR input, render path, and external targets', () =
     repo,
     'commit',
     '-qm',
-    'chore: update fixture',
+    'chore(u-001): the fixture behavior is implemented.',
     '--trailer',
     'Unit: U-001',
     '--trailer',
@@ -541,45 +586,32 @@ test('detects modification of a dirty file that predates actor entry', () => {
 test('self-describes the manifest contract without workflow state', () => {
   const code = flow.describe('code');
   assert.equal(code.protocol, 'codex-flow-description');
-  assert.equal(code.manifest_template.protocol, 'codex-flow-manifest');
+  assert.equal(code.manifest_template?.protocol, 'codex-flow-manifest');
   assert.deepEqual(code.cli, {
     describe: 'codex-flow describe --workflow code',
-    run: 'codex-flow run --manifest <absolute-json>',
-    cancel: 'codex-flow cancel --manifest <hook-supplied-json>',
+    run: 'codex-flow run --input <absolute-json>',
+    cancel: 'codex-flow cancel --input <hook-supplied-json>',
     task_binding: 'hook-injected',
   });
   assert.equal(code.defaults.gate_timeout_ms, 60_000);
-  assert.deepEqual(code.sequence.unit_modes.direct, ['U-NNN:direct', 'U-NNN:direct:gate']);
+  assert.deepEqual(code.sequence?.unit_modes.direct, ['U-NNN:direct', 'U-NNN:direct:gate']);
   assert.equal(
-    code.step_contracts.some((contract) => contract.kind === 'action'),
+    code.step_contracts?.some((contract) => contract.kind === 'action'),
     false,
   );
   const build = flow.describe('build');
-  assert.equal(code.inputs, undefined);
-  assert.equal(build.inputs?.source.template.protocol, 'codex-build-source');
-  assert.equal(build.inputs?.source.template.repository, 'owner/name');
-  assert.equal(build.inputs?.source.template.issue_number, 123);
-  assert.equal(
-    build.step_contracts.some((contract) => contract.kind === 'action'),
-    true,
-  );
-  assert.deepEqual(build.sequence.opening.slice(0, 3), ['load:plan', 'revalidate:plan', 'branch']);
-  const gateContract = build.step_contracts.find((contract) => contract.kind === 'gate');
-  assert.deepEqual(gateContract?.conditional_required?.['build-artifacts'], [
-    'gate.input',
-    'gate.unit_id',
-  ]);
-  assert.deepEqual(gateContract?.conditional_optional?.shell, [
-    'gate.calibrate',
-    'gate.timeout_ms',
-    'gate.require_output',
-    'gate.forbid_output',
-  ]);
-  assert.deepEqual(gateContract?.conditional_optional?.['build-plan'], []);
-  const actionContract = build.step_contracts.find((contract) => contract.kind === 'action');
-  assert.deepEqual(actionContract?.conditional_required?.ship, [
-    'remote',
-    'repository',
-    'base_branch',
-  ]);
+  assert.deepEqual(build.input_template, {
+    protocol: 'codex-build-run',
+    source: { repository: 'owner/name', issue_number: 123 },
+    ship: true,
+  });
+  assert.deepEqual(build.execution, {
+    source_of_truth: 'public-issue-plan',
+    compiled: true,
+    persisted: true,
+  });
+  assert.equal(build.manifest_template, undefined);
+  assert.equal(build.executable_example, undefined);
+  assert.equal(build.step_contracts, undefined);
+  assert.equal(build.sequence, undefined);
 });

@@ -9,7 +9,6 @@ import { gitRoot } from './shared/repository.ts';
 import {
   atomicWrite,
   buildShipApprovalPath,
-  buildSourcePath,
   intentPath,
   issueApprovalPath,
   statePath,
@@ -54,7 +53,6 @@ interface StoredWorkflowIntent {
 
 interface WorkflowIntent extends StoredWorkflowIntent {
   input_path: string;
-  build_source_path: string | null;
 }
 
 interface ArmIntentOptions {
@@ -103,7 +101,6 @@ function hydrateIntent(intent: StoredWorkflowIntent): WorkflowIntent {
   return {
     ...intent,
     input_path: workflowInputPath(intent.run_id),
-    build_source_path: intent.workflow === 'build' ? buildSourcePath(intent.run_id) : null,
   };
 }
 
@@ -176,9 +173,7 @@ function armIntent({ runId, workflow, cwd }: ArmIntentOptions): WorkflowIntent {
     repo,
   };
   const intent = hydrateIntent(stored);
-  for (const file of [intent.input_path, intent.build_source_path]) {
-    if (file) fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  }
+  fs.mkdirSync(path.dirname(intent.input_path), { recursive: true, mode: 0o700 });
   atomicWrite(intentPath(runId), stored);
   const approval = approvalFor(workflow);
   if (approval) armApproval(approval, runId, repo);
@@ -237,7 +232,7 @@ function requireBoundIntent(
   workflow: WorkflowInvocation,
   repo: string,
   inputFile: string,
-  inputName: 'manifest' | 'issue input' | 'research input' | 'think input',
+  inputName: 'build input' | 'manifest' | 'issue input' | 'research input' | 'think input',
 ): WorkflowIntent {
   const intent = requireBoundInput(runId, workflow, inputFile, inputName);
   if (intent.repo !== repo) throw new Error('workflow intent belongs to a different Git worktree');
@@ -248,7 +243,7 @@ function requireBoundInput(
   runId: string,
   workflow: WorkflowInvocation,
   inputFile: string,
-  inputName: 'manifest' | 'issue input' | 'research input' | 'think input',
+  inputName: 'build input' | 'manifest' | 'issue input' | 'research input' | 'think input',
 ): WorkflowIntent {
   const intent = loadIntent(runId);
   if (!intent || intent.workflow !== workflow)
@@ -264,7 +259,7 @@ function stopPendingIntent(
   runId: string,
   workflow: WorkflowInvocation,
   inputFile: string,
-  inputName: 'manifest' | 'issue input' | 'research input' | 'think input',
+  inputName: 'build input' | 'manifest' | 'issue input' | 'research input' | 'think input',
 ): WorkflowIntent {
   const intent = requireBoundInput(runId, workflow, inputFile, inputName);
   clearIntent(runId);
@@ -279,6 +274,11 @@ function requireIntent(
   manifestFile: string,
 ): WorkflowIntent {
   return requireBoundIntent(runId, workflow, repo, manifestFile, 'manifest');
+}
+
+/** Proves that Build startup uses only its hook-bound request file. */
+function requireBuildIntent(runId: string, inputFile: string): WorkflowIntent {
+  return requireBoundInput(runId, 'build', inputFile, 'build input');
 }
 
 /** Proves that research startup matches its explicit task- and repository-bound invocation. */
@@ -296,10 +296,16 @@ function requireIssueIntent(runId: string, repo: string, inputFile: string): Wor
   return requireBoundIntent(runId, 'issue', repo, inputFile, 'issue input');
 }
 
-/** Runs one model-backed workflow and consumes its intent afterwards, whether it completed or threw. */
+/** Consumes terminal model intent while preserving an exact retry after transport unavailability. */
 async function consumeIntentAfter<T>(runId: string, run: () => Promise<T>): Promise<T> {
-  using _intent = { [Symbol.dispose]: () => clearIntent(runId) };
-  return await run();
+  try {
+    const result = await run();
+    clearIntent(runId);
+    return result;
+  } catch (error) {
+    if (errorCode(error) !== 'model_unavailable') clearIntent(runId);
+    throw error;
+  }
 }
 
 /** Clears the task-scoped intent and any external-write authority derived from it. */
@@ -322,6 +328,7 @@ export {
   parseBuildIssueNumber,
   parseExplicitInvocation,
   requireBuildShipApproval,
+  requireBuildIntent,
   requireIntent,
   requireIssueIntent,
   requireResearchIntent,

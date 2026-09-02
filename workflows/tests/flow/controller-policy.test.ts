@@ -21,7 +21,6 @@ import {
   issueApprovalPath,
   workflowInputPath,
 } from '../../shared/storage.ts';
-import { githubIssueView, githubShellCommand } from '../../shared/github.ts';
 import {
   enableShipping,
   fixture,
@@ -90,15 +89,11 @@ test('UserPromptSubmit arms only a leading explicit workflow invocation', () => 
     explicit.hookSpecificOutput?.additionalContext || '',
     new RegExp(pending!.input_path),
   );
-  assert.ok(
-    (explicit.hookSpecificOutput?.additionalContext || '').includes(
-      githubShellCommand(githubIssueView('owner/project', 123)),
-    ),
-  );
-  assert.deepEqual(JSON.parse(fs.readFileSync(pending!.build_source_path!, 'utf8')), {
-    protocol: 'codex-build-source',
-    repository: 'owner/project',
-    issue_number: 123,
+  assert.match(explicit.hookSpecificOutput?.additionalContext || '', /controller will load/u);
+  assert.deepEqual(JSON.parse(fs.readFileSync(pending!.input_path, 'utf8')), {
+    protocol: 'codex-build-run',
+    source: { repository: 'owner/project', issue_number: 123 },
+    ship: true,
   });
 });
 
@@ -115,11 +110,11 @@ test('Build Issue shorthand rejects invalid numbers before arming an intent', ()
   assert.equal(intent.loadIntent('turn-invalid-build-issue'), null);
 });
 
-test('Build source preparation failure revokes the pending intent and Ship approval', () => {
+test('Build input preparation failure revokes the pending intent and Ship approval', () => {
   const { repo } = fixture();
   const runId = 'turn-build-source-write-failure';
   spawnSync('git', ['-C', repo, 'remote', 'add', 'origin', 'https://github.com/owner/project.git']);
-  fs.mkdirSync(intent.armIntent({ runId, workflow: 'build', cwd: repo }).build_source_path!);
+  fs.mkdirSync(intent.armIntent({ runId, workflow: 'build', cwd: repo }).input_path);
   intent.clearIntent(runId);
 
   const response = hook.handle({
@@ -319,12 +314,12 @@ test('pending intent permits workflow input preparation and blocks unrelated mut
     session_id: turn,
     tool_name: 'Bash',
     cwd: repo,
-    tool_input: { command: `codex-flow run --manifest ${pending.input_path}` },
+    tool_input: { command: `codex-flow run --input ${pending.input_path}` },
   });
   assert.equal(start.hookSpecificOutput?.permissionDecision, 'allow');
   assert.equal(
     start.hookSpecificOutput?.updatedInput?.command,
-    `codex-flow run --manifest ${pending.input_path} --run-id '${turn}'`,
+    `codex-flow run --input ${pending.input_path} --run-id '${turn}'`,
   );
   assert.equal(hook.stop({ session_id: turn, stop_hook_active: false }).decision, 'block');
   const secondStop = hook.stop({ session_id: turn, stop_hook_active: true });
@@ -333,43 +328,36 @@ test('pending intent permits workflow input preparation and blocks unrelated mut
   assert.equal(intent.loadIntent(turn), null);
 });
 
-test('pending build permits only its published source and manifest files', () => {
+test('pending build permits only its small request file', () => {
   const { repo } = fixture();
   const turn = 'turn-pending-build-policy';
   const pending = intent.armIntent({ runId: turn, workflow: 'build', cwd: repo });
-  if (!pending.build_source_path) throw new Error('missing build source path');
   fs.writeFileSync(
-    pending.build_source_path,
+    pending.input_path,
     JSON.stringify({
-      protocol: 'codex-build-source',
-      repository: 'owner/project',
-      issue_number: 42,
+      protocol: 'codex-build-run',
+      source: { repository: 'owner/project', issue_number: 42 },
+      ship: true,
     }),
   );
-  assert.equal(fs.statSync(path.dirname(pending.build_source_path)).isDirectory(), true);
-  for (const command of [
-    'codex-flow describe --workflow build',
-    'gh issue view 42 --repo owner/project --json number,title,body,url,labels',
-  ]) {
-    assert.deepEqual(
-      hook.preToolUse({
-        hook_event_name: 'PreToolUse',
-        session_id: turn,
-        tool_name: 'Bash',
-        cwd: repo,
-        tool_input: { command },
-      }),
-      {},
-      command,
-    );
-  }
+  assert.equal(fs.statSync(path.dirname(pending.input_path)).isDirectory(), true);
+  assert.deepEqual(
+    hook.preToolUse({
+      hook_event_name: 'PreToolUse',
+      session_id: turn,
+      tool_name: 'Bash',
+      cwd: repo,
+      tool_input: { command: 'codex-flow describe --workflow build' },
+    }),
+    {},
+  );
   assert.deepEqual(
     hook.preToolUse({
       hook_event_name: 'PreToolUse',
       session_id: turn,
       tool_name: 'Write',
       cwd: repo,
-      tool_input: { file_path: pending.build_source_path },
+      tool_input: { file_path: pending.input_path },
     }),
     {},
   );
@@ -407,7 +395,12 @@ test('pending intent rejects destructive forms of nominally read-only commands',
   for (const command of [
     'ls & touch outside.js',
     'find . -delete',
+    "find . -exec touch outside.js ';'",
+    "sed -n 'w outside.js' README.md",
     'git branch new-branch',
+    'git remote set-url origin https://example.invalid/owner/project.git',
+    'gh issue edit 42 --title changed',
+    'rg pattern . | head -20 && touch outside.js',
     'rg --pre touch pattern .',
     'git diff --output=outside.diff',
   ]) {
@@ -419,6 +412,37 @@ test('pending intent rejects destructive forms of nominally read-only commands',
       tool_input: { command },
     });
     assert.equal(result.hookSpecificOutput?.permissionDecision, 'deny', command);
+  }
+});
+
+test('pending Think permits common composed read-only inspection commands', () => {
+  const { repo } = fixture();
+  const turn = 'turn-pending-read-policy';
+  intent.armIntent({ runId: turn, workflow: 'think', cwd: repo });
+
+  for (const command of [
+    "sed -n '1,20p' README.md",
+    'rg pattern . | head -20',
+    'grep pattern README.md',
+    'find . -maxdepth 2 -type f',
+    'git status --short && git branch --show-current',
+    'git remote -v',
+    'git remote get-url origin',
+    'cd . && pwd',
+    'echo fixture | sort | cut -c 1-4 | nl',
+    'gh issue view 42 --repo owner/project',
+  ]) {
+    assert.deepEqual(
+      hook.preToolUse({
+        hook_event_name: 'PreToolUse',
+        session_id: turn,
+        tool_name: 'Bash',
+        cwd: repo,
+        tool_input: { command },
+      }),
+      {},
+      command,
+    );
   }
 });
 
@@ -452,11 +476,11 @@ test('active workflow permits inspection and only its controller resume command'
     session_id: turn,
     tool_name: 'Bash',
     cwd: repo,
-    tool_input: { command: `codex-flow run --manifest ${workflowInputPath(turn)}` },
+    tool_input: { command: `codex-flow run --input ${workflowInputPath(turn)}` },
   });
   assert.equal(
     resumed.hookSpecificOutput?.updatedInput?.command,
-    `codex-flow run --manifest ${workflowInputPath(turn)} --run-id '${turn}'`,
+    `codex-flow run --input ${workflowInputPath(turn)} --run-id '${turn}'`,
   );
   assert.match(hook.stop({ session_id: turn }).reason || '', /Resume its controller/u);
 });
@@ -474,7 +498,7 @@ test('active Build can be cancelled only by its exact task-bound controller', as
     session_id: turn,
     tool_name: 'Bash',
     cwd: repo,
-    tool_input: { command: 'codex-flow cancel --manifest /tmp/other-run.json' },
+    tool_input: { command: 'codex-flow cancel --input /tmp/other-run.json' },
   });
   assert.equal(wrong.hookSpecificOutput?.permissionDecision, 'deny');
 
@@ -483,14 +507,14 @@ test('active Build can be cancelled only by its exact task-bound controller', as
     session_id: turn,
     tool_name: 'Bash',
     cwd: repo,
-    tool_input: { command: `codex-flow cancel --manifest ${expected}` },
+    tool_input: { command: `codex-flow cancel --input ${expected}` },
   });
   assert.equal(
     allowed.hookSpecificOutput?.updatedInput?.command,
-    `codex-flow cancel --manifest ${expected} --run-id '${turn}'`,
+    `codex-flow cancel --input ${expected} --run-id '${turn}'`,
   );
 
-  const cancelled = (await flowMain(['cancel', '--manifest', expected, '--run-id', turn])).result;
+  const cancelled = (await flowMain(['cancel', '--input', expected, '--run-id', turn])).result;
   if (!('status' in cancelled)) throw new Error('missing cancellation status');
   assert.equal(cancelled.status, 'cancelled');
   assert.equal(cancelled.ship_authorization_revoked, true);
@@ -504,7 +528,7 @@ test('active Build can be cancelled only by its exact task-bound controller', as
       session_id: turn,
       tool_name: 'Bash',
       cwd: repo,
-      tool_input: { command: `codex-flow run --manifest ${expected}` },
+      tool_input: { command: `codex-flow run --input ${expected}` },
     }).hookSpecificOutput?.permissionDecision,
     'deny',
   );
@@ -537,7 +561,6 @@ test('Ship revalidation rejects an Issue body edited after load:plan', () => {
   issue.body = renderPublicIssueBody(
     `Edited after Build started.\n\n${unsealedVisibleBody}`,
     parsed.plan,
-    'english',
     '00000000-0000-4000-8000-000000000003',
   );
   fs.writeFileSync(issueFile, JSON.stringify(issue));
@@ -587,15 +610,15 @@ test('a cursor-zero GitHub access failure resumes only the same unchanged Build'
     session_id: turn,
     tool_name: 'Bash',
     cwd: repo,
-    tool_input: { command: `codex-flow run --manifest ${expected}` },
+    tool_input: { command: `codex-flow run --input ${expected}` },
   });
   assert.equal(resume.hookSpecificOutput?.permissionDecision, 'allow');
-  const originalManifest = fs.readFileSync(expected);
-  const changedManifest = JSON.parse(originalManifest.toString('utf8')) as Record<string, unknown>;
-  changedManifest.max_corrections = Number(changedManifest.max_corrections) + 1;
-  fs.writeFileSync(expected, JSON.stringify(changedManifest));
-  assert.throws(() => flow.startOrResumeWorkflow(turn, expected), /original blocked manifest/);
-  fs.writeFileSync(expected, originalManifest);
+  const originalInput = fs.readFileSync(expected);
+  const changedInput = JSON.parse(originalInput.toString('utf8')) as Record<string, unknown>;
+  changedInput.ship = !changedInput.ship;
+  fs.writeFileSync(expected, JSON.stringify(changedInput));
+  assert.throws(() => flow.startOrResumeWorkflow(turn, expected), /original workflow input/);
+  fs.writeFileSync(expected, originalInput);
   fs.writeFileSync(gh, `#!/bin/sh\nexec /bin/cat '${issueFile}'\n`, { mode: 0o700 });
   assert.equal(flow.startOrResumeWorkflow(turn, expected).current_step?.id, 'load:plan');
   assert.equal(flow.completeCurrentDirective(turn, 'load:plan').result.status, 'running');
@@ -704,13 +727,15 @@ test('build start rejects a pre-existing staged baseline instead of deadlocking 
   assert.throws(() => startFlow('turn-staged-baseline', manifestFile), /clean index.*staged\.txt/);
 });
 
-test('build start rejects pre-existing changes to an actor-owned file', () => {
+test('Plan compilation blocks pre-existing changes to an actor-owned file', () => {
   const { manifestFile, repo } = fixture({ workflow: 'build' });
   fs.writeFileSync(path.join(repo, 'src.js'), 'user change\n');
-  assert.throws(
-    () => startFlow('turn-dirty-actor-baseline', manifestFile),
-    /clean actor files.*src\.js/,
-  );
+  const runId = 'turn-dirty-actor-baseline';
+  startFlow(runId, manifestFile);
+  const blocked = flow.completeCurrentDirective(runId, 'load:plan').result;
+  assert.equal(blocked.status, 'blocked');
+  assert.equal(blocked.last_gate?.classification, 'scope_error');
+  assert.match(String(structuredResult(blocked.last_gate).error), /clean actor files.*src\.js/);
 });
 
 test('build required gates reject vacuous shell substitutes', () => {
@@ -784,7 +809,7 @@ test('hook exposes only describe without an explicit workflow', () => {
     hook_event_name: 'PreToolUse',
     session_id: 'session-123',
     tool_name: 'Bash',
-    tool_input: { command: `${hook.FLOW_COMMAND} run --manifest /tmp/manifest.json` },
+    tool_input: { command: `${hook.FLOW_COMMAND} run --input /tmp/manifest.json` },
   });
   assert.equal(denied.hookSpecificOutput?.permissionDecision, 'deny');
   assert.deepEqual(

@@ -28,7 +28,7 @@ import {
   workflowInputPath,
 } from '../../../workflows/shared/storage.ts';
 import { emptyStageTimings } from '../../../workflows/shared/codex.ts';
-import { sha256 } from '../../../workflows/shared/evidence.ts';
+import { readRepositoryEvidence, sha256 } from '../../../workflows/shared/evidence.ts';
 import { ProgressReporter, type ProgressEvent } from '../../../workflows/shared/progress.ts';
 import {
   BUILD_SOURCE_PROTOCOL,
@@ -259,10 +259,21 @@ test('one explicit issue invocation publishes the exact draft and returns build 
     compileContext(repo, 'think').entries.some((e) => e.kind === 'decision'),
     true,
   );
-  assert.equal(
-    JSON.parse(fs.readFileSync(publishedResult.receipt_json, 'utf8')).body,
-    gateway.issue.body,
-  );
+  const receipt = JSON.parse(fs.readFileSync(publishedResult.receipt_json, 'utf8')) as Record<
+    string,
+    unknown
+  >;
+  assert.deepEqual(Object.keys(receipt).sort(), [
+    'draft_sha256',
+    'issue_number',
+    'protocol',
+    'publication_id',
+    'published_at',
+    'repo',
+    'repository',
+  ]);
+  assert.equal(receipt.publication_id, publicationId);
+  assert.equal('body' in receipt, false);
   const resolved = resolveBuildSource(
     {
       protocol: BUILD_SOURCE_PROTOCOL,
@@ -462,21 +473,33 @@ test('recovers an exact issue when creation succeeds before the local receipt is
   );
 });
 
-test('rejects stale/changed evidence and preserves ignored-only changes', () => {
+test('accepts HEAD and dirty drift while rejecting changed repository evidence', () => {
   const repo = repoFixture();
-  fs.writeFileSync(path.join(repo, '.ignored'), 'x');
-  fs.writeFileSync(path.join(repo, '.gitignore'), '.ignored\n');
-  execFileSync('git', ['add', '.gitignore'], { cwd: repo });
+  const source = readRepositoryEvidence(repo, 'README.md', 'L1', 'fixture evidence');
+  const report = think(repo, {
+    evidence: [
+      {
+        id: 'E-001',
+        kind: 'repository',
+        source: 'README.md',
+        locator: 'L1',
+        supports: 'fixture',
+        source_sha256: source.source_sha256,
+      },
+    ],
+  });
+  fs.writeFileSync(path.join(repo, 'unrelated.txt'), 'new head\n');
+  execFileSync('git', ['add', 'unrelated.txt'], { cwd: repo });
   execFileSync(
     'git',
-    ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'ignore'],
+    ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'unrelated'],
     { cwd: repo },
   );
-  const report = think(repo);
+  fs.writeFileSync(path.join(repo, 'dirty.txt'), 'unrelated dirty state\n');
   const gateway = new Gateway();
   assert.doesNotThrow(() => draftIssue(input(repo, report), gateway));
   fs.writeFileSync(path.join(repo, 'README.md'), 'changed\n');
-  assert.throws(() => draftIssue(input(repo, report), gateway), /repository state|stale/u);
+  assert.throws(() => draftIssue(input(repo, report), gateway), /stale/u);
 });
 
 test('rejects stale Think evidence before any GitHub write', () => {

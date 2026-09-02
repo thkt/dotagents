@@ -104,7 +104,55 @@ test('self-describes a template accepted by the same validator', () => {
   const description = describe();
   assert.equal(description.protocol, 'codex-build-plan-description');
   assert.equal(validatePlan(description.input_template).verdict, 'pass');
+  assert.deepEqual(description.constraints.ids, {
+    unit: { pattern: '^U-\\d{3}$', uniqueness: 'plan-wide' },
+    test: { pattern: '^T-[A-Z]*\\d{3}$', uniqueness: 'plan-wide' },
+  });
+  assert.deepEqual(description.constraints.repository_paths, {
+    fields: [
+      'plan.reference_module.path',
+      'plan.reference_module.files[]',
+      'plan.preconditions[].path',
+      'plan.rules[].source',
+      'plan.units[].files[]',
+    ],
+    format: 'bare-repository-relative-path',
+    allow_source_location_suffix: false,
+  });
+  assert.deepEqual(description.constraints.seam, {
+    required_when_tested_units_at_least: 2,
+    bypasses_unit_caps: true,
+  });
   assert.deepEqual(main(['describe']).report, description);
+});
+
+test('requires test ids to be unique across the entire Plan', () => {
+  const second = {
+    ...plan().units[0],
+    id: 'U-002',
+    seam: true,
+  };
+  const report = validatePlan({
+    issue: 42,
+    title: 'Feature',
+    body: bodyFor(['U-001', 'U-002'], ['T-001']),
+    plan: plan({ units: [...plan().units, second] }),
+  });
+  assert.match(report.blockers.join('\n'), /duplicate test id T-001/u);
+});
+
+test('rejects source-location suffixes where a bare repository path is required', () => {
+  const report = validatePlan({
+    issue: 42,
+    title: 'Feature',
+    body: bodyFor(),
+    plan: plan({
+      preconditions: [{ path: 'src/value.js:L10-L20', pattern: 'value' }],
+      rules: [{ source: 'AGENTS.md#L10-L20', quote: 'Follow the outcome.' }],
+    }),
+  });
+  assert.match(report.blockers.join('\n'), /preconditions\[0\]\.path is invalid/u);
+  assert.match(report.blockers.join('\n'), /rules\[0\]\.source is invalid/u);
 });
 
 test('fails when the issue has no Plan section', () => {

@@ -6,6 +6,7 @@ description: 実装方法を比較し、変更依頼1件を、出典に基づい
 # Think
 
 `codex-think describe`で現在の入力形式と設計判断の契約を確認する。
+束縛された workflow command は network access 付きで実行する。sandbox が入れ子 Codex の接続を拒否した場合は、同じ command を network escalation で再実行する。`model_unavailable` はその再実行のため intent を保持する。
 
 ## 判断
 

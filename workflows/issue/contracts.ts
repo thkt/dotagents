@@ -6,7 +6,14 @@ import path from 'node:path';
 import { parseBuildPlanAuthoring, type BuildPlanAuthoring } from '../flow/build/authoring.ts';
 import { FlowError } from '../shared/errors.ts';
 import { gitRoot } from '../shared/repository.ts';
-import { isObject, rejectUnknownKeys } from '../shared/schema.ts';
+import { digest, positiveIssue, repositoryName } from './public-contract.ts';
+import {
+  enumValue,
+  isObject,
+  nullableString,
+  rejectUnknownKeys,
+  requiredString,
+} from '../shared/schema.ts';
 
 export const ISSUE_INPUT_PROTOCOL = 'codex-issue-input' as const;
 export const ISSUE_DRAFT_PROTOCOL = 'codex-issue-draft' as const;
@@ -54,33 +61,8 @@ export interface IssueDraft {
   existing_issue: ExistingIssueSnapshot | null;
 }
 
-function requiredString(value: unknown, label: string): string {
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new FlowError(`${label} must be a non-empty string`);
-  }
-  return value.trim();
-}
-
-function nullableString(value: unknown, label: string): string | null {
-  return value === null ? null : requiredString(value, label);
-}
-
-function positiveInteger(value: unknown, label: string): number {
-  if (!Number.isInteger(value) || Number(value) < 1) {
-    throw new FlowError(`${label} must be a positive integer`);
-  }
-  return Number(value);
-}
-
 function nullablePositiveInteger(value: unknown, label: string): number | null {
-  return value === null ? null : positiveInteger(value, label);
-}
-
-function enumValue<T extends string>(value: unknown, values: readonly T[], label: string): T {
-  if (typeof value !== 'string' || !values.includes(value as T)) {
-    throw new FlowError(`${label} must be ${values.join(', ')}`);
-  }
-  return value as T;
+  return value === null ? null : positiveIssue(value, label);
 }
 
 function absolutePath(value: unknown, label: string): string {
@@ -88,20 +70,6 @@ function absolutePath(value: unknown, label: string): string {
     throw new FlowError(`${label} must be absolute`);
   }
   return path.resolve(value);
-}
-
-function digest(value: unknown, label: string): string {
-  const result = requiredString(value, label);
-  if (!/^[a-f0-9]{64}$/u.test(result)) throw new FlowError(`${label} must be a SHA-256 digest`);
-  return result;
-}
-
-function repositoryName(value: unknown, label: string): string {
-  const result = requiredString(value, label);
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(result)) {
-    throw new FlowError(`${label} must be owner/name`);
-  }
-  return result;
 }
 
 function remoteName(value: unknown, label: string): string {

@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import {
   gitRoot,
+  gitOptionalText,
   gitText,
   nearestExistingParent,
   normalizeRepoPath,
@@ -28,10 +29,10 @@ import { FlowError, errorMessage } from '../shared/errors.ts';
 import { isObject, rejectUnknownKeys, stringArray, type JsonObject } from '../shared/schema.ts';
 import { parseArgs as parseGateArgs } from './shell-gate.ts';
 
-export const ACTIONS = new Set<ActionName>(['branch', 'commit', 'ship']);
+const ACTIONS = new Set<ActionName>(['branch', 'commit', 'ship']);
 export const UNIT_ACTOR = /^(U-\d{3}):(red|green|direct)$/u;
 export const CLEANUP_ACTOR = /^cleanup:[A-Za-z0-9._-]+$/u;
-export const BUILD_OPENING_IDS = ['load:plan', 'revalidate:plan', 'branch'] as const;
+const BUILD_OPENING_IDS = ['load:plan', 'revalidate:plan', 'branch'] as const;
 export const DEFAULT_MAX_CORRECTIONS = 3;
 const GATE_AUTHORITIES = new Set<GateAuthority>([
   'shell',
@@ -681,15 +682,10 @@ function validateBranchAction(item: JsonObject, id: string, repo: string): Actio
     `${id}.start_point lookup`,
   );
   if (resolved !== item.start_point) throw new FlowError(`${id}.start_point is not canonical`);
-  const exists = spawnSync('git', [
-    '-C',
-    repo,
-    'show-ref',
-    '--verify',
-    '--quiet',
-    `refs/heads/${item.branch_name}`,
-  ]);
-  if (exists.status === 0) throw new FlowError(`${id}.branch_name already exists`);
+  const existing = gitOptionalText(repo, ['rev-parse', `refs/heads/${item.branch_name}^{commit}`]);
+  if (existing !== null && existing !== item.start_point) {
+    throw new FlowError(`${id}.branch_name already exists at a different commit`);
+  }
   return {
     id: 'branch',
     kind: 'action',

@@ -8,6 +8,7 @@ import { test } from 'bun:test';
 
 import type { GateOptions, GateReport } from '../../flow/contracts.ts';
 import {
+  calibrationAnchors,
   calibrationCandidates,
   DEFAULT_TIMEOUT_MS,
   hasExactOutputLine,
@@ -16,13 +17,36 @@ import {
 } from '../../flow/shell-gate.ts';
 import { temporaryDirectory } from '../shared/fixtures.ts';
 
-test('normalizes Node test reporter duration anchors and matches reruns exactly', () => {
+test('normalizes Node and Bun test reporter duration anchors across reruns', () => {
   const candidates = calibrationCandidates('✖ planned name (0.13ms)\n', '', [
     { id: 'T-001', name: 'planned name' },
   ]);
   assert.equal(candidates[0]?.text, '✖ planned name');
   assert.equal(hasExactOutputLine('✖ planned name (0.09ms)\n', '', candidates[0]!.text), true);
   assert.equal(hasExactOutputLine('✖ planned name (details)\n', '', candidates[0]!.text), false);
+
+  const bunCalibration = '(fail) planned name [4.72ms]';
+  const bunRerun = '(fail) planned name [0.29ms]';
+  const bunCandidates = calibrationCandidates(`${bunCalibration}\n`, '', [
+    { id: 'T-001', name: 'planned name' },
+  ]);
+  assert.equal(bunCandidates[0]?.text, '(fail) planned name');
+  assert.equal(hasExactOutputLine(`${bunRerun}\n`, '', bunCandidates[0]!.text), true);
+});
+
+test('selects the first candidate for each planned test in Plan order', () => {
+  const candidates = [
+    { id: 'stderr:L1', text: 'second failed', test_id: 'T-002' },
+    { id: 'stderr:L2', text: 'first failed', test_id: 'T-001' },
+    { id: 'stderr:L3', text: 'first failed later', test_id: 'T-001' },
+  ];
+  const planned = [
+    { id: 'T-001', name: 'first' },
+    { id: 'T-002', name: 'second' },
+  ];
+  assert.deepEqual(calibrationAnchors(candidates, planned), ['first failed', 'second failed']);
+  assert.equal(calibrationAnchors(candidates, [...planned, { id: 'T-003', name: 'third' }]), null);
+  assert.deepEqual(calibrationAnchors(candidates, null), ['second failed']);
 });
 
 const verifier = path.resolve(import.meta.dirname, '../../flow/shell-gate.ts');

@@ -6,8 +6,8 @@ import * as os from 'node:os';
 import path from 'node:path';
 import { onTestFinished } from 'bun:test';
 
-import { renderPlanMarkdown, type BuildPlanAuthoring } from '../../flow/build/authoring.ts';
-import { BUILD_SOURCE_PROTOCOL } from '../../flow/build/handoff.ts';
+import { compileBuildPlan, type BuildPlanAuthoring } from '../../flow/build/authoring.ts';
+import { BUILD_RUN_PROTOCOL } from '../../flow/build/handoff.ts';
 import { renderPublicIssueBody } from '../../issue/public-contract.ts';
 import * as flow from '../../flow/controller.ts';
 import * as intent from '../../invocation.ts';
@@ -77,6 +77,14 @@ export function fixture({
   const startPoint = spawnSync('git', ['-C', repo, 'rev-parse', 'HEAD'], {
     encoding: 'utf8',
   }).stdout.trim();
+  spawnSync('git', ['-C', repo, 'update-ref', 'refs/remotes/origin/main', startPoint]);
+  spawnSync('git', [
+    '-C',
+    repo,
+    'symbolic-ref',
+    'refs/remotes/origin/HEAD',
+    'refs/remotes/origin/main',
+  ]);
   const steps: FixtureStep[] = [
     {
       id: 'baseline:test',
@@ -282,8 +290,6 @@ export function startFlow(
     cwd: manifest.repo,
   });
   if (manifest.workflow === 'build') {
-    if (!pending.build_source_path) throw new Error('missing fixture build source path');
-    fs.mkdirSync(path.dirname(pending.build_source_path), { recursive: true });
     const plan: BuildPlanAuthoring = {
       outcome: 'fixture outcome',
       root_cause: null,
@@ -312,10 +318,10 @@ export function startFlow(
         },
       ],
     };
+    const compiledPlan = compileBuildPlan(plan);
     const body = renderPublicIssueBody(
-      renderPlanMarkdown(plan),
-      plan,
-      'english',
+      compiledPlan.markdown,
+      compiledPlan,
       '00000000-0000-4000-8000-000000000001',
     );
     const issueFile = path.join(path.dirname(manifest.repo), 'github-issue.json');
@@ -330,24 +336,13 @@ export function startFlow(
       }),
     );
     fs.writeFileSync(
-      pending.build_source_path,
+      pending.input_path,
       JSON.stringify({
-        protocol: BUILD_SOURCE_PROTOCOL,
-        repository: 'owner/project',
-        issue_number: 42,
+        protocol: BUILD_RUN_PROTOCOL,
+        source: { repository: 'owner/project', issue_number: 42 },
+        ship: manifest.shipping_authorized === true,
       }),
     );
-    for (const step of manifest.steps) {
-      if (
-        step.kind === 'gate' &&
-        (step.gate.authority === 'build-plan' ||
-          step.gate.authority === 'build-revalidate' ||
-          step.gate.authority === 'build-artifacts')
-      ) {
-        step.gate.input = pending.build_source_path;
-      }
-    }
-    fs.writeFileSync(pending.input_path, JSON.stringify(manifest));
     beforeStart?.();
     return flow.startWorkflow(runId, pending.input_path);
   } else {

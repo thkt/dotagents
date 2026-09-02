@@ -21,7 +21,7 @@ import type {
 } from '../../../workflows/research/agent.ts';
 import { auditPrompt, investigationPrompt } from '../../../workflows/research/agent.ts';
 import { researchArtifactDirectory } from '../../../workflows/shared/storage.ts';
-import { errorCode } from '../../../workflows/shared/errors.ts';
+import { FlowError, errorCode } from '../../../workflows/shared/errors.ts';
 import { runResearchWorkflow } from '../../../workflows/research/runner.ts';
 import { armIntent, clearIntent, loadIntent } from '../../../workflows/invocation.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
@@ -346,6 +346,24 @@ test('a terminal model failure consumes the armed intent', async () => {
     /terminal/u,
   );
   assert.equal(loadIntent(failedRun), null);
+});
+
+test('model unavailability preserves the armed intent for an exact retry', async () => {
+  const repo = repoFixture();
+  const runId = `research-model-unavailable-${crypto.randomUUID()}`;
+  const pending = armIntent({ runId, workflow: 'research', cwd: repo });
+  onTestFinished(() => clearIntent(runId));
+  fs.writeFileSync(pending.input_path, JSON.stringify(input(repo)));
+  const unavailable: ResearchAgent = {
+    async investigate() {
+      throw new FlowError('nested Codex connection unavailable', 'model_unavailable');
+    },
+    async audit() {
+      throw new Error('unexpected audit');
+    },
+  };
+  await assert.rejects(runResearchWorkflow(runId, pending.input_path, unavailable), /unavailable/u);
+  assert.ok(loadIntent(runId));
 });
 
 test('an input validation failure preserves the armed intent', async () => {
