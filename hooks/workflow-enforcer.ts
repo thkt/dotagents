@@ -5,7 +5,11 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 
 import type { FlowState } from '../workflows/flow/contracts.ts';
-import { isRetryableGitHubAccessBlock, loadWorkflowState } from '../workflows/flow/controller.ts';
+import {
+  isRetryableGitHubAccessBlock,
+  isRetryableRuntimeFailure,
+  loadWorkflowState,
+} from '../workflows/flow/controller.ts';
 import {
   armIntent,
   clearIntent,
@@ -90,7 +94,8 @@ function readInput(): HookInput {
 
 function activeState(runId: string | undefined): FlowState | null {
   const state = controllerState(runId);
-  return state?.status === 'running' || (state && isRetryableGitHubAccessBlock(state))
+  return state?.status === 'running' ||
+    (state && (isRetryableGitHubAccessBlock(state) || isRetryableRuntimeFailure(state)))
     ? state
     : null;
 }
@@ -378,7 +383,9 @@ function preToolUse(input: HookInput): HookResponse {
       !state ||
       (state.status !== 'running' &&
         state.status !== 'cancelled' &&
-        !isRetryableGitHubAccessBlock(state))
+        !isRetryableGitHubAccessBlock(state) &&
+        state.runtime_failure == null &&
+        state.escalation === null)
     ) {
       return deny('cancel requires an active workflow controller for this task');
     }

@@ -23,6 +23,7 @@ import {
   type GateOptions,
   type GateReport,
   type PublicState,
+  type RuntimeFailure,
   type ShellGateSpec,
   type StepDescription,
   type Workflow,
@@ -46,6 +47,7 @@ import {
   sameRepoSnapshot,
   sameRepositoryInvariant,
   snapshotChanges,
+  workflowRepositoryInvariant,
 } from '../shared/repository.ts';
 import { isGitHubAccessFailureMessage } from '../shared/github.ts';
 import {
@@ -125,8 +127,14 @@ function publicState(state: FlowState): PublicState {
     last_gate: state.gate_reports.at(-1) ?? null,
     gate_reports: state.gate_reports,
     escalation: state.escalation,
+    runtime_failure: state.runtime_failure ?? null,
     ship_authorization_revoked: state.ship_authorization_revoked,
   };
+}
+
+function repositoryStateHash(repo: string): string {
+  const invariant = workflowRepositoryInvariant(repositoryInvariant(repo));
+  return crypto.createHash('sha256').update(JSON.stringify(invariant)).digest('hex');
 }
 
 /** Identifies an action-free Build stop that can retry the same GitHub read. */
@@ -147,6 +155,17 @@ function isRetryableGitHubAccessBlock(state: FlowState): boolean {
     lastGate?.gate_id === 'load:plan' &&
     ((lastGate.classification === 'github_issue_read_failed' && structured?.retryable === true) ||
       legacyNetworkFailure)
+  );
+}
+
+/** Identifies an in-process failure whose exact controller step may be retried. */
+function isRetryableRuntimeFailure(state: FlowState): boolean {
+  const failure = state.runtime_failure;
+  return (
+    state.status === 'blocked' &&
+    failure?.retryable === true &&
+    failure.classification === 'model_unavailable' &&
+    failure.repository_sha256 !== null
   );
 }
 
@@ -223,6 +242,7 @@ function startWorkflow(runId: string, manifestFile: string): PublicState {
     actor_baseline: null,
     action_baseline: null,
     escalation: null,
+    runtime_failure: null,
     ship_authorization_revoked: false,
   };
   const result = save(file, state);
@@ -241,6 +261,43 @@ export function escalateWorkflow(
   state.actor_baseline = null;
   state.action_baseline = null;
   state.escalation = { step_id: step.id, ...escalationData };
+  state.runtime_failure = null;
+  return save(file, state);
+}
+
+/** Converts an exception raised inside the running controller into an explicit stop state. */
+export function blockWorkflowOnRuntimeFailure(
+  runId: string,
+  stepId: string | null,
+  stage: string,
+  error: unknown,
+): PublicState {
+  const { file, state } = loadWorkflowState(runId);
+  requireRunning(state);
+  const current = state.manifest.steps[state.cursor];
+  const classification = errorCode(error) || 'execution_error';
+  let repositorySha256: string | null = null;
+  try {
+    repositorySha256 = repositoryStateHash(state.manifest.repo);
+  } catch {
+    // A broken repository must still produce a terminal controller record.
+  }
+  const retryable =
+    classification === 'model_unavailable' &&
+    (stage === 'actor_model_call' || stage === 'build_semantic_review') &&
+    repositorySha256 !== null;
+  state.status = 'blocked';
+  state.actor_baseline = null;
+  state.action_baseline = null;
+  state.escalation = null;
+  state.runtime_failure = {
+    step_id: stepId ?? current?.id ?? 'controller',
+    stage,
+    classification,
+    error: errorMessage(error),
+    retryable,
+    repository_sha256: repositorySha256,
+  } satisfies RuntimeFailure;
   return save(file, state);
 }
 
@@ -269,8 +326,32 @@ function startOrResumeWorkflow(runId: string, manifestFile: string): PublicState
       existing.status = 'running';
       return save(loaded.file, existing);
     }
+    if (isRetryableRuntimeFailure(existing)) {
+      if (path.resolve(manifestFile) !== workflowInputPath(runId)) {
+        throw new FlowError('resume requires the hook-supplied manifest path', 'state_error');
+      }
+      const manifest = validateManifest(readAbsoluteJson(manifestFile, '--manifest'));
+      if (manifestHash(manifest) !== existing.manifest_hash) {
+        throw new FlowError('resume requires the original blocked manifest', 'state_error');
+      }
+      if (
+        repositoryStateHash(existing.manifest.repo) !== existing.runtime_failure!.repository_sha256
+      ) {
+        throw new FlowError(
+          'repository changed after the retryable runtime failure',
+          'state_error',
+        );
+      }
+      existing.status = 'running';
+      existing.runtime_failure = null;
+      prepareCurrentStep(existing);
+      return save(loaded.file, existing);
+    }
     if (existing.status !== 'running') {
-      if (existing.escalation !== null && !loadIntent(runId)) {
+      if (
+        (existing.escalation !== null || existing.runtime_failure != null) &&
+        !loadIntent(runId)
+      ) {
         if (path.resolve(manifestFile) !== workflowInputPath(runId)) {
           throw new FlowError('resume requires the hook-supplied manifest path', 'state_error');
         }
@@ -295,7 +376,12 @@ function cancelWorkflow(runId: string, manifestFile: string): PublicState {
     throw new FlowError('cancel requires the hook-supplied manifest path', 'state_error');
   }
   if (state.status === 'cancelled') return publicState(state);
-  if (state.status !== 'running' && !isRetryableGitHubAccessBlock(state)) {
+  if (
+    state.status !== 'running' &&
+    !isRetryableGitHubAccessBlock(state) &&
+    state.runtime_failure == null &&
+    state.escalation === null
+  ) {
     throw new FlowError(
       `workflow is ${state.status}; only an active workflow can be cancelled`,
       'state_error',
@@ -305,6 +391,7 @@ function cancelWorkflow(runId: string, manifestFile: string): PublicState {
   state.actor_baseline = null;
   state.action_baseline = null;
   state.escalation = null;
+  state.runtime_failure = null;
   state.ship_authorization_revoked = true;
   clearIntent(runId);
   return save(file, state);
@@ -1069,6 +1156,7 @@ export {
   reconcileCurrentAction,
   startOrResumeWorkflow,
   isRetryableGitHubAccessBlock,
+  isRetryableRuntimeFailure,
   startWorkflow,
   statePath,
   validateManifest,

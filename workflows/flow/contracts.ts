@@ -20,6 +20,14 @@ export interface WorkflowEscalation {
   question: string;
   summary: string;
 }
+export interface RuntimeFailure {
+  step_id: string;
+  stage: string;
+  classification: string;
+  error: string;
+  retryable: boolean;
+  repository_sha256: string | null;
+}
 export type GateExpectation = 'pass' | 'fail';
 export type GateVerdict = 'pass' | 'fail' | 'blocked';
 export type GateAuthority =
@@ -272,6 +280,7 @@ export interface FlowState {
   actor_baseline: RepositoryInvariant | null;
   action_baseline: RepositoryInvariant | null;
   escalation: WorkflowEscalation | null;
+  runtime_failure: RuntimeFailure | null;
   ship_authorization_revoked: boolean;
 }
 
@@ -338,6 +347,7 @@ export interface PublicState {
   last_gate: GateReport | null;
   gate_reports: GateReport[];
   escalation: WorkflowEscalation | null;
+  runtime_failure: RuntimeFailure | null;
   ship_authorization_revoked: boolean;
   gate?: GateReport;
   calibration?: Calibration;

@@ -18,6 +18,7 @@ import {
   type WorkflowAgent,
 } from '../../flow/agent.ts';
 import { cleanCodexEnvironment } from '../../shared/codex-home.ts';
+import { FlowError } from '../../shared/errors.ts';
 import { ProgressReporter, type ProgressEvent } from '../../shared/progress.ts';
 import { MANIFEST_PROTOCOL, type FlowDirective, type FlowManifest } from '../../flow/contracts.ts';
 import { runIsolatedActor, runIsolatedShellVerification } from '../../flow/isolation.ts';
@@ -345,7 +346,7 @@ test('rejects an ignored path created by an isolated actor', async () => {
   );
 });
 
-test('resumes an SDK actor after a transient runner failure', async () => {
+test('blocks in-process actor errors and retries only model unavailability', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-sdk-runner-test-'));
   const repo = path.join(root, 'repo');
   fs.mkdirSync(repo);
@@ -431,7 +432,10 @@ test('resumes an SDK actor after a transient runner failure', async () => {
   fs.writeFileSync(pending.input_path, JSON.stringify(manifest));
 
   let actorCalls = 0;
-  let failOnce = true;
+  const failures: Error[] = [
+    new Error('invalid actor result'),
+    new FlowError('model stream unavailable', 'model_unavailable'),
+  ];
   const agent: WorkflowAgent = {
     async runActor(actorRepo, directive, onActivity) {
       actorCalls += 1;
@@ -439,10 +443,8 @@ test('resumes an SDK actor after a transient runner failure', async () => {
       assert.equal(directive.outcome, 'value.txt contains done.');
       assert.ok(onActivity);
       onActivity?.({ event_type: 'turn.started', event_count: actorCalls });
-      if (failOnce) {
-        failOnce = false;
-        throw new Error('transient SDK failure');
-      }
+      const failure = failures.shift();
+      if (failure) throw failure;
       fs.writeFileSync(path.join(actorRepo, 'value.txt'), 'done\n');
     },
     async selectEvidenceCandidate() {
@@ -464,13 +466,39 @@ test('resumes an SDK actor after a transient runner failure', async () => {
       throw new Error('actions are not expected');
     },
   };
-  await assert.rejects(runWorkflow(runId, pending.input_path, runtime), /transient SDK failure/);
+  const terminalFailure = await runWorkflow(runId, pending.input_path, runtime);
+  assert.equal(terminalFailure.exitCode, 2);
+  assert.equal('status' in terminalFailure.result && terminalFailure.result.status, 'blocked');
+  if (!('runtime_failure' in terminalFailure.result)) throw new Error('missing runtime failure');
+  assert.equal(terminalFailure.result.runtime_failure?.step_id, 'U-001:direct');
+  assert.equal(terminalFailure.result.runtime_failure?.stage, 'actor_model_call');
+  assert.equal(terminalFailure.result.runtime_failure?.classification, 'execution_error');
+  assert.equal(terminalFailure.result.runtime_failure?.error, 'invalid actor result');
+  assert.equal(terminalFailure.result.runtime_failure?.retryable, false);
+  assert.match(terminalFailure.result.runtime_failure?.repository_sha256 ?? '', /^[a-f0-9]{64}$/u);
   assert.equal(fs.existsSync(path.join(repo, 'value.txt')), false);
+  const unchanged = await runWorkflow(runId, pending.input_path, runtime);
+  assert.equal('status' in unchanged.result && unchanged.result.status, 'blocked');
+  assert.equal(actorCalls, 1);
+
+  await main(['cancel', '--manifest', pending.input_path, '--run-id', runId]);
+  armIntent({ runId, workflow: 'code', cwd: repo });
+  const unavailable = await runWorkflow(runId, pending.input_path, runtime);
+  assert.equal(unavailable.exitCode, 2);
+  if (!('runtime_failure' in unavailable.result)) throw new Error('missing runtime failure');
+  assert.equal(unavailable.result.runtime_failure?.classification, 'model_unavailable');
+  assert.equal(unavailable.result.runtime_failure?.retryable, true);
+  fs.appendFileSync(path.join(repo, 'README.md'), 'changed\n');
+  await assert.rejects(
+    runWorkflow(runId, pending.input_path, runtime),
+    /repository changed after the retryable runtime failure/u,
+  );
+  fs.writeFileSync(path.join(repo, 'README.md'), 'fixture\n');
   const result = await runWorkflow(runId, pending.input_path, runtime);
   assert.equal(result.exitCode, 0);
   assert.equal('status' in result.result && result.result.status, 'completed');
   assert.equal('escalation' in result.result && result.result.escalation, null);
-  assert.equal(actorCalls, 2);
+  assert.equal(actorCalls, 3);
   assert.ok(progressEvents.every((event) => event.workflow === 'code'));
   assert.ok(
     progressEvents.some(
@@ -478,7 +506,7 @@ test('resumes an SDK actor after a transient runner failure', async () => {
         event.stage === 'actor_model_call' &&
         event.unit_id === 'U-001' &&
         event.status === 'failed' &&
-        event.classification === 'execution_error',
+        event.classification === 'model_unavailable',
     ),
   );
   assert.ok(
