@@ -29,7 +29,7 @@ test('renders a compact clean status with the GitHub closing keyword', () => {
 
 test('self-describes a payload accepted by the same renderer', () => {
   const description = describe('japanese');
-  assert.equal(description.protocol, 'codex-build-pr-body-description/v1');
+  assert.equal(description.protocol, 'codex-build-pr-body-description');
   assert.match(description.command, /--input.*--output/u);
   assert.doesNotThrow(() => validatePayload(description.input_template));
   assert.match(render(description.input_template), /Closes #123/);

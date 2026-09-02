@@ -1,10 +1,10 @@
 /** @file Outcome: Build gates derive deterministic reports from validated Plan and workflow state. */
 
-import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import path from 'node:path';
 
 import { gitFileList, verifyArtifacts } from './artifacts.ts';
+import { inspectDraftPullRequest } from './github.ts';
 import { describeBuildSource, resolveBuildSource, type ResolvedBuildSource } from './handoff.ts';
 import { validatePlan } from './plan.ts';
 import { revalidatePlan } from './revalidate.ts';
@@ -23,7 +23,8 @@ import {
   type StructuredGateResult,
 } from '../contracts.ts';
 import { UNIT_ACTOR } from '../manifest.ts';
-import { FlowError, errorMessage } from '../../shared/errors.ts';
+import { FlowError, errorCode, errorMessage } from '../../shared/errors.ts';
+import { GITHUB_ACCESS_ERROR, GITHUB_COMMAND_ERROR } from '../../shared/github.ts';
 import { prBodyPath } from '../../shared/storage.ts';
 
 function readJson(file: string, label: string): unknown {
@@ -185,42 +186,35 @@ function verifyShip(state: FlowState): StructuredGateResult {
   if (!ship || ship.action !== 'ship' || !branch || branch.action !== 'branch') {
     throw new FlowError('ship verification has no action context', 'state_error');
   }
-  const result = spawnSync(
-    'gh',
-    [
-      'pr',
-      'view',
-      branch.branch_name,
-      '--repo',
-      ship.repository,
-      '--json',
-      'url,isDraft,baseRefName,headRefName,title,body',
-    ],
-    { encoding: 'utf8' },
-  );
-  let value: Record<string, unknown> = {};
+  const body = fs.readFileSync(prBodyPath(state.run_id), 'utf8');
   try {
-    value = JSON.parse(result.stdout || '{}') as Record<string, unknown>;
-  } catch {
-    value = {};
+    const inspection = inspectDraftPullRequest({
+      repository: ship.repository,
+      branch: branch.branch_name,
+      baseBranch: ship.base_branch,
+      title: state.build_plan?.title || '',
+      body,
+    });
+    const passed = inspection.status === 'matched';
+    return {
+      protocol: 'codex-build-ship',
+      verdict: passed ? 'pass' : 'blocked',
+      classification: passed ? 'pass' : 'ship_verification_failed',
+      reason_codes: passed ? [] : ['ship_verification_failed'],
+      failure_route: passed ? null : 'blocked',
+      ...(inspection.status === 'absent' ? {} : inspection.pullRequest),
+      ...(passed ? {} : { error: inspection.error }),
+    };
+  } catch (error) {
+    return {
+      protocol: 'codex-build-ship',
+      verdict: 'blocked',
+      classification: 'ship_verification_failed',
+      reason_codes: ['ship_verification_failed'],
+      failure_route: 'blocked',
+      error: errorMessage(error),
+    };
   }
-  const passed =
-    result.status === 0 &&
-    value.isDraft === true &&
-    value.baseRefName === ship.base_branch &&
-    value.headRefName === branch.branch_name &&
-    value.title === state.build_plan?.title &&
-    value.body === fs.readFileSync(prBodyPath(state.run_id), 'utf8') &&
-    typeof value.url === 'string';
-  return {
-    protocol: 'codex-build-ship/v1',
-    verdict: passed ? 'pass' : 'blocked',
-    classification: passed ? 'pass' : 'ship_verification_failed',
-    reason_codes: passed ? [] : ['ship_verification_failed'],
-    failure_route: passed ? null : 'blocked',
-    ...value,
-    ...(passed ? {} : { stderr: result.stderr.trim() }),
-  };
 }
 
 function normalizeGate(
@@ -275,11 +269,17 @@ export function runStructuredBuildGate(state: FlowState, step: GateStep): GateRe
     try {
       input = resolveBuildSource(source, state.manifest.repo);
     } catch (error) {
+      const code = errorCode(error);
+      const githubReadFailed = code === GITHUB_ACCESS_ERROR || code === GITHUB_COMMAND_ERROR;
+      const classification = githubReadFailed
+        ? 'github_issue_read_failed'
+        : 'issue_contract_invalid';
       return normalizeGate(step, state.manifest.repo, startedAt, {
         verdict: 'blocked',
-        classification: 'issue_contract_invalid',
-        reason_codes: ['issue_contract_invalid'],
+        classification,
+        reason_codes: [classification],
         failure_route: 'blocked',
+        retryable: code === GITHUB_ACCESS_ERROR,
         error: errorMessage(error),
       });
     }

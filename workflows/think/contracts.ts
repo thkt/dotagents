@@ -17,10 +17,10 @@ import { parseStageTimings, type StageTimings } from '../shared/codex.ts';
 
 export type ThinkPlan = BuildPlanAuthoring;
 
-export const THINK_INPUT_PROTOCOL = 'codex-think-input/v1' as const;
-export const THINK_REPORT_PROTOCOL = 'codex-think-report/v3' as const;
-export const THINK_RESULT_PROTOCOL = 'codex-think-result/v1' as const;
-export const THINK_DESCRIPTION_PROTOCOL = 'codex-think-description/v1' as const;
+export const THINK_INPUT_PROTOCOL = 'codex-think-input' as const;
+export const THINK_REPORT_PROTOCOL = 'codex-think-report' as const;
+export const THINK_RESULT_PROTOCOL = 'codex-think-result' as const;
+export const THINK_DESCRIPTION_PROTOCOL = 'codex-think-description' as const;
 
 type ThinkTaskType = 'bug' | 'feature' | 'docs' | 'chore';
 type ThinkReadiness = 'ready' | 'research_required';

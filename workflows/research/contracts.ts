@@ -9,10 +9,10 @@ import { gitRoot, normalizeRepoPath, realpathInside } from '../shared/repository
 import { isObject, rejectUnknownKeys, stringArray, type JsonObject } from '../shared/schema.ts';
 import { parseStageTimings, type StageTimings } from '../shared/codex.ts';
 
-export const RESEARCH_INPUT_PROTOCOL = 'codex-research-input/v1' as const;
-export const RESEARCH_REPORT_PROTOCOL = 'codex-research-report/v3' as const;
-export const RESEARCH_RESULT_PROTOCOL = 'codex-research-result/v1' as const;
-export const RESEARCH_DESCRIPTION_PROTOCOL = 'codex-research-description/v1' as const;
+export const RESEARCH_INPUT_PROTOCOL = 'codex-research-input' as const;
+export const RESEARCH_REPORT_PROTOCOL = 'codex-research-report' as const;
+export const RESEARCH_RESULT_PROTOCOL = 'codex-research-result' as const;
+export const RESEARCH_DESCRIPTION_PROTOCOL = 'codex-research-description' as const;
 
 export type ResearchMode = 'understand' | 'plan' | 'diagnose';
 type ExternalSources = 'none' | 'primary' | 'broad';

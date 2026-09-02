@@ -61,7 +61,7 @@ test('one task owns one versionless runtime directory', () => {
 });
 
 const rejectedRecords: [string, (record: Record<string, unknown>) => Record<string, unknown>][] = [
-  ['protocol', (record) => ({ ...record, protocol: 'codex-issue-approval/v1' })],
+  ['protocol', (record) => ({ ...record, protocol: 'codex-build-ship-approval-obsolete' })],
   ['run_id', (record) => ({ ...record, run_id: 'another-run' })],
   ['repo', (record) => ({ ...record, repo: '/elsewhere' })],
   ['operation', (record) => ({ ...record, operation: 'publish-one-github-issue' })],

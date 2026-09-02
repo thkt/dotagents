@@ -3,6 +3,7 @@
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import {
@@ -16,6 +17,7 @@ import {
 } from './contracts.ts';
 import { isMainModule } from '../shared/environment.ts';
 import { UsageError, errorMessage, usageError } from '../shared/errors.ts';
+import { withoutGitHubCredentials } from '../shared/github.ts';
 
 const PROTOCOL = GATE_PROTOCOL;
 export const DEFAULT_TIMEOUT_MS = 60_000;
@@ -244,14 +246,21 @@ export function runShellVerification(
   candidates: CalibrationCandidate[];
 } {
   const startedAt = Date.now();
-  const result = spawnSync('/bin/zsh', ['-c', options.command], {
-    cwd: options.cwd,
-    encoding: null,
-    timeout: options.timeoutMs,
-    killSignal: 'SIGTERM',
-    maxBuffer: 64 * 1024 * 1024,
-    env: process.env,
-  });
+  const githubConfig = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-shell-no-gh-auth-'));
+  const result = (() => {
+    try {
+      return spawnSync('/bin/zsh', ['-c', options.command], {
+        cwd: options.cwd,
+        encoding: null,
+        timeout: options.timeoutMs,
+        killSignal: 'SIGTERM',
+        maxBuffer: 64 * 1024 * 1024,
+        env: withoutGitHubCredentials(process.env, githubConfig),
+      });
+    } finally {
+      fs.rmSync(githubConfig, { recursive: true, force: true });
+    }
+  })();
   const durationMs = Date.now() - startedAt;
   const stdout = Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout || '');
   const stderr = Buffer.isBuffer(result.stderr) ? result.stderr : Buffer.from(result.stderr || '');

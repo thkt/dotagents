@@ -13,11 +13,11 @@ import {
   usageError,
 } from './cli.ts';
 import type { StructuredGateResult } from '../contracts.ts';
-import { SHELL_CONTROL } from '../../shared/command.ts';
+import { SHELL_CONTROL, shellWords } from '../../shared/command.ts';
 import { isMainModule } from '../../shared/environment.ts';
 
-const PROTOCOL = 'codex-build-plan/v3';
-const DESCRIPTION_PROTOCOL = 'codex-build-plan-description/v3';
+const PROTOCOL = 'codex-build-plan';
+const DESCRIPTION_PROTOCOL = 'codex-build-plan-description';
 const UNIT_CAPS = { files: 3, tests: 4 } as const;
 const PLAN_KEYS = new Set([
   'outcome',
@@ -78,6 +78,10 @@ function rejectUnknownKeys(
 
 function singleCommand(value: unknown): value is string {
   return nonEmptyString(value) && !value.includes('\0') && !SHELL_CONTROL.test(value);
+}
+
+function invokesGitHubCli(command: string): boolean {
+  return shellWords(command).some((word) => /(?:^|[\\/])gh$/u.test(word));
 }
 
 function definitionIds(planSection: string, pattern: RegExp): Set<string> {
@@ -290,6 +294,8 @@ export function validatePlan(input: unknown): PlanValidationReport {
     blockers.push('test_command is empty');
   } else if (!singleCommand(plan.test_command)) {
     blockers.push('test_command must be one command without shell control operators');
+  } else if (invokesGitHubCli(plan.test_command)) {
+    blockers.push('test_command may not invoke GitHub CLI');
   }
   if (!units.length) blockers.push('units is empty');
   if (plan.root_cause !== undefined && typeof plan.root_cause !== 'string') {

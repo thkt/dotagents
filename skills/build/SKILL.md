@@ -9,7 +9,8 @@ Inspect the current workflow and Plan contract with `codex-flow describe --workf
 
 ## Source
 
-- Accept an Issue shorthand such as `#123` in the explicit invocation and select it from the current worktree's `origin` GitHub repository. Use the prepared source directly; do not search for the Issue or reconstruct the source.
+- Accept an Issue shorthand such as `#123` in the explicit invocation and select it from the current worktree's `origin` GitHub repository. Before authoring the manifest, read that exact bound Issue with the source-bound `gh issue view` command; do not search for or substitute another Issue.
+- Run the bound Issue read and controller with GitHub network access. If the execution sandbox denies `api.github.com`, retry those same bound commands with network escalation; do not substitute browser content as the contract.
 - Select the public contract by exact GitHub `repository` and `issue_number`; a publisher's local receipt is never required.
 - Read the canonical machine Plan embedded by the issue workflow and require it to match the human-readable Plan and body digest exactly.
 - Bind every unit outcome and test command to that published Plan; manifest text is not an alternate source of implementation intent.

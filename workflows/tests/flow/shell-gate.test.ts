@@ -32,11 +32,12 @@ interface RunOptions {
   command?: string;
   route?: string;
   extra?: string[];
+  env?: NodeJS.ProcessEnv;
 }
 
 function run(
   cwd: string,
-  { expect = 'pass', command = 'exit 0', route = 'blocked', extra = [] }: RunOptions = {},
+  { expect = 'pass', command = 'exit 0', route = 'blocked', extra = [], env }: RunOptions = {},
 ) {
   return spawnSync(
     process.execPath,
@@ -54,7 +55,7 @@ function run(
       command,
       ...extra,
     ],
-    { encoding: 'utf8' },
+    { encoding: 'utf8', env },
   );
 }
 
@@ -76,12 +77,12 @@ test('uses a bounded 60 second default timeout', () => {
   assert.equal(options.timeoutMs, 60_000);
 });
 
-test('emits a versioned passing gate result', () => {
+test('emits a current versionless passing gate result', () => {
   const cwd = temporaryDirectory('codex-code-gate-');
   const result = run(cwd, { command: 'printf ok', route: 'green:U-001' });
   assert.equal(result.status, 0);
   const report = JSON.parse(result.stdout) as GateReport;
-  assert.equal(report.protocol, 'codex-code-gate/v3');
+  assert.equal(report.protocol, 'codex-code-gate');
   assert.equal(report.gate_id, 'U-001:test');
   assert.equal(report.verdict, 'pass');
   assert.equal(report.classification, 'pass');
@@ -89,6 +90,21 @@ test('emits a versioned passing gate result', () => {
   assert.equal(report.evidence.kind, 'shell');
   if (report.evidence.kind !== 'shell') return;
   assert.equal(report.evidence.stdout_tail, 'ok');
+});
+
+test('runs shell gates without GitHub credentials or the user gh configuration', () => {
+  const cwd = temporaryDirectory('codex-code-gate-');
+  const result = run(cwd, {
+    command:
+      'test -z "$GH_TOKEN" && test -z "$GITHUB_TOKEN" && test "$GH_PROMPT_DISABLED" = true && test -d "$GH_CONFIG_DIR"',
+    env: {
+      ...process.env,
+      GH_TOKEN: 'secret',
+      GITHUB_TOKEN: 'secret',
+    },
+  });
+  assert.equal(result.status, 0);
+  assert.equal(JSON.parse(result.stdout).verdict, 'pass');
 });
 
 test('accepts Red only when failure output contains every required anchor', () => {
@@ -313,7 +329,7 @@ test('returns a blocked JSON result for invalid invocation', () => {
   );
   assert.equal(result.status, 2);
   const report = JSON.parse(result.stdout);
-  assert.equal(report.protocol, 'codex-code-gate/v3');
+  assert.equal(report.protocol, 'codex-code-gate');
   assert.equal(report.verdict, 'blocked');
   assert.equal(report.classification, 'usage_error');
   assert.equal(report.failure_route, 'blocked');

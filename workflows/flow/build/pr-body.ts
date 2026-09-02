@@ -8,8 +8,8 @@ import { cli, isObject, parseSingletonArgs, readJsonFile, usageError } from './c
 import { isMainModule } from '../../shared/environment.ts';
 import { resolveConfiguredLanguage, type ConfiguredLanguage } from '../../shared/language.ts';
 
-const PROTOCOL = 'codex-build-pr-body/v1';
-const DESCRIPTION_PROTOCOL = 'codex-build-pr-body-description/v1';
+const PROTOCOL = 'codex-build-pr-body';
+const DESCRIPTION_PROTOCOL = 'codex-build-pr-body-description';
 const REQUIRED_KEYS = ['issue', 'tests_pass', 'gates_pass'];
 
 const LABELS = {

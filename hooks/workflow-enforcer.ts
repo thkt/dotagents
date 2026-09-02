@@ -5,7 +5,7 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 
 import type { FlowState } from '../workflows/flow/contracts.ts';
-import { loadWorkflowState } from '../workflows/flow/controller.ts';
+import { isRetryableGitHubAccessBlock, loadWorkflowState } from '../workflows/flow/controller.ts';
 import {
   armIntent,
   clearIntent,
@@ -14,9 +14,9 @@ import {
   parseExplicitInvocation,
   type WorkflowIntent,
 } from '../workflows/invocation.ts';
-import { BUILD_SOURCE_PROTOCOL } from '../workflows/flow/build/handoff.ts';
+import { BUILD_SOURCE_PROTOCOL, parseBuildSource } from '../workflows/flow/build/handoff.ts';
 import { githubRepositoryForRemote } from '../workflows/issue/github.ts';
-import { SHELL_CONTROL, shellArgument } from '../workflows/shared/command.ts';
+import { SHELL_CONTROL, shellArgument, shellWords } from '../workflows/shared/command.ts';
 import {
   FLOW_COMMAND,
   ISSUE_COMMAND,
@@ -25,6 +25,12 @@ import {
   isMainModule,
 } from '../workflows/shared/environment.ts';
 import { errorCode, errorMessage } from '../workflows/shared/errors.ts';
+import {
+  GITHUB_OPERATION_POLICIES,
+  githubIssueView,
+  githubShellCommand,
+  type GitHubInvocation,
+} from '../workflows/shared/github.ts';
 import { atomicWrite, workflowInputPath } from '../workflows/shared/storage.ts';
 
 const READ_ONLY_COMMANDS = new Set([
@@ -84,7 +90,9 @@ function readInput(): HookInput {
 
 function activeState(runId: string | undefined): FlowState | null {
   const state = controllerState(runId);
-  return state?.status === 'running' ? state : null;
+  return state?.status === 'running' || (state && isRetryableGitHubAccessBlock(state))
+    ? state
+    : null;
 }
 
 function controllerState(runId: string | undefined): FlowState | null {
@@ -131,22 +139,8 @@ function requestedWriteFiles(input: HookInput, fallback: string): string[] {
     .map((file) => path.resolve(path.isAbsolute(file) ? file : path.join(cwd, file)));
 }
 
-function commandWords(command: string): string[] {
-  return [...command.matchAll(/"(?:[^"\\]|\\.)*"|'[^']*'|[^\s]+/gu)].map((match) => {
-    const token = match[0];
-    if (token.startsWith('"')) {
-      try {
-        return JSON.parse(token) as string;
-      } catch {
-        return token;
-      }
-    }
-    return token.startsWith("'") ? token.slice(1, -1) : token;
-  });
-}
-
 function commandSubcommand(command: string, executable: string): string | null {
-  const words = commandWords(command);
+  const words = shellWords(command);
   return words[0] === executable ? words[1] || '' : null;
 }
 
@@ -164,7 +158,7 @@ function workflowSubcommand(command: string, workflow: WorkflowName): string | n
 }
 
 function pathArgument(command: string, flag: '--manifest' | '--input'): string | null {
-  const words = commandWords(command);
+  const words = shellWords(command);
   const index = words.indexOf(flag);
   return index < 0 ? null : words[index + 1] || null;
 }
@@ -190,7 +184,7 @@ function injectRunId(input: HookInput, command: string): HookResponse {
 
 function isReadOnlyPreparationCommand(command: string): boolean {
   if (!command.trim() || SHELL_CONTROL.test(command)) return false;
-  const words = commandWords(command);
+  const words = shellWords(command);
   const executable = path.basename(words[0] || '');
   if (READ_ONLY_COMMANDS.has(executable)) {
     return (
@@ -206,6 +200,27 @@ function isReadOnlyPreparationCommand(command: string): boolean {
     .some((word) =>
       UNSAFE_GIT_READ_FLAGS.some((flag) => word === flag || word.startsWith(`${flag}=`)),
     );
+}
+
+function boundBuildIssueView(pending: WorkflowIntent): GitHubInvocation | null {
+  if (pending.workflow !== 'build' || !pending.build_source_path) {
+    return null;
+  }
+  try {
+    const source = parseBuildSource(JSON.parse(fs.readFileSync(pending.build_source_path, 'utf8')));
+    return githubIssueView(source.repository, source.issue_number);
+  } catch {
+    return null;
+  }
+}
+
+function isBoundBuildIssueView(command: string, pending: WorkflowIntent): boolean {
+  if (SHELL_CONTROL.test(command)) return false;
+  const request = boundBuildIssueView(pending);
+  if (!request || GITHUB_OPERATION_POLICIES[request.operation].access !== 'read') return false;
+  const expected = [request.executable, ...request.args];
+  const words = shellWords(command);
+  return words.length === expected.length && words.every((word, index) => word === expected[index]);
 }
 
 function exactInputPath(
@@ -258,6 +273,11 @@ function pendingPreToolUse(
       ? injectRunId(input, command)
       : deny(`${start} with the hook-supplied input: ${pending.input_path}`);
   }
+  if (pending.workflow === 'issue' && subcommand === 'stop') {
+    return exactInputPath(input, command, '--input', pending.input_path)
+      ? injectRunId(input, command)
+      : deny(`stop with the hook-supplied input path: ${pending.input_path}`);
+  }
   if (subcommand !== null) return deny('run the pending workflow before other commands');
   if (
     [FLOW_COMMAND, ISSUE_COMMAND, RESEARCH_COMMAND, THINK_COMMAND].some(
@@ -266,7 +286,7 @@ function pendingPreToolUse(
   ) {
     return deny(`the pending workflow must run through ${executable}`);
   }
-  return isReadOnlyPreparationCommand(command)
+  return isReadOnlyPreparationCommand(command) || isBoundBuildIssueView(command, pending)
     ? {}
     : deny(
         'only read-only inspection and workflow input preparation are allowed before workflow run',
@@ -309,20 +329,24 @@ function userPromptSubmit(input: HookInput): HookResponse {
       pending.workflow === 'build'
         ? buildIssue === null
           ? ` Prepare the published-issue source at ${pending.build_source_path}.`
-          : ` The published-issue source for ${buildRepository}#${buildIssue} is already prepared at ${pending.build_source_path}; use it directly without searching for the Issue.`
+          : ` The published-issue source for ${buildRepository}#${buildIssue} is already prepared at ${pending.build_source_path}. Read its Plan with the exact bound command ${githubShellCommand(githubIssueView(buildRepository!, buildIssue))}; do not search for or substitute another Issue.`
         : '';
     const { executable, flag, start, noun } = invocationRuntime(pending);
     const command = `${executable} ${start} ${flag} ${shellArgument(pending.input_path)}`;
+    const missingSource =
+      workflow === 'issue'
+        ? ` If no ready Think artifact exists, do not create a placeholder input; run ${ISSUE_COMMAND} stop --input ${shellArgument(pending.input_path)}.`
+        : '';
     const externalWriteApproval =
       workflow === 'issue'
-        ? " The user's leading explicit $issue invocation authorizes exactly one GitHub Issue create or edit for this task and repository; no additional publication confirmation is required."
+        ? " The user's leading explicit $issue invocation authorizes at most one GitHub Issue create or edit and, if absent, creation of its selected supported priority label for this task and repository; no additional publication confirmation is required. Run the controller with GitHub network access."
         : workflow === 'build'
-          ? " The user's leading explicit $build invocation authorizes exactly one push and one draft PR creation for this task and repository; include Ship unless the same request explicitly excludes push or draft PR creation, and do not request another Ship confirmation."
+          ? " The user's leading explicit $build invocation authorizes exactly one push and one draft PR creation for this task and repository; include Ship unless the same request explicitly excludes push or draft PR creation, and do not request another Ship confirmation. Run the bound Issue read and controller with GitHub network access."
           : '';
     return {
       hookSpecificOutput: {
         hookEventName: 'UserPromptSubmit',
-        additionalContext: `Explicit $${workflow} is armed.${externalWriteApproval} Write the ${noun} only to the hook-supplied path ${pending.input_path}.${buildPaths} Then run ${command}.`,
+        additionalContext: `Explicit $${workflow} is armed.${externalWriteApproval}${missingSource} Otherwise write the ${noun} only to the hook-supplied path ${pending.input_path}.${buildPaths} Then run ${command}.`,
       },
     };
   } catch (error) {
@@ -350,7 +374,12 @@ function preToolUse(input: HookInput): HookResponse {
   if (standalone) return {};
   if (subcommand === 'cancel') {
     const state = controllerState(input.session_id);
-    if (!state || (state.status !== 'running' && state.status !== 'cancelled')) {
+    if (
+      !state ||
+      (state.status !== 'running' &&
+        state.status !== 'cancelled' &&
+        !isRetryableGitHubAccessBlock(state))
+    ) {
       return deny('cancel requires an active workflow controller for this task');
     }
     const expected = workflowInputPath(state.run_id);
@@ -383,7 +412,11 @@ function stop(input: HookInput): HookResponse {
   if (pending) {
     const { executable, flag, start } = invocationRuntime(pending);
     const command = `${executable} ${start} ${flag} ${shellArgument(pending.input_path)}`;
-    const reason = `The explicit $${pending.workflow} workflow has not run. Create ${pending.input_path} and run ${command}.`;
+    const stopAlternative =
+      pending.workflow === 'issue'
+        ? ` If no ready Think artifact exists, run ${ISSUE_COMMAND} stop --input ${shellArgument(pending.input_path)} instead.`
+        : '';
+    const reason = `The explicit $${pending.workflow} workflow has not run. Create ${pending.input_path} and run ${command}.${stopAlternative}`;
     if (input.stop_hook_active) {
       clearIntent(pending.run_id);
       return {

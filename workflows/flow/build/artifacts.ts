@@ -17,8 +17,8 @@ import type { StructuredGateResult } from '../contracts.ts';
 import { isMainModule } from '../../shared/environment.ts';
 import { nulPaths, realpathInside } from '../../shared/repository.ts';
 
-const PROTOCOL = 'codex-build-artifacts/v2';
-const DESCRIPTION_PROTOCOL = 'codex-build-artifacts-description/v2';
+const PROTOCOL = 'codex-build-artifacts';
+const DESCRIPTION_PROTOCOL = 'codex-build-artifacts-description';
 const BASE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
 export function gitFileList(repo: string, base: string): string[] {

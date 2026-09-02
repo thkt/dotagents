@@ -42,9 +42,11 @@ import {
   repositoryControlChanges,
   repositoryInvariant,
   repoSnapshot,
+  sameRepoSnapshot,
   sameRepositoryInvariant,
   snapshotChanges,
 } from '../shared/repository.ts';
+import { isGitHubAccessFailureMessage } from '../shared/github.ts';
 import {
   ACTIONS,
   BUILD_OPENING_IDS,
@@ -83,8 +85,17 @@ function loadWorkflowState(runId: string): { file: string; state: FlowState } {
   const file = statePath(runId);
   try {
     const state = JSON.parse(fs.readFileSync(file, 'utf8')) as FlowState;
-    if (state.protocol !== STATE_PROTOCOL || state.run_id !== runId) {
-      throw new FlowError('workflow state has an invalid protocol or run id', 'state_error');
+    if (state.protocol !== STATE_PROTOCOL) {
+      if (/^codex-flow-state\/v\d+$/u.test(String(state.protocol))) {
+        throw new FlowError(
+          'workflow state uses an obsolete contract; start a new workflow from current inputs',
+          'state_error',
+        );
+      }
+      throw new FlowError('workflow state has an invalid protocol', 'state_error');
+    }
+    if (state.run_id !== runId) {
+      throw new FlowError('workflow state has an invalid run id', 'state_error');
     }
     return { file, state };
   } catch (error) {
@@ -123,6 +134,27 @@ function publicState(state: FlowState): PublicState {
     escalation: state.escalation,
     ship_authorization_revoked: state.ship_authorization_revoked,
   };
+}
+
+/** Identifies an action-free Build stop that can retry the same GitHub read. */
+function isRetryableGitHubAccessBlock(state: FlowState): boolean {
+  const lastGate = state.gate_reports.at(-1);
+  const structured = lastGate?.evidence.kind === 'structured' ? lastGate.evidence.report : null;
+  const legacyNetworkFailure =
+    (lastGate?.classification === 'issue_contract_invalid' ||
+      lastGate?.classification === 'github_issue_read_failed') &&
+    typeof structured?.error === 'string' &&
+    isGitHubAccessFailureMessage(structured.error);
+  return (
+    state.workflow === 'build' &&
+    state.status === 'blocked' &&
+    state.cursor === 0 &&
+    state.build_plan === null &&
+    state.manifest.steps[0]?.id === 'load:plan' &&
+    lastGate?.gate_id === 'load:plan' &&
+    ((lastGate.classification === 'github_issue_read_failed' && structured?.retryable === true) ||
+      legacyNetworkFailure)
+  );
 }
 
 function save(file: string, state: FlowState): PublicState {
@@ -222,7 +254,28 @@ export function escalateWorkflow(
 /** Resumes the active workflow, or starts it when no state exists. */
 function startOrResumeWorkflow(runId: string, manifestFile: string): PublicState {
   try {
-    const existing = loadWorkflowState(runId).state;
+    const loaded = loadWorkflowState(runId);
+    const existing = loaded.state;
+    if (isRetryableGitHubAccessBlock(existing)) {
+      if (path.resolve(manifestFile) !== workflowInputPath(runId)) {
+        throw new FlowError('resume requires the hook-supplied manifest path', 'state_error');
+      }
+      const manifest = validateManifest(readJson(manifestFile, '--manifest'));
+      if (manifestHash(manifest) !== existing.manifest_hash) {
+        throw new FlowError('resume requires the original blocked manifest', 'state_error');
+      }
+      const branch = existing.manifest.steps.find(
+        (step) => step.kind === 'action' && step.action === 'branch',
+      );
+      if (!branch || repositoryInvariant(existing.manifest.repo).head !== branch.start_point) {
+        throw new FlowError('repository HEAD changed after the blocked GitHub read', 'state_error');
+      }
+      if (!sameRepoSnapshot(repoSnapshot(existing.manifest.repo), existing.workflow_baseline)) {
+        throw new FlowError('repository changed after the blocked GitHub read', 'state_error');
+      }
+      existing.status = 'running';
+      return save(loaded.file, existing);
+    }
     if (existing.status !== 'running') {
       if (existing.escalation !== null && !loadIntent(runId)) {
         if (path.resolve(manifestFile) !== workflowInputPath(runId)) {
@@ -249,7 +302,7 @@ function cancelWorkflow(runId: string, manifestFile: string): PublicState {
     throw new FlowError('cancel requires the hook-supplied manifest path', 'state_error');
   }
   if (state.status === 'cancelled') return publicState(state);
-  if (state.status !== 'running') {
+  if (state.status !== 'running' && !isRetryableGitHubAccessBlock(state)) {
     throw new FlowError(
       `workflow is ${state.status}; only an active workflow can be cancelled`,
       'state_error',
@@ -1020,6 +1073,7 @@ export {
   loadWorkflowState,
   reconcileCurrentAction,
   startOrResumeWorkflow,
+  isRetryableGitHubAccessBlock,
   startWorkflow,
   statePath,
   validateManifest,

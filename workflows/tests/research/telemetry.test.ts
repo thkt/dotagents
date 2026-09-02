@@ -24,7 +24,7 @@ const timings = {
 
 test('Research report accepts fixed non-negative timing fields and renders them', () => {
   const report = parseResearchReport({
-    protocol: 'codex-research-report/v3',
+    protocol: 'codex-research-report',
     generated_at: '2026-09-01T00:00:00.000Z',
     question: 'q',
     mode: 'understand',
@@ -48,7 +48,7 @@ test('Research report rejects unknown timing fields', () => {
   assert.throws(
     () =>
       parseResearchReport({
-        protocol: 'codex-research-report/v3',
+        protocol: 'codex-research-report',
         generated_at: '2026-09-01T00:00:00.000Z',
         question: 'q',
         mode: 'understand',
@@ -75,7 +75,7 @@ const input: ResearchInput = {
   language: 'japanese',
   scope_paths: [],
   external_sources: 'none',
-  protocol: 'codex-research-input/v1',
+  protocol: 'codex-research-input',
 };
 test('Research invalid structured output keeps stage and elapsed duration', async () => {
   const events: ProgressEvent[] = [];

@@ -257,7 +257,7 @@ export function passBuildReview(runId: string) {
     runId,
     'review:build',
     {
-      protocol: 'codex-build-review/v1',
+      protocol: 'codex-build-review',
       verdict: 'pass',
       classification: 'pass',
       reason_codes: [],

@@ -7,9 +7,17 @@ import { test } from 'bun:test';
 
 import { compileContext } from '../../../workflows/knowledge/context.ts';
 import { draftIssue, publishIssue } from '../../../workflows/issue/pipeline.ts';
-import { describeIssue, draftIssueWorkflow } from '../../../workflows/issue/runner.ts';
-import { armIntent } from '../../../workflows/invocation.ts';
-import { ISSUE_INPUT_PROTOCOL, type IssueInput } from '../../../workflows/issue/contracts.ts';
+import {
+  describeIssue,
+  draftIssueWorkflow,
+  main as issueMain,
+} from '../../../workflows/issue/runner.ts';
+import { armIntent, loadIntent } from '../../../workflows/invocation.ts';
+import {
+  ISSUE_INPUT_PROTOCOL,
+  ISSUE_RESULT_PROTOCOL,
+  type IssueInput,
+} from '../../../workflows/issue/contracts.ts';
 import type { GitHubIssue, IssueGateway } from '../../../workflows/issue/github.ts';
 import { persistThinkReport } from '../../../workflows/think/artifact.ts';
 import { THINK_REPORT_PROTOCOL, type ThinkReport } from '../../../workflows/think/contracts.ts';
@@ -27,6 +35,7 @@ import {
   resolveBuildSource,
 } from '../../../workflows/flow/build/handoff.ts';
 import { renderPlanMarkdown } from '../../../workflows/flow/build/authoring.ts';
+import { parsePublicIssueBody } from '../../../workflows/issue/public-contract.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 
 useTemporaryWorkflowStorage('codex-issue-storage-');
@@ -74,7 +83,6 @@ const plan = {
     },
   ],
 };
-
 function think(repo: string, overrides: Partial<ThinkReport> = {}): string {
   const invariant = repositoryInvariant(repo);
   const report: ThinkReport = {
@@ -126,6 +134,7 @@ class Gateway implements IssueGateway {
     labels: [],
   };
   writes = 0;
+  checkAccess() {}
   view() {
     return this.issue;
   }
@@ -155,6 +164,37 @@ test('issue description uses the language configured by Codex', () => {
     describeIssue('english').input_template.title,
     'Concise title without a task-type prefix',
   );
+  assert.deepEqual(describeIssue('japanese').attach_plan_template, {
+    protocol: ISSUE_INPUT_PROTOCOL,
+    repo: '/absolute/git-root',
+    repository: 'owner/name',
+    remote: 'origin',
+    mode: 'attach-plan',
+    think_report: '/absolute/private-think-report.json',
+    title: null,
+    target_issue: 123,
+    priority: 'medium',
+  });
+  assert.equal(describeIssue('japanese').cli.stop, 'codex-issue stop --input <hook-supplied-json>');
+});
+
+test('missing ready Think artifact stops the pending Issue without input or GitHub write', () => {
+  const repo = repoFixture();
+  const runId = 'issue-missing-think';
+  const pending = armIntent({ runId, workflow: 'issue', cwd: repo });
+
+  const stopped = issueMain(['stop', '--input', pending.input_path, '--run-id', runId]);
+
+  assert.deepEqual(stopped, {
+    protocol: ISSUE_RESULT_PROTOCOL,
+    status: 'blocked',
+    classification: 'missing_decision',
+    error: 'ready Think artifact is required before Issue publication',
+    next_step: 'think',
+  });
+  assert.equal(fs.existsSync(pending.input_path), false);
+  assert.equal(loadIntent(runId), null);
+  assert.equal(fs.existsSync(issueApprovalPath(runId)), false);
 });
 
 test('one explicit issue invocation publishes the exact draft and returns build context', () => {
@@ -181,6 +221,31 @@ test('one explicit issue invocation publishes the exact draft and returns build 
   assert.doesNotMatch(gateway.issue.body, /issue test/);
   assert.match(gateway.issue.body, /## 目的\n\n完了/);
   assert.match(gateway.issue.body, /- 契約:\n  - 既存契約を維持する/);
+  assert.match(gateway.issue.body, /<!-- codex-public-build-contract\n/u);
+  assert.doesNotMatch(gateway.issue.body, /<!-- codex-public-build-contract\/v1\n/u);
+  assert.doesNotMatch(gateway.issue.body, /<!-- codex-public-build-contract\/v2\n/u);
+  const wireMarker = '\n\n<!-- codex-public-build-contract\n';
+  const wireStart = gateway.issue.body.indexOf(wireMarker);
+  assert.notEqual(wireStart, -1);
+  const sealedVisibleBody = gateway.issue.body.slice(0, wireStart);
+  const encodedWire = gateway.issue.body
+    .slice(wireStart + wireMarker.length)
+    .trimEnd()
+    .slice(0, -'\n-->'.length);
+  const wire = JSON.parse(Buffer.from(encodedWire, 'base64url').toString('utf8')) as Record<
+    string,
+    unknown
+  >;
+  assert.deepEqual(Object.keys(wire).sort(), ['body_sha256', 'plan', 'protocol']);
+  assert.equal(wire.protocol, 'codex-public-build-contract');
+  assert.equal(wire.body_sha256, sha256(sealedVisibleBody));
+  assert.ok(sealedVisibleBody.endsWith(renderPlanMarkdown(plan, 'japanese').trimEnd()));
+  const publicationId = parsePublicIssueBody(gateway.issue.body).publication_id;
+  assert.ok(publicationId);
+  assert.match(
+    gateway.issue.body,
+    new RegExp(`<!-- codex-issue-publication\\npublication_id:${publicationId}\\n-->`, 'u'),
+  );
   assert.equal(fs.existsSync(issueApprovalPath('issue-test')), false);
   assert.equal(fs.existsSync(intentPath('issue-test')), false);
   assert.equal(publishedResult.status, 'published');
@@ -223,7 +288,7 @@ test('one explicit issue invocation publishes the exact draft and returns build 
   );
 });
 
-test('Build remains compatible with an already published v1 public contract', () => {
+test('Build rejects an obsolete v1 public contract and requires Issue recreation', () => {
   const repo = repoFixture();
   const visibleBody = renderPlanMarkdown(plan, 'japanese').trimEnd();
   const contract = Buffer.from(
@@ -242,16 +307,46 @@ test('Build remains compatible with an already published v1 public contract', ()
     labels: ['priority:medium'],
   };
 
-  const resolved = resolveBuildSource(
-    { protocol: BUILD_SOURCE_PROTOCOL, repository: 'owner/repo', issue_number: 7 },
-    repo,
-    gateway,
+  assert.throws(
+    () =>
+      resolveBuildSource(
+        { protocol: BUILD_SOURCE_PROTOCOL, repository: 'owner/repo', issue_number: 7 },
+        repo,
+        gateway,
+      ),
+    /obsolete public build contract; recreate it with the current \$issue workflow/u,
   );
+});
 
-  assert.equal(resolved.issue, 7);
-  assert.equal(resolved.plan.outcome, plan.outcome);
-  assert.equal(resolved.plan.test_command, plan.test_command);
-  assert.deepEqual(resolved.plan.units, plan.units);
+test('Build rejects an obsolete v2 public contract and requires Issue recreation', () => {
+  const repo = repoFixture();
+  const publicationId = '00000000-0000-4000-8000-000000000007';
+  const visibleBody = renderPlanMarkdown(plan, 'japanese').trimEnd();
+  const contract = Buffer.from(
+    JSON.stringify({
+      protocol: 'codex-public-build-contract/v2',
+      body_sha256: sha256(visibleBody),
+      plan,
+    }),
+  ).toString('base64url');
+  const gateway = new Gateway();
+  gateway.issue = {
+    number: 7,
+    title: '[機能] 移行中の Issue',
+    body: `${visibleBody}\n\n<!-- codex-public-build-contract/v2\npublication_id:${publicationId}\n${contract}\n-->\n`,
+    url: 'https://github.com/owner/repo/issues/7',
+    labels: ['priority:medium'],
+  };
+
+  assert.throws(
+    () =>
+      resolveBuildSource(
+        { protocol: BUILD_SOURCE_PROTOCOL, repository: 'owner/repo', issue_number: 7 },
+        repo,
+        gateway,
+      ),
+    /obsolete public build contract; recreate it with the current \$issue workflow/u,
+  );
 });
 
 test('new issue title and report must match the language configured by Codex', () => {
@@ -283,6 +378,26 @@ test('publication requires the approval created by the explicit issue invocation
   );
   assert.equal(gateway.writes, 0);
   assert.equal(fs.existsSync(intentPath(runId)), true);
+});
+
+test('GitHub access failure preserves the Issue intent and publication approval', () => {
+  const repo = repoFixture();
+  const report = think(repo);
+  const gateway = new Gateway();
+  gateway.checkAccess = () => {
+    throw new Error('error connecting to api.github.com');
+  };
+  const runId = 'issue-github-access-failure';
+  const pending = armIntent({ runId, workflow: 'issue', cwd: repo });
+  fs.writeFileSync(pending.input_path, JSON.stringify(input(repo, report)));
+
+  assert.throws(
+    () => draftIssueWorkflow(runId, pending.input_path, gateway),
+    /error connecting to api.github.com/,
+  );
+  assert.equal(gateway.writes, 0);
+  assert.equal(fs.existsSync(intentPath(runId)), true);
+  assert.equal(fs.existsSync(issueApprovalPath(runId)), true);
 });
 
 test('publication approval is bound to the repository and consumed before GitHub writes', () => {

@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 
 import { main as renderPrBody } from './pr-body.ts';
+import { inspectDraftPullRequest } from './github.ts';
 import type {
   ActionParameters,
   ActionStep,
@@ -20,6 +21,7 @@ import type {
 } from '../contracts.ts';
 import { shellSafeText } from '../../shared/command.ts';
 import { FlowError, errorCode } from '../../shared/errors.ts';
+import { githubPrCreate, runGitHub, type GitHubInvocation } from '../../shared/github.ts';
 import { requireLanguageText, resolveConfiguredLanguage } from '../../shared/language.ts';
 import {
   gitOutput,
@@ -33,14 +35,20 @@ import { atomicWrite, prBodyPath, prInputPath } from '../../shared/storage.ts';
 
 type ActionDirective = Extract<FlowDirective, { kind: 'run-action' }>;
 
-export interface CommandInvocation {
-  executable: string;
+interface GitInvocation {
+  executable: 'git';
   args: string[];
 }
+export type CommandInvocation = GitInvocation | GitHubInvocation;
 
 export type CommandExecutor = (invocation: CommandInvocation) => void;
 
-function execute({ executable, args }: CommandInvocation): void {
+function execute(invocation: CommandInvocation): void {
+  if ('operation' in invocation) {
+    runGitHub(invocation, 'build-ship');
+    return;
+  }
+  const { executable, args } = invocation;
   const result = spawnSync(executable, args, { encoding: 'utf8' });
   if (result.status !== 0) {
     const detail = (result.stderr || result.stdout || '').trim();
@@ -96,24 +104,13 @@ export function actionInvocations(repo: string, directive: ActionDirective): Com
             directive.parameters.branch,
           ],
         },
-        {
-          executable: 'gh',
-          args: [
-            'pr',
-            'create',
-            '--draft',
-            '--repo',
-            directive.parameters.repository,
-            '--head',
-            directive.parameters.branch,
-            '--base',
-            directive.parameters.base_branch,
-            '--title',
-            directive.parameters.title,
-            '--body-file',
-            directive.parameters.pr_body_path,
-          ],
-        },
+        githubPrCreate(
+          directive.parameters.repository,
+          directive.parameters.branch,
+          directive.parameters.base_branch,
+          directive.parameters.title,
+          directive.parameters.pr_body_path,
+        ),
       ];
   }
 }
@@ -358,40 +355,31 @@ function shipPublicationCompleted(
     { encoding: 'utf8' },
   );
   const remoteHead = remote.stdout.trim().split(/\s+/u)[0];
-  if (remote.status !== 0 || remoteHead !== expectedHead) return false;
+  if (remote.status === 2) return false;
+  if (remote.status !== 0) {
+    const detail = (remote.stderr || remote.stdout || remote.error?.message || '').trim();
+    throw new FlowError(
+      `ship remote inspection failed${detail ? `: ${detail}` : ''}`,
+      'external_error',
+    );
+  }
+  if (remoteHead !== expectedHead) return false;
   const parameters = actionParameters(state, step);
   if (!fs.existsSync(parameters.pr_body_path)) {
     renderPrBody(['--input', parameters.pr_input_path, '--output', parameters.pr_body_path]);
   }
   const expectedBody = fs.readFileSync(parameters.pr_body_path, 'utf8');
-  const pullRequest = spawnSync(
-    'gh',
-    [
-      'pr',
-      'view',
-      branch,
-      '--repo',
-      step.repository,
-      '--json',
-      'url,isDraft,baseRefName,headRefName,title,body',
-    ],
-    { encoding: 'utf8' },
-  );
-  let value: Record<string, unknown> = {};
-  try {
-    value = JSON.parse(pullRequest.stdout || '{}') as Record<string, unknown>;
-  } catch {
-    value = {};
+  const inspection = inspectDraftPullRequest({
+    repository: step.repository,
+    branch,
+    baseBranch: step.base_branch,
+    title: parameters.title,
+    body: expectedBody,
+  });
+  if (inspection.status === 'mismatch') {
+    throw new FlowError(inspection.error, 'postcondition_error');
   }
-  return (
-    pullRequest.status === 0 &&
-    value.isDraft === true &&
-    value.baseRefName === step.base_branch &&
-    value.headRefName === branch &&
-    value.title === parameters.title &&
-    value.body === expectedBody &&
-    typeof value.url === 'string'
-  );
+  return inspection.status === 'matched';
 }
 
 /** Detects a completed external action so a resumed controller does not repeat it. */

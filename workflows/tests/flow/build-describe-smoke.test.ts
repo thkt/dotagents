@@ -30,6 +30,7 @@ function git(repo: string, ...args: string[]) {
   return result.stdout.trim();
 }
 
+// This E2E spawns nested Bun and Git processes while the standard suite runs eight files in parallel.
 test('describe(build) materializes a public Issue source and reaches ship-ready', async () => {
   const repo = temporaryDirectory('codex-flow-build-smoke-');
   git(repo, 'init', '-q', '-b', 'main');
@@ -131,7 +132,7 @@ test('describe(build) materializes a public Issue source and reaches ship-ready'
       },
       async reviewBuild() {
         return {
-          protocol: 'codex-build-review/v1' as const,
+          protocol: 'codex-build-review' as const,
           verdict: 'pass' as const,
           classification: 'pass' as const,
           reason_codes: [],
@@ -147,4 +148,4 @@ test('describe(build) materializes a public Issue source and reaches ship-ready'
   assert.equal(result.exitCode, 0);
   assert.equal('status' in result.result && result.result.status, 'ship-ready');
   assert.match(fs.readFileSync(path.join(repo, 'unit.ts'), 'utf8'), /smoke/);
-}, 15_000);
+}, 30_000);

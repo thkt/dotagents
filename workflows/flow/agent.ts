@@ -59,7 +59,7 @@ const EVIDENCE_RESULT_SCHEMA = {
 const BUILD_REVIEW_RESULT_SCHEMA = {
   type: 'object',
   properties: {
-    protocol: { type: 'string', enum: ['codex-build-review/v1'] },
+    protocol: { type: 'string', enum: ['codex-build-review'] },
     verdict: { type: 'string', enum: ['pass', 'fail'] },
     classification: { type: 'string', enum: ['pass', 'semantic_review_failed'] },
     reason_codes: { type: 'array', items: { type: 'string' } },
@@ -200,7 +200,7 @@ export function parseBuildReviewResult(raw: unknown): BuildReviewResult {
   const expectedFailureRoute = blockingCodes.length ? 'blocked' : null;
   const reasonCodes = Array.isArray(raw.reason_codes) ? raw.reason_codes : [];
   if (
-    raw.protocol !== 'codex-build-review/v1' ||
+    raw.protocol !== 'codex-build-review' ||
     raw.verdict !== expectedVerdict ||
     raw.classification !== expectedClassification ||
     raw.failure_route !== expectedFailureRoute ||
