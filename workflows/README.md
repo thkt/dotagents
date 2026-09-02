@@ -13,6 +13,7 @@ This document is the primary source for the stable handoff boundaries:
 - A terminal model failure consumes intent; input or binding validation failures preserve it.
 - A pending Issue with no ready Think artifact terminates only through the task-bound `codex-issue stop`; it revokes publication authority without requiring a placeholder input or GitHub access.
 - Issue generates the visible body and machine contract from one canonical Plan, then revalidates current source and exact identity before publishing once. Build revalidates that public Issue at startup, before semantic review, and before Ship.
+- Established decisions return to repository documentation so future Plans can cite them as knowledge.
 - An active controller can be cancelled only through task-bound `codex-flow cancel`, which revokes Ship authorization and records terminal `cancelled` state.
 
 Think Plans should cite this document and quote the applicable rule instead of restating it.
