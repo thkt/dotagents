@@ -84,6 +84,22 @@ test('centralizes every runtime GitHub CLI invocation in the shared registry', (
   }
 });
 
+test('centralizes every runtime Codex SDK client behind the sandboxed environment factory', () => {
+  const owner = path.join(EXPECTED_ROOT, 'workflows/shared/codex.ts');
+  const runtimeFiles = [
+    ...typeScriptFiles(path.join(EXPECTED_ROOT, 'hooks')),
+    ...typeScriptFiles(path.join(EXPECTED_ROOT, 'workflows')).filter(
+      (file) => !file.includes(`${path.sep}workflows${path.sep}tests${path.sep}`),
+    ),
+  ];
+  for (const file of runtimeFiles) {
+    if (file === owner) continue;
+    const source = fs.readFileSync(file, 'utf8');
+    assert.doesNotMatch(source, /from ['"]@openai\/codex-sdk['"]/u, file);
+    assert.doesNotMatch(source, /new Codex\s*\(/u, file);
+  }
+});
+
 test('uses only stable versionless protocol identifiers at runtime', () => {
   const runtimeFiles = [
     ...typeScriptFiles(path.join(EXPECTED_ROOT, 'hooks')),

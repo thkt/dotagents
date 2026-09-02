@@ -1,7 +1,5 @@
 /** @file Outcome: Independent read-only Codex threads discover and challenge evidence before it becomes research. */
 
-import type { ThreadOptions } from '@openai/codex-sdk';
-
 import {
   createSignedInCodexClient,
   readOnlyThreadOptions,
@@ -148,7 +146,7 @@ function threadOptions(
   input: ResearchInput,
   prior: PriorResearchSummary[],
   snapshotRepo: string,
-): ThreadOptions {
+): ReturnType<typeof readOnlyThreadOptions> {
   return {
     ...readOnlyThreadOptions(snapshotRepo),
     webSearchMode: input.external_sources === 'none' ? 'disabled' : 'live',
