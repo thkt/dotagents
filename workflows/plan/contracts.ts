@@ -9,13 +9,10 @@ import {
   stringArray,
 } from '../shared/schema.ts';
 import { oneLine, sentenceItems } from '../shared/text.ts';
-import type { ScreenshotSpec } from '../build/screenshot-contract.ts';
 
 export interface BuildPlanAuthoring {
   outcome: string;
   test_command: string;
-  manual_verification: string[];
-  screenshots?: ScreenshotSpec[];
   units: Array<{
     goal: string;
     files: string[];
@@ -37,16 +34,6 @@ export const BUILD_PLAN_AUTHORING_SCHEMA = {
   properties: {
     outcome: { type: 'string' },
     test_command: { type: 'string' },
-    manual_verification: STRING_ARRAY_SCHEMA,
-    screenshots: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: { name: { type: 'string' }, alt: { type: 'string' } },
-        required: ['name', 'alt'],
-        additionalProperties: false,
-      },
-    },
     units: {
       type: 'array',
       items: {
@@ -62,29 +49,13 @@ export const BUILD_PLAN_AUTHORING_SCHEMA = {
       },
     },
   },
-  required: ['outcome', 'test_command', 'manual_verification', 'units'],
+  required: ['outcome', 'test_command', 'units'],
   additionalProperties: false,
 } as const;
 
 export function parseBuildPlanAuthoring(raw: unknown): BuildPlanAuthoring {
   if (!isObject(raw)) throw new FlowError('build plan must be an object', 'execution_error');
-  rejectUnknownKeys(
-    raw,
-    ['outcome', 'test_command', 'manual_verification', 'screenshots', 'units'],
-    'build plan',
-    'execution_error',
-  );
-  const screenshots =
-    raw.screenshots === undefined
-      ? undefined
-      : objectArray(raw.screenshots, 'build plan.screenshots').map((item, index) => {
-          const label = `build plan.screenshots[${index}]`;
-          rejectUnknownKeys(item, ['name', 'alt'], label, 'execution_error');
-          return {
-            name: requiredString(item.name, `${label}.name`, 'execution_error'),
-            alt: requiredString(item.alt, `${label}.alt`, 'execution_error'),
-          };
-        });
+  rejectUnknownKeys(raw, ['outcome', 'test_command', 'units'], 'build plan', 'execution_error');
   const units = objectArray(raw.units, 'build plan.units').map((item, index) => {
     const label = `build plan.units[${index}]`;
     rejectUnknownKeys(item, ['goal', 'files', 'contract', 'tests'], label, 'execution_error');
@@ -98,12 +69,6 @@ export function parseBuildPlanAuthoring(raw: unknown): BuildPlanAuthoring {
   return {
     outcome: requiredString(raw.outcome, 'build plan.outcome', 'execution_error'),
     test_command: requiredString(raw.test_command, 'build plan.test_command', 'execution_error'),
-    manual_verification: stringArray(
-      raw.manual_verification,
-      'build plan.manual_verification',
-      'execution_error',
-    ),
-    ...(screenshots === undefined ? {} : { screenshots }),
     units,
   };
 }
@@ -118,7 +83,6 @@ export function renderPlanMarkdown(plan: BuildPlanAuthoring): string {
     test: 'Test command',
     contract: 'Contract',
     acceptance: 'Acceptance',
-    manual: 'Manual verification',
   };
   const lines = [
     '## Plan',
@@ -135,22 +99,6 @@ export function renderPlanMarkdown(plan: BuildPlanAuthoring): string {
       ...labeledItems(labels.contract, unit.contract),
       `- ${labels.acceptance}:`,
       ...unit.tests.map((test) => `  - ${oneLine(test)}`),
-      '',
-    );
-  }
-  if (plan.manual_verification.length) {
-    lines.push(
-      `### ${labels.manual}`,
-      '',
-      ...plan.manual_verification.map((item) => `- ${oneLine(item)}`),
-      '',
-    );
-  }
-  if (plan.screenshots?.length) {
-    lines.push(
-      '### PR screenshots',
-      '',
-      ...plan.screenshots.map((item) => `- \`${item.name}\`: ${oneLine(item.alt)}`),
       '',
     );
   }

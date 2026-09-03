@@ -14,11 +14,10 @@ Inspect the current input, preview, and publication contract with `codex-issue d
 - Use one ready JSON artifact produced by think. If none exists, run the hook-bound `codex-issue stop --input <task-bound-input-path>` command; do not create a placeholder Issue input or Think artifact.
 - Choose a new Issue or attach the Plan to one named existing Issue. Preserve existing prose before the Plan; replace only a Plan previously published by this workflow.
 - For a new issue, provide a concise title without a task-type prefix.
-- Choose one priority: critical, high, medium, or low.
 
 ## Publication
 
-- Treat the user's leading explicit `$issue` invocation as authorization for at most one GitHub Issue create or edit and, when absent, creation of its selected supported priority label in the hook-bound repository. Do not request another publication confirmation.
+- Treat the user's leading explicit `$issue` invocation as authorization for at most one GitHub Issue create or edit in the hook-bound repository. Do not request another publication confirmation.
 - Run the controller with GitHub network access. If the execution sandbox denies `api.github.com`, retry the same hook-bound command with network escalation before any approval is consumed.
 - Create the draft before any GitHub write.
 - If the draft fails before a GitHub write, retry the same task-bound invocation.

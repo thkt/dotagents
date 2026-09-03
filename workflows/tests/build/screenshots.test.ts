@@ -25,9 +25,7 @@ function state(root: string): FlowState {
   });
   return {
     run_id: 'screenshot-run',
-    build_plan: {
-      screenshots: [{ name: 'home.png', alt: 'Home screen' }],
-    },
+    screenshots: [{ name: 'home.png', alt: 'Home screen' }],
     manifest: {
       steps: [{ id: 'implementation:direct', kind: 'actor' }],
     },

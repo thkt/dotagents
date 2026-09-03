@@ -29,7 +29,6 @@ const ready: ThinkDecision = {
   plan: {
     outcome: '値を保存して取得できる。',
     test_command: 'bun test',
-    manual_verification: [],
     units: [
       {
         goal: '値を保存する。',

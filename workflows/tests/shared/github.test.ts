@@ -43,8 +43,6 @@ test('declares one closed policy for every GitHub operation', () => {
     'repo:view': { access: 'read', authority: null },
     'issue:view': { access: 'read', authority: null },
     'issue:publication-search': { access: 'read', authority: null },
-    'label:list': { access: 'read', authority: null },
-    'label:create': { access: 'write', authority: 'issue-publication' },
     'issue:create': { access: 'write', authority: 'issue-publication' },
     'issue:edit': { access: 'write', authority: 'issue-publication' },
     'pr:create': { access: 'write', authority: 'build-ship' },
@@ -59,7 +57,7 @@ test('executes reads without write authority and rejects mismatched writes befor
 
   fs.unlinkSync(fake.log);
   assert.throws(
-    () => runGitHub(githubIssueCreate('owner/repo', 'title', '/tmp/body', 'priority:low')),
+    () => runGitHub(githubIssueCreate('owner/repo', 'title', '/tmp/body')),
     /requires issue-publication/u,
   );
   assert.equal(fs.existsSync(fake.log), false);

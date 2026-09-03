@@ -13,11 +13,10 @@ description: レビュー済みのthink成果物1件から、検証済みでbuil
 - think が作成した準備完了の JSON 成果物を 1 件使用する。存在しなければ、hook-bound な`codex-issue stop --input <task-bound-input-path>`を実行する。placeholder の Issue input や Think artifact を作成しない。
 - 新規 Issue または指定された既存 Issue への Plan 追加を選ぶ。Plan より前の既存本文を保持し、この workflow が公開した Plan だけを置換する。
 - 新規 Issue では、作業種別の接頭辞を付けず、内容を具体的に表す短い title を付ける。
-- priority は critical、high、medium、low から 1 つ選ぶ。
 
 ## 公開
 
-- ユーザーが先頭で明示した `$issue` invocation を、hook が束縛したリポジトリに対する GitHub Issue の create または edit 最大 1 回と、選択した対応済み priority label が存在しない場合の作成承認として扱う。公開確認を重ねて求めない。
+- ユーザーが先頭で明示した `$issue` invocation を、hook が束縛したリポジトリに対する GitHub Issue の create または edit 最大 1 回の承認として扱う。公開確認を重ねて求めない。
 - controller は GitHub network access を有効にして実行する。execution sandbox が`api.github.com`を拒否した場合は、承認が消費される前に同じ hook-bound コマンドを network escalation 付きで再実行する。
 - GitHub へ書き込む前に draft を作成する。
 - GitHub write 前に draft が失敗した場合は、同じ task-bound invocation を再試行する。

@@ -38,6 +38,7 @@ test('describe exposes semantic inputs for internally compiled execution', () =>
     repo: '/absolute/git-root',
     issue_number: 123,
     ship: false,
+    screenshots: [],
   });
   assert.deepEqual(code.input_template, {
     repo: '/absolute/git-root',

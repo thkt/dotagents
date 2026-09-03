@@ -23,4 +23,4 @@ Run the bound workflow command with network access. If the sandbox blocks the ne
 
 ## Report
 
-Successful Research updates topic-based Knowledge automatically. Keep workflow artifacts in English. Translate only the final user-facing report into the configured language, including the answer, finding and unknown counts, artifact paths, and `think` as the next state. Do not continue into Think.
+Successful Research attempts to rebuild topic-based Knowledge from persisted reports. A Knowledge write failure does not invalidate the Research report. Keep workflow artifacts in English. Translate only the final user-facing report into the configured language, including the answer, finding and unknown counts, artifact paths, and `think` as the next state. Do not continue into Think.

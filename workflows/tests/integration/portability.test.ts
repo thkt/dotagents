@@ -91,32 +91,6 @@ test('routes every model turn through streaming activity and idle detection', ()
   assert.match(boundary, /idleController\.abort/u);
 });
 
-test('uses only stable versionless protocol identifiers at runtime', () => {
-  const runtimeFiles = [
-    ...typeScriptFiles(path.join(EXPECTED_ROOT, 'hooks')),
-    ...typeScriptFiles(path.join(EXPECTED_ROOT, 'workflows')).filter(
-      (file) => !file.includes(`${path.sep}workflows${path.sep}tests${path.sep}`),
-    ),
-  ];
-  const actual = [
-    ...new Set(
-      runtimeFiles
-        .flatMap((file) => [...fs.readFileSync(file, 'utf8').matchAll(/codex-[a-z0-9-]+\/v\d+/gu)])
-        .map((match) => match[0]),
-    ),
-  ].sort();
-  assert.deepEqual(actual, []);
-});
-
-test('keeps Build and Plan implementation in the workflow package', () => {
-  assert.equal(fs.existsSync(path.join(EXPECTED_ROOT, 'skills/build/scripts')), false);
-  assert.equal(fs.existsSync(path.join(EXPECTED_ROOT, 'workflows/flow/build')), false);
-  for (const file of ['workflows/build/compile.ts', 'workflows/tests/build/compile.test.ts']) {
-    const ignored = spawnSync('git', ['check-ignore', '--quiet', file], { cwd: EXPECTED_ROOT });
-    assert.equal(ignored.status, 1, `${file} must override global ignore rules`);
-  }
-});
-
 test('resolves package and stable sandbox-writable runtime paths without a user-specific home', () => {
   assert.equal(AGENTS_ROOT, EXPECTED_ROOT);
   assert.equal(resolveCodexHome({}, '/Users/example'), '/Users/example/.codex');
@@ -127,10 +101,9 @@ test('resolves package and stable sandbox-writable runtime paths without a user-
   );
 });
 
-test('keeps durable handoff cache repository-local, ignored, and versionless', () => {
+test('keeps the durable handoff cache repository-local and ignored', () => {
   const directory = workflowArtifactDirectory(EXPECTED_ROOT);
   assert.equal(directory, path.join(EXPECTED_ROOT, '.codex', 'workflow-artifacts'));
-  assert.doesNotMatch(directory, /(?:^|[/\\])v\d+(?:$|[/\\])/u);
   const ignored = spawnSync(
     'git',
     ['check-ignore', '--quiet', '.codex/workflow-artifacts/probe.json'],

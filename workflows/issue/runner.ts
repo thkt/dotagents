@@ -34,14 +34,12 @@ interface IssueDescription {
     mode: 'create';
     think_report: string;
     title: string;
-    priority: 'medium';
   };
   attach_plan_template: {
     repo: string;
     mode: 'attach-plan';
     think_report: string;
     target_issue: number;
-    priority: 'medium';
   };
   contracts: { source: string; missing_source: string; preview: string; publish: string };
 }
@@ -85,14 +83,12 @@ export function describeIssue(): IssueDescription {
       mode: 'create',
       think_report: '/absolute/private-think-report.json',
       title: 'Concise title without a task-type prefix',
-      priority: 'medium',
     },
     attach_plan_template: {
       repo: '/absolute/git-root',
       mode: 'attach-plan',
       think_report: '/absolute/private-think-report.json',
       target_issue: 123,
-      priority: 'medium',
     },
     contracts: {
       source: 'think_report must contain a ready Plan',

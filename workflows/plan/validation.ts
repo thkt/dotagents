@@ -10,7 +10,6 @@ import {
   safeRepoPath,
 } from '../shared/cli.ts';
 import type { StructuredGateResult } from '../flow/contracts.ts';
-import { safeScreenshotName } from '../build/screenshot-contract.ts';
 import { SHELL_CONTROL, shellWords } from '../shared/command.ts';
 import { isMainModule } from '../shared/environment.ts';
 import { usageError } from '../shared/errors.ts';
@@ -66,15 +65,6 @@ export function validatePlan(input: unknown): PlanValidationReport {
       }
       if (!unit.tests.length) blockers.push(`units[${index}] has no acceptance tests`);
     }
-    const names = new Set<string>();
-    for (const [index, screenshot] of (plan.screenshots ?? []).entries()) {
-      if (!safeScreenshotName(screenshot.name)) {
-        blockers.push(`screenshots[${index}].name must be a safe image filename`);
-      } else if (names.has(screenshot.name.toLowerCase())) {
-        blockers.push(`duplicate screenshot name ${screenshot.name}`);
-      }
-      names.add(screenshot.name.toLowerCase());
-    }
   }
   const counts = {
     units: plan?.units.length ?? 0,
@@ -98,8 +88,6 @@ export function describe() {
     plan: {
       outcome: 'observable done state',
       test_command: 'repository-test-command',
-      manual_verification: [],
-      screenshots: [],
       units: [
         {
           goal: 'observable unit behavior',

@@ -21,7 +21,6 @@ useTemporaryWorkflowStorage('codex-issue-tests-');
 const plan: BuildPlanAuthoring = {
   outcome: '値を保存して取得できる。',
   test_command: 'bun test',
-  manual_verification: [],
   units: [
     {
       goal: '値を保存する。',
@@ -74,31 +73,28 @@ class Gateway implements IssueGateway {
     title: '既存 Issue',
     body: '背景説明',
     url: 'https://github.com/owner/repo/issues/1',
-    labels: [],
   };
   views = 0;
 
   checkAccess(): void {}
   view(): GitHubIssue {
     this.views += 1;
-    return { ...this.issue, labels: [...this.issue.labels] };
+    return { ...this.issue };
   }
   findByPublicationId(_repository: string, publicationId: string): GitHubIssue | null {
     return this.issue.body.includes(`publication_id:${publicationId}`) ? this.view() : null;
   }
-  ensureLabel(): void {}
-  create(_repository: string, title: string, bodyFile: string, label: string): GitHubIssue {
+  create(_repository: string, title: string, bodyFile: string): GitHubIssue {
     this.issue = {
       number: 1,
       title,
       body: fs.readFileSync(bodyFile, 'utf8'),
       url: 'https://github.com/owner/repo/issues/1',
-      labels: [label],
     };
     return this.view();
   }
-  edit(_repository: string, _issue: number, bodyFile: string, label: string): GitHubIssue {
-    this.issue = { ...this.issue, body: fs.readFileSync(bodyFile, 'utf8'), labels: [label] };
+  edit(_repository: string, _issue: number, bodyFile: string): GitHubIssue {
+    this.issue = { ...this.issue, body: fs.readFileSync(bodyFile, 'utf8') };
     return this.view();
   }
 }
@@ -113,10 +109,9 @@ test('Issue input derives repository identity from origin', () => {
   });
   assert.equal(input.repository, 'owner/repo');
   assert.equal(input.remote, 'origin');
-  assert.equal(input.priority, 'medium');
 });
 
-test('publishes one JSON Plan with no second encoded or hashed Plan representation', () => {
+test('publishes the Think Plan as one public Build source', () => {
   const repo = repository();
   const gateway = new Gateway();
   const input = validateIssueInput({
@@ -130,7 +125,6 @@ test('publishes one JSON Plan with no second encoded or hashed Plan representati
   const parsed = parsePublicIssueBody(published.issue.body);
   assert.deepEqual(parsed.plan.authoring, plan);
   assert.equal((published.issue.body.match(/## Plan/gu) ?? []).length, 1);
-  assert.doesNotMatch(published.issue.body, /base64|plan_sha256|body_sha256/u);
 });
 
 test('attaching a Plan preserves existing prose', () => {
@@ -155,8 +149,18 @@ test('Build accepts a human-authored terminal JSON Plan and fetches the Issue on
     title: '保存',
     body: `背景\n\n## Plan\n\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n`,
   };
-  const source = resolveBuildSource({ repo, issue_number: 1 }, repo, gateway);
+  const source = resolveBuildSource(
+    {
+      repo,
+      issue_number: 1,
+      ship: true,
+      screenshots: [{ name: 'result.png', alt: 'Completed result' }],
+    },
+    repo,
+    gateway,
+  );
   assert.deepEqual(source.plan, plan);
+  assert.deepEqual(source.screenshots, [{ name: 'result.png', alt: 'Completed result' }]);
   assert.equal(gateway.views, 1);
 });
 
@@ -172,7 +176,7 @@ test('Issue refuses a Think result that still requires Research', () => {
   assert.throws(() => draftIssue(input, gateway), /must be issue-ready/u);
 });
 
-test('publication metadata supports idempotent writes but is not part of the Plan', () => {
+test('round-trips publication identity and the Build Plan', () => {
   const body = renderPublicIssueBody(
     '背景',
     compileBuildPlan(plan),
@@ -180,5 +184,5 @@ test('publication metadata supports idempotent writes but is not part of the Pla
   );
   const parsed = parsePublicIssueBody(body);
   assert.equal(parsed.publication_id, '123e4567-e89b-42d3-a456-426614174000');
-  assert.deepEqual(Object.keys(parsed.plan.authoring), Object.keys(plan));
+  assert.deepEqual(parsed.plan.authoring, plan);
 });

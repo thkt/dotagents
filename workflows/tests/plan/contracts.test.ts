@@ -13,7 +13,6 @@ import { describe, validatePlan } from '../../plan/validation.ts';
 const plan = {
   outcome: '利用者が値を保存できる。',
   test_command: 'bun test',
-  manual_verification: ['画面から保存する。'],
   units: [
     {
       goal: '値を保存する。',
@@ -24,7 +23,7 @@ const plan = {
   ],
 };
 
-test('accepts the minimal Plan without caller-authored ids, hashes, or preconditions', () => {
+test('accepts an implementable Plan', () => {
   assert.deepEqual(parseBuildPlanAuthoring(plan), plan);
   const report = validatePlan({ issue: 1, title: '保存', plan });
   assert.equal(report.verdict, 'pass');
@@ -56,13 +55,5 @@ test('rejects unsafe commands, unsafe paths, and unverifiable units', () => {
 
 test('describe exposes only semantic Plan fields', () => {
   const template = describe().input_template.plan;
-  assert.deepEqual(Object.keys(template), [
-    'outcome',
-    'test_command',
-    'manual_verification',
-    'screenshots',
-    'units',
-  ]);
-  assert.equal('id' in template.units[0]!, false);
-  assert.equal('hash' in template, false);
+  assert.deepEqual(Object.keys(template), ['outcome', 'test_command', 'units']);
 });

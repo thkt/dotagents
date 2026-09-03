@@ -48,7 +48,6 @@ function buildFixture(plan: BuildPlanAuthoring) {
       title: 'Smoke build',
       body,
       url: 'https://github.com/owner/repo/issues/1',
-      labels: [],
     }),
   );
   const bin = `${repo}.bin`;
@@ -78,7 +77,6 @@ test('Build fetches the Issue Plan, implements, verifies, reviews, and commits o
   const plan: BuildPlanAuthoring = {
     outcome: '値が更新される。',
     test_command: 'git diff --check',
-    manual_verification: [],
     units: [
       {
         goal: '値を更新する。',
@@ -121,7 +119,6 @@ test('a blocking semantic review corrects the shared actor, then re-verifies and
   const plan: BuildPlanAuthoring = {
     outcome: '両方の値が更新される。',
     test_command: 'git diff --check',
-    manual_verification: [],
     units: [
       {
         goal: '主値を更新する。',

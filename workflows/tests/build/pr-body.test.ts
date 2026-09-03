@@ -5,7 +5,7 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'bun:test';
 
-import { codeFence, describe, main, render, validatePayload } from '../../build/pr-body.ts';
+import { describe, main, render, validatePayload } from '../../build/pr-body.ts';
 import { temporaryDirectory } from '../shared/fixtures.ts';
 
 function payload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -14,8 +14,6 @@ function payload(overrides: Record<string, unknown> = {}): Record<string, unknow
     tests_pass: true,
     gates_pass: true,
     scope_deviations: [],
-    untouched_plan_files: [],
-    missing_tests: [],
     ...overrides,
   };
 }
@@ -33,45 +31,27 @@ test('self-describes a payload accepted by the same renderer', () => {
   assert.match(description.command, /--input.*--output/u);
   assert.doesNotThrow(() => validatePayload(description.input_template));
   assert.match(render(description.input_template), /Closes #123/);
-  assert.equal('language' in description.input_template, false);
   assert.deepEqual(main(['describe']).report, description);
 });
 
-test('keeps every non-zero mechanical finding count visible while folded', () => {
+test('shows observed scope and review findings', () => {
   const body = render(
     payload({
       tests_pass: false,
       scope_deviations: ['outside.js'],
-      untouched_plan_files: [{ unit_id: 'U-001', file: 'src/value.js' }],
-      missing_tests: [{ test_id: 'T-001', name: 'empty input returns an error' }],
-      verification_output: 'not ok',
+      advisories: ['review: simplify the implementation'],
     }),
   );
   assert.match(body, /verify tests=FAIL gates=pass/);
   assert.match(body, /scope-deviations 1/);
-  assert.match(body, /untouched-plan-files 1/);
-  assert.match(body, /missing-tests 1/);
   assert.match(body, /outside\.js/);
-  assert.match(body, /T-001/);
+  assert.match(body, /simplify the implementation/u);
 });
 
 test('fails closed when a safety-critical key is absent or not boolean', () => {
   assert.throws(() => validatePayload({ issue: 1, tests_pass: true }), /gates_pass/);
   assert.throws(() => validatePayload(payload({ tests_pass: 'yes' })), /must be boolean/);
   assert.throws(() => validatePayload(payload({ issue: 0 })), /positive integer/);
-});
-
-test('uses a longer fence than backtick runs in command output', () => {
-  const fenced = codeFence('before ``` inside after');
-  assert.ok(fenced.startsWith('````\n'));
-  assert.ok(fenced.endsWith('\n````'));
-});
-
-test('renders one English contract while preserving supplied checklist text', () => {
-  const body = render(payload({ manual_checks: ['画面を確認する'] }));
-  assert.match(body, /Automated build verification/);
-  assert.match(body, /Manual verification checklist/);
-  assert.match(body, /画面を確認する/);
 });
 
 test('renders declared screenshots as local references for gh to rewrite', () => {

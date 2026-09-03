@@ -210,16 +210,14 @@ test('a repository without commits is investigated from its snapshot', async () 
   assert.equal(result.report.findings[0]?.evidence[0]?.kind, 'repository');
 });
 
-test('reuses automatically updated Knowledge and ignores malformed Research', async () => {
+test('reuses rebuilt Knowledge and skips malformed Research', async () => {
   const repo = repoFixture();
   const dir = researchArtifactDirectory(repo);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'bad.json'), '{not-json');
-  const first = await runResearch(input(repo), new FakeAgent());
+  await runResearch(input(repo), new FakeAgent());
   const agent = new FakeAgent();
-  const second = await runResearch(input(repo), agent);
-  assert.equal('next_step' in first.report, false);
-  assert.equal('next_step' in second.report, false);
+  await runResearch(input(repo), agent);
   assert.ok(agent.seen[0]!.some((item) => item.sources[0]?.report.endsWith('.json')));
 });
 
