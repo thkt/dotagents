@@ -29,15 +29,16 @@ import {
   type Workflow,
   type WorkflowEscalation,
 } from './contracts.ts';
-import { DEFAULT_TIMEOUT_MS, parseArgs as parseGateArgs } from './shell-gate.ts';
+import { DEFAULT_TIMEOUT_MS, parseArgs as parseGateArgs } from './shell-verification.ts';
 import {
   clearIntent,
   loadIntent,
-  requireBuildIntent,
   requireBuildShipApproval,
   requireIntent,
+  requireWorkflowInput,
 } from '../invocation.ts';
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
+import { implementationCommand } from '../shared/environment.ts';
 import { readAbsoluteJson } from '../shared/runtime.ts';
 import { atomicWrite, statePath, workflowInputPath } from '../shared/storage.ts';
 import {
@@ -53,20 +54,20 @@ import {
 } from '../shared/repository.ts';
 import { shellCommand } from '../shared/command.ts';
 import { isGitHubAccessFailureMessage } from '../shared/github.ts';
-import { DEFAULT_MAX_CORRECTIONS, IMPLEMENTATION_ACTOR_ID } from './manifest.ts';
+import { DEFAULT_MAX_CORRECTIONS, IMPLEMENTATION_ACTOR_ID } from './manifest-validation.ts';
 import { isObject } from '../shared/schema.ts';
-import { runIsolatedShellVerification } from './isolation.ts';
+import { runIsolatedShellVerification } from './repository-isolation.ts';
 import {
   actionAlreadyCompleted,
   actionDirective,
   prepareShipInput,
   validateActionCompletion,
-} from '../build/actions.ts';
+} from '../build/git-actions.ts';
 import { actorScreenshotAttachments, sealScreenshotAttachments } from '../build/screenshots.ts';
-import { buildReviewGateReport, runStructuredBuildGate } from '../build/gates.ts';
-import { compileBuildManifest } from '../build/compile.ts';
+import { buildReviewGateReport, runStructuredBuildGate } from '../build/verification.ts';
+import { compileBuildManifest } from '../build/manifest.ts';
 import { describeBuildRunInput, parseBuildRunInput } from '../build/input.ts';
-import { compileCodeManifest, describeCodeInput, parseCodeInput } from '../code/compile.ts';
+import { compileCodeManifest, describeCodeInput, parseCodeInput } from '../code/manifest.ts';
 import { parseBuildReviewResult } from './agent.ts';
 
 /** Loads the task-bound state and rejects stale or malformed records. */
@@ -154,7 +155,7 @@ function defaultBaseBranch(repo: string): string {
 function startManifest(runId: string, inputFile: string): FlowManifest {
   const raw = readAbsoluteJson(inputFile, '--input');
   if (isObject(raw) && raw.issue_number !== undefined) {
-    const intent = requireBuildIntent(runId, inputFile);
+    const intent = requireWorkflowInput(runId, 'build', inputFile);
     const request = parseBuildRunInput(raw);
     if (request.repo !== intent.repo) {
       throw new FlowError('build input belongs to a different Git worktree');
@@ -880,10 +881,11 @@ function completeCurrentDirective(
 }
 
 function describe(workflow: Workflow): FlowDescription {
+  const executable = implementationCommand(workflow);
   const cli = {
-    describe: `codex-flow describe --workflow ${workflow}`,
-    run: 'codex-flow run --input <absolute-json>',
-    cancel: 'codex-flow cancel --input <hook-supplied-json>',
+    describe: `${executable} describe`,
+    run: `${executable} run --input <absolute-json>`,
+    cancel: `${executable} cancel --input <hook-supplied-json>`,
     task_binding: 'hook-injected' as const,
   };
   if (workflow === 'build') {
@@ -899,7 +901,9 @@ function describe(workflow: Workflow): FlowDescription {
         persisted: true,
       },
       cli_contracts: {
-        reports: [{ protocol: RESULT_PROTOCOL, command: 'codex-flow run --input <absolute-json>' }],
+        reports: [
+          { protocol: RESULT_PROTOCOL, command: `${executable} run --input <absolute-json>` },
+        ],
       },
     };
   }
@@ -913,7 +917,9 @@ function describe(workflow: Workflow): FlowDescription {
     input_template: describeCodeInput(),
     execution: { source_of_truth: 'direct-request', compiled: true, persisted: true },
     cli_contracts: {
-      reports: [{ protocol: RESULT_PROTOCOL, command: 'codex-flow run --input <absolute-json>' }],
+      reports: [
+        { protocol: RESULT_PROTOCOL, command: `${executable} run --input <absolute-json>` },
+      ],
     },
   };
 }

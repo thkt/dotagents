@@ -6,9 +6,9 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'bun:test';
 
-import type { WorkflowAgent } from '../../flow/agent.ts';
-import type { BuildReviewResult } from '../../flow/contracts.ts';
-import { runWorkflow, type WorkflowRuntime } from '../../flow/runner.ts';
+import type { WorkflowAgent } from '../../execution/agent.ts';
+import type { BuildReviewResult } from '../../execution/contracts.ts';
+import { runWorkflow, type WorkflowRuntime } from '../../execution/engine.ts';
 import { armIntent } from '../../invocation.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 

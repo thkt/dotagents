@@ -308,7 +308,7 @@ export function validateManifest(raw: unknown): FlowManifest {
   if (!isObject(raw) || raw.protocol !== MANIFEST_PROTOCOL) {
     if (isObject(raw) && /^codex-flow-manifest\/v\d+$/u.test(String(raw.protocol))) {
       throw new FlowError(
-        'manifest uses an obsolete contract; regenerate it from the current codex-flow describe output',
+        'manifest uses an obsolete contract; regenerate it from the current workflow describe output',
       );
     }
     throw new FlowError(`manifest.protocol must be ${MANIFEST_PROTOCOL}`);

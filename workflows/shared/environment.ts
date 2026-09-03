@@ -6,10 +6,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const AGENTS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-export const FLOW_COMMAND = 'codex-flow';
+export const BUILD_COMMAND = 'codex-build';
+export const CODE_COMMAND = 'codex-code';
 export const ISSUE_COMMAND = 'codex-issue';
 export const RESEARCH_COMMAND = 'codex-research';
 export const THINK_COMMAND = 'codex-think';
+
+export function implementationCommand(workflow: 'build' | 'code'): string {
+  return workflow === 'build' ? BUILD_COMMAND : CODE_COMMAND;
+}
 
 export function isMainModule(
   metaUrl: string,

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'bun:test';
 
-import { ACTOR_RESULT_SCHEMA, BUILD_REVIEW_RESULT_SCHEMA } from '../../flow/agent.ts';
+import { ACTOR_RESULT_SCHEMA, BUILD_REVIEW_RESULT_SCHEMA } from '../../execution/agent.ts';
 import { BUILD_PLAN_AUTHORING_SCHEMA } from '../../plan/contracts.ts';
 import { RESEARCH_AUDIT_SCHEMA, RESEARCH_DRAFT_SCHEMA } from '../../research/contracts.ts';
 import {

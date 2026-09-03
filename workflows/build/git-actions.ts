@@ -1,4 +1,4 @@
-/** @file Outcome: Every build action is derived, executed, and verified from controller-owned state. */
+/** @file Outcome: Every Build Git action is derived, executed, and verified from controller-owned state. */
 
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -19,7 +19,7 @@ import type {
   ShipActionParameters,
   ShipActionStep,
   UnitActionStep,
-} from '../flow/contracts.ts';
+} from '../execution/contracts.ts';
 import { FlowError, errorCode } from '../shared/errors.ts';
 import { githubPrCreate, runGitHub, type GitHubInvocation } from '../shared/github.ts';
 import {

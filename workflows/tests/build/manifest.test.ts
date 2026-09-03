@@ -6,11 +6,11 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'bun:test';
 
-import { compileBuildManifest } from '../../build/compile.ts';
-import { buildReviewGateReport } from '../../build/gates.ts';
+import { compileBuildManifest } from '../../build/manifest.ts';
+import { buildReviewGateReport } from '../../build/verification.ts';
 import { parseBuildRunInput } from '../../build/input.ts';
-import { describe } from '../../flow/controller.ts';
-import type { BuildPlanContext } from '../../flow/contracts.ts';
+import { describe } from '../../execution/controller.ts';
+import type { BuildPlanContext } from '../../execution/contracts.ts';
 import { temporaryDirectory } from '../shared/fixtures.ts';
 
 function repository(): { repo: string; head: string } {

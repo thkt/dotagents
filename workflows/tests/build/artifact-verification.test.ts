@@ -5,7 +5,7 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'bun:test';
 
-import { gitFileList, verifyArtifacts } from '../../build/artifacts.ts';
+import { gitFileList, verifyArtifacts } from '../../build/artifact-verification.ts';
 import { run } from '../../shared/cli.ts';
 import { temporaryDirectory } from '../shared/fixtures.ts';
 

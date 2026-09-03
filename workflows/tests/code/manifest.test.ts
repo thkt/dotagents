@@ -6,8 +6,8 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'bun:test';
 
-import { compileCodeManifest, parseCodeInput } from '../../code/compile.ts';
-import { describe } from '../../flow/controller.ts';
+import { compileCodeManifest, parseCodeInput } from '../../code/manifest.ts';
+import { describe } from '../../execution/controller.ts';
 import { temporaryDirectory } from '../shared/fixtures.ts';
 
 function repository(): string {

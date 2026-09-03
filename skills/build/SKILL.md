@@ -5,12 +5,12 @@ description: Implement and verify one public GitHub Issue Plan, optionally pushi
 
 # Build
 
-Run the prepared Build input with `codex-flow run --input <task-input-json>`. The controller derives every execution step from the selected public Plan.
+Run the prepared Build input with `codex-build run --input <task-input-json>`. The controller derives every execution step from the selected public Plan.
 
 ## Source
 
 - Accept an Issue shorthand such as `#123` in the explicit invocation and select it from the current worktree's `origin` GitHub repository. The hook prepares the small Build input; do not author execution steps.
-- Invoke the first bound controller command itself with network escalation; it performs the bound Issue reads and SDK calls itself. Do not request persistent approval for the `codex-flow run` prefix because it can commit, push, and create a draft PR. If a genuine transient access failure occurs, retry the exact same controller command with network escalation. Do not run a separate `gh ... view` preparation command or substitute browser content as the contract.
+- Invoke the first bound controller command itself with network escalation, requesting persistent approval for prefix `["codex-build", "run"]` in that same tool call when supported. This prefix is safe to persist because the Build-only command still requires the task- and repository-bound `$build` approval and exposes only Build run and cancel operations. If a genuine transient access failure occurs, retry the exact same controller command with network escalation. Do not run a separate `gh ... view` preparation command or substitute browser content as the contract.
 - Read the selected Issue once at Build start. The JSON Plan in its unique `## Plan` section is the sole implementation authority; surrounding presentation markup, a publisher-local receipt, second rendering, or body hash is not required.
 - The controller derives actor goals, combined file scope, and the test command from that Plan. Build input is not an alternate source of implementation intent.
 - After final tests, require an independent read-only SDK review of the complete diff against the published goals and contracts.
@@ -22,7 +22,7 @@ Run the prepared Build input with `codex-flow run --input <task-input-json>`. Th
 - On resume, reconcile branch, commit, push, and draft PR postconditions before repeating an external action.
 - When the user explicitly requests PR screenshots, add their safe image names and alt text to the prepared Build input. Render the completed UI and capture every requested image at the controller-provided path. Ship only with the exact controller-sealed image bytes; a changed image or unresolved attachment blocks completion instead of creating another PR.
 - Report backlog candidates without creating them.
-- If the user cancels an active Build, run the hook-bound `codex-flow cancel` operation. Do not implement, commit, push, or create a draft PR after cancellation.
+- If the user cancels an active Build, run the hook-bound `codex-build cancel` operation. Do not implement, commit, push, or create a draft PR after cancellation.
 
 ## Escalation
 

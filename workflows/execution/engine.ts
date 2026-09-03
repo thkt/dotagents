@@ -1,14 +1,18 @@
-#!/usr/bin/env bun
-/** @file Outcome: One command drives an armed flow through actors, actions, and gates to a terminal state. */
+/** @file Outcome: One internal engine drives an armed workflow through actors, actions, and gates. */
 
-import { RESULT_PROTOCOL, type CommandResult, type FlowDirective } from './contracts.ts';
-import { executeAction } from '../build/actions.ts';
+import {
+  RESULT_PROTOCOL,
+  type CommandResult,
+  type FlowDirective,
+  type Workflow,
+} from './contracts.ts';
+import { executeAction } from '../build/git-actions.ts';
 import { resetScreenshotAttachments } from '../build/screenshots.ts';
 import { ActorEscalation, CodexWorkflowAgent, type WorkflowAgent } from './agent.ts';
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
-import { isMainModule } from '../shared/environment.ts';
+import { requireWorkflowInput } from '../invocation.ts';
 import { parseCommand, requireExactFlags } from '../shared/cli.ts';
-import { runIsolatedActor, withRepositorySnapshot } from './isolation.ts';
+import { runIsolatedActor, withRepositorySnapshot } from './repository-isolation.ts';
 import { ProgressReporter, workflowProgress, type ProgressContext } from '../shared/progress.ts';
 import { repositoryInvariant, requireUnchangedRepository } from '../shared/repository.ts';
 import {
@@ -72,7 +76,7 @@ function progressContext(
 }
 
 /** Drives persisted controller state until it reaches a terminal directive. */
-export async function driveWorkflow(
+async function driveWorkflow(
   runId: string,
   runtime: WorkflowRuntime = defaultRuntime(),
 ): Promise<CommandResult> {
@@ -176,30 +180,47 @@ export async function runWorkflow(
   return driveWorkflow(runId, runtime);
 }
 
-/** Parses the public CLI and dispatches its closed command set. */
-export async function main(argv: string[] = process.argv.slice(2)): Promise<CommandResult> {
+function requireWorkflowBinding(workflow: Workflow, runId: string, inputFile: string): void {
+  try {
+    const state = loadWorkflowState(runId).state;
+    if (state.manifest.workflow !== workflow) {
+      throw new FlowError(
+        `${workflow} command may only resume a ${workflow} workflow`,
+        'authorization_error',
+      );
+    }
+  } catch (error) {
+    if (errorCode(error) !== 'no_flow') throw error;
+    requireWorkflowInput(runId, workflow, inputFile);
+  }
+}
+
+/** Parses one workflow-specific implementation CLI and dispatches its closed command set. */
+export async function workflowMain(
+  workflow: Workflow,
+  argv: string[] = process.argv.slice(2),
+): Promise<CommandResult> {
   const { command, flags } = parseCommand(argv);
   if (command === 'describe') {
-    requireExactFlags(flags, ['--workflow']);
-    const workflow = flags['--workflow'];
-    if (workflow !== 'code' && workflow !== 'build') {
-      throw new FlowError('--workflow must be code or build');
-    }
+    requireExactFlags(flags, []);
     return { result: describe(workflow), exitCode: 0 };
   }
   if (command === 'run') {
     requireExactFlags(flags, ['--input', '--run-id']);
+    requireWorkflowBinding(workflow, flags['--run-id']!, flags['--input']!);
     return runWorkflow(flags['--run-id']!, flags['--input']!);
   }
   if (command === 'cancel') {
     requireExactFlags(flags, ['--input', '--run-id']);
+    requireWorkflowBinding(workflow, flags['--run-id']!, flags['--input']!);
     return { result: cancelWorkflow(flags['--run-id']!, flags['--input']!), exitCode: 0 };
   }
   throw new FlowError(`unknown command: ${command}`);
 }
 
-if (isMainModule(import.meta.url)) {
-  void main()
+/** Emits one stable JSON result for a workflow CLI. */
+export function reportMain(result: Promise<CommandResult>): void {
+  void result
     .then(({ result, exitCode }) => {
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       process.exitCode = exitCode;

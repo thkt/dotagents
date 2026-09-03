@@ -5,9 +5,9 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'bun:test';
 
-import { prepareShipInput } from '../../build/actions.ts';
+import { prepareShipInput } from '../../build/git-actions.ts';
 import { describe, main, render, validatePayload } from '../../build/pr-body.ts';
-import type { FlowState } from '../../flow/contracts.ts';
+import type { FlowState } from '../../execution/contracts.ts';
 import { prInputPath } from '../../shared/storage.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 

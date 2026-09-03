@@ -1,4 +1,4 @@
-/** @file Outcome: Actors, shell gates, and read-only snapshots use disposable repositories so rejected changes and mid-run edits never reach the worktree. */
+/** @file Outcome: Actors, shell verification, and read-only snapshots use disposable repositories so rejected changes and mid-run edits never reach the worktree. */
 
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -16,7 +16,7 @@ import {
   sameWorkflowRepositoryInvariant,
   snapshotChanges,
 } from '../shared/repository.ts';
-import { runShellVerification } from './shell-gate.ts';
+import { runShellVerification } from './shell-verification.ts';
 
 /** Tree-ish of the empty tree: the index of a repository without commits diffs against it. */
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';

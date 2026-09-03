@@ -1,8 +1,8 @@
-/** @file Outcome: A fetched Issue Plan becomes a small internal Build execution. */
+/** @file Outcome: A fetched Issue Plan becomes a validated internal Build manifest. */
 
-import type { BuildPlanContext, FlowManifest } from '../flow/contracts.ts';
-import { implementationSteps } from '../flow/implementation.ts';
-import { DEFAULT_MAX_CORRECTIONS, validateManifest } from '../flow/manifest.ts';
+import type { BuildPlanContext, FlowManifest } from '../execution/contracts.ts';
+import { implementationSteps } from '../execution/implementation-steps.ts';
+import { DEFAULT_MAX_CORRECTIONS, validateManifest } from '../execution/manifest-validation.ts';
 import { FlowError } from '../shared/errors.ts';
 
 interface CompileBuildOptions {

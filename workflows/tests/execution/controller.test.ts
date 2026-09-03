@@ -11,7 +11,7 @@ import {
   currentDirective,
   startOrResumeWorkflow,
   workflowStatus,
-} from '../../flow/controller.ts';
+} from '../../execution/controller.ts';
 import { armIntent } from '../../invocation.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 

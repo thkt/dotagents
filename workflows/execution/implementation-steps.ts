@@ -1,4 +1,4 @@
-/** @file Outcome: Code and Build share one repository implementation and test sequence. */
+/** @file Outcome: Code and Build share one repository implementation and test step sequence. */
 
 export interface ImplementationUnit {
   outcome: string;

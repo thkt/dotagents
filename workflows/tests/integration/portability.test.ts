@@ -46,6 +46,37 @@ test('keeps shared workflow code independent of feature modules', () => {
   }
 });
 
+test('keeps internal workflow files named by role instead of generic operations', () => {
+  for (const relative of [
+    'workflows/build/artifact-verification.ts',
+    'workflows/build/git-actions.ts',
+    'workflows/build/manifest.ts',
+    'workflows/build/verification.ts',
+    'workflows/code/manifest.ts',
+    'workflows/execution/engine.ts',
+    'workflows/execution/implementation-steps.ts',
+    'workflows/execution/manifest-validation.ts',
+    'workflows/execution/repository-isolation.ts',
+    'workflows/execution/shell-verification.ts',
+  ]) {
+    assert.equal(fs.existsSync(path.join(EXPECTED_ROOT, relative)), true, relative);
+  }
+  for (const relative of [
+    'workflows/build/actions.ts',
+    'workflows/build/artifacts.ts',
+    'workflows/build/compile.ts',
+    'workflows/build/gates.ts',
+    'workflows/code/compile.ts',
+    'workflows/execution/implementation.ts',
+    'workflows/execution/isolation.ts',
+    'workflows/execution/manifest.ts',
+    'workflows/execution/runner.ts',
+    'workflows/execution/shell-gate.ts',
+  ]) {
+    assert.equal(fs.existsSync(path.join(EXPECTED_ROOT, relative)), false, relative);
+  }
+});
+
 test('centralizes every runtime GitHub CLI invocation in the shared registry', () => {
   const owner = path.join(EXPECTED_ROOT, 'workflows/shared/github.ts');
   const runtimeFiles = [
@@ -80,7 +111,7 @@ test('routes every model turn through streaming activity and idle detection', ()
   for (const relative of [
     'workflows/think/agent.ts',
     'workflows/research/agent.ts',
-    'workflows/flow/agent.ts',
+    'workflows/execution/agent.ts',
   ]) {
     const source = fs.readFileSync(path.join(EXPECTED_ROOT, relative), 'utf8');
     assert.match(source, /modelRun:/u, relative);
@@ -115,10 +146,11 @@ test('keeps the durable handoff cache repository-local and ignored', () => {
 test('publishes stable CLI names for every documented executable', () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(EXPECTED_ROOT, 'package.json'), 'utf8'));
   assert.deepEqual(packageJson.bin, {
-    'codex-build-artifacts': 'workflows/build/artifacts.ts',
+    'codex-build': 'workflows/build/runner.ts',
+    'codex-build-artifacts': 'workflows/build/artifact-verification.ts',
     'codex-build-plan': 'workflows/plan/validation.ts',
     'codex-build-pr-body': 'workflows/build/pr-body.ts',
-    'codex-flow': 'workflows/flow/runner.ts',
+    'codex-code': 'workflows/code/runner.ts',
     'codex-issue': 'workflows/issue/runner.ts',
     'codex-research': 'workflows/research/runner.ts',
     'codex-think': 'workflows/think/runner.ts',
@@ -137,18 +169,14 @@ test('executes every CLI through a package-manager symlink', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-bin-'));
   onTestFinished(() => fs.rmSync(root, { recursive: true, force: true }));
   const cases = [
-    [
-      'codex-flow',
-      'workflows/flow/runner.ts',
-      ['describe', '--workflow', 'code'],
-      'codex-flow-description',
-    ],
+    ['codex-build', 'workflows/build/runner.ts', ['describe'], 'codex-flow-description'],
+    ['codex-code', 'workflows/code/runner.ts', ['describe'], 'codex-flow-description'],
     ['codex-research', 'workflows/research/runner.ts', ['describe'], 'codex-research-description'],
     ['codex-think', 'workflows/think/runner.ts', ['describe'], 'codex-think-description'],
     ['codex-issue', 'workflows/issue/runner.ts', ['describe'], 'codex-issue-description'],
     [
       'codex-build-artifacts',
-      'workflows/build/artifacts.ts',
+      'workflows/build/artifact-verification.ts',
       ['describe'],
       'codex-build-artifacts-description',
     ],
@@ -195,7 +223,7 @@ test('keeps maintained runtime and instruction files independent of a user home'
     'workflows/shared/environment.ts',
     'hooks/hooks.json',
     'hooks/workflow-enforcer.ts',
-    'workflows/flow/controller.ts',
+    'workflows/execution/controller.ts',
     'skills/build/SKILL.md',
     'skills/code/SKILL.md',
     'skills/issue/SKILL.md',
