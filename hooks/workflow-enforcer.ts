@@ -31,6 +31,7 @@ import {
 } from '../workflows/shared/environment.ts';
 import { errorCode, errorMessage } from '../workflows/shared/errors.ts';
 import { GITHUB_EXECUTABLE } from '../workflows/shared/github.ts';
+import { readProjectOutcome } from '../workflows/shared/project-outcome.ts';
 import { atomicWrite, workflowInputPath } from '../workflows/shared/storage.ts';
 
 const READ_ONLY_COMMANDS = new Set([
@@ -365,6 +366,7 @@ function userPromptSubmit(input: HookInput): HookResponse {
     return { decision: 'block', reason: `explicit $${workflow} requires session_id and cwd` };
   }
   try {
+    readProjectOutcome(input.cwd);
     const buildIssue = workflow === 'build' ? parseBuildIssueNumber(input.prompt) : null;
     const buildRepository =
       buildIssue === null ? null : githubRepositoryForRemote(input.cwd, 'origin');

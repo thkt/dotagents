@@ -10,7 +10,7 @@ description: 実装方法を比較し、変更依頼1件を、出典に基づい
 
 ## 判断
 
-- 存在する場合は[.codex/OUTCOME.md](../../.codex/OUTCOME.md)と関連する[workflow contracts](../../workflows/README.md)を読み、scope の判断に使う。実装上の制約は repository guidance を Plan に複製せず、対象 unit の contract と planned tests に記載する。
+- [.codex/OUTCOME.md](../../.codex/OUTCOME.md)と関連する[workflow contracts](../../workflows/README.md)を読み、scope の判断に使う。OUTCOME.md が存在しない場合は、Think を実行する前にプロジェクトの outcome と検証可能な完了条件を記載して作成するようユーザーへ依頼する。実装上の制約は repository guidance を Plan に複製せず、対象 unit の contract と planned tests に記載する。
 - 変更を 1 つに絞り、完了時に観測できる状態を定める。
 - Plan を直接決める Research report を明示的に選ぶ。関連する Knowledge は背景情報として自動追加される。
 - 完了状態と Plan の文言を決めるときは、[設計判断の文章](references/decision-writing.md)を読む。

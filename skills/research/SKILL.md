@@ -5,7 +5,7 @@ description: Investigate one repository question into a source-checked report wi
 
 # Research
 
-When present, read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) and inspect only the minimal relevant primary sources.
+Read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) and inspect only the minimal relevant primary sources. If it is missing, ask the user to create it with the project outcome and verifiable completion criteria before running Research.
 
 Inspect the current input and artifact contract with `codex-research describe`.
 Invoke the first bound workflow command itself with network escalation, requesting persistent approval for prefix `["codex-research", "run"]` in that same tool call when supported. If a genuine transient `model_unavailable` occurs, preserve the intent and retry the exact same command with network escalation.

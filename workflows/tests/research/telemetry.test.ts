@@ -7,6 +7,9 @@ import type { CodexClientLike } from '../../../workflows/shared/codex.ts';
 import type { ResearchInput } from '../../../workflows/research/contracts.ts';
 import { FlowError, errorCode } from '../../../workflows/shared/errors.ts';
 import { ProgressReporter, type ProgressEvent } from '../../../workflows/shared/progress.ts';
+import * as fs from 'node:fs';
+import path from 'node:path';
+import { temporaryDirectory } from '../shared/fixtures.ts';
 
 const input: ResearchInput = {
   repo: '/tmp/repo',
@@ -14,6 +17,13 @@ const input: ResearchInput = {
   scope_paths: [],
   allow_external_sources: false,
 };
+
+function snapshotRepo(): string {
+  const repo = temporaryDirectory('codex-research-telemetry-');
+  fs.mkdirSync(path.join(repo, '.codex'));
+  fs.writeFileSync(path.join(repo, '.codex/OUTCOME.md'), '# Project outcome\n\nTest.\n');
+  return repo;
+}
 test('Research invalid structured output keeps stage and elapsed duration', async () => {
   const events: ProgressEvent[] = [];
   const client: CodexClientLike = {
@@ -30,7 +40,7 @@ test('Research invalid structured output keeps stage and elapsed duration', asyn
     }),
   );
   await assert.rejects(
-    agent.investigate(input, [], input.repo),
+    agent.investigate(input, [], snapshotRepo()),
     /research investigator structured validation failed after \d+ms/u,
   );
   assert.deepEqual(
@@ -54,7 +64,7 @@ test('Research model failure keeps model stage and elapsed duration', async () =
   };
   const agent = new CodexResearchAgent(client);
   await assert.rejects(
-    agent.investigate(input, [], input.repo),
+    agent.investigate(input, [], snapshotRepo()),
     /research investigator model call failed after \d+ms/u,
   );
 });
@@ -69,7 +79,7 @@ test('Research model failure preserves the idle classification from the shared b
     }),
   };
   const agent = new CodexResearchAgent(client);
-  await assert.rejects(agent.investigate(input, [], input.repo), (error: unknown) => {
+  await assert.rejects(agent.investigate(input, [], snapshotRepo()), (error: unknown) => {
     assert.equal(errorCode(error), 'research_investigator_idle_timeout');
     assert.match(String((error as Error).message), /idle stream/u);
     return true;
