@@ -1,11 +1,14 @@
 # Project outcome
 
-Turn source-grounded Think/Research decisions into one public Issue, then use that Issue as the sole contract for a verified draft PR.
+Turn Research findings into a Think Plan, publish that Plan once in a public Issue, then implement and verify the selected Issue.
 
 ## Verifiable boundaries
 
-- Think and Research operate on one immutable repository snapshot and revalidate changing sources before handoff.
-- Issue publishes one canonical human-readable and machine-readable contract.
-- Build follows that public contract, verifies the complete result, and Ships only with explicit authorization.
+- Research gathers the requested repository and optional external evidence into a report, then updates derived topic-based Knowledge automatically.
+- Think reads selected Research and related Knowledge, then returns either an implementable Plan or focused follow-up research questions.
+- Issue publishes one canonical Plan without duplicating it into separately hashed representations.
+- Build reads the selected Issue once as its sole implementation authority, verifies the complete result, and Ships only with explicit authorization.
+- Code uses the same implementation executor as Build without creating commits, pushes, or pull requests.
+- Workflow contracts stay in English; only the final user-facing report is translated into the configured language.
 
 Verification uses `bun run check`.

@@ -3,9 +3,9 @@
 import * as fs from 'node:fs';
 import crypto from 'node:crypto';
 
-import type { FlowState } from '../contracts.ts';
-import { FlowError } from '../../shared/errors.ts';
-import { atomicWrite, buildScreenshotPath, screenshotSealPath } from '../../shared/storage.ts';
+import type { FlowState } from '../flow/contracts.ts';
+import { FlowError } from '../shared/errors.ts';
+import { atomicWrite, buildScreenshotPath, screenshotSealPath } from '../shared/storage.ts';
 import type { ScreenshotSpec } from './screenshot-contract.ts';
 
 export interface ScreenshotAttachment extends ScreenshotSpec {
@@ -36,9 +36,7 @@ export function actorScreenshotAttachments(
   state: FlowState,
   actorId: string,
 ): ScreenshotAttachment[] {
-  const implementationActors = state.manifest.steps.filter(
-    (step) => step.kind === 'actor' && /^U-\d{3}:(?:green|direct)$/u.test(step.id),
-  );
+  const implementationActors = state.manifest.steps.filter((step) => step.kind === 'actor');
   return implementationActors.at(-1)?.id === actorId ? screenshotAttachments(state) : [];
 }
 

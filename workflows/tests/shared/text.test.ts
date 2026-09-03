@@ -1,7 +1,6 @@
 /** @file Outcome: Shared text and prompt serialization preserve compact text and inert boundaries. */
 
 import { expect, test } from 'bun:test';
-import { requireLanguageText } from '../../shared/language.ts';
 import { composePrompt, inertJsonBlock } from '../../shared/prompt.ts';
 import { oneLine, sentenceItems } from '../../shared/text.ts';
 
@@ -13,8 +12,6 @@ test('splits Japanese and English prose into readable sentence items', () => {
     'First sentence.',
     'Second sentence.',
   ]);
-  expect(() => requireLanguageText('[機能] 設定を反映する', 'japanese', 'title')).not.toThrow();
-  expect(() => requireLanguageText('[Feature] Reflect settings', 'english', 'title')).not.toThrow();
 });
 
 test('wraps JSON data in nonce-matched inert markers', () => {

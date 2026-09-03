@@ -3,38 +3,30 @@
 import * as fs from 'node:fs';
 import path from 'node:path';
 
-import { parseBuildPlanAuthoring, type BuildPlanAuthoring } from '../flow/build/authoring.ts';
 import { FlowError } from '../shared/errors.ts';
 import { gitRoot } from '../shared/repository.ts';
+import { thinkArtifactDirectory } from '../shared/storage.ts';
+import { githubRepositoryForRemote } from './github.ts';
 import { digest, positiveIssue, repositoryName } from './public-contract.ts';
-import {
-  enumValue,
-  isObject,
-  nullableString,
-  rejectUnknownKeys,
-  requiredString,
-} from '../shared/schema.ts';
+import { enumValue, isObject, rejectUnknownKeys, requiredString } from '../shared/schema.ts';
 
-export const ISSUE_INPUT_PROTOCOL = 'codex-issue-input' as const;
 export const ISSUE_DRAFT_PROTOCOL = 'codex-issue-draft' as const;
 export const ISSUE_RESULT_PROTOCOL = 'codex-issue-result' as const;
 export const ISSUE_DESCRIPTION_PROTOCOL = 'codex-issue-description' as const;
 const PUBLICATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
-type IssueMode = 'create' | 'attach-plan';
 type IssuePriority = 'critical' | 'high' | 'medium' | 'low';
 
-export interface IssueInput {
-  protocol: typeof ISSUE_INPUT_PROTOCOL;
+interface IssueInputBase {
   repo: string;
   repository: string;
   remote: string;
-  mode: IssueMode;
   think_report: string;
-  title: string | null;
-  target_issue: number | null;
   priority: IssuePriority;
 }
+
+export type IssueInput = IssueInputBase &
+  ({ mode: 'create'; title: string } | { mode: 'attach-plan'; target_issue: number });
 
 interface ExistingIssueSnapshot {
   title: string;
@@ -47,17 +39,12 @@ export interface IssueDraft {
   repo: string;
   repository: string;
   remote: string;
-  mode: IssueMode;
   issue_number: number | null;
   title: string;
   priority_label: string;
   publication_id: string;
   body_file: string;
   body_sha256: string;
-  think_report: string;
-  think_sha256: string;
-  plan: BuildPlanAuthoring;
-  repository_fingerprint: string;
   existing_issue: ExistingIssueSnapshot | null;
 }
 
@@ -82,60 +69,38 @@ function remoteName(value: unknown, label: string): string {
 
 /** Validates the human decisions required before a read-only issue draft is built. */
 export function validateIssueInput(raw: unknown): IssueInput {
-  if (!isObject(raw) || raw.protocol !== ISSUE_INPUT_PROTOCOL) {
-    throw new FlowError(`issue input.protocol must be ${ISSUE_INPUT_PROTOCOL}`);
-  }
-  rejectUnknownKeys(
-    raw,
-    [
-      'protocol',
-      'repo',
-      'repository',
-      'remote',
-      'mode',
-      'think_report',
-      'title',
-      'target_issue',
-      'priority',
-    ],
-    'issue input',
-  );
-  const suppliedRepo = absolutePath(raw.repo, 'issue input.repo');
-  const repo = gitRoot(suppliedRepo, 'issue input.repo must be a Git worktree');
-  if (fs.realpathSync(suppliedRepo) !== repo) {
-    throw new FlowError('issue input.repo must equal the Git root');
-  }
+  if (!isObject(raw)) throw new FlowError('issue input must be an object');
   const mode = enumValue(raw.mode, ['create', 'attach-plan'] as const, 'issue input.mode');
-  const title = nullableString(raw.title, 'issue input.title');
-  const targetIssue = nullablePositiveInteger(raw.target_issue, 'issue input.target_issue');
-  if (mode === 'create' && (title === null || targetIssue !== null)) {
-    throw new FlowError('create mode requires title and target_issue null');
-  }
-  if (mode === 'attach-plan' && (title !== null || targetIssue === null)) {
-    throw new FlowError('attach-plan mode requires target_issue and title null');
-  }
-  if (
-    title?.includes('\n') ||
-    /^\[(?:Bug|Feature|Docs|Chore|バグ|機能|ドキュメント|保守)\]/u.test(title ?? '')
-  ) {
-    throw new FlowError('issue input.title must be one line without a task-type prefix');
-  }
-  const remote = remoteName(raw.remote, 'issue input.remote');
-  return {
-    protocol: ISSUE_INPUT_PROTOCOL,
+  const suppliedRepo = requiredString(raw.repo, 'issue input.repo');
+  const repo = gitRoot(suppliedRepo, 'issue input.repo must be a Git worktree');
+  const remote = 'origin';
+  const common = {
     repo,
-    repository: repositoryName(raw.repository, 'issue input.repository'),
+    repository: githubRepositoryForRemote(repo, remote),
     remote,
-    mode,
-    think_report: absolutePath(raw.think_report, 'issue input.think_report'),
-    title,
-    target_issue: targetIssue,
+    think_report: path.resolve(
+      path.isAbsolute(requiredString(raw.think_report, 'issue input.think_report'))
+        ? String(raw.think_report)
+        : path.join(thinkArtifactDirectory(repo), String(raw.think_report)),
+    ),
     priority: enumValue(
-      raw.priority,
+      raw.priority ?? 'medium',
       ['critical', 'high', 'medium', 'low'] as const,
       'issue input.priority',
     ),
   };
+  if (mode === 'attach-plan') {
+    return {
+      ...common,
+      mode,
+      target_issue: positiveIssue(raw.target_issue, 'issue input.target_issue'),
+    };
+  }
+  const title = requiredString(raw.title, 'issue input.title');
+  if (title.includes('\n')) {
+    throw new FlowError('issue input.title must be one line');
+  }
+  return { ...common, mode, title };
 }
 
 /** Revalidates the immutable draft immediately before same-invocation publication. */
@@ -151,17 +116,12 @@ export function parseIssueDraft(raw: unknown): IssueDraft {
       'repo',
       'repository',
       'remote',
-      'mode',
       'issue_number',
       'title',
       'priority_label',
       'publication_id',
       'body_file',
       'body_sha256',
-      'think_report',
-      'think_sha256',
-      'plan',
-      'repository_fingerprint',
       'existing_issue',
     ],
     'issue draft',
@@ -176,11 +136,7 @@ export function parseIssueDraft(raw: unknown): IssueDraft {
   if (fs.realpathSync(repoPath) !== repo) {
     throw new FlowError('issue draft.repo must equal the Git root');
   }
-  const mode = enumValue(raw.mode, ['create', 'attach-plan'] as const, 'issue draft.mode');
   const issueNumber = nullablePositiveInteger(raw.issue_number, 'issue draft.issue_number');
-  if ((mode === 'create') !== (issueNumber === null)) {
-    throw new FlowError('issue draft mode and issue_number are inconsistent');
-  }
   let existingIssue: ExistingIssueSnapshot | null = null;
   if (raw.existing_issue !== null) {
     if (!isObject(raw.existing_issue)) {
@@ -192,8 +148,8 @@ export function parseIssueDraft(raw: unknown): IssueDraft {
       body_sha256: digest(raw.existing_issue.body_sha256, 'issue draft.existing_issue.body_sha256'),
     };
   }
-  if ((mode === 'attach-plan') !== (existingIssue !== null)) {
-    throw new FlowError('issue draft mode and existing_issue are inconsistent');
+  if ((issueNumber !== null) !== (existingIssue !== null)) {
+    throw new FlowError('issue draft target and existing_issue are inconsistent');
   }
   return {
     protocol: ISSUE_DRAFT_PROTOCOL,
@@ -201,7 +157,6 @@ export function parseIssueDraft(raw: unknown): IssueDraft {
     repo,
     repository: repositoryName(raw.repository, 'issue draft.repository'),
     remote: remoteName(raw.remote, 'issue draft.remote'),
-    mode,
     issue_number: issueNumber,
     title: requiredString(raw.title, 'issue draft.title'),
     priority_label: enumValue(
@@ -218,13 +173,6 @@ export function parseIssueDraft(raw: unknown): IssueDraft {
     })(),
     body_file: absolutePath(raw.body_file, 'issue draft.body_file'),
     body_sha256: digest(raw.body_sha256, 'issue draft.body_sha256'),
-    think_report: absolutePath(raw.think_report, 'issue draft.think_report'),
-    think_sha256: digest(raw.think_sha256, 'issue draft.think_sha256'),
-    plan: parseBuildPlanAuthoring(raw.plan),
-    repository_fingerprint: digest(
-      raw.repository_fingerprint,
-      'issue draft.repository_fingerprint',
-    ),
     existing_issue: existingIssue,
   };
 }

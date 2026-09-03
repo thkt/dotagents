@@ -1,12 +1,11 @@
 ---
 name: think
-description: Compare implementation approaches and turn one change request into a source-backed, independently reviewed Plan or a concrete research route. Use for an explicit design or planning request; do not implement or publish an issue.
+description: Turn one change request and optional Research reports into an independently reviewed Plan or focused research questions. Use for an explicit design or planning request; do not implement or publish an Issue.
 ---
 
 # Think
 
-When present, read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) and record stable rules in `Plan.rules` with exact paths and quotations.
-Use the relevant [workflow contracts](../../workflows/README.md) when recording those rules.
+When present, read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) and the relevant [workflow contracts](../../workflows/README.md) to judge scope. Put implementation constraints in the affected unit contract and planned tests instead of copying repository guidance into the Plan.
 
 Inspect the current input and decision contract with `codex-think describe`.
 Run the bound workflow command with network access. If the sandbox blocks the nested Codex connection, retry the same command with network escalation; `model_unavailable` preserves the intent for that retry.
@@ -14,15 +13,14 @@ Run the bound workflow command with network access. If the sandbox blocks the ne
 ## Decisions
 
 - State one change and the observable state that should exist when it is done.
-- Classify it as `bug`, `feature`, `docs`, or `chore`; use `chore` for a maintenance task.
-- Include only planning research reports that bear directly on the decision.
+- Explicitly select Research reports that directly determine the Plan; related Knowledge is added automatically as background.
 - Read [decision writing](references/decision-writing.md) when wording the outcome and Plan.
 
 ## Boundaries
 
 - Route an unknown that can change the design back to research instead of planning around an assumption.
-- Context is supplied from authoritative artifacts; re-verify it against the repository or selected evidence, and never treat context itself as evidence.
+- Use the repository snapshot and explicitly selected Research as the factual basis. Treat related Knowledge as background, and do not copy evidence, hashes, or repository rules into the Plan.
 
 ## Report
 
-Report readiness, the decision and rationale, JSON and Markdown artifact paths, unit count, and the declared next state. Do not continue into it.
+Keep the Plan and workflow artifacts in English. Translate only the final user-facing report into the configured language: `ready` with artifact paths, or `research_required` with focused questions. The next state is `issue` or `research`; do not continue into it.

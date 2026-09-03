@@ -1,7 +1,7 @@
 /** @file Outcome: All flow components share one current model of legal states and messages. */
 
 import type { RepositoryInvariant, RepoSnapshot } from '../shared/repository.ts';
-import type { ScreenshotSpec } from './build/screenshot-contract.ts';
+import type { ScreenshotSpec } from '../build/screenshot-contract.ts';
 
 export const MANIFEST_PROTOCOL = 'codex-flow-manifest' as const;
 export const STATE_PROTOCOL = 'codex-flow-state' as const;
@@ -13,7 +13,7 @@ export const GATE_PROTOCOL = 'codex-code-gate' as const;
 export const DESCRIPTION_PROTOCOL = 'codex-flow-description' as const;
 
 export type Workflow = 'code' | 'build';
-export type FlowStatus = 'running' | 'completed' | 'ship-ready' | 'blocked' | 'cancelled';
+export type FlowStatus = 'running' | 'completed' | 'blocked' | 'cancelled';
 export interface WorkflowEscalation {
   step_id: string;
   next_step: 'think' | 'research';
@@ -26,19 +26,16 @@ export interface RuntimeFailure {
   classification: string;
   error: string;
   retryable: boolean;
-  repository_sha256: string | null;
 }
-export type GateExpectation = 'pass' | 'fail';
-export type GateVerdict = 'pass' | 'fail' | 'blocked';
+type GateExpectation = 'pass';
+type GateVerdict = 'pass' | 'fail' | 'blocked';
 export type GateAuthority =
   | 'shell'
   | 'build-plan'
-  | 'build-revalidate'
   | 'build-artifacts'
   | 'build-review'
   | 'build-ship';
 export type ActionName = 'branch' | 'commit' | 'ship';
-export type ActorRole = 'red' | 'green' | 'direct';
 
 interface GateSpecBase {
   command: string;
@@ -47,11 +44,8 @@ interface GateSpecBase {
 
 export interface ShellGateSpec extends GateSpecBase {
   authority: 'shell';
-  expect: GateExpectation;
-  calibrate: boolean;
+  expect: 'pass';
   timeout_ms?: number;
-  require_output: string[];
-  forbid_output: string[];
 }
 
 interface BuildPlanGateSpec extends GateSpecBase {
@@ -59,15 +53,8 @@ interface BuildPlanGateSpec extends GateSpecBase {
   input: string;
 }
 
-interface BuildRevalidateGateSpec extends GateSpecBase {
-  authority: 'build-revalidate';
-  input: string;
-}
-
 interface BuildArtifactsGateSpec extends GateSpecBase {
   authority: 'build-artifacts';
-  input: string;
-  unit_id: string;
 }
 
 interface BuildReviewGateSpec extends GateSpecBase {
@@ -81,7 +68,6 @@ interface BuildShipGateSpec extends GateSpecBase {
 export type GateSpec =
   | ShellGateSpec
   | BuildPlanGateSpec
-  | BuildRevalidateGateSpec
   | BuildArtifactsGateSpec
   | BuildReviewGateSpec
   | BuildShipGateSpec;
@@ -179,22 +165,8 @@ export interface FlowManifest {
   steps: FlowStep[];
 }
 
-interface Calibration {
-  command: string;
-  exit_code: number | null;
-  stdout_tail: string;
-  stderr_tail: string;
-  candidates: CalibrationCandidate[];
-}
-
-export interface CalibrationCandidate {
-  id: string;
-  text: string;
-  test_id?: string;
-}
-
-export interface GateCheck {
-  kind: 'exit' | 'output_includes' | 'output_excludes';
+interface GateCheck {
+  kind: 'exit';
   expected?: GateExpectation;
   actual?: number | null;
   signal?: NodeJS.Signals | null;
@@ -259,8 +231,6 @@ export interface GateOptions {
   command: string;
   timeoutMs: number;
   tailBytes: number;
-  requiredOutput: string[];
-  forbiddenOutput: string[];
 }
 
 export interface FlowState {
@@ -268,12 +238,10 @@ export interface FlowState {
   run_id: string;
   workflow: Workflow;
   manifest: FlowManifest;
-  manifest_hash: string;
   input_sha256: string;
   cursor: number;
   status: FlowStatus;
   correction_counts: Record<string, number>;
-  sealed_gates: Record<string, string[]>;
   gate_reports: GateReport[];
   build_plan: BuildPlanContext | null;
   workflow_baseline: RepoSnapshot;
@@ -284,20 +252,18 @@ export interface FlowState {
   ship_authorization_revoked: boolean;
 }
 
-export interface BuildPlanUnit {
+interface BuildPlanUnit {
   id: string;
   goal: string;
   contract: string;
   files: string[];
   tests: Array<{ id: string; name: string }>;
-  seam: boolean;
 }
 
 export interface BuildPlanContext {
   repository: string;
   issue: number;
   title: string;
-  body_sha256: string;
   outcome: string;
   test_command: string;
   manual_verification: string[];
@@ -341,16 +307,13 @@ export interface PublicState {
   current_step: FlowStep | null;
   cursor: number;
   total_steps: number;
-  execution_hash: string;
   correction_counts: Record<string, number>;
-  sealed_gates: Record<string, string[]>;
   last_gate: GateReport | null;
   gate_reports: GateReport[];
   escalation: WorkflowEscalation | null;
   runtime_failure: RuntimeFailure | null;
   ship_authorization_revoked: boolean;
   gate?: GateReport;
-  calibration?: Calibration;
 }
 
 export interface CorrectionContext {
@@ -362,13 +325,13 @@ export interface CorrectionContext {
 export type FlowDirective =
   | { kind: 'done' }
   | { kind: 'cancelled' }
-  | { kind: 'ship-ready' }
   | { kind: 'blocked' }
   | {
       kind: 'run-actor';
       step_id: string;
       outcome: string;
       contract: string | null;
+      tests: Array<{ id: string; name: string }>;
       files: string[];
       verification: ActorVerification;
       screenshots?: Array<ScreenshotSpec & { path: string }>;
@@ -381,10 +344,6 @@ export type FlowDirective =
       input: BuildReviewInput;
     }
   | {
-      kind: 'calibrate-gate';
-      step_id: string;
-    }
-  | {
       kind: 'run-gate';
       step_id: string;
     };
@@ -392,17 +351,6 @@ export type FlowDirective =
 export interface CommandResult {
   result: PublicState | FlowDescription;
   exitCode: number;
-}
-
-export interface StepDescription {
-  kind: FlowStep['kind'];
-  required: string[];
-  optional: string[];
-  derived: string[];
-  id_patterns?: string[];
-  actions?: ActionName[];
-  conditional_required?: Record<string, string[]>;
-  conditional_optional?: Record<string, string[]>;
 }
 
 export interface FlowDescription {
@@ -419,32 +367,11 @@ export interface FlowDescription {
   };
   input_template?: Record<string, unknown>;
   execution?: {
-    source_of_truth: 'public-issue-plan';
+    source_of_truth: 'public-issue-plan' | 'direct-request';
     compiled: true;
     persisted: true;
   };
-  manifest_template?: {
-    protocol: typeof MANIFEST_PROTOCOL;
-    workflow: Workflow;
-    repo: '<absolute-git-root>';
-    max_corrections: number;
-    shipping_authorized: false;
-    steps: [];
-  };
-  executable_example?: {
-    required_sequence: string[];
-    manifest: Record<string, unknown>;
-  };
   cli_contracts: {
     reports: Array<{ protocol: string; command: string }>;
-  };
-  step_contracts?: StepDescription[];
-  sequence?: {
-    opening: string[];
-    unit_modes: {
-      red_green: string[];
-      direct: string[];
-    };
-    closing: string[];
   };
 }

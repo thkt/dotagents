@@ -1,4 +1,4 @@
-/** @file Outcome: Every workflow validates and seals repository citations with one implementation. */
+/** @file Outcome: Research validates repository citation paths and line ranges with one implementation. */
 
 import crypto from 'node:crypto';
 import * as fs from 'node:fs';
@@ -11,7 +11,6 @@ const LINE_LOCATOR = /^L(\d+)(?:-L?(\d+))?$/u;
 
 export interface RepositoryEvidenceSnapshot {
   source: string;
-  source_sha256: string;
 }
 
 /** Reads only a regular repository file whose declared line range currently exists. */
@@ -32,8 +31,7 @@ export function readRepositoryEvidence(
   const match = typeof locator === 'string' ? LINE_LOCATOR.exec(locator) : null;
   const start = Number(match?.[1]);
   const end = Number(match?.[2] ?? match?.[1]);
-  const content = fs.readFileSync(absolute);
-  const text = content.toString('utf8');
+  const text = fs.readFileSync(absolute, 'utf8');
   const lineCount =
     text.length === 0 ? 0 : text.split(/\r\n?|\n/u).length - (/(?:\r\n?|\n)$/u.test(text) ? 1 : 0);
   if (!match || start < 1 || end < start || end > lineCount) {
@@ -44,7 +42,6 @@ export function readRepositoryEvidence(
   }
   return {
     source: relative,
-    source_sha256: crypto.createHash('sha256').update(content).digest('hex'),
   };
 }
 

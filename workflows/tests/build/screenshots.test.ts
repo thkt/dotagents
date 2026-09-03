@@ -11,7 +11,7 @@ import {
   sealScreenshotAttachments,
   sealedScreenshotAttachments,
   screenshotAttachments,
-} from '../../flow/build/screenshots.ts';
+} from '../../build/screenshots.ts';
 import type { FlowState } from '../../flow/contracts.ts';
 import { screenshotSealPath } from '../../shared/storage.ts';
 import { temporaryDirectory } from '../shared/fixtures.ts';
@@ -29,19 +29,15 @@ function state(root: string): FlowState {
       screenshots: [{ name: 'home.png', alt: 'Home screen' }],
     },
     manifest: {
-      steps: [
-        { id: 'U-001:direct', kind: 'actor' },
-        { id: 'U-002:green', kind: 'actor' },
-      ],
+      steps: [{ id: 'implementation:direct', kind: 'actor' }],
     },
   } as FlowState;
 }
 
-test('assigns screenshots only to the last implementation actor', () => {
+test('assigns screenshots to the shared implementation actor', () => {
   const root = temporaryDirectory('codex-build-screenshots-');
   const value = state(root);
-  assert.deepEqual(actorScreenshotAttachments(value, 'U-001:direct'), []);
-  const attachments = actorScreenshotAttachments(value, 'U-002:green');
+  const attachments = actorScreenshotAttachments(value, 'implementation:direct');
   assert.equal(attachments.length, 1);
   assert.equal(attachments[0]?.name, 'home.png');
   assert.match(attachments[0]?.path ?? '', /screenshots\/home\.png$/u);

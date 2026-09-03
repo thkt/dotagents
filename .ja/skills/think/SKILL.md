@@ -10,17 +10,16 @@ description: 実装方法を比較し、変更依頼1件を、出典に基づい
 
 ## 判断
 
-- 存在する場合は [.codex/OUTCOME.md](../../.codex/OUTCOME.md) を読み、安定した規則は [workflow contracts](../../workflows/README.md) の該当箇所をパスと正確な引用付きで `Plan.rules` に記載する。
+- 存在する場合は[.codex/OUTCOME.md](../../.codex/OUTCOME.md)と関連する[workflow contracts](../../workflows/README.md)を読み、scope の判断に使う。実装上の制約は repository guidance を Plan に複製せず、対象 unit の contract と planned tests に記載する。
 - 変更を 1 つに絞り、完了時に観測できる状態を定める。
-- `bug`、`feature`、`docs`、`chore` のいずれかに分類し、保守作業には `chore` を使う。
-- 設計判断に直接関係する計画用の調査レポートだけを含める。
+- Plan を直接決める Research report を明示的に選ぶ。関連する Knowledge は背景情報として自動追加される。
 - 完了状態と Plan の文言を決めるときは、[設計判断の文章](references/decision-writing.md)を読む。
 
 ## 境界
 
 - 設計を変え得る未確定事項は、仮定して計画にせず、追加調査へ戻す。
-- Context は正本 artifact から自動供給されるが、repository または選択した evidence で再検証し、Context 自体を根拠にしない。
+- repository snapshot と明示的に選択した Research を事実の基礎にする。関連する Knowledge は背景情報として扱い、evidence、hash、repository rule を Plan に複製しない。
 
 ## 報告
 
-Plan を作成できるか、追加調査が必要か、決定と理由、JSON と Markdown の成果物パス、実装単位数、次の状態を報告する。次の状態へは進まない。
+Plan と workflow artifact は英語のままにする。`ready`と成果物パス、または`research_required`と具体的な問いを含む、ユーザー向けの最終報告だけを設定言語へ翻訳する。次の状態は`issue`または`research`とし、そこへは進まない。

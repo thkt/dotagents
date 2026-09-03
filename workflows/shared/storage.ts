@@ -75,6 +75,10 @@ export function researchArtifactDirectory(repo: string): string {
   return path.join(workflowArtifactDirectory(repo), 'research');
 }
 
+export function knowledgeArtifactDirectory(repo: string): string {
+  return path.join(workflowArtifactDirectory(repo), 'knowledge');
+}
+
 export function thinkArtifactDirectory(repo: string): string {
   return path.join(workflowArtifactDirectory(repo), 'think');
 }

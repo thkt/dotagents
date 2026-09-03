@@ -2,8 +2,8 @@
 /** @file Outcome: One command drives an armed flow through actors, actions, and gates to a terminal state. */
 
 import { RESULT_PROTOCOL, type CommandResult, type FlowDirective } from './contracts.ts';
-import { executeAction } from './build/actions.ts';
-import { resetScreenshotAttachments } from './build/screenshots.ts';
+import { executeAction } from '../build/actions.ts';
+import { resetScreenshotAttachments } from '../build/screenshots.ts';
 import { ActorEscalation, CodexWorkflowAgent, type WorkflowAgent } from './agent.ts';
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
 import { isMainModule } from '../shared/environment.ts';
@@ -43,7 +43,7 @@ function defaultRuntime(): WorkflowRuntime {
 
 function progressContext(
   workflow: 'build' | 'code',
-  directive: Exclude<FlowDirective, { kind: 'done' | 'ship-ready' | 'blocked' | 'cancelled' }>,
+  directive: Exclude<FlowDirective, { kind: 'done' | 'blocked' | 'cancelled' }>,
 ): ProgressContext {
   const unitId = directive.step_id.match(/^U-\d+/u)?.[0];
   let stage: ProgressContext['stage'];
@@ -56,9 +56,6 @@ function progressContext(
       break;
     case 'run-action':
       stage = `action_${directive.action}`;
-      break;
-    case 'calibrate-gate':
-      stage = 'gate_calibration';
       break;
     case 'run-gate':
       stage = 'gate_verification';
@@ -91,7 +88,6 @@ export async function driveWorkflow(
       runtime.onDirective?.(directive);
       if (
         directive.kind !== 'done' &&
-        directive.kind !== 'ship-ready' &&
         directive.kind !== 'blocked' &&
         directive.kind !== 'cancelled'
       ) {
@@ -99,7 +95,6 @@ export async function driveWorkflow(
       }
       switch (directive.kind) {
         case 'done':
-        case 'ship-ready':
           return { result: workflowStatus(runId), exitCode: 0 };
         case 'blocked':
           return { result: workflowStatus(runId), exitCode: 2 };
@@ -141,7 +136,6 @@ export async function driveWorkflow(
             );
           });
           break;
-        case 'calibrate-gate':
         case 'run-gate':
           progress.runSync(progressContext(workflow, directive), () =>
             completeCurrentDirective(runId, directive.step_id),

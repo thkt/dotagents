@@ -15,49 +15,24 @@ function markdownEvidence(evidence: ResearchReportEvidence): string {
 }
 
 /** Renders the verified JSON report without adding claims. */
-export function renderResearchMarkdown(report: ResearchReport): string {
-  const japanese = report.language === 'japanese';
-  const labels = japanese
-    ? {
-        title: '調査',
-        answer: '回答',
-        findings: '確認済みの事実と推論',
-        evidence: '証拠',
-        implication: '意味',
-        qualification: '留保',
-        rejected: '棄却した候補',
-        unknowns: '未確定事項',
-        resolution: '確認方法',
-        limitations: '制約',
-        prior: '参照した過去の調査',
-        next: '次の状態',
-      }
-    : {
-        title: 'Research',
-        answer: 'Answer',
-        findings: 'Verified findings',
-        evidence: 'Evidence',
-        implication: 'Implication',
-        qualification: 'Qualification',
-        rejected: 'Rejected candidates',
-        unknowns: 'Unknowns',
-        resolution: 'How to resolve',
-        limitations: 'Limitations',
-        prior: 'Prior research consulted',
-        next: 'Next state',
-      };
+function renderResearchMarkdown(report: ResearchReport): string {
+  const labels = {
+    title: 'Research',
+    answer: 'Answer',
+    findings: 'Verified findings',
+    evidence: 'Evidence',
+    implication: 'Implication',
+    qualification: 'Qualification',
+    rejected: 'Rejected candidates',
+    unknowns: 'Unknowns',
+    resolution: 'How to resolve',
+    limitations: 'Limitations',
+    next: 'Next state',
+  };
   const lines = [
     `# ${labels.title}: ${oneLine(report.question)}`,
     '',
     `- Generated: ${report.generated_at}`,
-    `- Mode: ${report.mode}`,
-    `- Repository HEAD: ${report.repository.head ?? 'unborn'}`,
-    `- Working tree dirty: ${report.repository.dirty}`,
-    `- External sources: ${report.external_sources}`,
-    '',
-    '## Timings (ms)',
-    '',
-    ...Object.entries(report.timings).map(([stage, elapsed]) => `- ${stage}: ${elapsed}`),
     '',
     `## ${labels.answer}`,
     '',
@@ -106,15 +81,7 @@ export function renderResearchMarkdown(report: ResearchReport): string {
       '',
     );
   }
-  if (report.prior_reports.length) {
-    lines.push(
-      `## ${labels.prior}`,
-      '',
-      ...report.prior_reports.map((item) => `- \`${item}\``),
-      '',
-    );
-  }
-  lines.push(`## ${labels.next}`, '', report.next_step, '');
+  lines.push(`## ${labels.next}`, '', 'think', '');
   return `${lines.join('\n')}\n`;
 }
 

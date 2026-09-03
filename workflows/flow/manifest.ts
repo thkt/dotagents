@@ -15,29 +15,24 @@ import {
 import type {
   ActionName,
   ActionStep,
-  ActorRole,
   FlowManifest,
   FlowStep,
   GateAuthority,
   GateSpec,
   GateStep,
-  Workflow,
 } from './contracts.ts';
 import { MANIFEST_PROTOCOL, SAFE_ID } from './contracts.ts';
 import { SHELL_CONTROL, shellCommand } from '../shared/command.ts';
-import { FlowError, errorMessage } from '../shared/errors.ts';
-import { isObject, rejectUnknownKeys, stringArray, type JsonObject } from '../shared/schema.ts';
-import { parseArgs as parseGateArgs } from './shell-gate.ts';
+import { FlowError } from '../shared/errors.ts';
+import { isObject, rejectUnknownKeys, type JsonObject } from '../shared/schema.ts';
 
 const ACTIONS = new Set<ActionName>(['branch', 'commit', 'ship']);
-export const UNIT_ACTOR = /^(U-\d{3}):(red|green|direct)$/u;
-export const CLEANUP_ACTOR = /^cleanup:[A-Za-z0-9._-]+$/u;
-const BUILD_OPENING_IDS = ['load:plan', 'revalidate:plan', 'branch'] as const;
+export const IMPLEMENTATION_ACTOR_ID = 'implementation:direct';
+const BUILD_OPENING_IDS = ['load:plan', 'branch'] as const;
 export const DEFAULT_MAX_CORRECTIONS = 3;
 const GATE_AUTHORITIES = new Set<GateAuthority>([
   'shell',
   'build-plan',
-  'build-revalidate',
   'build-artifacts',
   'build-review',
   'build-ship',
@@ -54,15 +49,14 @@ function safeRelativeFile(value: unknown, label: string): string {
 }
 
 function validateActorFile(repo: string, value: unknown, label: string): string {
-  const relative = safeRelativeFile(value, label);
+  const relative = value === '.' ? '.' : safeRelativeFile(value, label);
   const absolute = path.resolve(repo, relative);
   const existing = fs.lstatSync(absolute, { throwIfNoEntry: false });
-  if (existing?.isSymbolicLink()) throw new FlowError(`${label} must not be a symbolic link`);
-  if (existing?.isDirectory()) throw new FlowError(`${label} must name a file`);
   const boundary = existing ? absolute : nearestExistingParent(absolute);
   if (!boundary || !realpathInside(repo, boundary)) {
     throw new FlowError(`${label} must stay inside the repository`);
   }
+  if (relative === '.') return relative;
   const ignored = spawnSync('git', ['-C', repo, 'check-ignore', '-q', '--', relative]);
   if (ignored.status === 0) throw new FlowError(`${label} names an ignored path`);
   if (ignored.status !== 1)
@@ -73,35 +67,22 @@ function validateActorFile(repo: string, value: unknown, label: string): string 
 function failureRouteForOwner(owner: unknown): string | null {
   if (owner === undefined) return null;
   if (typeof owner !== 'string') throw new FlowError('gate.owner must be an actor id');
-  const unitActor = UNIT_ACTOR.exec(owner);
-  if (unitActor) return `${unitActor[2]}:${unitActor[1]}`;
-  if (CLEANUP_ACTOR.test(owner)) return owner;
+  if (owner === IMPLEMENTATION_ACTOR_ID) return 'direct:implementation';
   throw new FlowError(`gate.owner must name a supported actor: ${owner}`);
 }
 
 function gateCommand(
   authority: GateAuthority,
   configured: unknown,
-  { id, input, unitId, repo }: { id: string; input: unknown; unitId: unknown; repo: string },
+  { id, input, repo }: { id: string; input: unknown; repo: string },
 ): string {
   switch (authority) {
     case 'shell':
       return String(configured);
     case 'build-plan':
       return shellCommand('codex-build-plan', ['--input', String(input)]);
-    case 'build-revalidate':
-      return shellCommand('codex-build-revalidate', ['--input', String(input), '--repo', repo]);
     case 'build-artifacts':
-      return shellCommand('codex-build-artifacts', [
-        '--gate-id',
-        id,
-        '--unit',
-        String(unitId),
-        '--input',
-        String(input),
-        '--repo',
-        repo,
-      ]);
+      return shellCommand('codex-build-artifacts', ['--gate-id', id, '--repo', repo]);
     case 'build-review':
       return 'codex-build-review';
     case 'build-ship':
@@ -114,18 +95,7 @@ function validateGate(step: JsonObject, id: string, repo: string): GateSpec {
   const gate = step.gate;
   rejectUnknownKeys(
     gate,
-    [
-      'authority',
-      'command',
-      'input',
-      'unit_id',
-      'expect',
-      'failure_route',
-      'calibrate',
-      'timeout_ms',
-      'require_output',
-      'forbid_output',
-    ],
+    ['authority', 'command', 'input', 'unit_id', 'expect', 'failure_route', 'timeout_ms'],
     `${id}.gate`,
   );
   const authority = gate.authority === undefined ? 'shell' : gate.authority;
@@ -139,11 +109,7 @@ function validateGate(step: JsonObject, id: string, repo: string): GateSpec {
     throw new FlowError(`${id}.gate.command is derived for ${authority}`);
   }
   const input = gate.input;
-  if (
-    authority === 'build-plan' ||
-    authority === 'build-revalidate' ||
-    authority === 'build-artifacts'
-  ) {
+  if (authority === 'build-plan') {
     if (typeof input !== 'string' || !path.isAbsolute(input)) {
       throw new FlowError(`${id}.gate.input must be an absolute build source JSON path`);
     }
@@ -151,15 +117,9 @@ function validateGate(step: JsonObject, id: string, repo: string): GateSpec {
     throw new FlowError(`${id}.gate.input is not supported for ${authority}`);
   }
   const unitId = gate.unit_id;
-  if (authority === 'build-artifacts') {
-    if (typeof unitId !== 'string' || !/^U-\d{3}$/u.test(unitId)) {
-      throw new FlowError(`${id}.gate.unit_id must be U-NNN`);
-    }
-  } else if (unitId !== undefined) {
-    throw new FlowError(`${id}.gate.unit_id is supported only by build-artifacts`);
-  }
+  if (unitId !== undefined) throw new FlowError(`${id}.gate.unit_id is no longer supported`);
   const typedAuthority = authority as GateAuthority;
-  const command = gateCommand(typedAuthority, gate.command, { id, input, unitId, repo });
+  const command = gateCommand(typedAuthority, gate.command, { id, input, repo });
   const derivedFailureRoute = failureRouteForOwner(step.owner);
   if (
     derivedFailureRoute &&
@@ -175,10 +135,7 @@ function validateGate(step: JsonObject, id: string, repo: string): GateSpec {
   if (typedAuthority !== 'shell') {
     for (const [key, value] of [
       ['expect', gate.expect],
-      ['calibrate', gate.calibrate],
       ['timeout_ms', gate.timeout_ms],
-      ['require_output', gate.require_output],
-      ['forbid_output', gate.forbid_output],
     ] as const) {
       if (value !== undefined)
         throw new FlowError(`${id}.gate.${key} is supported only by shell authority`);
@@ -187,26 +144,16 @@ function validateGate(step: JsonObject, id: string, repo: string): GateSpec {
     if (typedAuthority === 'build-plan') {
       return { ...structured, authority: typedAuthority, input: input as string };
     }
-    if (typedAuthority === 'build-revalidate') {
-      return { ...structured, authority: typedAuthority, input: input as string };
-    }
     if (typedAuthority === 'build-artifacts') {
       return {
         ...structured,
         authority: typedAuthority,
-        input: input as string,
-        unit_id: unitId as string,
       };
     }
     return { ...structured, authority: typedAuthority };
   }
 
-  if (gate.expect !== 'pass' && gate.expect !== 'fail') {
-    throw new FlowError(`${id}.gate.expect must be pass or fail`);
-  }
-  if (gate.calibrate !== undefined && typeof gate.calibrate !== 'boolean') {
-    throw new FlowError(`${id}.gate.calibrate must be boolean`);
-  }
+  if (gate.expect !== 'pass') throw new FlowError(`${id}.gate.expect must be pass`);
   if (
     gate.timeout_ms !== undefined &&
     (typeof gate.timeout_ms !== 'number' ||
@@ -215,74 +162,25 @@ function validateGate(step: JsonObject, id: string, repo: string): GateSpec {
   ) {
     throw new FlowError(`${id}.gate.timeout_ms must be a positive integer`);
   }
-  const requireOutput = stringArray(gate.require_output ?? [], `${id}.gate.require_output`);
-  const forbidOutput = stringArray(gate.forbid_output ?? [], `${id}.gate.forbid_output`);
   if (SHELL_CONTROL.test(command)) {
     throw new FlowError(`${id}.gate.command must be one command without shell control operators`);
   }
   if (command.includes(repo)) {
     throw new FlowError(`${id}.gate.command must use repository-relative paths for isolation`);
   }
-  const calibration = gate.calibrate === true;
-  if (calibration && gate.expect !== 'fail') {
-    throw new FlowError(`${id}.gate.calibrate requires expect: fail`);
-  }
-  if (calibration && requireOutput.length) {
-    throw new FlowError(`${id}.gate calibrates its output anchor at runtime`);
-  }
-  const gateArgv = [
-    '--gate-id',
-    id,
-    '--failure-route',
-    failureRoute,
-    '--cwd',
-    repo,
-    '--expect',
-    gate.expect,
-    '--command',
-    command,
-  ];
-  if (gate.timeout_ms !== undefined) gateArgv.push('--timeout-ms', String(gate.timeout_ms));
-  for (const value of calibration ? ['calibration-placeholder'] : requireOutput) {
-    gateArgv.push('--require-output', value);
-  }
-  for (const value of forbidOutput) gateArgv.push('--forbid-output', value);
-  try {
-    parseGateArgs(gateArgv);
-  } catch (error) {
-    throw new FlowError(`${id}.gate is invalid: ${errorMessage(error)}`);
-  }
   return {
     authority: typedAuthority,
     command,
     expect: gate.expect,
     failure_route: failureRoute,
-    calibrate: calibration,
     ...(gate.timeout_ms === undefined ? {} : { timeout_ms: gate.timeout_ms }),
-    require_output: requireOutput,
-    forbid_output: forbidOutput,
   };
-}
-
-/** Expands one unit mode into the exact actor, gate, artifact, and commit sequence. */
-export function unitStepIds(unit: string, roles: ActorRole[], workflow: Workflow): string[] {
-  const ids = roles.flatMap((role) => [`${unit}:${role}`, `${unit}:${role}:gate`]);
-  if (workflow === 'build') ids.push(`${unit}:artifacts`, `${unit}:commit`);
-  return ids;
 }
 
 function validateSequence(manifest: FlowManifest, steps: FlowStep[]): void {
   const correctionTargets = new Map<string, number>();
   for (const [index, step] of steps.entries()) {
     if (step.kind === 'actor') correctionTargets.set(step.id, index);
-    if (step.kind !== 'actor') continue;
-    const next = steps[index + 1];
-    if (!next || next.kind !== 'gate' || next.owner !== step.id) {
-      throw new FlowError(`${step.id} must be followed immediately by an owned gate`);
-    }
-    if (next.id !== `${step.id}:gate`) {
-      throw new FlowError(`${step.id} must be followed by ${step.id}:gate`);
-    }
   }
   for (const [index, step] of steps.entries()) {
     if (step.kind !== 'gate' || step.owner === undefined) continue;
@@ -292,64 +190,23 @@ function validateSequence(manifest: FlowManifest, steps: FlowStep[]): void {
     }
   }
 
-  const baseline = steps.findIndex(
-    (step) => step.kind === 'gate' && step.id.startsWith('baseline:'),
-  );
   const firstActor = steps.findIndex((step) => step.kind === 'actor');
-  const final = steps.findIndex((step) => step.kind === 'gate' && step.id.startsWith('final:'));
-  if (baseline < 0 || firstActor < 0 || baseline > firstActor) {
-    throw new FlowError('a baseline:* gate must precede the first actor');
-  }
-  if (final < 0 || final < firstActor) throw new FlowError('a final:* gate must follow all actors');
-  if (steps.slice(final + 1).some((step) => step.kind === 'actor')) {
-    throw new FlowError('no actor may run after final gates begin');
-  }
-  for (const step of steps.filter((item) => item.kind === 'gate')) {
-    if (/^(?:baseline:|final:)/u.test(step.id) && step.owner !== undefined) {
-      throw new FlowError(`${step.id} must be fail-closed`);
-    }
-  }
+  if (firstActor < 0) throw new FlowError('workflow requires an implementation actor');
 
-  const unitRoles = new Map<string, ActorRole[]>();
-  for (const step of steps.filter((item) => item.kind === 'actor' && UNIT_ACTOR.test(item.id))) {
-    const match = UNIT_ACTOR.exec(step.id);
-    if (!match) continue;
-    const unit = match[1];
-    const role = match[2] as ActorRole | undefined;
-    if (!unit || !role) throw new FlowError(`${step.id} has invalid actor captures`);
-    const roles = unitRoles.get(unit) ?? [];
-    roles.push(role);
-    unitRoles.set(unit, roles);
+  const implementationActors = steps.filter(
+    (step) => step.kind === 'actor' && step.id === IMPLEMENTATION_ACTOR_ID,
+  );
+  if (implementationActors.length !== 1) {
+    throw new FlowError('workflow requires exactly one implementation actor');
   }
-  if (!unitRoles.size) throw new FlowError('at least one U-NNN actor is required');
   if (manifest.workflow === 'build') {
-    const cleanup = steps.find((step) => step.kind === 'actor' && CLEANUP_ACTOR.test(step.id));
-    if (cleanup) {
-      throw new FlowError(
-        `build does not accept actor outside published Plan units: ${cleanup.id}`,
-      );
-    }
     const opening = steps.slice(0, BUILD_OPENING_IDS.length).map((step) => step.id);
     if (opening.join(',') !== BUILD_OPENING_IDS.join(',')) {
-      throw new FlowError('build must start with load:plan, revalidate:plan, branch');
-    }
-  }
-  for (const [unit, roles] of unitRoles) {
-    const shape = roles.join(',');
-    if (shape !== 'red,green' && shape !== 'direct') {
-      throw new FlowError(`${unit} actor order must be red,green or direct`);
-    }
-    const firstRole = roles[0];
-    if (!firstRole) throw new FlowError(`${unit} has no actor role`);
-    const start = steps.findIndex((step) => step.id === `${unit}:${firstRole}`);
-    const expected = unitStepIds(unit, roles, manifest.workflow);
-    const actual = steps.slice(start, start + expected.length).map((step) => step.id);
-    if (actual.join(',') !== expected.join(',')) {
-      throw new FlowError(`${unit} must use its contiguous ${manifest.workflow} unit sequence`);
+      throw new FlowError('build must start with load:plan, branch');
     }
   }
   if (manifest.workflow === 'build') {
-    validateBuildSequence(manifest, steps, unitRoles);
+    validateBuildSequence(manifest, steps);
   } else {
     if (steps.some((step) => step.kind === 'action')) {
       throw new FlowError('code workflow does not accept action steps');
@@ -357,24 +214,17 @@ function validateSequence(manifest: FlowManifest, steps: FlowStep[]): void {
     if (steps.some((step) => step.kind === 'gate' && step.gate.authority !== 'shell')) {
       throw new FlowError('code workflow accepts only shell gate authority');
     }
+    const lastActor = steps.findLastIndex((step) => step.kind === 'actor');
+    if (!steps.slice(lastActor + 1).some((step) => step.kind === 'gate')) {
+      throw new FlowError('code workflow requires a test gate after implementation');
+    }
   }
 }
 
-function validateBuildSequence(
-  manifest: FlowManifest,
-  steps: FlowStep[],
-  unitRoles: Map<string, ActorRole[]>,
-): void {
-  for (const step of steps) {
-    if (step.kind !== 'gate' || !/^U-\d{3}:red:gate$/u.test(step.id)) continue;
-    if (step.gate.authority !== 'shell' || step.gate.expect !== 'fail' || !step.gate.calibrate) {
-      throw new FlowError(`${step.id} must be a calibrated shell failure gate`);
-    }
-  }
+function validateBuildSequence(manifest: FlowManifest, steps: FlowStep[]): void {
   const authorityIds: Partial<Record<GateAuthority, RegExp>> = {
     'build-plan': /^load:plan$/u,
-    'build-revalidate': /^revalidate:(?:plan|review|ship)$/u,
-    'build-artifacts': /^U-\d{3}:artifacts$/u,
+    'build-artifacts': /^artifacts$/u,
     'build-review': /^review:build$/u,
     'build-ship': /^ship:verify$/u,
   };
@@ -384,14 +234,14 @@ function validateBuildSequence(
       throw new FlowError(`${step.gate.authority} authority is not valid for ${step.id}`);
     }
   }
-  for (const required of ['load:plan', 'revalidate:plan', 'revalidate:review', 'review:build']) {
+  for (const required of ['load:plan', 'test', 'artifacts', 'review:build']) {
     if (!steps.some((step) => step.kind === 'gate' && step.id === required)) {
       throw new FlowError(`build requires the ${required} gate`);
     }
   }
   const authorities: Record<string, GateAuthority> = {
     'load:plan': 'build-plan',
-    'revalidate:plan': 'build-revalidate',
+    artifacts: 'build-artifacts',
     'review:build': 'build-review',
   };
   for (const [id, authority] of Object.entries(authorities)) {
@@ -406,53 +256,30 @@ function validateBuildSequence(
   ) {
     throw new FlowError('build requires a branch action');
   }
-  for (const id of ['load:plan', 'revalidate:plan']) {
-    const requiredGate = steps.find(
-      (step): step is GateStep => step.kind === 'gate' && step.id === id,
-    );
-    if (!requiredGate || requiredGate.owner !== undefined)
-      throw new FlowError(`${id} must be fail-closed`);
-  }
-  const finalIndex = steps.findIndex(
-    (step) => step.kind === 'gate' && step.id.startsWith('final:'),
+  const loadPlan = steps.find(
+    (step): step is GateStep => step.kind === 'gate' && step.id === 'load:plan',
   );
-  const reviewRevalidationIndex = steps.findIndex((step) => step.id === 'revalidate:review');
-  const reviewRevalidation = steps[reviewRevalidationIndex];
+  if (!loadPlan || loadPlan.owner !== undefined) {
+    throw new FlowError('load:plan must be fail-closed');
+  }
+  const testIndex = steps.findIndex((step) => step.id === 'test');
+  const artifactsIndex = steps.findIndex((step) => step.id === 'artifacts');
   const reviewIndex = steps.findIndex((step) => step.id === 'review:build');
   const review = steps[reviewIndex];
+  const commitIndex = steps.findIndex((step) => step.id === 'build:commit');
   if (
-    reviewRevalidationIndex !== finalIndex + 1 ||
-    !reviewRevalidation ||
-    reviewRevalidation.kind !== 'gate' ||
-    reviewRevalidation.gate.authority !== 'build-revalidate' ||
-    reviewRevalidation.owner !== undefined ||
-    reviewIndex !== reviewRevalidationIndex + 1 ||
+    artifactsIndex !== testIndex + 1 ||
+    reviewIndex !== artifactsIndex + 1 ||
+    commitIndex !== reviewIndex + 1 ||
     !review ||
     review.kind !== 'gate' ||
-    review.gate.authority !== 'build-review' ||
-    review.owner !== undefined
+    review.gate.authority !== 'build-review'
   ) {
-    throw new FlowError(
-      'final gate must be followed by fail-closed revalidate:review and review:build',
-    );
+    throw new FlowError('Build must run test, scope check, review, then one commit');
   }
-  for (const [unit, roles] of unitRoles) {
-    const owner = roles.includes('green') ? `${unit}:green` : `${unit}:direct`;
-    const artifacts = steps.find(
-      (step): step is GateStep => step.kind === 'gate' && step.id === `${unit}:artifacts`,
-    );
-    if (!artifacts || artifacts.owner !== owner) {
-      throw new FlowError(`${unit}:artifacts must be owned by ${owner}`);
-    }
-    if (artifacts.gate.authority !== 'build-artifacts' || artifacts.gate.unit_id !== unit) {
-      throw new FlowError(`${unit}:artifacts must use build-artifacts authority for ${unit}`);
-    }
-    const commit = steps.find(
-      (step): step is ActionStep => step.kind === 'action' && step.id === `${unit}:commit`,
-    );
-    if (!commit || commit.action !== 'commit') {
-      throw new FlowError(`${unit}:commit must use the commit action`);
-    }
+  const commit = steps[commitIndex];
+  if (!commit || commit.kind !== 'action' || commit.action !== 'commit') {
+    throw new FlowError('build:commit must be the single commit action');
   }
   const ship = steps.find((step) => step.kind === 'action' && step.action === 'ship');
   if (manifest.shipping_authorized && !ship)
@@ -460,20 +287,11 @@ function validateBuildSequence(
   if (ship && !manifest.shipping_authorized)
     throw new FlowError('a ship action requires shipping_authorized: true');
   if (!ship) {
-    if (steps.at(-1) !== review) throw new FlowError('review:build must be the final build step');
+    if (steps.at(-1) !== commit) throw new FlowError('build:commit must be the final build step');
     return;
   }
   const shipIndex = steps.indexOf(ship);
-  const revalidation = steps[shipIndex - 1];
-  if (
-    !revalidation ||
-    revalidation.kind !== 'gate' ||
-    revalidation.id !== 'revalidate:ship' ||
-    revalidation.gate.authority !== 'build-revalidate' ||
-    revalidation.owner !== undefined
-  ) {
-    throw new FlowError('ship must be preceded by fail-closed revalidate:ship');
-  }
+  if (shipIndex !== commitIndex + 1) throw new FlowError('ship must follow build:commit');
   const verification = steps[shipIndex + 1];
   if (!verification || verification.kind !== 'gate' || verification.id !== 'ship:verify') {
     throw new FlowError('ship must be followed by ship:verify');
@@ -539,7 +357,7 @@ export function validateManifest(raw: unknown): FlowManifest {
     }
     if (item.kind === 'actor') {
       rejectUnknownKeys(item, ['id', 'kind', 'outcome', 'files'], id);
-      if (!UNIT_ACTOR.test(id) && !CLEANUP_ACTOR.test(id)) {
+      if (id !== IMPLEMENTATION_ACTOR_ID) {
         throw new FlowError(`${id} is not a supported actor id`);
       }
       if (typeof item.outcome !== 'string' || !item.outcome.trim() || item.outcome.length > 4000) {
@@ -563,8 +381,7 @@ export function validateManifest(raw: unknown): FlowManifest {
       if (action === 'branch') return validateBranchAction(item, id, repo);
       if (action === 'commit') {
         rejectUnknownKeys(item, ['id', 'kind', 'action', 'subject'], id);
-        if (!/^U-\d{3}:commit$/u.test(id))
-          throw new FlowError('commit action id must be U-NNN:commit');
+        if (id !== 'build:commit') throw new FlowError('commit action id must be build:commit');
         if (
           typeof item.subject !== 'string' ||
           item.subject.length > 72 ||

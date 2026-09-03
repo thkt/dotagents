@@ -20,40 +20,22 @@ import { elapsedMs } from '../shared/codex.ts';
 import { researchArtifactDirectory } from '../shared/storage.ts';
 import { composePrompt } from '../shared/prompt.ts';
 import { ProgressReporter, workflowProgress } from '../shared/progress.ts';
-
-export interface PriorResearchSummary {
-  path: string;
-  question: string;
-}
-export interface ResearchContextSummary {
-  id: string;
-  kind: 'knowledge';
-  status: 'active' | 'review_required';
-  statement: string;
-  source_artifact: string;
-  source_id: string;
-}
+import type { KnowledgeEntry } from '../knowledge/update.ts';
 
 /** Reads source only from snapshotRepo; input.repo names the live repository for artifact lookups. */
 export interface ResearchAgent {
   investigate(
     input: ResearchInput,
-    prior: PriorResearchSummary[],
-    context: ResearchContextSummary[],
+    knowledge: KnowledgeEntry[],
     snapshotRepo: string,
   ): Promise<ResearchDraft>;
   audit(
     input: ResearchInput,
     draft: ResearchDraft,
-    prior: PriorResearchSummary[],
-    context: ResearchContextSummary[],
+    knowledge: KnowledgeEntry[],
     snapshotRepo: string,
   ): Promise<ResearchAudit>;
 }
-
-const CONTEXT_LABEL = 'KNOWLEDGE CONTEXT';
-const CONTEXT_BOUNDARY =
-  'Knowledge context entries are leads only, never proof or citations; re-verify every claim against current sources.';
 
 function scopeInstruction(input: ResearchInput): string {
   return input.scope_paths.length
@@ -62,27 +44,21 @@ function scopeInstruction(input: ResearchInput): string {
 }
 
 function externalInstruction(input: ResearchInput): string {
-  switch (input.external_sources) {
-    case 'none':
-      return 'Do not use external sources.';
-    case 'primary':
-      return 'Use external sources only when needed, and cite primary sources such as official documentation or original papers.';
-    case 'broad':
-      return 'Use external sources when they materially improve the answer; prefer primary sources and distinguish secondary evidence.';
-  }
+  return input.allow_external_sources
+    ? 'Use external sources only when they materially improve the answer. Prefer primary sources such as official documentation and original papers; clearly distinguish any secondary evidence.'
+    : 'Do not use external sources.';
 }
 
-function priorInstruction(input: ResearchInput, prior: PriorResearchSummary[]): string {
-  return prior.length
-    ? `Relevant prior reports may be opened read-only from ${JSON.stringify(researchArtifactDirectory(input.repo))}; treat them as leads and re-verify every cited claim.`
-    : 'No prior research reports are available.';
+function knowledgeInstruction(input: ResearchInput, knowledge: KnowledgeEntry[]): string {
+  return knowledge.length
+    ? `Knowledge sources may be opened read-only from ${JSON.stringify(researchArtifactDirectory(input.repo))}; treat summaries as leads and cite current sources for every surviving claim.`
+    : 'No related Knowledge is available.';
 }
 
 function commonResearchContext(input: ResearchInput): string[] {
   return [
     `Question: ${JSON.stringify(input.question)}`,
-    `Purpose: ${input.mode}`,
-    `Write all statements in ${input.language}.`,
+    'Write all contract statements in English. Preserve repository identifiers and quoted source text.',
     scopeInstruction(input),
     externalInstruction(input),
     'Inspect .codex/OUTCOME.md and the smallest relevant primary repository documentation. Cite repository docs as ordinary evidence and independently verify their claims; do not rely on implicit artifact context.',
@@ -91,26 +67,18 @@ function commonResearchContext(input: ResearchInput): string[] {
 }
 
 /** Gives the investigator an answerable boundary without prescribing search mechanics. */
-export function investigationPrompt(
-  input: ResearchInput,
-  prior: PriorResearchSummary[],
-  context: ResearchContextSummary[] = [],
-): string {
+export function investigationPrompt(input: ResearchInput, knowledge: KnowledgeEntry[]): string {
   return composePrompt(
     [
       'Investigate the research question.',
       ...commonResearchContext(input),
       'Find the smallest evidence set that answers the question, separating observed facts from inference.',
-      CONTEXT_BOUNDARY,
       'Cite repository evidence by repo-relative path and L<number> or L<number>-L<number>; cite web evidence by HTTPS URL and page section.',
       'Put unresolved questions in unknowns with the evidence needed to resolve each one.',
-      priorInstruction(input, prior),
+      knowledgeInstruction(input, knowledge),
       'Return only the structured response.',
     ],
-    [
-      ['PRIOR RESEARCH', prior],
-      [CONTEXT_LABEL, context],
-    ],
+    [['RELEVANT KNOWLEDGE', knowledge]],
   );
 }
 
@@ -118,37 +86,34 @@ export function investigationPrompt(
 export function auditPrompt(
   input: ResearchInput,
   draft: ResearchDraft,
-  prior: PriorResearchSummary[],
-  context: ResearchContextSummary[] = [],
+  knowledge: KnowledgeEntry[],
 ): string {
   return composePrompt(
     [
       'Audit candidate research, then produce the final answer.',
       ...commonResearchContext(input),
       'Open every cited repository source and seek contradictory evidence for each candidate.',
-      CONTEXT_BOUNDARY,
-      'Keep only findings supported by a current source. Reject unsupported claims; set qualification only for a surviving material caveat. Prior reports are not proof.',
-      'Limit the answer to final findings and explicit unknowns, and list only consulted paths from the supplied prior-report catalog.',
-      priorInstruction(input, prior),
+      'Keep only findings supported by a current source. Reject unsupported claims; set qualification only for a surviving material caveat. Knowledge summaries are not proof.',
+      'Limit the answer to final findings and explicit unknowns.',
+      knowledgeInstruction(input, knowledge),
       'Return only the structured response.',
     ],
     [
       ['CANDIDATE FINDINGS', draft],
-      ['PRIOR RESEARCH', prior],
-      [CONTEXT_LABEL, context],
+      ['RELEVANT KNOWLEDGE', knowledge],
     ],
   );
 }
 
 function threadOptions(
   input: ResearchInput,
-  prior: PriorResearchSummary[],
+  knowledge: KnowledgeEntry[],
   snapshotRepo: string,
 ): ReturnType<typeof readOnlyThreadOptions> {
   return {
     ...readOnlyThreadOptions(snapshotRepo),
-    webSearchMode: input.external_sources === 'none' ? 'disabled' : 'live',
-    ...(prior.length ? { additionalDirectories: [researchArtifactDirectory(input.repo)] } : {}),
+    webSearchMode: input.allow_external_sources ? 'live' : 'disabled',
+    ...(knowledge.length ? { additionalDirectories: [researchArtifactDirectory(input.repo)] } : {}),
   };
 }
 
@@ -167,18 +132,17 @@ export class CodexResearchAgent implements ResearchAgent {
 
   async investigate(
     input: ResearchInput,
-    prior: PriorResearchSummary[],
-    context: ResearchContextSummary[],
+    knowledge: KnowledgeEntry[],
     snapshotRepo: string,
   ): Promise<ResearchDraft> {
-    const thread = this.client.startThread(threadOptions(input, prior, snapshotRepo));
+    const thread = this.client.startThread(threadOptions(input, knowledge, snapshotRepo));
     const started = performance.now();
     let result;
     try {
       result = await this.progress.run(
         { workflow: 'research', stage: 'investigator_model_call' },
         (stage) =>
-          thread.run(investigationPrompt(input, prior, context), {
+          thread.run(investigationPrompt(input, knowledge), {
             outputSchema: RESEARCH_DRAFT_SCHEMA,
             modelRun: {
               label: 'research investigator',
@@ -213,15 +177,14 @@ export class CodexResearchAgent implements ResearchAgent {
   async audit(
     input: ResearchInput,
     draft: ResearchDraft,
-    prior: PriorResearchSummary[],
-    context: ResearchContextSummary[],
+    knowledge: KnowledgeEntry[],
     snapshotRepo: string,
   ): Promise<ResearchAudit> {
-    const thread = this.client.startThread(threadOptions(input, prior, snapshotRepo));
+    const thread = this.client.startThread(threadOptions(input, knowledge, snapshotRepo));
     const result = await this.progress.run(
       { workflow: 'research', stage: 'auditor_model_call' },
       (stage) =>
-        thread.run(auditPrompt(input, draft, prior, context), {
+        thread.run(auditPrompt(input, draft, knowledge), {
           outputSchema: RESEARCH_AUDIT_SCHEMA,
           modelRun: {
             label: 'research auditor',

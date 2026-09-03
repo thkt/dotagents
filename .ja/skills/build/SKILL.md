@@ -1,6 +1,6 @@
 ---
 name: build
-description: 公開GitHub Issue contract 1件を、検証済みの実装単位ごとにコミットし、下書きPRまで作成する。Issue公開後の実装を最初から最後まで進める明示的な依頼に使用する。
+description: 公開 GitHub Issue の Plan 1件を実装・検証し、任意で branch を push して下書き PR を作成する。Issue 公開後の end-to-end Build に使用する。
 ---
 
 # Build
@@ -11,16 +11,13 @@ description: 公開GitHub Issue contract 1件を、検証済みの実装単位�
 
 - 明示的な invocation では`#123`のような Issue shorthand を受け付け、現在の worktree の`origin` GitHub repository から選ぶ。hook が小さな Build input を準備する。実行 step を手書きしない。
 - controller は GitHub network access を有効にして実行し、固定済み Issue の読み取りも controller 自身に行わせる。execution sandbox が`api.github.com`を拒否した場合は、同じ controller command を network escalation 付きで再実行する。準備のために別の`gh ... view`を実行せず、ブラウザの内容を contract の代わりにしない。
-- 正確な GitHub `repository` と `issue_number` で公開 contract を選ぶ。公開者のローカル receipt を必須としない。
-- issue workflow が埋め込んだ canonical machine Plan と、人が読む Plan および body digest の完全一致を要求する。
-- controller が各 unit の outcome、file scope、actor mode、test command を公開 Plan に束縛する。Build input を実装意図の別 source にしない。
-- Build 開始時、semantic review 直前、Ship 直前に Issue を再取得する。`load:plan`後の title、body、digest、Plan の変更は stale とする。
+- Build 開始時に選択した Issue を 1 回だけ読み、その terminal JSON Plan を唯一の実装 authority とする。公開者の local receipt、別 rendering、body hash は要求しない。
+- controller は Plan から actor goal、結合した file scope、test command を導出する。Build input を実装意図の別 source にしない。
 - final test 後に、公開済みの goals と contracts に対して差分全体を独立した read-only SDK review にかける。
 
 ## 権限
 
-- tested unit では、controller が Red actor と Green actor の双方に正確な Plan file set を割り当てる。
-- ユーザーが先頭で明示した invocation を、hook が束縛したリポジトリにおける宣言済みローカルブランチ、検証済み実装単位のコミット、push 1 回、下書き PR 作成 1 回の承認として扱う。`Ship`の確認を重ねて求めない。
+- ユーザーが先頭で明示した invocation を、hook が束縛した repository における local branch、最終検証済み commit 1 件、Ship 有効時の push 1 回と下書き PR 作成 1 回の承認として扱う。`Ship`の確認を重ねて求めない。
 - 同じ依頼で push または下書き PR 作成をユーザーが明示的に除外した場合を除き、`Ship`を含める。
 - resume 時は、外部 action を繰り返す前に branch、commit、push、draft PR の postcondition を照合する。
 - 公開 Plan が screenshots を宣言した場合は、完成した UI を render し、controller が指定した path にすべての画像を撮影する。controller が seal した画像 bytes と一致する場合だけ Ship し、画像の変更や未解決の添付があれば別 PR を作らず停止する。
@@ -33,4 +30,4 @@ description: 公開GitHub Issue contract 1件を、検証済みの実装単位�
 
 ## 報告
 
-終了状態、execution hash、ブランチと基準コミット、検証済みの実装単位とコミット、ゲートの証拠、修正回数、`Ship`の状態、存在する場合は検証済み PR URL を報告する。PR URL は`Ship`の検証が成功した後だけ報告する。
+workflow contract と PR body は英語のままにする。終了状態、branch、test と review の結果、最終 commit、`Ship`の状態、検証済み PR URL を含む、ユーザー向けの最終報告だけを設定言語へ翻訳する。PR URL は`Ship`の検証が成功した後だけ報告する。

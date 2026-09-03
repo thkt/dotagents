@@ -1,17 +1,18 @@
 ---
 name: code
-description: 複数単位または TDD の実装計画を、編集範囲を限定した担当処理とゲートの単位で進める。構造化された編集と検証が明示された依頼に使用し、小さな直接修正には使用しない。
+description: 直接的な repository 変更1件を、任意の scope と test command で実装する。commit、push、pull request 作成を行わない明示的な coding request に使用する。
 ---
 
 # Code
 
-`codex-flow describe --workflow code`で現在のワークフロー契約を確認する。shell ゲートの証拠を選ぶときは、[shell ゲートの証拠](../../workflows/flow/references/shell-gate.md)を読む。
+`codex-flow describe --workflow code`で現在の input を確認し、hook-bound command を実行する。controller は Build と共通の implementation executor に request を compile する。
 
 ## 判断
 
-- 実装単位を実行順に並べ、各単位の観測可能な完了状態を決める。
-- 実装単位の境界、Red/Green または Direct、リポジトリで定義された証拠を決める。
-- 開始前からある依頼範囲外の変更は、すべての単位の編集範囲から外す。
+- 具体的な変更 request を 1 件示す。
+- repository 内の許可範囲を狭める必要がある場合だけ`scope_paths`を指定する。
+- 自動推定が適切でない場合だけ repository test command を指定する。
+- 開始前からある無関係な変更は request scope の外に保つ。
 
 ## リファレンス
 
@@ -26,4 +27,4 @@ description: 複数単位または TDD の実装計画を、編集範囲を限�
 
 ## 報告
 
-終了状態、実行定義のハッシュ、ゲートの証拠、修正回数、停止理由を報告する。
+workflow contract は英語のままにする。終了状態、変更 path、test result、修正回数、停止理由を含む、ユーザー向けの最終報告だけを設定言語へ翻訳する。Code は commit、push、pull request 作成を行わない。

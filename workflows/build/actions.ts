@@ -19,11 +19,9 @@ import type {
   ShipActionParameters,
   ShipActionStep,
   UnitActionStep,
-} from '../contracts.ts';
-import { shellSafeText } from '../../shared/command.ts';
-import { FlowError, errorCode } from '../../shared/errors.ts';
-import { githubPrCreate, runGitHub, type GitHubInvocation } from '../../shared/github.ts';
-import { requireLanguageText, resolveConfiguredLanguage } from '../../shared/language.ts';
+} from '../flow/contracts.ts';
+import { FlowError, errorCode } from '../shared/errors.ts';
+import { githubPrCreate, runGitHub, type GitHubInvocation } from '../shared/github.ts';
 import {
   gitOutput,
   gitOptionalText,
@@ -31,9 +29,9 @@ import {
   nulPaths,
   repositoryInvariant,
   sameRepoSnapshot,
-} from '../../shared/repository.ts';
-import { isObject } from '../../shared/schema.ts';
-import { atomicWrite, prBodyPath, prInputPath } from '../../shared/storage.ts';
+} from '../shared/repository.ts';
+import { isObject } from '../shared/schema.ts';
+import { atomicWrite, prBodyPath, prInputPath } from '../shared/storage.ts';
 
 type ActionDirective = Extract<FlowDirective, { kind: 'run-action' }>;
 
@@ -41,7 +39,7 @@ interface GitInvocation {
   executable: 'git';
   args: string[];
 }
-export type CommandInvocation = GitInvocation | GitHubInvocation;
+type CommandInvocation = GitInvocation | GitHubInvocation;
 
 export type CommandExecutor = (invocation: CommandInvocation) => void;
 
@@ -62,7 +60,7 @@ function execute(invocation: CommandInvocation): void {
 }
 
 /** Translates a typed action directive into the exact external commands it permits. */
-export function actionInvocations(repo: string, directive: ActionDirective): CommandInvocation[] {
+function actionInvocations(repo: string, directive: ActionDirective): CommandInvocation[] {
   switch (directive.action) {
     case 'branch': {
       const existing = gitOptionalText(repo, [
@@ -150,18 +148,6 @@ export function executeAction(
   for (const invocation of actionInvocations(repo, directive)) runCommand(invocation);
 }
 
-function unitFiles(state: FlowState, unit: string): string[] {
-  return [
-    ...new Set(
-      state.manifest.steps
-        .filter(
-          (step): step is ActorStep => step.kind === 'actor' && step.id.startsWith(`${unit}:`),
-        )
-        .flatMap((step) => step.files),
-    ),
-  ];
-}
-
 function branchAction(state: FlowState): BranchActionStep {
   const branch = state.manifest.steps.find(
     (step): step is BranchActionStep => step.kind === 'action' && step.action === 'branch',
@@ -181,22 +167,17 @@ function actionParameters(state: FlowState, step: ActionStep): ActionParameters 
   if (!state.build_plan)
     throw new FlowError(`${step.id} has no validated Plan context`, 'state_error');
   if (step.action === 'commit') {
-    const unit = /^(U-\d{3}):commit$/u.exec(step.id)?.[1];
-    const planUnit = state.build_plan.units.find((candidate) => candidate.id === unit);
-    if (!unit || !planUnit)
-      throw new FlowError(`${step.id} has no validated Plan unit`, 'state_error');
+    const files = [
+      ...new Set(
+        state.manifest.steps
+          .filter((candidate): candidate is ActorStep => candidate.kind === 'actor')
+          .flatMap((candidate) => candidate.files),
+      ),
+    ];
     return {
-      files: unitFiles(state, unit),
+      files,
       subject: step.subject,
-      trailers: [
-        `Unit: ${unit}`,
-        `Contract: ${shellSafeText(planUnit.contract)}`,
-        ...(planUnit.tests.length
-          ? [`Tests: ${planUnit.tests.map(({ id }) => id).join(', ')}`]
-          : []),
-        ...(planUnit.seam ? ['Seam: true'] : []),
-        `Issue: #${state.build_plan.issue}`,
-      ],
+      trailers: [`Issue: #${state.build_plan.issue}`],
     };
   }
   const branch = branchAction(state);
@@ -229,8 +210,6 @@ export function actionDirective(state: FlowState, step: ActionStep): RunActionDi
 /** Materializes the verified facts consumed by deterministic PR rendering. */
 export function prepareShipInput(state: FlowState): void {
   if (!state.build_plan) throw new FlowError('ship has no validated Plan context', 'state_error');
-  const language = resolveConfiguredLanguage('japanese');
-  requireLanguageText(state.build_plan.title, language, 'published issue title');
   const currentReports = [
     ...new Map(state.gate_reports.map((report) => [report.gate_id, report])).values(),
   ];
@@ -265,7 +244,6 @@ export function prepareShipInput(state: FlowState): void {
     screenshots: state.build_plan.screenshots ?? [],
     advisories: reviewAdvisories,
     verification_output: '',
-    language,
   });
   try {
     fs.unlinkSync(prBodyPath(state.run_id));
@@ -295,8 +273,9 @@ export function validateActionCompletion(state: FlowState, step: ActionStep): vo
       }
       break;
     case 'commit': {
-      const unit = /^(U-\d{3}):commit$/u.exec(step.id)?.[1];
-      if (!unit) throw new FlowError(`${step.id} is not a unit commit`, 'postcondition_error');
+      if (step.id !== 'build:commit') {
+        throw new FlowError(`${step.id} is not the final Build commit`, 'postcondition_error');
+      }
       if (current.head === state.action_baseline.head) {
         throw new FlowError(`${step.id} did not create a commit`, 'postcondition_error');
       }
@@ -319,8 +298,15 @@ export function validateActionCompletion(state: FlowState, step: ActionStep): vo
         ),
       );
       const parameters = actionParameters(state, step);
-      const allowed = new Set(parameters.files);
-      const outside = committed.filter((relative) => !allowed.has(relative));
+      const outside = committed.filter(
+        (relative) =>
+          !parameters.files.some(
+            (scope) =>
+              scope === '.' ||
+              relative === scope ||
+              relative.startsWith(`${scope.replace(/\/$/u, '')}/`),
+          ),
+      );
       if (!committed.length || outside.length) {
         throw new FlowError(
           `${step.id} committed paths outside its unit: ${outside.join(', ') || 'empty commit'}`,

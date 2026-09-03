@@ -4,9 +4,10 @@
 import * as fs from 'node:fs';
 import path from 'node:path';
 
-import { cli, isObject, parseSingletonArgs, readJsonFile, usageError } from './cli.ts';
-import { isMainModule } from '../../shared/environment.ts';
-import { resolveConfiguredLanguage, type ConfiguredLanguage } from '../../shared/language.ts';
+import { cli, parseSingletonArgs, readJsonFile } from '../shared/cli.ts';
+import { isMainModule } from '../shared/environment.ts';
+import { usageError } from '../shared/errors.ts';
+import { isObject } from '../shared/schema.ts';
 import {
   markdownScreenshotAlt,
   SCREENSHOT_CAP,
@@ -18,34 +19,21 @@ const DESCRIPTION_PROTOCOL = 'codex-build-pr-body-description';
 const REQUIRED_KEYS = ['issue', 'tests_pass', 'gates_pass'];
 
 const LABELS = {
-  english: {
-    header:
-      '_Automated build verification, including an independent semantic review of the diff against the published issue Plan._',
-    manual: 'Manual verification checklist (complete before merge)',
-    scope: "Files outside the plan's scope",
-    untouched: 'Planned files never changed',
-    missing: 'Planned test statements not found',
-    advisories: 'Advisory findings (not mechanically reproduced)',
-    output: 'verify output',
-    screenshots: 'Screenshots',
-  },
-  japanese: {
-    header: '_build の自動検証結果。公開 issue Plan に対する差分の独立 semantic review を含む。_',
-    manual: '実機確認（merge 前に実施）',
-    scope: 'Plan スコープ外の変更ファイル',
-    untouched: '一度も変更されていない plan の files',
-    missing: '見つからなかった plan のテスト言明',
-    advisories: '助言的な指摘（機械的な再現なし）',
-    output: 'verify 出力',
-    screenshots: 'スクリーンショット',
-  },
+  header:
+    '_Automated build verification, including an independent semantic review of the diff against the published issue Plan._',
+  manual: 'Manual verification checklist (complete before merge)',
+  scope: "Files outside the plan's scope",
+  untouched: 'Planned files never changed',
+  missing: 'Planned test statements not found',
+  advisories: 'Advisory findings (not mechanically reproduced)',
+  output: 'verify output',
+  screenshots: 'Screenshots',
 } as const;
 
 interface PrBodyPayload {
   issue: string | number;
   tests_pass: boolean;
   gates_pass: boolean;
-  language?: unknown;
   scope_deviations?: unknown;
   untouched_plan_files?: unknown;
   missing_tests?: unknown;
@@ -118,9 +106,6 @@ export function validatePayload(payload: unknown): asserts payload is PrBodyPayl
 /** Renders verified build facts as a bounded Markdown PR body. */
 export function render(payload: unknown): string {
   validatePayload(payload);
-  const language =
-    typeof payload.language === 'string' ? payload.language.toLowerCase() : 'english';
-  const labels = language in LABELS ? LABELS[language as keyof typeof LABELS] : LABELS.english;
   const scope = list(payload.scope_deviations, 'scope_deviations');
   const untouched = list(payload.untouched_plan_files, 'untouched_plan_files');
   const missing = list(payload.missing_tests, 'missing_tests');
@@ -139,20 +124,20 @@ export function render(payload: unknown): string {
   const folded = [];
   if ((!payload.tests_pass || !payload.gates_pass) && payload.verification_output) {
     folded.push(
-      `<details><summary>${labels.output}</summary>\n\n${codeFence(payload.verification_output)}\n\n</details>`,
+      `<details><summary>${LABELS.output}</summary>\n\n${codeFence(payload.verification_output)}\n\n</details>`,
     );
   }
   for (const section of [
-    renderSection(labels.manual, manual, (item) => `[ ] ${oneLine(item)}`),
-    renderSection(labels.scope, scope, inlineCode),
-    renderSection(labels.untouched, untouched, (item) =>
+    renderSection(LABELS.manual, manual, (item) => `[ ] ${oneLine(item)}`),
+    renderSection(LABELS.scope, scope, inlineCode),
+    renderSection(LABELS.untouched, untouched, (item) =>
       inlineCode(isObject(item) ? item.file : item),
     ),
-    renderSection(labels.missing, missing, (item) => {
+    renderSection(LABELS.missing, missing, (item) => {
       if (!isObject(item)) return oneLine(item);
       return `${inlineCode(item.test_id || '?')} ${oneLine(item.name || '')}`.trim();
     }),
-    renderSection(labels.advisories, advisories, oneLine),
+    renderSection(LABELS.advisories, advisories, oneLine),
   ]) {
     if (section) folded.push(section);
   }
@@ -161,7 +146,7 @@ export function render(payload: unknown): string {
     ? `<details>\n<summary>${status}</summary>\n\n${folded.join('\n\n')}\n\n</details>`
     : status;
   const visualEvidence = screenshots.length
-    ? `\n\n## ${labels.screenshots}\n\n${screenshots
+    ? `\n\n## ${LABELS.screenshots}\n\n${screenshots
         .map((item) =>
           isObject(item)
             ? `![${markdownScreenshotAlt(String(item.alt))}](./${String(item.name)})`
@@ -169,10 +154,10 @@ export function render(payload: unknown): string {
         )
         .join('\n\n')}`
     : '';
-  return `\n\n---\n\n${labels.header}\n\nCloses #${payload.issue}${visualEvidence}\n\n${verification}\n`;
+  return `\n\n---\n\n${LABELS.header}\n\nCloses #${payload.issue}${visualEvidence}\n\n${verification}\n`;
 }
 
-export function describe(language: ConfiguredLanguage = resolveConfiguredLanguage('japanese')) {
+export function describe() {
   return {
     protocol: DESCRIPTION_PROTOCOL,
     renders_with: PROTOCOL,
@@ -188,10 +173,8 @@ export function describe(language: ConfiguredLanguage = resolveConfiguredLanguag
       advisories: [],
       verification_output: '',
       screenshots: [],
-      language,
     },
     required_keys: [...REQUIRED_KEYS],
-    languages: Object.keys(LABELS),
   };
 }
 

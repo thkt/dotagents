@@ -88,16 +88,13 @@ const BUILD_REVIEW_RESULT_SCHEMA = {
 } as const;
 
 function roleInstruction(stepId: string): string {
-  if (stepId.endsWith(':red'))
-    return 'Make every planned test discoverable and runnable, with the intended new behavior failing at an assertion. If an allowed production file is absent, create only the smallest API scaffold needed to run them. Do not implement behavior that makes them pass. Import/module-resolution, syntax/parse, typecheck, and discovery failures are invalid Red evidence.';
-  if (stepId.endsWith(':green'))
-    return 'Make the smallest production change that satisfies the outcome and tests.';
-  if (stepId.endsWith(':direct')) return 'Implement the outcome directly.';
-  return 'Restore the declared outcome within the allowed files.';
+  return stepId.endsWith(':direct')
+    ? 'Implement the outcome directly and keep the change within the allowed repository paths.'
+    : 'Restore the declared outcome within the allowed repository paths.';
 }
 
 /** Renders the controller's typed actor contract as the sole implementation prompt. */
-export function actorPrompt(directive: ActorDirective): string {
+function actorPrompt(directive: ActorDirective): string {
   const correction = directive.correction
     ? ['Correction evidence from the failed gate:', JSON.stringify(directive.correction, null, 2)]
     : [];
@@ -108,14 +105,18 @@ export function actorPrompt(directive: ActorDirective): string {
         'Use PNG, JPEG, GIF, or WebP. Capture the rendered UI itself, not source code or a terminal.',
       ]
     : [];
+  const tests = directive.tests.length
+    ? ['Acceptance checks:', ...directive.tests.map((test) => `- ${test.name}`)]
+    : [];
   return [
     `Complete workflow actor ${directive.step_id}.`,
     `Outcome:\n${directive.outcome}`,
     ...(directive.contract ? [`Published contract:\n${directive.contract}`] : []),
+    ...tests,
     roleInstruction(directive.step_id),
-    `Allowed files:\n${directive.files.map((file) => `- ${file}`).join('\n')}`,
+    `Allowed repository paths:\n${directive.files.map((file) => `- ${file}`).join('\n')}`,
     `Verification: ${directive.verification.command} must ${directive.verification.expect}.`,
-    'Inspect and edit the repository now. Change only the allowed files.',
+    'Inspect and edit the repository now. Change only within the allowed paths.',
     ...screenshots,
     'Do not commit, push, create a pull request, or invoke workflow-control commands.',
     'If a contract-external design decision is required, escalate to think; if facts or evidence are missing, escalate to research. Ordinary implementation or test failures must be corrected locally. Escalation discards all sandbox edits.',
@@ -125,7 +126,7 @@ export function actorPrompt(directive: ActorDirective): string {
 }
 
 /** Renders the immutable public Plan and verified gate summary as semantic review criteria. */
-export function buildReviewPrompt(directive: ReviewDirective, nonce: string): string {
+function buildReviewPrompt(directive: ReviewDirective, nonce: string): string {
   const begin = `----- BEGIN PUBLISHED BUILD CONTRACT ${nonce} -----`;
   const end = `----- END PUBLISHED BUILD CONTRACT ${nonce} -----`;
   return [
