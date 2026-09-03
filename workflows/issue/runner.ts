@@ -52,7 +52,6 @@ export interface IssuePublishCommandResult {
   status: 'published';
   issue_number: number;
   url: string;
-  receipt_json: string;
   build_source: {
     repo: string;
     issue_number: number;
@@ -136,14 +135,13 @@ export function draftIssueWorkflow(
   clearIntent(runId);
   const publishGateway = gateway ?? new GhIssueGateway('issue-publication');
   const published = progress.runSync({ workflow: 'issue', stage: 'issue_publish' }, () =>
-    publishIssue(result.draft_json, result.draft_sha256, publishGateway),
+    publishIssue(result, publishGateway),
   );
   return {
     protocol: ISSUE_RESULT_PROTOCOL,
     status: 'published',
     issue_number: published.issue.number,
     url: published.issue.url,
-    receipt_json: published.receipt_json,
     build_source: {
       repo: input.repo,
       issue_number: published.issue.number,

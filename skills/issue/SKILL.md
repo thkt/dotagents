@@ -23,9 +23,9 @@ Inspect the current input, preview, and publication contract with `codex-issue d
 - Run the controller with GitHub network access. If the execution sandbox denies `api.github.com`, retry the same hook-bound command with network escalation before any approval is consumed.
 - Create the draft before any GitHub write.
 - Do not retry deterministic draft errors. Retry only a GitHub access failure that can change when network or credentials become available.
-- Validate the approved draft and an unchanged update target immediately before the GitHub write.
-- Publish one JSON Plan beneath a collapsed `## Plan`; do not add publication metadata, a second encoded Plan, or a Plan hash.
-- Return the Issue URL, optional audit receipt, and local `repo + issue_number` Build selector.
+- Validate the Plan while drafting, and confirm only that an update target is unchanged immediately before the GitHub write.
+- Publish one JSON Plan beneath `## Plan`. The renderer may collapse it for readability, but Build does not depend on surrounding presentation markup.
+- Return the Issue URL and local `repo + issue_number` Build selector.
 
 ## Escalation
 
@@ -33,4 +33,4 @@ An invalid or incomplete Plan returns to `think`. GitHub failures stop in `issue
 
 ## Report
 
-Keep the published Plan and workflow artifacts in English. Write the Issue title, Issue prose, and final report in the configured language. Include the Issue URL, optional receipt, Build source, and next state in the report. For an explicit missing-source stop, report `missing_decision`, no GitHub write, and think as the next state. Do not continue into either next state.
+Keep the published Plan and workflow artifacts in English. Write the Issue title, Issue prose, and final report in the configured language. Include the Issue URL, Build source, and next state in the report. For an explicit missing-source stop, report `missing_decision`, no GitHub write, and think as the next state. Do not continue into either next state.

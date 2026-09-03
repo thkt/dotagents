@@ -1,23 +1,16 @@
 /** @file Outcome: Research-backed prose and a ready Think Plan become one verified GitHub Issue. */
 
 import * as fs from 'node:fs';
-import path from 'node:path';
-
 import { compileBuildPlan, type CompiledBuildPlan } from '../plan/contracts.ts';
-import { parsePublicIssueBody, renderPublicIssueBody } from './public-contract.ts';
+import { renderPublicIssueBody } from './public-contract.ts';
 import { validatePlan } from '../plan/validation.ts';
 import { sha256 } from '../shared/evidence.ts';
 import { FlowError } from '../shared/errors.ts';
 import { realpathInside } from '../shared/repository.ts';
-import { atomicWrite, issueArtifactDirectory, thinkArtifactDirectory } from '../shared/storage.ts';
+import { thinkArtifactDirectory } from '../shared/storage.ts';
 import { parseThinkReport, type ThinkPlan, type ThinkReport } from '../think/contracts.ts';
-import { persistIssueDraft, receiptPath } from './artifact.ts';
-import {
-  ISSUE_DRAFT_PROTOCOL,
-  parseIssueDraft,
-  type IssueDraft,
-  type IssueInput,
-} from './contracts.ts';
+import { persistIssuePreview } from './artifact.ts';
+import type { IssueDraft, IssueInput } from './contracts.ts';
 import {
   assertGitHubRemote,
   GhIssueGateway,
@@ -25,18 +18,14 @@ import {
   type IssueGateway,
 } from './github.ts';
 
-const PUBLISHED_ISSUE_PROTOCOL = 'codex-build-issue';
-
 export interface IssueDraftResult {
   draft: IssueDraft;
-  draft_json: string;
-  draft_sha256: string;
   body_markdown: string;
+  body: string;
 }
 
 export interface IssuePublishResult {
   issue: GitHubIssue;
-  receipt_json: string;
 }
 
 type ReadyThinkReport = ThinkReport & {
@@ -64,16 +53,13 @@ function isReady(report: ThinkReport): report is ReadyThinkReport {
   return report.status === 'ready' && report.plan !== null;
 }
 
-function loadThinkReport(
-  repo: string,
-  file: string,
-): { content: Buffer; report: ReadyThinkReport } {
+function loadThinkReport(repo: string, file: string): ReadyThinkReport {
   const content = regularArtifact(file, thinkArtifactDirectory(repo), 'issue input.think_report');
   const report = parseThinkReport(parseJson(content, 'issue input.think_report'));
   if (!isReady(report)) {
     throw new FlowError('issue input.think_report must be issue-ready');
   }
-  return { content, report };
+  return report;
 }
 
 function requireValidPlan(issue: number, title: string, plan: CompiledBuildPlan): void {
@@ -89,62 +75,32 @@ function requireValidPlan(issue: number, title: string, plan: CompiledBuildPlan)
   }
 }
 
-/** Builds and seals the exact draft before the same-invocation publication. */
+/** Builds and validates the draft used by the same invocation's single GitHub write. */
 export function draftIssue(
   input: IssueInput,
   gateway: IssueGateway = new GhIssueGateway(),
 ): IssueDraftResult {
-  const source = loadThinkReport(input.repo, input.think_report);
+  const report = loadThinkReport(input.repo, input.think_report);
   assertGitHubRemote(input.repo, input.remote, input.repository);
   const issueNumber = input.mode === 'update' ? input.target_issue : null;
   const existing =
     input.mode === 'update' ? gateway.view(input.repository, input.target_issue) : null;
-  const plan = compileBuildPlan(source.report.plan);
+  const plan = compileBuildPlan(report.plan);
   const body = renderPublicIssueBody(input.prose, plan);
   requireValidPlan(issueNumber ?? 1, input.title, plan);
   if (input.mode === 'create') gateway.checkAccess(input.repository);
-  const generatedAt = new Date().toISOString();
-  const persisted = persistIssueDraft(
-    {
-      protocol: ISSUE_DRAFT_PROTOCOL,
-      generated_at: generatedAt,
-      repo: input.repo,
-      repository: input.repository,
-      remote: input.remote,
-      issue_number: issueNumber,
-      title: input.title,
-      body_sha256: sha256(body),
-      existing_issue: existing
-        ? { title: existing.title, body_sha256: sha256(existing.body) }
-        : null,
-    },
-    body,
-  );
-  return {
-    ...persisted,
-    draft_sha256: sha256(fs.readFileSync(persisted.draft_json)),
+  const draft: IssueDraft = {
+    repository: input.repository,
+    issue_number: issueNumber,
+    title: input.title,
+    existing_issue: existing ? { title: existing.title, body_sha256: sha256(existing.body) } : null,
   };
-}
-
-function loadDraft(file: string): { content: Buffer; draft: IssueDraft } {
-  const content = fs.readFileSync(file);
-  const draft = parseIssueDraft(parseJson(content, 'issue draft'));
-  regularArtifact(file, issueArtifactDirectory(draft.repo), 'issue draft');
-  return { content, draft };
-}
-
-function currentBody(draft: IssueDraft): string {
-  const stat = fs.lstatSync(draft.body_file, { throwIfNoEntry: false });
-  if (
-    !stat?.isFile() ||
-    stat.isSymbolicLink() ||
-    !realpathInside(issueArtifactDirectory(draft.repo), draft.body_file)
-  ) {
-    throw new FlowError('issue draft body is not a private artifact');
-  }
-  const body = fs.readFileSync(draft.body_file, 'utf8');
-  if (sha256(body) !== draft.body_sha256) throw new FlowError('issue draft body was changed');
-  return body;
+  const bodyMarkdown = persistIssuePreview(input.repo, input.title, new Date(), body);
+  return {
+    draft,
+    body_markdown: bodyMarkdown,
+    body,
+  };
 }
 
 function verifyPublished(draft: IssueDraft, body: string, issue: GitHubIssue): void {
@@ -157,27 +113,15 @@ function verifyPublished(draft: IssueDraft, body: string, issue: GitHubIssue): v
   }
 }
 
-/** Publishes one unchanged validated draft and verifies the resulting GitHub state. */
+/** Publishes one validated draft and verifies the resulting GitHub state. */
 export function publishIssue(
-  draftFile: string,
-  expectedDraftSha256: string,
+  prepared: IssueDraftResult,
   gateway: IssueGateway,
 ): IssuePublishResult {
-  if (!path.isAbsolute(draftFile)) throw new FlowError('--draft must be absolute');
-  const receipt = receiptPath(draftFile);
-  if (fs.existsSync(receipt)) throw new FlowError('issue draft was already published');
-  const loaded = loadDraft(draftFile);
-  if (sha256(loaded.content) !== expectedDraftSha256) {
-    throw new FlowError('issue draft digest no longer matches the validated draft');
-  }
-  const { draft } = loaded;
-  const body = currentBody(draft);
-  const publicContract = parsePublicIssueBody(body);
-  requireValidPlan(draft.issue_number ?? 1, draft.title, publicContract.plan);
-  assertGitHubRemote(draft.repo, draft.remote, draft.repository);
+  const { draft, body } = prepared;
   let issue: GitHubIssue;
   if (draft.issue_number === null) {
-    issue = gateway.create(draft.repository, draft.title, draft.body_file);
+    issue = gateway.create(draft.repository, draft.title, prepared.body_markdown);
   } else {
     if (!draft.existing_issue) throw new FlowError('update draft has no target snapshot');
     const current = gateway.view(draft.repository, draft.issue_number);
@@ -191,7 +135,12 @@ export function publishIssue(
         throw new FlowError('target issue changed after draft validation', 'state_error');
       }
       try {
-        issue = gateway.edit(draft.repository, draft.issue_number, draft.title, draft.body_file);
+        issue = gateway.edit(
+          draft.repository,
+          draft.issue_number,
+          draft.title,
+          prepared.body_markdown,
+        );
       } catch (error) {
         const recovered = gateway.view(draft.repository, draft.issue_number);
         if (recovered.title !== draft.title || recovered.body !== body) {
@@ -202,13 +151,5 @@ export function publishIssue(
     }
   }
   verifyPublished(draft, body, issue);
-  atomicWrite(receipt, {
-    protocol: PUBLISHED_ISSUE_PROTOCOL,
-    published_at: new Date().toISOString(),
-    repo: draft.repo,
-    repository: draft.repository,
-    draft_sha256: sha256(loaded.content),
-    issue_number: issue.number,
-  });
-  return { issue, receipt_json: receipt };
+  return { issue };
 }

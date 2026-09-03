@@ -11,7 +11,7 @@ description: 公開 GitHub Issue の Plan 1件を実装・検証し、任意で 
 
 - 明示的な invocation では`#123`のような Issue shorthand を受け付け、現在の worktree の`origin` GitHub repository から選ぶ。hook が小さな Build input を準備する。実行 step を手書きしない。
 - controller は GitHub network access を有効にして実行し、固定済み Issue の読み取りも controller 自身に行わせる。execution sandbox が`api.github.com`を拒否した場合は、同じ controller command を network escalation 付きで再実行する。準備のために別の`gh ... view`を実行せず、ブラウザの内容を contract の代わりにしない。
-- Build 開始時に選択した Issue を 1 回だけ読み、その terminal JSON Plan を唯一の実装 authority とする。公開者の local receipt、別 rendering、body hash は要求しない。
+- Build 開始時に選択した Issue を 1 回だけ読み、一意な`## Plan` section 内の JSON Plan を唯一の実装 authority とする。周囲の表示用 markup、公開者の local receipt、別 rendering、body hash は要求しない。
 - controller は Plan から actor goal、結合した file scope、test command を導出する。Build input を実装意図の別 source にしない。
 - final test 後に、公開済みの goals と contracts に対して差分全体を独立した read-only SDK review にかける。
 

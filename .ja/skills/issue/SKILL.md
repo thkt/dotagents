@@ -22,9 +22,9 @@ description: レビュー済みのResearchとThink成果物から、人間が読
 - controller は GitHub network access を有効にして実行する。execution sandbox が`api.github.com`を拒否した場合は、承認が消費される前に同じ hook-bound コマンドを network escalation 付きで再実行する。
 - GitHub へ書き込む前に draft を作成する。
 - deterministic な draft error は再試行しない。network または credential の回復で変化し得る GitHub access failure だけを再試行する。
-- GitHub へ書き込む直前に、承認対象の draft と update 対象が変更されていないことを確認する。
-- 折りたたんだ`## Plan`の下に JSON Plan を 1 件だけ公開し、publication metadata、別の encoded Plan、Plan hash を追加しない。
-- Issue URL、任意の監査用 receipt、`repo + issue_number`の Build selector を返す。
+- Plan は draft 作成時に検証し、GitHub へ書き込む直前には update 対象が変更されていないことだけを確認する。
+- `## Plan`の下に JSON Plan を 1 件だけ公開する。renderer は読みやすさのために折りたたんでもよいが、Build は周囲の表示用 markup に依存しない。
+- Issue URL と`repo + issue_number`の Build selector を返す。
 
 ## エスカレーション
 
@@ -32,4 +32,4 @@ Plan が不正または不完全な場合は公開せず`think`に戻す。GitHu
 
 ## 報告
 
-公開 Plan と workflow artifact は英語のままにする。Issue の title、prose、Issue URL、任意の receipt、Build source、次の状態を含む最終報告は設定言語で書く。source 不在で明示停止した場合は、`missing_decision`、GitHub write なし、次の状態として think を報告する。どちらの次状態にも進まない。
+公開 Plan と workflow artifact は英語のままにする。Issue の title、prose、Issue URL、Build source、次の状態を含む最終報告は設定言語で書く。source 不在で明示停止した場合は、`missing_decision`、GitHub write なし、次の状態として think を報告する。どちらの次状態にも進まない。
