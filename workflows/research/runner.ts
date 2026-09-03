@@ -4,20 +4,14 @@
 import { consumeIntentAfter, requireResearchIntent } from '../invocation.ts';
 import { parseCommand, requireExactFlags } from '../shared/cli.ts';
 import { RESEARCH_COMMAND, isMainModule } from '../shared/environment.ts';
-import {
-  requireConfiguredLanguage,
-  resolveConfiguredLanguage,
-  type ConfiguredLanguage,
-} from '../shared/language.ts';
 import { FlowError } from '../shared/errors.ts';
 import { readAbsoluteJson, runCli } from '../shared/runtime.ts';
 import {
   RESEARCH_DESCRIPTION_PROTOCOL,
-  RESEARCH_INPUT_PROTOCOL,
   RESEARCH_RESULT_PROTOCOL,
   validateResearchInput,
 } from './contracts.ts';
-import { runResearch, type ResearchRunResult } from './pipeline.ts';
+import { runResearch } from './pipeline.ts';
 import type { ResearchAgent } from './agent.ts';
 
 interface ResearchDescription {
@@ -29,18 +23,14 @@ interface ResearchDescription {
     task_binding: 'hook-injected';
   };
   input_template: {
-    protocol: typeof RESEARCH_INPUT_PROTOCOL;
     repo: string;
     question: string;
-    mode: 'understand';
     scope_paths: string[];
-    external_sources: 'none';
-    language: ConfiguredLanguage;
+    allow_external_sources: false;
   };
   contracts: {
-    mode: string;
     scope_paths: string;
-    external_sources: string;
+    allow_external_sources: string;
     artifacts: string;
   };
 }
@@ -52,14 +42,11 @@ export interface ResearchCommandResult {
   report_markdown: string;
   findings: number;
   unknowns: number;
-  next_step: ResearchRunResult['report']['next_step'];
-  context_status: ResearchRunResult['context_status'];
+  next_step: 'think';
 }
 
 /** Exposes the authoring contract without starting a workflow or model. */
-export function describeResearch(
-  language: ConfiguredLanguage = resolveConfiguredLanguage('japanese'),
-): ResearchDescription {
+export function describeResearch(): ResearchDescription {
   return {
     protocol: RESEARCH_DESCRIPTION_PROTOCOL,
     outcome:
@@ -70,21 +57,18 @@ export function describeResearch(
       task_binding: 'hook-injected',
     },
     input_template: {
-      protocol: RESEARCH_INPUT_PROTOCOL,
       repo: '/absolute/git-root',
       question: 'One answerable project or technical question',
-      mode: 'understand',
       scope_paths: [],
-      external_sources: 'none',
-      language,
+      allow_external_sources: false,
     },
     contracts: {
-      mode: 'understand completes; plan hands off to think; diagnose hands off to fix',
       scope_paths:
         'empty means the repository; otherwise every repository citation stays inside these paths',
-      external_sources: 'none, primary, or broad',
+      allow_external_sources:
+        'false keeps research repository-only; true permits external evidence with primary sources preferred',
       artifacts:
-        'repository-local ignored cache holds the JSON handoff and paired Markdown; it is not Build authority',
+        'repository-local ignored cache holds the JSON handoff, paired Markdown, and automatically rebuilt Knowledge; none is Build authority',
     },
   };
 }
@@ -95,9 +79,9 @@ export async function runResearchWorkflow(
   inputFile: string,
   agent?: ResearchAgent,
 ): Promise<ResearchCommandResult> {
-  const input = validateResearchInput(readAbsoluteJson(inputFile, 'research'));
-  requireResearchIntent(runId, input.repo, inputFile);
-  requireConfiguredLanguage(input.language);
+  const request = validateResearchInput(readAbsoluteJson(inputFile, 'research'));
+  requireResearchIntent(runId, request.repo, inputFile);
+  const input = request;
   const result = await consumeIntentAfter(runId, () => runResearch(input, agent));
   return {
     protocol: RESEARCH_RESULT_PROTOCOL,
@@ -106,8 +90,7 @@ export async function runResearchWorkflow(
     report_markdown: result.report_markdown,
     findings: result.report.findings.length,
     unknowns: result.report.unknowns.length,
-    next_step: result.report.next_step,
-    context_status: result.context_status,
+    next_step: 'think',
   };
 }
 

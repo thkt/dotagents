@@ -1,0 +1,162 @@
+/** @file Outcome: A public Plan contains only the information needed to implement and verify an Issue. */
+
+import { FlowError } from '../shared/errors.ts';
+import {
+  isObject,
+  objectArray,
+  rejectUnknownKeys,
+  requiredString,
+  stringArray,
+} from '../shared/schema.ts';
+import { oneLine, sentenceItems } from '../shared/text.ts';
+import type { ScreenshotSpec } from '../build/screenshot-contract.ts';
+
+export interface BuildPlanAuthoring {
+  outcome: string;
+  test_command: string;
+  manual_verification: string[];
+  screenshots?: ScreenshotSpec[];
+  units: Array<{
+    goal: string;
+    files: string[];
+    contract: string;
+    tests: string[];
+  }>;
+}
+
+export interface CompiledBuildPlan {
+  authoring: BuildPlanAuthoring;
+  value: BuildPlanAuthoring;
+  markdown: string;
+}
+
+const STRING_ARRAY_SCHEMA = { type: 'array', items: { type: 'string' } } as const;
+
+export const BUILD_PLAN_AUTHORING_SCHEMA = {
+  type: 'object',
+  properties: {
+    outcome: { type: 'string' },
+    test_command: { type: 'string' },
+    manual_verification: STRING_ARRAY_SCHEMA,
+    screenshots: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { name: { type: 'string' }, alt: { type: 'string' } },
+        required: ['name', 'alt'],
+        additionalProperties: false,
+      },
+    },
+    units: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          goal: { type: 'string' },
+          files: STRING_ARRAY_SCHEMA,
+          contract: { type: 'string' },
+          tests: STRING_ARRAY_SCHEMA,
+        },
+        required: ['goal', 'files', 'contract', 'tests'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['outcome', 'test_command', 'manual_verification', 'units'],
+  additionalProperties: false,
+} as const;
+
+export function parseBuildPlanAuthoring(raw: unknown): BuildPlanAuthoring {
+  if (!isObject(raw)) throw new FlowError('build plan must be an object', 'execution_error');
+  rejectUnknownKeys(
+    raw,
+    ['outcome', 'test_command', 'manual_verification', 'screenshots', 'units'],
+    'build plan',
+    'execution_error',
+  );
+  const screenshots =
+    raw.screenshots === undefined
+      ? undefined
+      : objectArray(raw.screenshots, 'build plan.screenshots').map((item, index) => {
+          const label = `build plan.screenshots[${index}]`;
+          rejectUnknownKeys(item, ['name', 'alt'], label, 'execution_error');
+          return {
+            name: requiredString(item.name, `${label}.name`, 'execution_error'),
+            alt: requiredString(item.alt, `${label}.alt`, 'execution_error'),
+          };
+        });
+  const units = objectArray(raw.units, 'build plan.units').map((item, index) => {
+    const label = `build plan.units[${index}]`;
+    rejectUnknownKeys(item, ['goal', 'files', 'contract', 'tests'], label, 'execution_error');
+    return {
+      goal: requiredString(item.goal, `${label}.goal`, 'execution_error'),
+      files: stringArray(item.files, `${label}.files`, 'execution_error'),
+      contract: requiredString(item.contract, `${label}.contract`, 'execution_error'),
+      tests: stringArray(item.tests, `${label}.tests`, 'execution_error'),
+    };
+  });
+  return {
+    outcome: requiredString(raw.outcome, 'build plan.outcome', 'execution_error'),
+    test_command: requiredString(raw.test_command, 'build plan.test_command', 'execution_error'),
+    manual_verification: stringArray(
+      raw.manual_verification,
+      'build plan.manual_verification',
+      'execution_error',
+    ),
+    ...(screenshots === undefined ? {} : { screenshots }),
+    units,
+  };
+}
+
+function labeledItems(label: string, value: string): string[] {
+  return [`- ${label}:`, ...sentenceItems(value).map((item) => `  - ${item}`)];
+}
+
+export function renderPlanMarkdown(plan: BuildPlanAuthoring): string {
+  const labels = {
+    outcome: 'Outcome',
+    test: 'Test command',
+    contract: 'Contract',
+    acceptance: 'Acceptance',
+    manual: 'Manual verification',
+  };
+  const lines = [
+    '## Plan',
+    '',
+    ...labeledItems(labels.outcome, plan.outcome),
+    `- ${labels.test}: \`${plan.test_command}\``,
+    '',
+  ];
+  for (const [index, unit] of plan.units.entries()) {
+    lines.push(
+      `### ${index + 1}. ${oneLine(unit.goal)}`,
+      '',
+      `- files: ${unit.files.map((file) => `\`${file}\``).join(', ')}`,
+      ...labeledItems(labels.contract, unit.contract),
+      `- ${labels.acceptance}:`,
+      ...unit.tests.map((test) => `  - ${oneLine(test)}`),
+      '',
+    );
+  }
+  if (plan.manual_verification.length) {
+    lines.push(
+      `### ${labels.manual}`,
+      '',
+      ...plan.manual_verification.map((item) => `- ${oneLine(item)}`),
+      '',
+    );
+  }
+  if (plan.screenshots?.length) {
+    lines.push(
+      '### PR screenshots',
+      '',
+      ...plan.screenshots.map((item) => `- \`${item.name}\`: ${oneLine(item.alt)}`),
+      '',
+    );
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+export function compileBuildPlan(authoring: BuildPlanAuthoring): CompiledBuildPlan {
+  return { authoring, value: authoring, markdown: renderPlanMarkdown(authoring) };
+}

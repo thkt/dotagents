@@ -5,7 +5,7 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'bun:test';
 
-import { codeFence, describe, main, render, validatePayload } from '../../flow/build/pr-body.ts';
+import { codeFence, describe, main, render, validatePayload } from '../../build/pr-body.ts';
 import { temporaryDirectory } from '../shared/fixtures.ts';
 
 function payload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -28,12 +28,12 @@ test('renders a compact clean status with the GitHub closing keyword', () => {
 });
 
 test('self-describes a payload accepted by the same renderer', () => {
-  const description = describe('japanese');
+  const description = describe();
   assert.equal(description.protocol, 'codex-build-pr-body-description');
   assert.match(description.command, /--input.*--output/u);
   assert.doesNotThrow(() => validatePayload(description.input_template));
   assert.match(render(description.input_template), /Closes #123/);
-  assert.equal(description.input_template.language, 'japanese');
+  assert.equal('language' in description.input_template, false);
   assert.deepEqual(main(['describe']).report, description);
 });
 
@@ -67,10 +67,11 @@ test('uses a longer fence than backtick runs in command output', () => {
   assert.ok(fenced.endsWith('\n````'));
 });
 
-test('renders Japanese fixed labels without trusting agent-authored labels', () => {
-  const body = render(payload({ language: 'japanese', manual_checks: ['画面を確認する'] }));
-  assert.match(body, /build の自動検証結果/);
-  assert.match(body, /実機確認/);
+test('renders one English contract while preserving supplied checklist text', () => {
+  const body = render(payload({ manual_checks: ['画面を確認する'] }));
+  assert.match(body, /Automated build verification/);
+  assert.match(body, /Manual verification checklist/);
+  assert.match(body, /画面を確認する/);
 });
 
 test('renders declared screenshots as local references for gh to rewrite', () => {

@@ -61,6 +61,13 @@ interface ArmIntentOptions {
   cwd: string;
 }
 
+type WorkflowInputName =
+  | 'build input'
+  | 'code input'
+  | 'issue input'
+  | 'research input'
+  | 'think input';
+
 function hasRunningFlow(runId: string): boolean {
   try {
     const value = JSON.parse(fs.readFileSync(statePath(runId), 'utf8')) as { status?: unknown };
@@ -166,6 +173,7 @@ function armIntent({ runId, workflow, cwd }: ArmIntentOptions): WorkflowIntent {
     if (approval) armApproval(approval, runId, repo);
     return existing;
   }
+  if (existing) clearIntent(runId);
   const stored: StoredWorkflowIntent = {
     protocol: INTENT_PROTOCOL,
     run_id: runId,
@@ -232,7 +240,7 @@ function requireBoundIntent(
   workflow: WorkflowInvocation,
   repo: string,
   inputFile: string,
-  inputName: 'build input' | 'manifest' | 'issue input' | 'research input' | 'think input',
+  inputName: WorkflowInputName,
 ): WorkflowIntent {
   const intent = requireBoundInput(runId, workflow, inputFile, inputName);
   if (intent.repo !== repo) throw new Error('workflow intent belongs to a different Git worktree');
@@ -243,7 +251,7 @@ function requireBoundInput(
   runId: string,
   workflow: WorkflowInvocation,
   inputFile: string,
-  inputName: 'build input' | 'manifest' | 'issue input' | 'research input' | 'think input',
+  inputName: WorkflowInputName,
 ): WorkflowIntent {
   const intent = loadIntent(runId);
   if (!intent || intent.workflow !== workflow)
@@ -259,7 +267,7 @@ function stopPendingIntent(
   runId: string,
   workflow: WorkflowInvocation,
   inputFile: string,
-  inputName: 'build input' | 'manifest' | 'issue input' | 'research input' | 'think input',
+  inputName: WorkflowInputName,
 ): WorkflowIntent {
   const intent = requireBoundInput(runId, workflow, inputFile, inputName);
   clearIntent(runId);
@@ -271,9 +279,9 @@ function requireIntent(
   runId: string,
   workflow: Workflow,
   repo: string,
-  manifestFile: string,
+  inputFile: string,
 ): WorkflowIntent {
-  return requireBoundIntent(runId, workflow, repo, manifestFile, 'manifest');
+  return requireBoundIntent(runId, workflow, repo, inputFile, 'code input');
 }
 
 /** Proves that Build startup uses only its hook-bound request file. */

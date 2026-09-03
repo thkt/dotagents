@@ -7,7 +7,7 @@ node_modules/
 !skills/build/**
 !.ja/skills/build/
 !.ja/skills/build/**
-!workflows/flow/build/
-!workflows/flow/build/**
+!workflows/build/
+!workflows/build/**
 !workflows/tests/build/
 !workflows/tests/build/**

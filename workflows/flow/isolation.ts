@@ -5,13 +5,7 @@ import * as fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import {
-  GATE_PROTOCOL,
-  type BuildPlanUnit,
-  type CalibrationCandidate,
-  type GateOptions,
-  type GateReport,
-} from './contracts.ts';
+import { GATE_PROTOCOL, type GateOptions, type GateReport } from './contracts.ts';
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
 import {
   gitOptionalText,
@@ -210,8 +204,15 @@ export async function runIsolatedActor(
     );
   }
   const changed = snapshotChanges(before.changes, after.changes);
-  const allowed = new Set(allowedFiles);
-  const outside = changed.filter((relative) => !allowed.has(relative));
+  const outside = changed.filter(
+    (relative) =>
+      !allowedFiles.some(
+        (scope) =>
+          scope === '.' ||
+          relative === scope ||
+          relative.startsWith(`${scope.replace(/\/$/u, '')}/`),
+      ),
+  );
   if (outside.length) {
     throw new FlowError(
       `actor changed files outside its declared scope: ${outside.join(', ')}`,
@@ -225,13 +226,9 @@ export async function runIsolatedActor(
 }
 
 /** Runs a gate in a disposable clone and blocks if it attempts any mutation. */
-export function runIsolatedShellVerification(
-  options: GateOptions,
-  plannedTests?: BuildPlanUnit['tests'] | null,
-): {
+export function runIsolatedShellVerification(options: GateOptions): {
   report: GateReport;
   processExitCode: number;
-  candidates: CalibrationCandidate[];
 } {
   let created: RepositorySandbox;
   try {
@@ -239,7 +236,6 @@ export function runIsolatedShellVerification(
   } catch (error) {
     return {
       processExitCode: 2,
-      candidates: [],
       report: {
         protocol: GATE_PROTOCOL,
         gate_id: options.gateId,
@@ -268,7 +264,7 @@ export function runIsolatedShellVerification(
   }
   using sandbox = created;
   const before = repositoryInvariant(sandbox.directory);
-  const result = runShellVerification({ ...options, cwd: sandbox.directory }, plannedTests);
+  const result = runShellVerification({ ...options, cwd: sandbox.directory });
   const after = repositoryInvariant(sandbox.directory);
   const report = {
     ...result.report,
@@ -277,7 +273,6 @@ export function runIsolatedShellVerification(
   if (sameRepositoryInvariant(before, after)) return { ...result, report };
   return {
     processExitCode: 2,
-    candidates: result.candidates,
     report: {
       ...report,
       verdict: 'blocked',

@@ -4,7 +4,6 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 
 import { FlowError } from '../shared/errors.ts';
-import { CONFIGURED_LANGUAGES, type ConfiguredLanguage } from '../shared/language.ts';
 import { gitRoot, normalizeRepoPath, realpathInside } from '../shared/repository.ts';
 import {
   enumValue,
@@ -15,41 +14,24 @@ import {
   stringArray,
   type JsonObject,
 } from '../shared/schema.ts';
-import { parseStageTimings, type StageTimings } from '../shared/codex.ts';
 
-export const RESEARCH_INPUT_PROTOCOL = 'codex-research-input' as const;
 export const RESEARCH_REPORT_PROTOCOL = 'codex-research-report' as const;
 export const RESEARCH_RESULT_PROTOCOL = 'codex-research-result' as const;
 export const RESEARCH_DESCRIPTION_PROTOCOL = 'codex-research-description' as const;
 
-export type ResearchMode = 'understand' | 'plan' | 'diagnose';
-type ExternalSources = 'none' | 'primary' | 'broad';
 type EvidenceKind = 'repository' | 'web';
 type FindingKind = 'fact' | 'inference';
 type Confidence = 'high' | 'medium' | 'low';
-export type ResearchNextStep = 'think' | 'fix' | 'complete';
-
 const LINE_LOCATOR = /^L\d+(?:-L?\d+)?$/u;
-const NEXT_STEP_BY_MODE: Record<ResearchMode, ResearchNextStep> = {
-  understand: 'complete',
-  plan: 'think',
-  diagnose: 'fix',
-};
-
-/** Maps a research purpose to its only valid handoff state. */
-export function researchNextStep(mode: ResearchMode): ResearchNextStep {
-  return NEXT_STEP_BY_MODE[mode];
-}
 
 export interface ResearchInput {
-  protocol: typeof RESEARCH_INPUT_PROTOCOL;
   repo: string;
   question: string;
-  mode: ResearchMode;
   scope_paths: string[];
-  external_sources: ExternalSources;
-  language: ConfiguredLanguage;
+  allow_external_sources: boolean;
 }
+
+export type ResearchRequest = ResearchInput;
 
 export interface ResearchEvidence {
   kind: EvidenceKind;
@@ -58,16 +40,7 @@ export interface ResearchEvidence {
   supports: string;
 }
 
-interface RepositoryReportEvidence extends ResearchEvidence {
-  kind: 'repository';
-  source_sha256: string;
-}
-
-interface WebReportEvidence extends ResearchEvidence {
-  kind: 'web';
-}
-
-export type ResearchReportEvidence = RepositoryReportEvidence | WebReportEvidence;
+export type ResearchReportEvidence = ResearchEvidence;
 
 interface ResearchDraftFinding {
   statement: string;
@@ -107,24 +80,14 @@ export interface ResearchAudit {
   rejected: RejectedFinding[];
   unknowns: ResearchUnknown[];
   limitations: string[];
-  prior_reports: string[];
 }
 
 export interface ResearchReport extends Omit<ResearchAudit, 'findings'> {
   protocol: typeof RESEARCH_REPORT_PROTOCOL;
   generated_at: string;
   question: string;
-  mode: ResearchMode;
-  language: ConfiguredLanguage;
   scope_paths: string[];
-  external_sources: ExternalSources;
-  repository: {
-    head: string | null;
-    dirty: boolean;
-  };
   findings: ResearchReportFinding[];
-  next_step: ResearchNextStep;
-  timings: StageTimings;
 }
 
 const EVIDENCE_SCHEMA = {
@@ -203,9 +166,8 @@ export const RESEARCH_AUDIT_SCHEMA = {
     },
     unknowns: { type: 'array', items: UNKNOWN_SCHEMA },
     limitations: { type: 'array', items: { type: 'string' } },
-    prior_reports: { type: 'array', items: { type: 'string' } },
   },
-  required: ['answer', 'findings', 'rejected', 'unknowns', 'limitations', 'prior_reports'],
+  required: ['answer', 'findings', 'rejected', 'unknowns', 'limitations'],
   additionalProperties: false,
 } as const;
 
@@ -213,55 +175,30 @@ function validateScopePath(repo: string, value: string, label: string): string {
   const relative = normalizeRepoPath(value);
   if (!relative) throw new FlowError(`${label} must be a repo-relative path outside .git`);
   const absolute = path.resolve(repo, relative);
-  const stat = fs.lstatSync(absolute, { throwIfNoEntry: false });
-  if (
-    !stat ||
-    stat.isSymbolicLink() ||
-    (!stat.isFile() && !stat.isDirectory()) ||
-    !realpathInside(repo, absolute)
-  ) {
+  const stat = fs.statSync(absolute, { throwIfNoEntry: false });
+  if (!stat || (!stat.isFile() && !stat.isDirectory()) || !realpathInside(repo, absolute)) {
     throw new FlowError(`${label} must name an existing file or directory inside the repository`);
   }
   return relative;
 }
 
 /** Validates the caller-authored research boundary before any agent starts. */
-export function validateResearchInput(raw: unknown): ResearchInput {
-  if (!isObject(raw) || raw.protocol !== RESEARCH_INPUT_PROTOCOL) {
-    throw new FlowError(`research input.protocol must be ${RESEARCH_INPUT_PROTOCOL}`);
-  }
-  rejectUnknownKeys(
-    raw,
-    ['protocol', 'repo', 'question', 'mode', 'scope_paths', 'external_sources', 'language'],
-    'research input',
-  );
-  if (typeof raw.repo !== 'string' || !path.isAbsolute(raw.repo)) {
-    throw new FlowError('research input.repo must be absolute');
-  }
-  const repo = gitRoot(raw.repo, 'research input.repo must be a Git worktree');
-  if (fs.realpathSync(raw.repo) !== repo)
-    throw new FlowError('research input.repo must equal the Git root');
+export function validateResearchInput(raw: unknown): ResearchRequest {
+  if (!isObject(raw)) throw new FlowError('research input must be an object');
+  const repoPath = requiredString(raw.repo, 'research input.repo');
+  const repo = gitRoot(repoPath, 'research input.repo must be a Git worktree');
   const question = requiredString(raw.question, 'research input.question');
-  const mode = enumValue(
-    raw.mode,
-    ['understand', 'plan', 'diagnose'] as const,
-    'research input.mode',
-  );
-  const scopePaths = stringArray(raw.scope_paths, 'research input.scope_paths').map(
+  const scopePaths = stringArray(raw.scope_paths ?? [], 'research input.scope_paths').map(
     (value, index) => validateScopePath(repo, value, `research input.scope_paths[${index}]`),
   );
+  if (raw.allow_external_sources !== undefined && typeof raw.allow_external_sources !== 'boolean') {
+    throw new FlowError('research input.allow_external_sources must be boolean');
+  }
   return {
-    protocol: RESEARCH_INPUT_PROTOCOL,
     repo,
     question,
-    mode,
     scope_paths: [...new Set(scopePaths)],
-    external_sources: enumValue(
-      raw.external_sources,
-      ['none', 'primary', 'broad'] as const,
-      'research input.external_sources',
-    ),
-    language: enumValue(raw.language, CONFIGURED_LANGUAGES, 'research input.language'),
+    allow_external_sources: raw.allow_external_sources === true,
   };
 }
 
@@ -282,11 +219,7 @@ function parseReportEvidence(raw: JsonObject, label: string): ResearchReportEvid
     `${label}.kind`,
     'execution_error',
   );
-  const keys =
-    kind === 'repository'
-      ? ['kind', 'source', 'locator', 'supports', 'source_sha256']
-      : ['kind', 'source', 'locator', 'supports'];
-  rejectUnknownKeys(raw, keys, label, 'execution_error');
+  rejectUnknownKeys(raw, ['kind', 'source', 'locator', 'supports'], label, 'execution_error');
   const evidence = {
     kind,
     source: requiredString(raw.source, `${label}.source`, 'execution_error'),
@@ -308,18 +241,7 @@ function parseReportEvidence(raw: JsonObject, label: string): ResearchReportEvid
       'execution_error',
     );
   }
-  const sourceSha256 = requiredString(
-    raw.source_sha256,
-    `${label}.source_sha256`,
-    'execution_error',
-  );
-  if (!/^[a-f0-9]{64}$/u.test(sourceSha256)) {
-    throw new FlowError(
-      `${label}.source_sha256 must be a lowercase SHA-256 digest`,
-      'execution_error',
-    );
-  }
-  return { ...evidence, kind: 'repository', source_sha256: sourceSha256 };
+  return { ...evidence, kind: 'repository' };
 }
 
 function parseUnknown(raw: JsonObject, label: string): ResearchUnknown {
@@ -408,7 +330,7 @@ export function parseResearchAudit(raw: unknown): ResearchAudit {
     throw new FlowError('research auditor returned an invalid object', 'execution_error');
   rejectUnknownKeys(
     raw,
-    ['answer', 'findings', 'rejected', 'unknowns', 'limitations', 'prior_reports'],
+    ['answer', 'findings', 'rejected', 'unknowns', 'limitations'],
     'research audit',
     'execution_error',
   );
@@ -433,11 +355,6 @@ export function parseResearchAudit(raw: unknown): ResearchAudit {
       parseUnknown(item, `research audit.unknowns[${index}]`),
     ),
     limitations: stringArray(raw.limitations, 'research audit.limitations', 'execution_error'),
-    prior_reports: stringArray(
-      raw.prior_reports ?? [],
-      'research audit.prior_reports',
-      'execution_error',
-    ),
   };
 }
 
@@ -455,19 +372,12 @@ export function parseResearchReport(raw: unknown): ResearchReport {
       'protocol',
       'generated_at',
       'question',
-      'mode',
-      'language',
       'scope_paths',
-      'external_sources',
-      'repository',
       'answer',
       'findings',
       'rejected',
       'unknowns',
       'limitations',
-      'prior_reports',
-      'next_step',
-      'timings',
     ],
     'research report',
     'execution_error',
@@ -485,44 +395,6 @@ export function parseResearchReport(raw: unknown): ResearchReport {
       'research report.generated_at must be a canonical ISO timestamp',
       'execution_error',
     );
-  }
-  const mode = enumValue(
-    raw.mode,
-    ['understand', 'plan', 'diagnose'] as const,
-    'research report.mode',
-    'execution_error',
-  );
-  const nextStep = enumValue(
-    raw.next_step,
-    ['think', 'fix', 'complete'] as const,
-    'research report.next_step',
-    'execution_error',
-  );
-  const timings = parseStageTimings(raw.timings, 'research report.timings', 'execution_error');
-  if (nextStep !== researchNextStep(mode)) {
-    throw new FlowError('research report.next_step does not match mode', 'execution_error');
-  }
-  if (!isObject(raw.repository)) {
-    throw new FlowError('research report.repository must be an object', 'execution_error');
-  }
-  rejectUnknownKeys(
-    raw.repository,
-    ['head', 'dirty'],
-    'research report.repository',
-    'execution_error',
-  );
-  const repositoryHead = raw.repository.head;
-  if (
-    repositoryHead !== null &&
-    (typeof repositoryHead !== 'string' || !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(repositoryHead))
-  ) {
-    throw new FlowError(
-      'research report.repository.head must be a Git object id or null',
-      'execution_error',
-    );
-  }
-  if (typeof raw.repository.dirty !== 'boolean') {
-    throw new FlowError('research report.repository.dirty must be boolean', 'execution_error');
   }
   const findings = objectArray(raw.findings, 'research report.findings').map((item, index) => {
     const label = `research report.findings[${index}]`;
@@ -549,21 +421,6 @@ export function parseResearchReport(raw: unknown): ResearchReport {
       'execution_error',
     );
   }
-  const externalSources = enumValue(
-    raw.external_sources,
-    ['none', 'primary', 'broad'] as const,
-    'research report.external_sources',
-    'execution_error',
-  );
-  if (
-    externalSources === 'none' &&
-    findings.some((finding) => finding.evidence.some((evidence) => evidence.kind === 'web'))
-  ) {
-    throw new FlowError(
-      'research report contains web evidence while external sources are disabled',
-      'execution_error',
-    );
-  }
   const unknowns = objectArray(raw.unknowns, 'research report.unknowns').map((item, index) =>
     parseUnknown(item, `research report.unknowns[${index}]`),
   );
@@ -577,16 +434,7 @@ export function parseResearchReport(raw: unknown): ResearchReport {
     protocol: RESEARCH_REPORT_PROTOCOL,
     generated_at: generatedAt,
     question: requiredString(raw.question, 'research report.question', 'execution_error'),
-    mode,
-    language: enumValue(
-      raw.language,
-      CONFIGURED_LANGUAGES,
-      'research report.language',
-      'execution_error',
-    ),
     scope_paths: scopePaths,
-    external_sources: externalSources,
-    repository: { head: repositoryHead, dirty: raw.repository.dirty },
     answer: requiredString(raw.answer, 'research report.answer', 'execution_error'),
     findings,
     rejected: objectArray(raw.rejected, 'research report.rejected').map((item, index) =>
@@ -594,12 +442,5 @@ export function parseResearchReport(raw: unknown): ResearchReport {
     ),
     unknowns,
     limitations: stringArray(raw.limitations, 'research report.limitations', 'execution_error'),
-    prior_reports: stringArray(
-      raw.prior_reports ?? [],
-      'research report.prior_reports',
-      'execution_error',
-    ),
-    next_step: nextStep,
-    timings,
   };
 }

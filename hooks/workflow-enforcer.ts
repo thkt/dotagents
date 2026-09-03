@@ -18,7 +18,6 @@ import {
   parseExplicitInvocation,
   type WorkflowIntent,
 } from '../workflows/invocation.ts';
-import { BUILD_RUN_PROTOCOL } from '../workflows/flow/build/handoff.ts';
 import { githubRepositoryForRemote } from '../workflows/issue/github.ts';
 import { SHELL_CONTROL, shellArgument, shellWords } from '../workflows/shared/command.ts';
 import {
@@ -164,7 +163,7 @@ function commandSubcommand(command: string, executable: string): string | null {
 
 const WORKFLOW_RUNTIMES = {
   build: { executable: FLOW_COMMAND, flag: '--input', start: 'run', noun: 'build input' },
-  code: { executable: FLOW_COMMAND, flag: '--input', start: 'run', noun: 'manifest' },
+  code: { executable: FLOW_COMMAND, flag: '--input', start: 'run', noun: 'code input' },
   issue: { executable: ISSUE_COMMAND, flag: '--input', start: 'draft', noun: 'issue input' },
   research: { executable: RESEARCH_COMMAND, flag: '--input', start: 'run', noun: 'research input' },
   think: { executable: THINK_COMMAND, flag: '--input', start: 'run', noun: 'think input' },
@@ -354,8 +353,8 @@ function userPromptSubmit(input: HookInput): HookResponse {
     try {
       if (buildIssue !== null && buildRepository !== null) {
         atomicWrite(pending.input_path, {
-          protocol: BUILD_RUN_PROTOCOL,
-          source: { repository: buildRepository, issue_number: buildIssue },
+          repo: pending.repo,
+          issue_number: buildIssue,
           ship: true,
         });
       }
@@ -367,7 +366,7 @@ function userPromptSubmit(input: HookInput): HookResponse {
       pending.workflow === 'build'
         ? buildIssue === null
           ? ` Prepare the build input at ${pending.input_path}.`
-          : ` The build input for ${buildRepository}#${buildIssue} is already prepared. The controller will load the exact public Plan and compile its execution. If this invocation explicitly excludes Ship, set ship to false before running.`
+          : ` The build input for ${buildRepository}#${buildIssue} is already prepared. The controller will read the public Plan once and compile its execution. If this invocation explicitly excludes Ship, set ship to false before running.`
         : '';
     const { executable, flag, start, noun } = invocationRuntime(pending);
     const command = `${executable} ${start} ${flag} ${shellArgument(pending.input_path)}`;
@@ -379,7 +378,7 @@ function userPromptSubmit(input: HookInput): HookResponse {
       workflow === 'issue'
         ? " The user's leading explicit $issue invocation authorizes at most one GitHub Issue create or edit and, if absent, creation of its selected supported priority label for this task and repository; no additional publication confirmation is required. Run the controller with GitHub network access."
         : workflow === 'build'
-          ? " The user's leading explicit $build invocation authorizes exactly one push and one draft PR creation for this task and repository; include Ship unless the same request explicitly excludes push or draft PR creation, and do not request another Ship confirmation. Run the bound Issue read and controller with GitHub network access."
+          ? " The user's leading explicit $build invocation authorizes one final commit and, when Ship is enabled, one push and one draft PR creation for this task and repository; include Ship unless the same request explicitly excludes push or draft PR creation, and do not request another Ship confirmation. Run the bound Issue read and controller with GitHub network access."
           : '';
     return {
       hookSpecificOutput: {
@@ -456,15 +455,10 @@ function stop(input: HookInput): HookResponse {
       pending.workflow === 'issue'
         ? ` If no ready Think artifact exists, run ${ISSUE_COMMAND} stop --input ${shellArgument(pending.input_path)} instead.`
         : '';
-    const reason = `The explicit $${pending.workflow} workflow has not run. Create ${pending.input_path} and run ${command}.${stopAlternative}`;
-    if (input.stop_hook_active) {
-      clearIntent(pending.run_id);
-      return {
-        continue: false,
-        systemMessage: `${reason} Automatic continuation already ran once. Report the preparation blocker.`,
-      };
-    }
-    return { decision: 'block', reason };
+    return {
+      continue: false,
+      systemMessage: `The explicit $${pending.workflow} workflow is still pending. Continue it with ${command}.${stopAlternative} Its task-bound intent remains armed; report the blocker without retrying automatically.`,
+    };
   }
   const state = activeState(input.session_id);
   if (!state) return {};

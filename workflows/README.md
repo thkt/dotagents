@@ -1,39 +1,43 @@
-# Workflow contracts
+# Workflows
 
 The project outcome is defined in [.codex/OUTCOME.md](../.codex/OUTCOME.md).
-This document is the primary source for the stable handoff boundaries:
 
-- Think and Research model stages use the same-run immutable repository snapshot.
-- Build selects a public GitHub Issue contract by `repository + issue_number`; it does not depend on a publisher-local receipt or scan for the latest artifact.
-- A hook-created task directory owns ephemeral intent, approval, input, and controller records. Repository-local `.codex/workflow-artifacts/` is ignored handoff/audit cache, not Build authority. Paths stay stable; exact schema validation rejects incompatible task-local state, while cache remains rebuildable.
-- Protocol identifiers name one outcome-bearing contract, not a harness release, so every identifier is versionless. Parsers accept only the current exact schema. When a durable Issue, Plan, manifest, or task-local record is stale, recreate it with the current workflow instead of guessing or maintaining version branches.
-- A public Issue is durable cross-harness authority, not a task-local record. Publications use the stable `codex-public-build-contract` envelope and separately hashed publication identity. Build rejects stale envelopes and requires the Issue to be republished by the current Issue workflow.
-- Build derives actor goals, contracts, and verification commands from the loaded public Plan. After final tests, an independent read-only Codex SDK review checks the complete diff before Ship can begin.
-- External branch, commit, push, and draft-PR actions are reconciled from their observable postconditions when an interrupted controller resumes.
-- A terminal model failure consumes intent. A `model_unavailable` transport failure preserves it for an exact retry, as do input or binding validation failures.
-- A pending Issue with no ready Think artifact terminates only through the task-bound `codex-issue stop`; it revokes publication authority without requiring a placeholder input or GitHub access.
-- Issue generates the visible body and machine contract from one canonical Plan, then revalidates current source and exact identity before publishing once. Build revalidates that public Issue at startup, before semantic review, and before Ship.
-- Established decisions return to repository documentation so future Plans can cite them as knowledge.
-- An active controller can be cancelled only through task-bound `codex-flow cancel`, which revokes Ship authorization and records terminal `cancelled` state.
+## Flow
 
-Think Plans should cite this document and quote the applicable rule instead of restating it.
+1. Research gathers repository and optional external evidence into one report.
+2. Completed Research automatically rebuilds topic-based Knowledge summaries with links to their source findings.
+3. Think reads explicitly selected reports first, adds related Knowledge, and returns one Plan or focused Research questions.
+4. Issue publishes that Plan once beneath `## Plan` in a public GitHub Issue.
+5. Build reads the selected Issue once, implements the whole Plan, tests and reviews the result, then creates one commit.
+6. Ship pushes and creates a draft pull request only when explicitly authorized.
 
-## GitHub CLI access
+Code accepts a direct request and uses the same implementation executor as Build without Git actions.
 
-Every runtime `gh` call is declared in `shared/github.ts`; workflow modules use its literal argv builders instead of constructing GitHub commands themselves.
+## Ownership
 
-| Operations                                                                      | Access    | Required authority                                                                                            |
-| ------------------------------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------- |
-| `repo view`, `issue view`, publication-id Issue search, `label list`, `pr view` | Read-only | None; the exact command may still require sandbox network escalation                                          |
-| `label create`, `issue create`, `issue edit`                                    | Write     | A consumed, repository-bound `issue-publication` approval created by the leading explicit `$issue` invocation |
-| `pr create`                                                                     | Write     | A task- and repository-bound `build-ship` approval created by the leading explicit `$build` invocation        |
+| Directory    | Responsibility                                       |
+| ------------ | ---------------------------------------------------- |
+| `research/`  | Evidence collection and audited Research reports     |
+| `knowledge/` | Derived Knowledge updates and relevant lookup        |
+| `think/`     | Plan decisions and Research questions                |
+| `plan/`      | The shared Plan contract and validation              |
+| `issue/`     | Issue publication and the public Plan format         |
+| `build/`     | Issue loading, Build verification, commit, and Ship  |
+| `code/`      | Direct-request compilation                           |
+| `flow/`      | The implementation executor shared by Build and Code |
+| `shared/`    | Workflow-independent runtime support                 |
 
-The pending-Build hook permits only the exact source-bound `gh issue view` command. Issue-authored shell gates cannot invoke `gh`; all shell-gate subprocesses also run without GitHub tokens and with an isolated `GH_CONFIG_DIR`. Git push is a separate `build-ship` action and is not delegated to Issue-authored commands.
+## Boundaries
 
-GitHub network, authentication, or keyring access failure before branch creation leaves a cursor-zero Build retryable only while the manifest, `HEAD`, and worktree snapshot remain unchanged. A missing Issue, malformed GitHub response, or invalid Issue contract stays blocked and is not retryable as a network failure. A GitHub write failure never widens or restores a consumed write approval.
+- User-authored inputs contain semantic requests and selectors, not internal execution records.
+- Workflow contracts and durable artifacts use English. The invoking Skill translates only its final user-facing report into the configured language.
+- The public Issue Plan is Build authority. Local Issue drafts and receipts support publication recovery only.
+- Research reports remain the evidence record. Knowledge is a rebuildable topic summary with report and finding references; it never derives decisions from Issue artifacts.
+- Build and Code use one implementation actor for the complete requested scope. A failed test or blocking semantic review returns to that actor, followed by tests and review again.
+- Runtime GitHub commands are declared in `shared/github.ts`. Shell tests run without GitHub credentials.
+- Issue publication and Ship require separate explicit authorization. Code never commits, pushes, or creates a pull request.
+- Stable decisions belong in repository documentation rather than private workflow state.
 
-Ship recovery treats only GitHub's explicit “no pull request found” result as absence. An inaccessible, malformed, or mismatched existing PR blocks recovery instead of repeating `gh pr create`.
+## Verification
 
-# Verification
-
-依存関係を `bun.lock` どおりに再現して検証する標準経路は `bun run verify:clean` です。これは `bun install --frozen-lockfile --ignore-scripts` でこの repository の `node_modules` を構築した後、`check`（lint、format、typecheck、tests、skills validation）を実行します。`node_modules` の symlink や別 repository の依存関係を使わないでください。Bun 1.4.0 を使用します。
+Run `bun run check`. Use `bun run verify:clean` when dependencies must also be reconstructed from `bun.lock` with Bun 1.4.0.

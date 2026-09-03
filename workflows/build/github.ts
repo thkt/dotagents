@@ -1,14 +1,14 @@
 /** @file Outcome: Build observes one typed draft pull request and distinguishes absence from unsafe uncertainty. */
 
-import { FlowError, errorCode } from '../../shared/errors.ts';
+import { FlowError, errorCode } from '../shared/errors.ts';
 import {
   GITHUB_COMMAND_ERROR,
   GITHUB_RESPONSE_ERROR,
   githubPrView,
   parseGitHubJson,
   runGitHub,
-} from '../../shared/github.ts';
-import { isObject } from '../../shared/schema.ts';
+} from '../shared/github.ts';
+import { isObject } from '../shared/schema.ts';
 import { markdownScreenshotAlt, type ScreenshotSpec } from './screenshot-contract.ts';
 
 interface GitHubPullRequest {

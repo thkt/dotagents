@@ -1,6 +1,6 @@
 ---
 name: research
-description: Investigate one project or technical question into a source-checked artifact with independent audit and explicit unknowns. Use for an explicit research request; it does not implement changes or generate the Plan itself.
+description: Investigate one repository question into a source-checked report with independent audit and explicit unknowns. Use for an explicit research request; it does not implement changes or create a Plan.
 ---
 
 # Research
@@ -12,15 +12,15 @@ Run the bound workflow command with network access. If the sandbox blocks the ne
 
 ## Decisions
 
-- State one answerable question and whether the result supports understanding, planning, or diagnosis.
+- State one answerable question.
 - Set repository scope only when evidence outside it must be excluded.
-- Choose whether external sources are disabled, limited to primary sources, or broadly allowed.
+- Enable external sources only when repository evidence cannot answer the question; prefer primary sources when enabled.
 
 ## Boundaries
 
 - Leave unresolved claims explicit instead of completing them by assumption.
-- Context is supplied from authoritative artifacts; re-verify it against the repository or selected evidence, and never treat context itself as evidence.
+- Treat related Knowledge as a lead and cite the current repository or external source that supports each finding.
 
 ## Report
 
-Report the answer, verified finding and unknown counts, JSON and Markdown artifact paths, and the declared next state. Do not continue into it.
+Successful Research updates topic-based Knowledge automatically. Keep workflow artifacts in English. Translate only the final user-facing report into the configured language, including the answer, finding and unknown counts, artifact paths, and `think` as the next state. Do not continue into Think.

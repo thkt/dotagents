@@ -7,16 +7,13 @@ import {
   requireIssueIntent,
   stopPendingIntent,
 } from '../invocation.ts';
-import { BUILD_SOURCE_PROTOCOL } from '../flow/build/handoff.ts';
 import { parseCommand, requireExactFlags } from '../shared/cli.ts';
 import { ISSUE_COMMAND, isMainModule } from '../shared/environment.ts';
-import { resolveConfiguredLanguage, type ConfiguredLanguage } from '../shared/language.ts';
 import { FlowError } from '../shared/errors.ts';
 import { readAbsoluteJson, runCli } from '../shared/runtime.ts';
 import { ProgressReporter, workflowProgress } from '../shared/progress.ts';
 import {
   ISSUE_DESCRIPTION_PROTOCOL,
-  ISSUE_INPUT_PROTOCOL,
   ISSUE_RESULT_PROTOCOL,
   validateIssueInput,
 } from './contracts.ts';
@@ -33,24 +30,16 @@ interface IssueDescription {
     task_binding: 'hook-injected';
   };
   input_template: {
-    protocol: typeof ISSUE_INPUT_PROTOCOL;
     repo: string;
-    repository: string;
-    remote: 'origin';
     mode: 'create';
     think_report: string;
     title: string;
-    target_issue: null;
     priority: 'medium';
   };
   attach_plan_template: {
-    protocol: typeof ISSUE_INPUT_PROTOCOL;
     repo: string;
-    repository: string;
-    remote: 'origin';
     mode: 'attach-plan';
     think_report: string;
-    title: null;
     target_issue: number;
     priority: 'medium';
   };
@@ -64,8 +53,7 @@ export interface IssuePublishCommandResult {
   url: string;
   receipt_json: string;
   build_source: {
-    protocol: typeof BUILD_SOURCE_PROTOCOL;
-    repository: string;
+    repo: string;
     issue_number: number;
   };
   next_step: 'build';
@@ -82,9 +70,7 @@ export interface IssueStopCommandResult {
 type IssueCommandResult = IssuePublishCommandResult | IssueStopCommandResult;
 
 /** Exposes the human decisions while leaving Plan rendering and publication mechanics to code. */
-export function describeIssue(
-  language: ConfiguredLanguage = resolveConfiguredLanguage('japanese'),
-): IssueDescription {
+export function describeIssue(): IssueDescription {
   return {
     protocol: ISSUE_DESCRIPTION_PROTOCOL,
     outcome: 'One reviewed Plan is validated and published as a build-ready GitHub issue.',
@@ -95,35 +81,24 @@ export function describeIssue(
       task_binding: 'hook-injected',
     },
     input_template: {
-      protocol: ISSUE_INPUT_PROTOCOL,
       repo: '/absolute/git-root',
-      repository: 'owner/name',
-      remote: 'origin',
       mode: 'create',
       think_report: '/absolute/private-think-report.json',
-      title:
-        language === 'japanese'
-          ? '作業内容を具体的に表す短いタイトル'
-          : 'Concise title without a task-type prefix',
-      target_issue: null,
+      title: 'Concise title without a task-type prefix',
       priority: 'medium',
     },
     attach_plan_template: {
-      protocol: ISSUE_INPUT_PROTOCOL,
       repo: '/absolute/git-root',
-      repository: 'owner/name',
-      remote: 'origin',
       mode: 'attach-plan',
       think_report: '/absolute/private-think-report.json',
-      title: null,
       target_issue: 123,
       priority: 'medium',
     },
     contracts: {
-      source: 'think_report must be ready, share the current HEAD, and retain valid evidence',
+      source: 'think_report must contain a ready Plan',
       missing_source:
         'stop consumes the pending intent and publication approval without creating an input or writing to GitHub',
-      preview: 'draft is validated and publication verifies the exact draft before writing',
+      preview: 'draft is validated before publication',
       publish: 'the validated draft is published atomically from the caller perspective',
     },
   };
@@ -167,8 +142,7 @@ export function draftIssueWorkflow(
     url: published.issue.url,
     receipt_json: published.receipt_json,
     build_source: {
-      protocol: BUILD_SOURCE_PROTOCOL,
-      repository: input.repository,
+      repo: input.repo,
       issue_number: published.issue.number,
     },
     next_step: 'build',

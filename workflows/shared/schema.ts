@@ -33,10 +33,6 @@ export function requiredString(value: unknown, label: string, code = 'usage_erro
   return value.trim();
 }
 
-export function nullableString(value: unknown, label: string, code = 'usage_error'): string | null {
-  return value === null ? null : requiredString(value, label, code);
-}
-
 export function enumValue<T extends string>(
   value: unknown,
   values: readonly T[],

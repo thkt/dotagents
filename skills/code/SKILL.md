@@ -1,17 +1,18 @@
 ---
 name: code
-description: Implement multi-unit or TDD coding plans as scoped actor/gate units. Use when a request explicitly calls for structured editing and verification; do not use for a small direct fix.
+description: Implement one direct repository change with an optional scope and test command. Use for an explicit coding request that should not commit, push, or create a pull request.
 ---
 
 # Code
 
-Inspect the current workflow contract with `codex-flow describe --workflow code`. Read [shell gate evidence](../../workflows/flow/references/shell-gate.md) when choosing it.
+Inspect the current input with `codex-flow describe --workflow code`, then run the hook-bound command. The controller compiles the request through the same implementation executor used by Build.
 
 ## Decisions
 
-- Define the ordered units and an observable outcome for each.
-- Choose unit boundaries, Red/Green or Direct, and repository-native evidence.
-- Keep unrelated pre-existing changes outside every unit's file scope.
+- State one concrete change request.
+- Set `scope_paths` only when the allowed repository area must be narrowed.
+- Provide one repository test command when automatic inference is not appropriate.
+- Keep unrelated pre-existing changes outside the requested scope.
 
 ## References
 
@@ -26,4 +27,4 @@ Contract-external design gaps return to `think`; missing facts or evidence retur
 
 ## Report
 
-Report the terminal outcome, manifest hash, gate evidence, correction counts, and any blocker.
+Keep workflow contracts in English. Translate only the final user-facing report into the configured language, including the outcome, changed paths, test result, correction count, and any blocker. Code never commits, pushes, or creates a pull request.

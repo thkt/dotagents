@@ -13,7 +13,6 @@ import {
   defaultWorkflowRuntimeDirectory,
   resolveCodexHome,
 } from '../../shared/environment.ts';
-import { resolveConfiguredLanguage } from '../../shared/language.ts';
 import { workflowArtifactDirectory } from '../../shared/storage.ts';
 
 const EXPECTED_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -37,34 +36,11 @@ test('documents the outcome of every maintained TypeScript file', () => {
   }
 });
 
-test('groups workflow modules by outcome without feature dependencies in shared', () => {
-  const workflows = path.join(EXPECTED_ROOT, 'workflows');
-  const moduleDirectories = fs
-    .readdirSync(workflows, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .filter((entry) => typeScriptFiles(path.join(workflows, entry.name)).length > 0)
-    .map((entry) => entry.name)
-    .filter((name) => name !== 'tests')
-    .sort();
-  assert.deepEqual(moduleDirectories, [
-    'flow',
-    'issue',
-    'knowledge',
-    'research',
-    'shared',
-    'think',
-  ]);
-  assert.deepEqual(
-    fs
-      .readdirSync(workflows, { withFileTypes: true })
-      .filter((entry) => entry.isFile() && entry.name.endsWith('.ts'))
-      .map((entry) => entry.name),
-    ['invocation.ts'],
-  );
-  for (const file of typeScriptFiles(path.join(workflows, 'shared'))) {
+test('keeps shared workflow code independent of feature modules', () => {
+  for (const file of typeScriptFiles(path.join(EXPECTED_ROOT, 'workflows/shared'))) {
     assert.doesNotMatch(
       fs.readFileSync(file, 'utf8'),
-      /from ['"]\.\.\/(?:flow|issue|research|think|invocation)/u,
+      /from ['"]\.\.\/(?:build|code|flow|issue|plan|research|think|invocation)/u,
       file,
     );
   }
@@ -132,38 +108,10 @@ test('uses only stable versionless protocol identifiers at runtime', () => {
   assert.deepEqual(actual, []);
 });
 
-test('keeps build implementation and workflow tests with their owning workflow', () => {
+test('keeps Build and Plan implementation in the workflow package', () => {
   assert.equal(fs.existsSync(path.join(EXPECTED_ROOT, 'skills/build/scripts')), false);
-  assert.deepEqual(
-    fs
-      .readdirSync(path.join(EXPECTED_ROOT, 'workflows/flow/build'))
-      .filter((name) => name.endsWith('.ts'))
-      .sort(),
-    [
-      'actions.ts',
-      'artifacts.ts',
-      'authoring.ts',
-      'cli.ts',
-      'compile.ts',
-      'gates.ts',
-      'github.ts',
-      'handoff.ts',
-      'plan.ts',
-      'pr-body.ts',
-      'revalidate.ts',
-      'screenshot-contract.ts',
-      'screenshots.ts',
-    ],
-  );
-  assert.deepEqual(
-    fs
-      .readdirSync(path.join(EXPECTED_ROOT, 'workflows/tests'), { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort(),
-    ['build', 'flow', 'integration', 'issue', 'knowledge', 'research', 'shared', 'think'],
-  );
-  for (const file of ['workflows/flow/build/compile.ts', 'workflows/tests/build/compile.test.ts']) {
+  assert.equal(fs.existsSync(path.join(EXPECTED_ROOT, 'workflows/flow/build')), false);
+  for (const file of ['workflows/build/compile.ts', 'workflows/tests/build/compile.test.ts']) {
     const ignored = spawnSync('git', ['check-ignore', '--quiet', file], { cwd: EXPECTED_ROOT });
     assert.equal(ignored.status, 1, `${file} must override global ignore rules`);
   }
@@ -191,29 +139,12 @@ test('keeps durable handoff cache repository-local, ignored, and versionless', (
   assert.equal(ignored.status, 0);
 });
 
-test('resolves the workflow language from the Codex desktop locale', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-language-'));
-  onTestFinished(() => fs.rmSync(home, { recursive: true, force: true }));
-  const codex = path.join(home, '.codex');
-  fs.mkdirSync(codex);
-  fs.writeFileSync(
-    path.join(codex, 'config.toml'),
-    'model = "gpt"\n\n[desktop]\nlocaleOverride = "ja-JP"\n\n[features]\nhooks = true\n',
-  );
-  assert.equal(resolveConfiguredLanguage('english', {}, home), 'japanese');
-  fs.writeFileSync(path.join(codex, 'config.toml'), '[desktop]\nlocaleOverride = "en-US"\n');
-  assert.equal(resolveConfiguredLanguage('japanese', {}, home), 'english');
-  fs.writeFileSync(path.join(codex, 'config.toml'), '[desktop]\nlocaleOverride = "fr-FR"\n');
-  assert.throws(() => resolveConfiguredLanguage('english', {}, home), /not supported.*fr-FR/);
-});
-
 test('publishes stable CLI names for every documented executable', () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(EXPECTED_ROOT, 'package.json'), 'utf8'));
   assert.deepEqual(packageJson.bin, {
-    'codex-build-artifacts': 'workflows/flow/build/artifacts.ts',
-    'codex-build-plan': 'workflows/flow/build/plan.ts',
-    'codex-build-pr-body': 'workflows/flow/build/pr-body.ts',
-    'codex-build-revalidate': 'workflows/flow/build/revalidate.ts',
+    'codex-build-artifacts': 'workflows/build/artifacts.ts',
+    'codex-build-plan': 'workflows/plan/validation.ts',
+    'codex-build-pr-body': 'workflows/build/pr-body.ts',
     'codex-flow': 'workflows/flow/runner.ts',
     'codex-issue': 'workflows/issue/runner.ts',
     'codex-research': 'workflows/research/runner.ts',
@@ -244,27 +175,21 @@ test('executes every CLI through a package-manager symlink', () => {
     ['codex-issue', 'workflows/issue/runner.ts', ['describe'], 'codex-issue-description'],
     [
       'codex-build-artifacts',
-      'workflows/flow/build/artifacts.ts',
+      'workflows/build/artifacts.ts',
       ['describe'],
       'codex-build-artifacts-description',
     ],
     [
       'codex-build-plan',
-      'workflows/flow/build/plan.ts',
+      'workflows/plan/validation.ts',
       ['describe'],
       'codex-build-plan-description',
     ],
     [
       'codex-build-pr-body',
-      'workflows/flow/build/pr-body.ts',
+      'workflows/build/pr-body.ts',
       ['describe'],
       'codex-build-pr-body-description',
-    ],
-    [
-      'codex-build-revalidate',
-      'workflows/flow/build/revalidate.ts',
-      ['describe'],
-      'codex-build-revalidate-description',
     ],
     ['codex-workflow-hook', 'hooks/workflow-enforcer.ts', [], null],
     ['codex-post-edit', 'hooks/post-edit.ts', [], null],
@@ -298,7 +223,6 @@ test('keeps maintained runtime and instruction files independent of a user home'
     'hooks/hooks.json',
     'hooks/workflow-enforcer.ts',
     'workflows/flow/controller.ts',
-    'workflows/flow/references/shell-gate.md',
     'skills/build/SKILL.md',
     'skills/code/SKILL.md',
     'skills/issue/SKILL.md',
@@ -309,7 +233,6 @@ test('keeps maintained runtime and instruction files independent of a user home'
     'skills/research/SKILL.md',
     'skills/think/SKILL.md',
     'skills/think/references/decision-writing.md',
-    '.ja/workflows/flow/references/shell-gate.md',
     '.ja/skills/build/SKILL.md',
     '.ja/skills/code/SKILL.md',
     '.ja/skills/issue/SKILL.md',

@@ -4,9 +4,8 @@ import * as fs from 'node:fs';
 
 import { gitFileList, verifyArtifacts } from './artifacts.ts';
 import { inspectDraftPullRequest } from './github.ts';
-import { resolveBuildSource, type ResolvedBuildSource } from './handoff.ts';
-import { validatePlan } from './plan.ts';
-import { revalidatePlan } from './revalidate.ts';
+import { resolveBuildSource, type ResolvedBuildSource } from './input.ts';
+import { validatePlan } from '../plan/validation.ts';
 import {
   GATE_PROTOCOL,
   type ActionStep,
@@ -16,29 +15,30 @@ import {
   type GateReport,
   type GateStep,
   type StructuredGateResult,
-} from '../contracts.ts';
-import { FlowError, errorCode, errorMessage } from '../../shared/errors.ts';
-import { GITHUB_ACCESS_ERROR, GITHUB_COMMAND_ERROR } from '../../shared/github.ts';
-import { readAbsoluteJson } from '../../shared/runtime.ts';
-import { prBodyPath } from '../../shared/storage.ts';
+} from '../flow/contracts.ts';
+import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
+import { GITHUB_ACCESS_ERROR, GITHUB_COMMAND_ERROR } from '../shared/github.ts';
+import { readAbsoluteJson } from '../shared/runtime.ts';
+import { prBodyPath } from '../shared/storage.ts';
 
 function buildPlanContext(value: ResolvedBuildSource): BuildPlanContext {
   return {
     repository: value.repository,
     issue: value.issue,
     title: value.title,
-    body_sha256: value.body_sha256,
     outcome: value.plan.outcome,
     test_command: value.plan.test_command,
     manual_verification: value.plan.manual_verification,
     screenshots: value.plan.screenshots ?? [],
-    units: value.plan.units.map((unit) => ({
-      id: unit.id,
+    units: value.plan.units.map((unit, unitIndex) => ({
+      id: `U-${String(unitIndex + 1).padStart(3, '0')}`,
       goal: unit.goal,
       contract: unit.contract,
       files: unit.files,
-      tests: unit.tests,
-      seam: unit.seam,
+      tests: unit.tests.map((name, testIndex) => ({
+        id: `T-${String(testIndex + 1).padStart(3, '0')}`,
+        name,
+      })),
     })),
   };
 }
@@ -120,7 +120,7 @@ export function buildReviewGateReport(
     verdict: result.verdict,
     classification: result.classification,
     reason_codes: result.reason_codes,
-    failure_route: result.failure_route,
+    failure_route: result.verdict === 'pass' ? null : step.gate.failure_route,
     configured_failure_route: step.gate.failure_route,
     command: step.gate.command,
     cwd: repo,
@@ -133,9 +133,11 @@ export function buildReviewGateReport(
 export function runStructuredBuildGate(state: FlowState, step: GateStep): GateReport {
   const startedAt = Date.now();
   const source =
-    'input' in step.gate ? readAbsoluteJson(step.gate.input, `${step.id}.gate.input`) : null;
+    step.gate.authority === 'build-plan'
+      ? readAbsoluteJson(step.gate.input, `${step.id}.gate.input`)
+      : null;
   let input: ReturnType<typeof resolveBuildSource> | null = null;
-  if ('input' in step.gate) {
+  if (source !== null) {
     try {
       input = resolveBuildSource(source, state.manifest.repo);
     } catch (error) {
@@ -155,33 +157,12 @@ export function runStructuredBuildGate(state: FlowState, step: GateStep): GateRe
     }
   }
   let report: StructuredGateResult;
-  if (
-    input &&
-    step.gate.authority !== 'build-plan' &&
-    state.build_plan &&
-    (input.repository !== state.build_plan.repository ||
-      input.issue !== state.build_plan.issue ||
-      input.title !== state.build_plan.title ||
-      input.body_sha256 !== state.build_plan.body_sha256)
-  ) {
-    return normalizeGate(step, state.manifest.repo, startedAt, {
-      verdict: 'blocked',
-      classification: 'issue_contract_stale',
-      reason_codes: ['issue_contract_stale'],
-      failure_route: 'blocked',
-      expected_body_sha256: state.build_plan.body_sha256,
-      actual_body_sha256: input.body_sha256,
-      expected_title: state.build_plan.title,
-      actual_title: input.title,
-    });
-  }
   switch (step.gate.authority) {
     case 'build-plan': {
       report = validatePlan(
         input && {
           issue: input.issue,
           title: input.title,
-          body: input.body,
           plan: input.plan,
         },
       );
@@ -191,10 +172,10 @@ export function runStructuredBuildGate(state: FlowState, step: GateStep): GateRe
       }
       break;
     }
-    case 'build-revalidate':
-      report = revalidatePlan(input, state.manifest.repo);
-      break;
     case 'build-artifacts': {
+      if (!state.build_plan) {
+        throw new FlowError(`${step.id} has no validated build Plan`, 'state_error');
+      }
       const branch = state.manifest.steps.find(
         (candidate): candidate is ActionStep =>
           candidate.kind === 'action' && candidate.action === 'branch',
@@ -203,12 +184,11 @@ export function runStructuredBuildGate(state: FlowState, step: GateStep): GateRe
         throw new FlowError(`${step.id} has no build artifact context`, 'state_error');
       }
       report = verifyArtifacts(
-        input,
+        state.build_plan,
         state.manifest.repo,
         gitFileList(state.manifest.repo, branch.start_point),
         Object.keys(state.workflow_baseline),
         step.id,
-        step.gate.unit_id,
       );
       break;
     }

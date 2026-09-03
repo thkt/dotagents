@@ -17,7 +17,7 @@ export interface RepositoryInvariant {
   metadata: RepoSnapshot;
 }
 
-export type WorkflowRepositoryInvariant = Pick<
+type WorkflowRepositoryInvariant = Pick<
   RepositoryInvariant,
   'head' | 'branch' | 'changes' | 'metadata'
 >;
@@ -195,9 +195,7 @@ export function sameRepositoryInvariant(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-export function workflowRepositoryInvariant(
-  invariant: RepositoryInvariant,
-): WorkflowRepositoryInvariant {
+function workflowRepositoryInvariant(invariant: RepositoryInvariant): WorkflowRepositoryInvariant {
   return {
     head: invariant.head,
     branch: invariant.branch,

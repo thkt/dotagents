@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { onTestFinished, test } from 'bun:test';
 
-import { inspectDraftPullRequest } from '../../flow/build/github.ts';
+import { inspectDraftPullRequest } from '../../build/github.ts';
 import { errorCode } from '../../shared/errors.ts';
 import { GITHUB_ACCESS_ERROR, GITHUB_RESPONSE_ERROR } from '../../shared/github.ts';
 
