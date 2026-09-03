@@ -24,7 +24,7 @@ Code accepts a direct request and uses the same implementation executor as Build
 | `issue/`     | Human-readable Issue publication and public Plan     |
 | `build/`     | Issue loading, Build verification, commit, and Ship  |
 | `code/`      | Direct-request compilation                           |
-| `flow/`      | The implementation executor shared by Build and Code |
+| `execution/` | The implementation executor shared by Build and Code |
 | `shared/`    | Workflow-independent runtime support                 |
 
 ## Boundaries
@@ -36,8 +36,18 @@ Code accepts a direct request and uses the same implementation executor as Build
 - Research reports remain the evidence record. Knowledge is a rebuildable topic summary with report and finding references; it never derives decisions from Issue artifacts.
 - Build and Code use one implementation actor for the complete requested scope. A failed test or blocking semantic review returns to that actor, followed by tests and review again.
 - Runtime GitHub commands are declared in `shared/github.ts`. Shell tests run without GitHub credentials.
+- `codex-build` and `codex-code` are thin public adapters over one internal implementation runner and accept only their matching workflow bindings.
 - Issue publication and Ship require separate explicit authorization. Code never commits, pushes, or creates a pull request.
 - Stable decisions belong in repository documentation rather than private workflow state.
+
+## File naming
+
+- `runner.ts` is reserved for a workflow's public CLI entrypoint.
+- `manifest.ts` converts that workflow's semantic input into an internal execution manifest.
+- `execution/engine.ts` owns the shared execution loop; it is not a public CLI.
+- Role-qualified names such as `git-actions.ts`, `repository-isolation.ts`, and
+  `artifact-verification.ts` identify side effects or verification boundaries directly.
+- Test file names mirror the behavior owner they exercise.
 
 ## Verification
 

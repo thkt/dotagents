@@ -7,7 +7,7 @@ import { afterAll, onTestFinished } from 'bun:test';
 
 /** Allocates a directory owned by the current test and removes it after the test. */
 export function temporaryDirectory(prefix: string): string {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   onTestFinished(() => fs.rmSync(directory, { recursive: true, force: true }));
   return directory;
 }
@@ -19,7 +19,7 @@ export function useTemporaryWorkflowStorage(prefix: string): {
 } {
   const previousRuntime = process.env.CODEX_FLOW_RUNTIME_DIR;
   const previousArtifacts = process.env.CODEX_FLOW_ARTIFACT_DIR;
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   const runtime = path.join(root, 'runtime');
   const artifacts = path.join(root, 'artifacts');
   process.env.CODEX_FLOW_RUNTIME_DIR = runtime;

@@ -1,8 +1,8 @@
-/** @file Outcome: Build gates derive deterministic reports from validated Plan and workflow state. */
+/** @file Outcome: Build verification derives deterministic reports from validated Plan and workflow state. */
 
 import * as fs from 'node:fs';
 
-import { gitFileList, verifyArtifacts } from './artifacts.ts';
+import { gitFileList, verifyArtifacts } from './artifact-verification.ts';
 import { inspectDraftPullRequest } from './github.ts';
 import { resolveBuildSource, type ResolvedBuildSource } from './input.ts';
 import { validatePlan } from '../plan/validation.ts';
@@ -15,7 +15,7 @@ import {
   type GateReport,
   type GateStep,
   type StructuredGateResult,
-} from '../flow/contracts.ts';
+} from '../execution/contracts.ts';
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
 import { GITHUB_ACCESS_ERROR, GITHUB_COMMAND_ERROR } from '../shared/github.ts';
 import { readAbsoluteJson } from '../shared/runtime.ts';

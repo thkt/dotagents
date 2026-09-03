@@ -5,7 +5,7 @@ description: 直接的な repository 変更1件を、任意の scope と test co
 
 # Code
 
-`codex-flow describe --workflow code`で現在の input を確認し、最初の hook-bound command 自体を network escalation で呼ぶ。同じ executable が Build と Ship も実行できるため、`codex-flow run` prefix の永続的な許可は要求しない。controller は Build と共通の implementation executor に request を compile する。
+`codex-code describe`で現在の input を確認し、最初の hook-bound command 自体を network escalation で呼ぶ。Code は scope 内の repository file を任意に編集できるため、`codex-code run` prefix の永続的な許可は要求しない。controller は Build と共通の implementation executor に request を compile する。
 
 ## 判断
 

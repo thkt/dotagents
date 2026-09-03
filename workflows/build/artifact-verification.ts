@@ -2,7 +2,7 @@
 /** @file Outcome: Build changes stay within the paths allowed by the Issue Plan. */
 
 import { absoluteExistingPath, cli, parseSingletonArgs, readJsonFile, run } from '../shared/cli.ts';
-import type { StructuredGateResult } from '../flow/contracts.ts';
+import type { StructuredGateResult } from '../execution/contracts.ts';
 import { isMainModule } from '../shared/environment.ts';
 import { usageError } from '../shared/errors.ts';
 import { nulPaths } from '../shared/repository.ts';

@@ -13,7 +13,7 @@ import { CodexResearchAgent, type ResearchAgent } from './agent.ts';
 import { persistResearchReport } from './artifact.ts';
 import { searchKnowledge } from '../knowledge/search.ts';
 import { updateKnowledge } from '../knowledge/update.ts';
-import { withRepositorySnapshot } from '../flow/isolation.ts';
+import { withRepositorySnapshot } from '../execution/repository-isolation.ts';
 
 export interface ResearchRunResult {
   report: ResearchReport;

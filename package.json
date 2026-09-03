@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "bin": {
-    "codex-build-artifacts": "workflows/build/artifacts.ts",
+    "codex-build": "workflows/build/runner.ts",
+    "codex-build-artifacts": "workflows/build/artifact-verification.ts",
     "codex-build-plan": "workflows/plan/validation.ts",
     "codex-build-pr-body": "workflows/build/pr-body.ts",
-    "codex-flow": "workflows/flow/runner.ts",
+    "codex-code": "workflows/code/runner.ts",
     "codex-issue": "workflows/issue/runner.ts",
     "codex-post-edit": "hooks/post-edit.ts",
     "codex-research": "workflows/research/runner.ts",

@@ -4,12 +4,12 @@
 import * as fs from 'node:fs';
 import path from 'node:path';
 
-import type { FlowState } from '../workflows/flow/contracts.ts';
+import type { FlowState } from '../workflows/execution/contracts.ts';
 import {
   isRetryableGitHubAccessBlock,
   isRetryableRuntimeFailure,
   loadWorkflowState,
-} from '../workflows/flow/controller.ts';
+} from '../workflows/execution/controller.ts';
 import {
   armIntent,
   clearIntent,
@@ -21,10 +21,12 @@ import {
 import { githubRepositoryForRemote } from '../workflows/issue/github.ts';
 import { SHELL_CONTROL, shellArgument, shellWords } from '../workflows/shared/command.ts';
 import {
-  FLOW_COMMAND,
+  BUILD_COMMAND,
+  CODE_COMMAND,
   ISSUE_COMMAND,
   RESEARCH_COMMAND,
   THINK_COMMAND,
+  implementationCommand,
   isMainModule,
 } from '../workflows/shared/environment.ts';
 import { errorCode, errorMessage } from '../workflows/shared/errors.ts';
@@ -162,8 +164,8 @@ function commandSubcommand(command: string, executable: string): string | null {
 }
 
 const WORKFLOW_RUNTIMES = {
-  build: { executable: FLOW_COMMAND, flag: '--input', start: 'run', noun: 'build input' },
-  code: { executable: FLOW_COMMAND, flag: '--input', start: 'run', noun: 'code input' },
+  build: { executable: BUILD_COMMAND, flag: '--input', start: 'run', noun: 'build input' },
+  code: { executable: CODE_COMMAND, flag: '--input', start: 'run', noun: 'code input' },
   issue: { executable: ISSUE_COMMAND, flag: '--input', start: 'draft', noun: 'issue input' },
   research: { executable: RESEARCH_COMMAND, flag: '--input', start: 'run', noun: 'research input' },
   think: { executable: THINK_COMMAND, flag: '--input', start: 'run', noun: 'think input' },
@@ -317,7 +319,7 @@ function pendingPreToolUse(
   }
   if (subcommand !== null) return deny('run the pending workflow before other commands');
   if (
-    [FLOW_COMMAND, ISSUE_COMMAND, RESEARCH_COMMAND, THINK_COMMAND].some(
+    [BUILD_COMMAND, CODE_COMMAND, ISSUE_COMMAND, RESEARCH_COMMAND, THINK_COMMAND].some(
       (candidate) => candidate !== executable && commandSubcommand(command, candidate) !== null,
     )
   ) {
@@ -349,6 +351,9 @@ function networkExecutionInstruction(workflow: WorkflowIntent['workflow']): stri
   }
   if (workflow === 'issue') {
     return ' When publishing, invoke the first bound draft command itself with network escalation and, when supported, request persistent approval for prefix ["codex-issue", "draft"] in that same tool call. The controller still requires the task- and repository-bound $issue approval and limits GitHub access to its closed Issue operation registry. The missing-source stop command does not require network escalation.';
+  }
+  if (workflow === 'build') {
+    return ' Invoke the first bound Build command itself with network escalation and, when supported, request persistent approval for prefix ["codex-build", "run"] in that same tool call. The Build-only command still requires the task- and repository-bound $build Ship approval and exposes only Build run and cancel operations.';
   }
   return ' Invoke the first bound workflow command itself with network escalation. Do not request persistent approval for this command prefix because it can perform repository or GitHub writes.';
 }
@@ -412,12 +417,14 @@ function preToolUse(input: HookInput): HookResponse {
   const pending = loadIntent(input.session_id);
   if (pending) return pendingPreToolUse(input, pending, command);
 
-  const subcommand = input.tool_name === 'Bash' ? commandSubcommand(command, FLOW_COMMAND) : null;
+  const subcommand = input.tool_name === 'Bash' ? commandSubcommand(command, CODE_COMMAND) : null;
+  const build = input.tool_name === 'Bash' ? workflowSubcommand(command, 'build') : null;
   const issue = input.tool_name === 'Bash' ? workflowSubcommand(command, 'issue') : null;
   const research = input.tool_name === 'Bash' ? workflowSubcommand(command, 'research') : null;
   const think = input.tool_name === 'Bash' ? workflowSubcommand(command, 'think') : null;
   const standalone =
     subcommand === 'describe' ||
+    build === 'describe' ||
     issue === 'describe' ||
     research === 'describe' ||
     think === 'describe';
@@ -425,40 +432,45 @@ function preToolUse(input: HookInput): HookResponse {
     return deny('workflow command may not be chained or redirected');
   }
   if (standalone) return {};
-  if (subcommand === 'cancel') {
-    const state = controllerState(input.session_id);
+  const controller = controllerState(input.session_id);
+  const controllerSubcommand = controller?.workflow === 'build' ? build : subcommand;
+  if (controllerSubcommand === 'cancel') {
     if (
-      !state ||
-      (state.status !== 'running' &&
-        state.status !== 'cancelled' &&
-        !isRetryableGitHubAccessBlock(state) &&
-        state.runtime_failure == null &&
-        state.escalation === null)
+      !controller ||
+      (controller.status !== 'running' &&
+        controller.status !== 'cancelled' &&
+        !isRetryableGitHubAccessBlock(controller) &&
+        controller.runtime_failure == null &&
+        controller.escalation === null)
     ) {
       return deny('cancel requires an active workflow controller for this task');
     }
-    const expected = workflowInputPath(state.run_id);
+    const expected = workflowInputPath(controller.run_id);
     return exactInputPath(input, command, '--input', expected)
       ? injectRunId(input, command)
       : deny(`cancel with the hook-supplied input: ${expected}`);
   }
+  const state = activeState(input.session_id);
+  const activeSubcommand = state?.workflow === 'build' ? build : subcommand;
   if (issue !== null) return deny('explicit $issue invocation is required before drafting');
   if (research !== null) return deny('explicit $research invocation is required');
   if (think !== null) return deny('explicit $think invocation is required');
-  const state = activeState(input.session_id);
   if (!state) {
-    return subcommand === null ? {} : deny('explicit $code or $build invocation is required');
+    return subcommand === null && build === null
+      ? {}
+      : deny('explicit $code or $build invocation is required');
   }
   const expected = workflowInputPath(state.run_id);
-  if (subcommand === 'run') {
+  if (activeSubcommand === 'run') {
     return exactInputPath(input, command, '--input', expected)
       ? injectRunId(input, command)
       : deny(`resume with the hook-supplied input: ${expected}`);
   }
   if (input.tool_name === 'Bash' && subcommand === null && isReadOnlyPreparationCommand(command))
     return {};
+  const executable = implementationCommand(state.workflow);
   return deny(
-    `workflow controller is active; resume it with ${FLOW_COMMAND} run --input ${expected}`,
+    `workflow controller is active; resume it with ${executable} run --input ${expected}`,
   );
 }
 
@@ -478,7 +490,8 @@ function stop(input: HookInput): HookResponse {
   }
   const state = activeState(input.session_id);
   if (!state) return {};
-  const command = `${FLOW_COMMAND} run --input ${shellArgument(workflowInputPath(state.run_id))}`;
+  const executable = implementationCommand(state.workflow);
+  const command = `${executable} run --input ${shellArgument(workflowInputPath(state.run_id))}`;
   const reason = `The ${state.workflow} workflow is incomplete. Resume its controller with ${command}.`;
   return input.stop_hook_active
     ? { continue: false, systemMessage: `${reason} Report the runtime blocker if it fails again.` }
@@ -511,5 +524,5 @@ if (isMainModule(import.meta.url)) {
   }
 }
 
-export { FLOW_COMMAND, ISSUE_COMMAND, RESEARCH_COMMAND, THINK_COMMAND, handle, preToolUse, stop };
+export { CODE_COMMAND, ISSUE_COMMAND, RESEARCH_COMMAND, THINK_COMMAND, handle, preToolUse, stop };
 export type { HookInput, HookResponse };

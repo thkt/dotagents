@@ -9,7 +9,7 @@ import {
   readJsonFile,
   safeRepoPath,
 } from '../shared/cli.ts';
-import type { StructuredGateResult } from '../flow/contracts.ts';
+import type { StructuredGateResult } from '../execution/contracts.ts';
 import { SHELL_CONTROL, shellWords } from '../shared/command.ts';
 import { isMainModule } from '../shared/environment.ts';
 import { usageError } from '../shared/errors.ts';

@@ -3,7 +3,7 @@
 import * as fs from 'node:fs';
 import path from 'node:path';
 
-import type { Workflow } from './flow/contracts.ts';
+import type { Workflow } from './execution/contracts.ts';
 import { errorCode, errorMessage } from './shared/errors.ts';
 import { gitRoot } from './shared/repository.ts';
 import {
@@ -284,9 +284,13 @@ function requireIntent(
   return requireBoundIntent(runId, workflow, repo, inputFile, 'code input');
 }
 
-/** Proves that Build startup uses only its hook-bound request file. */
-function requireBuildIntent(runId: string, inputFile: string): WorkflowIntent {
-  return requireBoundInput(runId, 'build', inputFile, 'build input');
+/** Proves that one implementation CLI uses the input armed for its exact workflow. */
+function requireWorkflowInput(
+  runId: string,
+  workflow: Workflow,
+  inputFile: string,
+): WorkflowIntent {
+  return requireBoundInput(runId, workflow, inputFile, `${workflow} input`);
 }
 
 /** Proves that research startup matches its explicit task- and repository-bound invocation. */
@@ -336,11 +340,11 @@ export {
   parseBuildIssueNumber,
   parseExplicitInvocation,
   requireBuildShipApproval,
-  requireBuildIntent,
   requireIntent,
   requireIssueIntent,
   requireResearchIntent,
   requireThinkIntent,
+  requireWorkflowInput,
   stopPendingIntent,
 };
 export type { WorkflowIntent };

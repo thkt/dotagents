@@ -102,6 +102,7 @@ test('a build Ship approval for another repository is rejected', () => {
 test('explicit workflows require network escalation on their first bound command', () => {
   const repo = repoFixture();
   const persistent = new Map([
+    ['build', '["codex-build", "run"]'],
     ['research', '["codex-research", "run"]'],
     ['think', '["codex-think", "run"]'],
     ['issue', '["codex-issue", "draft"]'],
@@ -120,7 +121,9 @@ test('explicit workflows require network escalation on their first bound command
         context,
         workflow === 'issue'
           ? /first bound draft command itself with network escalation/u
-          : /first bound workflow command itself with network escalation/u,
+          : workflow === 'build'
+            ? /first bound Build command itself with network escalation/u
+            : /first bound workflow command itself with network escalation/u,
       );
       const prefix = persistent.get(workflow);
       if (prefix) {
@@ -133,5 +136,37 @@ test('explicit workflows require network escalation on their first bound command
     } finally {
       clearIntent(runId);
     }
+  }
+});
+
+test('an armed Build runs only through the Build-only command', () => {
+  const repo = repoFixture();
+  const runId = 'build-only-hook-route';
+  const pending = armIntent({ runId, workflow: 'build', cwd: repo });
+  try {
+    const allowed = handle({
+      hook_event_name: 'PreToolUse',
+      session_id: runId,
+      cwd: repo,
+      tool_name: 'Bash',
+      tool_input: { command: `codex-build run --input ${pending.input_path}` },
+    });
+    assert.equal(allowed.hookSpecificOutput?.permissionDecision, 'allow');
+    assert.match(
+      String(allowed.hookSpecificOutput?.updatedInput?.command),
+      /codex-build run .* --run-id 'build-only-hook-route'$/u,
+    );
+
+    const rejected = handle({
+      hook_event_name: 'PreToolUse',
+      session_id: runId,
+      cwd: repo,
+      tool_name: 'Bash',
+      tool_input: { command: `codex-code run --input ${pending.input_path}` },
+    });
+    assert.equal(rejected.hookSpecificOutput?.permissionDecision, 'deny');
+    assert.match(String(rejected.hookSpecificOutput?.permissionDecisionReason), /codex-build/u);
+  } finally {
+    clearIntent(runId);
   }
 });

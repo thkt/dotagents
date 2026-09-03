@@ -3,7 +3,7 @@
 import * as fs from 'node:fs';
 import crypto from 'node:crypto';
 
-import type { FlowState } from '../flow/contracts.ts';
+import type { FlowState } from '../execution/contracts.ts';
 import { FlowError } from '../shared/errors.ts';
 import { atomicWrite, buildScreenshotPath, screenshotSealPath } from '../shared/storage.ts';
 import type { ScreenshotSpec } from './screenshot-contract.ts';

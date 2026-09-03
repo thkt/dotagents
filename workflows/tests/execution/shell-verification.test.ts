@@ -5,11 +5,11 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { test } from 'bun:test';
 
-import type { GateReport } from '../../flow/contracts.ts';
-import { DEFAULT_TIMEOUT_MS, parseArgs } from '../../flow/shell-gate.ts';
+import type { GateReport } from '../../execution/contracts.ts';
+import { DEFAULT_TIMEOUT_MS, parseArgs } from '../../execution/shell-verification.ts';
 import { temporaryDirectory } from '../shared/fixtures.ts';
 
-const verifier = path.resolve(import.meta.dirname, '../../flow/shell-gate.ts');
+const verifier = path.resolve(import.meta.dirname, '../../execution/shell-verification.ts');
 
 function run(cwd: string, command: string, extra: string[] = [], env?: NodeJS.ProcessEnv) {
   return spawnSync(

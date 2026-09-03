@@ -5,12 +5,12 @@ description: 公開 GitHub Issue の Plan 1件を実装・検証し、任意で 
 
 # Build
 
-準備済みの Build input を`codex-flow run --input <task-input-json>`で実行する。controller は選択された公開 Plan からすべての実行 step を導出する。
+準備済みの Build input を`codex-build run --input <task-input-json>`で実行する。controller は選択された公開 Plan からすべての実行 step を導出する。
 
 ## 入力
 
 - 明示的な invocation では`#123`のような Issue shorthand を受け付け、現在の worktree の`origin` GitHub repository から選ぶ。hook が小さな Build input を準備する。実行 step を手書きしない。
-- 最初の束縛された controller command 自体を network escalation で呼び、固定済み Issue の読み取りと SDK call を controller 自身に行わせる。commit、push、draft PR 作成が可能なため、`codex-flow run` prefix の永続的な許可は要求しない。一時的な access failure が発生した場合だけ、同じ controller command を network escalation で正確に再実行する。準備のために別の`gh ... view`を実行せず、ブラウザの内容を contract の代わりにしない。
+- 最初の束縛された controller command 自体を network escalation で呼び、対応していれば同じ tool call で prefix `["codex-build", "run"]`の永続的な許可を要求する。Build 専用 command は task と repository に束縛された`$build` approval を引き続き必須とし、Build の run と cancel だけを公開するため、この prefix は永続的に許可できる。一時的な access failure が発生した場合だけ、同じ controller command を network escalation で正確に再実行する。準備のために別の`gh ... view`を実行せず、ブラウザの内容を contract の代わりにしない。
 - Build 開始時に選択した Issue を 1 回だけ読み、一意な`## Plan` section 内の JSON Plan を唯一の実装 authority とする。周囲の表示用 markup、公開者の local receipt、別 rendering、body hash は要求しない。
 - controller は Plan から actor goal、結合した file scope、test command を導出する。Build input を実装意図の別 source にしない。
 - final test 後に、公開済みの goals と contracts に対して差分全体を独立した read-only SDK review にかける。
@@ -22,7 +22,7 @@ description: 公開 GitHub Issue の Plan 1件を実装・検証し、任意で 
 - resume 時は、外部 action を繰り返す前に branch、commit、push、draft PR の postcondition を照合する。
 - ユーザーが PR screenshots を明示的に求めた場合は、安全な画像名と alt text を準備済み Build input に追加する。完成した UI を render し、controller が指定した path に要求された画像を撮影する。controller が seal した画像 bytes と一致する場合だけ Ship し、画像の変更や未解決の添付があれば別 PR を作らず停止する。
 - 追加 Issue の候補は報告するだけで、作成しない。
-- active Build の取消をユーザーが求めた場合は hook-bound な`codex-flow cancel`を実行する。取消後は実装、commit、push、draft PR を作成しない。
+- active Build の取消をユーザーが求めた場合は hook-bound な`codex-build cancel`を実行する。取消後は実装、commit、push、draft PR を作成しない。
 
 ## エスカレーション
 

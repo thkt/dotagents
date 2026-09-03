@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { onTestFinished, test } from 'bun:test';
 
-import { withRepositorySnapshot } from '../../../workflows/flow/isolation.ts';
+import { withRepositorySnapshot } from '../../../workflows/execution/repository-isolation.ts';
 import { temporaryDirectory } from '../shared/fixtures.ts';
 
 function commitlessRepo(): string {
@@ -93,7 +93,7 @@ function snapshotInChild(options: { repo: string; timeoutMs?: number; gitBin?: s
       `import * as fs from 'node:fs';`,
       `import os from 'node:os';`,
       `import { withRepositorySnapshot } from ${JSON.stringify(
-        path.resolve(import.meta.dir, '../../flow/isolation.ts'),
+        path.resolve(import.meta.dir, '../../execution/repository-isolation.ts'),
       )};`,
       `const [repo, timeout] = process.argv.slice(2);`,
       `let outcome;`,

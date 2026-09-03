@@ -6,10 +6,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { onTestFinished, test } from 'bun:test';
 
-import { executeAction } from '../../build/actions.ts';
+import { executeAction } from '../../build/git-actions.ts';
 import { compileBuildPlan, type BuildPlanAuthoring } from '../../plan/contracts.ts';
-import type { FlowDirective } from '../../flow/contracts.ts';
-import { runWorkflow, type WorkflowRuntime } from '../../flow/runner.ts';
+import type { FlowDirective } from '../../execution/contracts.ts';
+import { runWorkflow, type WorkflowRuntime } from '../../execution/engine.ts';
 import { armIntent } from '../../invocation.ts';
 import { renderPublicIssueBody } from '../../issue/public-contract.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';

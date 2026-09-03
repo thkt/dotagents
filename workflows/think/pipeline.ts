@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { compileBuildPlan } from '../plan/contracts.ts';
 import { validatePlan } from '../plan/validation.ts';
-import { withRepositorySnapshot } from '../flow/isolation.ts';
+import { withRepositorySnapshot } from '../execution/repository-isolation.ts';
 import { searchKnowledge } from '../knowledge/search.ts';
 import type { KnowledgeEntry } from '../knowledge/update.ts';
 import { parseResearchReport } from '../research/contracts.ts';

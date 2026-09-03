@@ -1,11 +1,11 @@
-/** @file Outcome: A direct change request compiles to the shared implementation executor without Git actions. */
+/** @file Outcome: A direct change request becomes a validated Code manifest without Git actions. */
 
 import * as fs from 'node:fs';
 import path from 'node:path';
 
-import type { FlowManifest } from '../flow/contracts.ts';
-import { implementationSteps } from '../flow/implementation.ts';
-import { DEFAULT_MAX_CORRECTIONS, validateManifest } from '../flow/manifest.ts';
+import type { FlowManifest } from '../execution/contracts.ts';
+import { implementationSteps } from '../execution/implementation-steps.ts';
+import { DEFAULT_MAX_CORRECTIONS, validateManifest } from '../execution/manifest-validation.ts';
 import { SHELL_CONTROL, shellWords } from '../shared/command.ts';
 import { FlowError } from '../shared/errors.ts';
 import { gitRoot, normalizeRepoPath } from '../shared/repository.ts';

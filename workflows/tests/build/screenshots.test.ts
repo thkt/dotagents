@@ -12,7 +12,7 @@ import {
   sealedScreenshotAttachments,
   screenshotAttachments,
 } from '../../build/screenshots.ts';
-import type { FlowState } from '../../flow/contracts.ts';
+import type { FlowState } from '../../execution/contracts.ts';
 import { screenshotSealPath } from '../../shared/storage.ts';
 import { temporaryDirectory } from '../shared/fixtures.ts';
 
