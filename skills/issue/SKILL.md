@@ -20,7 +20,7 @@ Inspect the current input, preview, and publication contract with `codex-issue d
 ## Publication
 
 - Treat the user's leading explicit `$issue` invocation as authorization for at most one GitHub Issue create or edit in the hook-bound repository. Do not request another publication confirmation.
-- When publishing, invoke the first hook-bound `codex-issue draft` command itself with network escalation. Do not request persistent approval for that prefix because it writes to GitHub. The missing-source `codex-issue stop` command needs no network escalation. If a genuine transient access failure occurs, retry the exact same draft command with network escalation before any publication approval is consumed.
+- When publishing, invoke the first bound `codex-issue draft` command itself with network escalation, requesting persistent approval for prefix `["codex-issue", "draft"]` in that same tool call when supported. This prefix is safe to persist because the controller still requires the task- and repository-bound `$issue` approval and exposes only its closed Issue read/create/edit registry. The missing-source `codex-issue stop` command needs no network escalation. If a genuine transient access failure occurs, retry the exact same draft command with network escalation before any publication approval is consumed.
 - Create the draft before any GitHub write.
 - Do not retry deterministic draft errors. Retry only a GitHub access failure that can change when network or credentials become available.
 - Validate the Plan while drafting, and confirm only that an update target is unchanged immediately before the GitHub write.
