@@ -30,6 +30,7 @@ function buildFixture(plan: BuildPlanAuthoring) {
   git(repo, 'remote', 'add', 'origin', 'https://github.com/owner/repo.git');
   fs.writeFileSync(path.join(repo, 'unit.ts'), 'export const value = 1;\n');
   fs.writeFileSync(path.join(repo, 'other.ts'), 'export const other = 1;\n');
+  fs.writeFileSync(path.join(repo, '.gitignore'), '.DS_Store\n');
   git(repo, 'add', 'unit.ts', 'other.ts');
   git(repo, 'commit', '-qm', 'init');
   const startPoint = git(repo, 'rev-parse', 'HEAD');
@@ -134,12 +135,14 @@ test('a blocking semantic review corrects the shared actor, then re-verifies and
   type ActorDirective = Extract<FlowDirective, { kind: 'run-actor' }>;
   const actorCalls: ActorDirective[] = [];
   const actions: string[] = [];
+  const directives: string[] = [];
   let reviews = 0;
   const runtime: WorkflowRuntime = {
     agent: {
       async runActor(sandboxRepo, directive) {
         actorCalls.push(directive);
-        const value = directive.correction ? 3 : 2;
+        if (directive.solidify) return;
+        const value = actorCalls.length >= 3 ? 3 : 2;
         fs.writeFileSync(path.join(sandboxRepo, 'unit.ts'), `export const value = ${value};\n`);
         fs.writeFileSync(path.join(sandboxRepo, 'other.ts'), 'export const other = 2;\n');
       },
@@ -178,6 +181,13 @@ test('a blocking semantic review corrects the shared actor, then re-verifies and
       actions.push(directive.action);
       executeAction(actionRepo, directive);
     },
+    onDirective(directive) {
+      if (directive.kind === 'run-actor')
+        directives.push(directive.solidify ? 'solidify' : 'implementation');
+      else if (directive.kind === 'run-gate') directives.push(directive.step_id);
+      else if (directive.kind === 'run-review') directives.push('review:build');
+      else if (directive.kind === 'run-action') directives.push(directive.action);
+    },
   };
 
   const result = await runWorkflow(runId, input, runtime);
@@ -185,20 +195,63 @@ test('a blocking semantic review corrects the shared actor, then re-verifies and
   assert.ok('status' in result.result);
   assert.equal(result.result.status, 'completed');
   assert.equal(reviews, 2);
-  assert.equal(actorCalls.length, 2);
+  assert.equal(actorCalls.length, 4);
   assert.equal(actorCalls[0]?.correction, null);
   assert.deepEqual(
     actorCalls.map((call) => call.files),
     [
       ['unit.ts', 'other.ts'],
       ['unit.ts', 'other.ts'],
+      ['unit.ts', 'other.ts'],
+      ['unit.ts', 'other.ts'],
     ],
   );
-  assert.equal(actorCalls[1]?.correction?.attempt, 1);
-  assert.equal(actorCalls[1]?.correction?.gate.gate_id, 'review:build');
+  assert.equal(actorCalls[2]?.correction?.attempt, 1);
+  assert.equal(actorCalls[2]?.correction?.gate.gate_id, 'review:build');
+  assert.equal(actorCalls[2]?.correction?.gate.verdict, 'fail');
+  assert.equal(actorCalls[2]?.correction?.gate.evidence.kind, 'structured');
+  if (actorCalls[2]?.correction?.gate.evidence.kind === 'structured') {
+    assert.deepEqual(actorCalls[2].correction.gate.evidence.report, {
+      protocol: 'codex-build-review',
+      verdict: 'fail',
+      classification: 'semantic_review_failed',
+      reason_codes: ['incomplete'],
+      failure_route: 'blocked',
+      summary: '主値に修正が必要。',
+      findings: [
+        {
+          severity: 'blocking',
+          code: 'incomplete',
+          message: '主値を修正する。',
+          files: ['unit.ts'],
+        },
+      ],
+    });
+  }
+  assert.equal(actorCalls[1]?.solidify?.outcome, plan.outcome);
+  assert.equal(actorCalls[3]?.solidify?.outcome, plan.outcome);
+  assert.deepEqual(actorCalls[1]?.solidify?.units, actorCalls[3]?.solidify?.units);
+  assert.deepEqual(actorCalls[1]?.solidify?.files, ['unit.ts', 'other.ts']);
+  assert.deepEqual(directives, [
+    'load:plan',
+    'branch',
+    'implementation',
+    'test',
+    'solidify',
+    'test',
+    'artifacts',
+    'review:build',
+    'implementation',
+    'test',
+    'solidify',
+    'test',
+    'artifacts',
+    'review:build',
+    'commit',
+  ]);
   const gateIds = result.result.gate_reports.map((gate) => gate.gate_id);
   assert.equal(gateIds.filter((id) => id === 'load:plan').length, 1);
-  assert.equal(gateIds.filter((id) => id === 'test').length, 2);
+  assert.equal(gateIds.filter((id) => id === 'test').length, 4);
   assert.equal(gateIds.filter((id) => id === 'review:build').length, 2);
   assert.deepEqual(actions, ['branch', 'commit']);
   assert.equal(fs.readFileSync(countFile, 'utf8'), 'x');

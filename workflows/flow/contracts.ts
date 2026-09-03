@@ -253,7 +253,7 @@ export interface FlowState {
   ship_authorization_revoked: boolean;
 }
 
-interface BuildPlanUnit {
+export interface BuildPlanUnit {
   id: string;
   goal: string;
   contract: string;
@@ -268,6 +268,12 @@ export interface BuildPlanContext {
   outcome: string;
   test_command: string;
   units: BuildPlanUnit[];
+}
+
+export interface SolidifyContext {
+  outcome: string;
+  units: BuildPlanUnit[];
+  files: string[];
 }
 
 export interface BuildReviewInput {
@@ -335,6 +341,7 @@ export type FlowDirective =
       verification: ActorVerification;
       screenshots?: Array<ScreenshotSpec & { path: string }>;
       correction: CorrectionContext | null;
+      solidify: SolidifyContext | null;
     }
   | RunActionDirective
   | {

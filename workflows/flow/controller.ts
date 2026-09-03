@@ -12,8 +12,10 @@ import {
   type ActorStep,
   type ActorVerification,
   type BuildReviewInput,
+  type BuildPlanUnit,
   type CorrectionContext,
   type FlowDirective,
+  type SolidifyContext,
   type FlowDescription,
   type FlowManifest,
   type FlowState,
@@ -570,6 +572,19 @@ function applyGateOutcome(
 ): void {
   state.gate_reports.push(report);
   if (report.verdict === 'pass') {
+    if (
+      state.workflow === 'build' &&
+      step.id === 'test' &&
+      step.owner === IMPLEMENTATION_ACTOR_ID &&
+      (state.gate_reports.at(-2)?.gate_id !== 'test' ||
+        state.gate_reports.at(-2)?.verdict !== 'pass')
+    ) {
+      state.cursor = state.manifest.steps.findIndex(
+        (candidate) => candidate.kind === 'actor' && candidate.id === IMPLEMENTATION_ACTOR_ID,
+      );
+      prepareCurrentStep(state);
+      return;
+    }
     if (advanceOnPass) advanceToNextStep(state);
     return;
   }
@@ -740,6 +755,9 @@ function requireBuildPlan(state: FlowState): {
   contract: string;
   tests: Array<{ id: string; name: string }>;
   testCommand: string;
+  outcome: string;
+  units: BuildPlanUnit[];
+  files: string[];
 } {
   if (!state.build_plan) {
     throw new FlowError('implementation actor has no validated Plan context', 'state_error');
@@ -751,7 +769,18 @@ function requireBuildPlan(state: FlowState): {
       .join('\n\n'),
     tests: state.build_plan.units.flatMap((unit) => unit.tests),
     testCommand: state.build_plan.test_command,
+    outcome: state.build_plan.outcome,
+    units: state.build_plan.units,
+    files: [...new Set(state.build_plan.units.flatMap((unit) => unit.files))],
   };
+}
+
+function solidifyContext(state: FlowState, step: ActorStep): SolidifyContext | null {
+  if (state.workflow !== 'build' || step.id !== IMPLEMENTATION_ACTOR_ID) return null;
+  const last = state.gate_reports.at(-1);
+  if (!last || last.gate_id !== 'test' || last.verdict !== 'pass') return null;
+  const plan = requireBuildPlan(state);
+  return { outcome: plan.outcome, units: plan.units, files: plan.files };
 }
 
 /** Derives the sole permitted next operation from persisted controller state. */
@@ -782,6 +811,7 @@ function directiveForState(state: FlowState): FlowDirective {
       verification: actorVerification(state, step),
       screenshots: actorScreenshotAttachments(state, step.id),
       correction: correctionContext(state, step.id),
+      solidify: solidifyContext(state, step),
     };
   }
   if (step.kind === 'action') {

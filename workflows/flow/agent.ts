@@ -108,6 +108,15 @@ function actorPrompt(directive: ActorDirective): string {
   const tests = directive.tests.length
     ? ['Acceptance checks:', ...directive.tests.map((test) => `- ${test.name}`)]
     : [];
+  const solidify = directive.solidify
+    ? [
+        'Solidification context:',
+        'This is a solidification call after a passing test. Preserve the complete published outcome and Plan units while solidifying the implementation within the combined allowed files.',
+        `Published outcome:\n${directive.solidify.outcome}`,
+        `Complete Plan units:\n${JSON.stringify(directive.solidify.units, null, 2)}`,
+        `Combined allowed files:\n${directive.solidify.files.map((file) => `- ${file}`).join('\n')}`,
+      ]
+    : [];
   return [
     `Complete workflow actor ${directive.step_id}.`,
     `Outcome:\n${directive.outcome}`,
@@ -122,6 +131,7 @@ function actorPrompt(directive: ActorDirective): string {
     'If a contract-external design decision is required, escalate to think; if facts or evidence are missing, escalate to research. Ordinary implementation or test failures must be corrected locally. Escalation discards all sandbox edits.',
     'Return a closed response: on completion use status: completed with route and question set to null; on handoff use status: escalated with a think/research route and a concrete question.',
     ...correction,
+    ...solidify,
   ].join('\n\n');
 }
 
