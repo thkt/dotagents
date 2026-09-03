@@ -104,6 +104,7 @@ test('explicit workflows require network escalation on their first bound command
   const persistent = new Map([
     ['research', '["codex-research", "run"]'],
     ['think', '["codex-think", "run"]'],
+    ['issue', '["codex-issue", "draft"]'],
   ]);
   for (const workflow of ['research', 'think', 'code', 'issue', 'build'] as const) {
     const runId = `network-${workflow}`;

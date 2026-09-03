@@ -83,17 +83,19 @@ test('the shared check runs code, test, and Skill validation', () => {
   }
 });
 
-test('pins persistent first-attempt network approval for read-only model workflows', () => {
+test('pins persistent first-attempt network approval for guarded workflow prefixes', () => {
   for (const [relative, command] of [
     ['skills/research/SKILL.md', '["codex-research", "run"]'],
     ['.ja/skills/research/SKILL.md', '["codex-research", "run"]'],
     ['skills/think/SKILL.md', '["codex-think", "run"]'],
     ['.ja/skills/think/SKILL.md', '["codex-think", "run"]'],
+    ['skills/issue/SKILL.md', '["codex-issue", "draft"]'],
+    ['.ja/skills/issue/SKILL.md', '["codex-issue", "draft"]'],
   ] as const) {
     const content = readFileSync(path.join(agentsRoot, relative), 'utf8');
     assert.match(
       content,
-      /first bound workflow command itself with network escalation|最初の束縛された workflow command 自体を network escalation/u,
+      /first bound (?:workflow|`codex-issue draft`) command itself with network escalation|最初の(?:束縛された workflow| hook-bound `codex-issue draft`) command 自体を network escalation/u,
       relative,
     );
     assert.match(content, /persistent approval for prefix|prefix .*永続的な許可/u, relative);
@@ -107,8 +109,6 @@ test('pins non-persistent first-attempt escalation for workflows that can write'
     ['.ja/skills/code/SKILL.md', 'codex-flow run'],
     ['skills/build/SKILL.md', 'codex-flow run'],
     ['.ja/skills/build/SKILL.md', 'codex-flow run'],
-    ['skills/issue/SKILL.md', 'codex-issue draft'],
-    ['.ja/skills/issue/SKILL.md', 'codex-issue draft'],
   ] as const) {
     const content = readFileSync(path.join(agentsRoot, relative), 'utf8');
     assert.match(

@@ -348,7 +348,7 @@ function networkExecutionInstruction(workflow: WorkflowIntent['workflow']): stri
     return ' Invoke the first bound workflow command itself with network escalation and, when supported, request persistent approval for prefix ["codex-think", "run"] in that same tool call.';
   }
   if (workflow === 'issue') {
-    return ' When publishing, invoke the first bound draft command itself with network escalation. Do not request persistent approval for this command prefix because it writes to GitHub. The missing-source stop command does not require network escalation.';
+    return ' When publishing, invoke the first bound draft command itself with network escalation and, when supported, request persistent approval for prefix ["codex-issue", "draft"] in that same tool call. The controller still requires the task- and repository-bound $issue approval and limits GitHub access to its closed Issue operation registry. The missing-source stop command does not require network escalation.';
   }
   return ' Invoke the first bound workflow command itself with network escalation. Do not request persistent approval for this command prefix because it can perform repository or GitHub writes.';
 }
