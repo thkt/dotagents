@@ -34,12 +34,15 @@ interface IssueDescription {
     mode: 'create';
     think_report: string;
     title: string;
+    prose: string;
   };
-  attach_plan_template: {
+  update_template: {
     repo: string;
-    mode: 'attach-plan';
+    mode: 'update';
     think_report: string;
     target_issue: number;
+    title: string;
+    prose: string;
   };
   contracts: { source: string; missing_source: string; preview: string; publish: string };
 }
@@ -71,7 +74,8 @@ type IssueCommandResult = IssuePublishCommandResult | IssueStopCommandResult;
 export function describeIssue(): IssueDescription {
   return {
     protocol: ISSUE_DESCRIPTION_PROTOCOL,
-    outcome: 'One reviewed Plan is validated and published as a build-ready GitHub issue.',
+    outcome:
+      'Research-backed prose and one reviewed Plan are published as a readable, build-ready GitHub issue.',
     cli: {
       describe: `${ISSUE_COMMAND} describe`,
       draft: `${ISSUE_COMMAND} draft --input <absolute-json>`,
@@ -83,19 +87,22 @@ export function describeIssue(): IssueDescription {
       mode: 'create',
       think_report: '/absolute/private-think-report.json',
       title: 'Concise title without a task-type prefix',
+      prose: 'Human-readable issue context in the configured language',
     },
-    attach_plan_template: {
+    update_template: {
       repo: '/absolute/git-root',
-      mode: 'attach-plan',
+      mode: 'update',
       think_report: '/absolute/private-think-report.json',
       target_issue: 123,
+      title: 'Updated concise title',
+      prose: 'Updated human-readable issue context in the configured language',
     },
     contracts: {
       source: 'think_report must contain a ready Plan',
       missing_source:
         'stop consumes the pending intent and publication approval without creating an input or writing to GitHub',
       preview: 'draft is validated before publication',
-      publish: 'the validated draft is published atomically from the caller perspective',
+      publish: 'one validated create or update is written, then verified against its draft',
     },
   };
 }

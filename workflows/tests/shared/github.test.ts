@@ -42,7 +42,6 @@ test('declares one closed policy for every GitHub operation', () => {
   assert.deepEqual(GITHUB_OPERATION_POLICIES, {
     'repo:view': { access: 'read', authority: null },
     'issue:view': { access: 'read', authority: null },
-    'issue:publication-search': { access: 'read', authority: null },
     'issue:create': { access: 'write', authority: 'issue-publication' },
     'issue:edit': { access: 'write', authority: 'issue-publication' },
     'pr:create': { access: 'write', authority: 'build-ship' },

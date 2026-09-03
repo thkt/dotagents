@@ -1,15 +1,10 @@
-/** @file Outcome: A ready think Plan becomes one validated, stale-safe, and verified GitHub issue. */
+/** @file Outcome: Research-backed prose and a ready Think Plan become one verified GitHub Issue. */
 
 import * as fs from 'node:fs';
-import crypto from 'node:crypto';
 import path from 'node:path';
 
 import { compileBuildPlan, type CompiledBuildPlan } from '../plan/contracts.ts';
-import {
-  parsePublicIssueBody,
-  renderPublicIssueBody,
-  stripPublishedPlan,
-} from './public-contract.ts';
+import { parsePublicIssueBody, renderPublicIssueBody } from './public-contract.ts';
 import { validatePlan } from '../plan/validation.ts';
 import { sha256 } from '../shared/evidence.ts';
 import { FlowError } from '../shared/errors.ts';
@@ -101,22 +96,12 @@ export function draftIssue(
 ): IssueDraftResult {
   const source = loadThinkReport(input.repo, input.think_report);
   assertGitHubRemote(input.repo, input.remote, input.repository);
-  const issueNumber = input.mode === 'attach-plan' ? input.target_issue : null;
+  const issueNumber = input.mode === 'update' ? input.target_issue : null;
   const existing =
-    input.mode === 'attach-plan' ? gateway.view(input.repository, input.target_issue) : null;
+    input.mode === 'update' ? gateway.view(input.repository, input.target_issue) : null;
   const plan = compileBuildPlan(source.report.plan);
-  const title = input.mode === 'attach-plan' ? existing!.title : input.title;
-  const prose = existing
-    ? existing.body.includes('<!-- codex-issue-publication\n')
-      ? stripPublishedPlan(existing.body)
-      : existing.body
-    : '';
-  if (/^##\s+Plan\b/mu.test(prose)) {
-    throw new FlowError('target issue already has a human-authored Plan', 'decision_error');
-  }
-  const publicationId = crypto.randomUUID();
-  const body = renderPublicIssueBody(prose, plan, publicationId);
-  requireValidPlan(issueNumber ?? 1, title, plan);
+  const body = renderPublicIssueBody(input.prose, plan);
+  requireValidPlan(issueNumber ?? 1, input.title, plan);
   if (input.mode === 'create') gateway.checkAccess(input.repository);
   const generatedAt = new Date().toISOString();
   const persisted = persistIssueDraft(
@@ -127,8 +112,7 @@ export function draftIssue(
       repository: input.repository,
       remote: input.remote,
       issue_number: issueNumber,
-      title,
-      publication_id: publicationId,
+      title: input.title,
       body_sha256: sha256(body),
       existing_issue: existing
         ? { title: existing.title, body_sha256: sha256(existing.body) }
@@ -189,30 +173,13 @@ export function publishIssue(
   const { draft } = loaded;
   const body = currentBody(draft);
   const publicContract = parsePublicIssueBody(body);
-  if (publicContract.publication_id !== draft.publication_id) {
-    throw new FlowError('issue draft publication id does not match its public build contract');
-  }
   requireValidPlan(draft.issue_number ?? 1, draft.title, publicContract.plan);
   assertGitHubRemote(draft.repo, draft.remote, draft.repository);
   let issue: GitHubIssue;
   if (draft.issue_number === null) {
-    const recovered = gateway.findByPublicationId(draft.repository, draft.publication_id);
-    if (recovered) {
-      issue = recovered;
-    } else {
-      try {
-        issue = gateway.create(draft.repository, draft.title, draft.body_file);
-      } catch (error) {
-        const recoveredAfterError = gateway.findByPublicationId(
-          draft.repository,
-          draft.publication_id,
-        );
-        if (!recoveredAfterError) throw error;
-        issue = recoveredAfterError;
-      }
-    }
+    issue = gateway.create(draft.repository, draft.title, draft.body_file);
   } else {
-    if (!draft.existing_issue) throw new FlowError('attach-plan draft has no target snapshot');
+    if (!draft.existing_issue) throw new FlowError('update draft has no target snapshot');
     const current = gateway.view(draft.repository, draft.issue_number);
     if (current.title === draft.title && current.body === body) {
       issue = current;
@@ -224,7 +191,7 @@ export function publishIssue(
         throw new FlowError('target issue changed after draft validation', 'state_error');
       }
       try {
-        issue = gateway.edit(draft.repository, draft.issue_number, draft.body_file);
+        issue = gateway.edit(draft.repository, draft.issue_number, draft.title, draft.body_file);
       } catch (error) {
         const recovered = gateway.view(draft.repository, draft.issue_number);
         if (recovered.title !== draft.title || recovered.body !== body) {
@@ -240,7 +207,6 @@ export function publishIssue(
     published_at: new Date().toISOString(),
     repo: draft.repo,
     repository: draft.repository,
-    publication_id: draft.publication_id,
     draft_sha256: sha256(loaded.content),
     issue_number: issue.number,
   });

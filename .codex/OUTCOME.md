@@ -6,9 +6,9 @@ Turn Research findings into a Think Plan, publish that Plan once in a public Iss
 
 - Research gathers the requested repository and optional external evidence into a report, then best-effort rebuilds derived topic-based Knowledge from persisted Research.
 - Think reads selected Research and related Knowledge, then returns either an implementable Plan or focused follow-up research questions.
-- Issue publishes one canonical Plan without duplicating it into separately hashed representations.
+- Issue uses Research and Think to publish readable prose plus one canonical Plan, and can update the complete title and body of a selected Issue.
 - Build reads the selected Issue once as its sole implementation authority, verifies the complete result, and Ships only with explicit authorization.
 - Code uses the same implementation executor as Build without creating commits, pushes, or pull requests.
-- Workflow contracts stay in English; only the final user-facing report is translated into the configured language.
+- Workflow contracts stay in English; human-facing Issue prose and final reports use the configured language.
 
 Verification uses `bun run check`.

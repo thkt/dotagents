@@ -95,31 +95,32 @@ test('write methods reject a read-only gateway before spawning gh', () => {
   assert.equal(fake.invocations().length, 0);
 });
 
-test('finds one prior publication by its public id for crash recovery', () => {
-  const publicationId = '00000000-0000-4000-8000-000000000004';
-  const published = {
-    ...issue,
-    body: `body\npublication_id:${publicationId}`,
-  };
-  const fake = fakeGh(`
-if (args[0] === 'issue' && args[1] === 'list') console.log(${JSON.stringify(JSON.stringify([published]))});
+test('edit passes the complete title and body path as literal gh arguments', () => {
+  const updated = { ...issue, title: 'updated title' };
+  const fake = fakeGh(
+    `
+if (args[0] === 'issue' && args[1] === 'edit') console.log(${JSON.stringify(issue.url)});
+else if (args[0] === 'issue' && args[1] === 'view') console.log(${JSON.stringify(JSON.stringify(updated))});
 else process.exit(2);
-`);
+`,
+    'issue-publication',
+  );
+  const edited = fake.gateway.edit('owner/repo', 7, updated.title, '/tmp/body with spaces.md');
 
-  assert.deepEqual(fake.gateway.findByPublicationId('owner/repo', publicationId), published);
-  assert.deepEqual(fake.invocations()[0], [
-    'issue',
-    'list',
-    '--repo',
-    'owner/repo',
-    '--state',
-    'all',
-    '--search',
-    `${publicationId} in:body`,
-    '--limit',
-    '100',
-    '--json',
-    'number,title,body,url',
+  assert.deepEqual(edited, updated);
+  assert.deepEqual(fake.invocations(), [
+    [
+      'issue',
+      'edit',
+      '7',
+      '--repo',
+      'owner/repo',
+      '--title',
+      updated.title,
+      '--body-file',
+      '/tmp/body with spaces.md',
+    ],
+    ['issue', 'view', '7', '--repo', 'owner/repo', '--json', 'number,title,body,url'],
   ]);
 });
 
