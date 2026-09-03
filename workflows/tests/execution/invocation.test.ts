@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'bun:test';
 
-import { armIntent, clearIntent, requireBuildShipApproval } from '../../invocation.ts';
+import { armIntent, clearIntent, loadIntent, requireBuildShipApproval } from '../../invocation.ts';
 import { handle } from '../../../hooks/workflow-enforcer.ts';
 import {
   buildShipApprovalPath,
@@ -21,6 +21,8 @@ useTemporaryWorkflowStorage('codex-invocation-storage-');
 function repoFixture(): string {
   const repo = temporaryDirectory('codex-invocation-');
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+  fs.mkdirSync(path.join(repo, '.codex'));
+  fs.writeFileSync(path.join(repo, '.codex/OUTCOME.md'), '# Project outcome\n\nTest.\n');
   return repo;
 }
 
@@ -136,6 +138,25 @@ test('explicit workflows require network escalation on their first bound command
     } finally {
       clearIntent(runId);
     }
+  }
+});
+
+test('an explicit workflow asks for project outcome creation before arming', () => {
+  const repo = temporaryDirectory('codex-invocation-missing-outcome-');
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+  for (const workflow of ['research', 'think', 'code', 'issue', 'build'] as const) {
+    const runId = `missing-project-outcome-${workflow}`;
+    const response = handle({
+      hook_event_name: 'UserPromptSubmit',
+      session_id: runId,
+      cwd: repo,
+      prompt: `$${workflow}`,
+    });
+
+    assert.equal(response.decision, 'block');
+    assert.match(String(response.reason), /OUTCOME\.md is missing; create it/u);
+    assert.match(String(response.reason), /verifiable completion criteria/u);
+    assert.equal(loadIntent(runId), null);
   }
 });
 

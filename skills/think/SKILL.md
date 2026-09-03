@@ -5,7 +5,7 @@ description: Turn one change request and optional Research reports into an indep
 
 # Think
 
-When present, read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) and the relevant [workflow contracts](../../workflows/README.md) to judge scope. Put implementation constraints in the affected unit contract and planned tests instead of copying repository guidance into the Plan.
+Read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) and the relevant [workflow contracts](../../workflows/README.md) to judge scope. If OUTCOME.md is missing, ask the user to create it with the project outcome and verifiable completion criteria before running Think. Put implementation constraints in the affected unit contract and planned tests instead of copying repository guidance into the Plan.
 
 Inspect the current input and decision contract with `codex-think describe`.
 Invoke the first bound workflow command itself with network escalation, requesting persistent approval for prefix `["codex-think", "run"]` in that same tool call when supported. If a genuine transient `model_unavailable` occurs, preserve the intent and retry the exact same command with network escalation.
