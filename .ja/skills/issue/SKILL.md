@@ -1,27 +1,29 @@
 ---
 name: issue
-description: レビュー済みのthink成果物1件から、検証済みでbuildに渡せるGitHub Issueを作るか、既存IssueのPlanを追加・置換する。明示的なIssue公開依頼に使用する。
+description: レビュー済みのResearchとThink成果物から、人間が読みやすくbuildに渡せるGitHub Issueを作成するか、既存Issueのtitleと本文全体を更新する。明示的なIssue公開依頼に使用する。
 ---
 
 # Issue
 
 `codex-issue describe`で現在の入力形式、プレビュー、公開の契約を確認する。
 
-## 判断
+## 下書き
 
 - 公開する契約を準備する前に[.codex/OUTCOME.md](../../.codex/OUTCOME.md)を読む。
 - think が作成した準備完了の JSON 成果物を 1 件使用する。存在しなければ、hook-bound な`codex-issue stop --input <task-bound-input-path>`を実行する。placeholder の Issue input や Think artifact を作成しない。
-- 新規 Issue または指定された既存 Issue への Plan 追加を選ぶ。Plan より前の既存本文を保持し、この workflow が公開した Plan だけを置換する。
-- 新規 Issue では、作業種別の接頭辞を付けず、内容を具体的に表す短い title を付ける。
+- Think artifact が参照する Research report を読む。確認済みの事実と Think の決定だけを使って Issue を作成する。
+- `create`または`update`を選ぶ。`update`では対象 Issue を読み、ユーザーの依頼に必要な title と本文を全体的に更新する。既存内容は引き続き有用な場合だけ残す。
+- 作業種別の接頭辞を付けず、内容を具体的に表す短い title にする。設定言語で読みやすい prose を書き、背景、確認済みの事実、決定、完了状態のうち有用な section だけを使う。
+- prose に Plan を複製したり`## Plan` section を追加したりしない。完成した title と prose を controller へ渡し、Think artifact の正確な Plan は controller に追加させる。
 
 ## 公開
 
 - ユーザーが先頭で明示した `$issue` invocation を、hook が束縛したリポジトリに対する GitHub Issue の create または edit 最大 1 回の承認として扱う。公開確認を重ねて求めない。
 - controller は GitHub network access を有効にして実行する。execution sandbox が`api.github.com`を拒否した場合は、承認が消費される前に同じ hook-bound コマンドを network escalation 付きで再実行する。
 - GitHub へ書き込む前に draft を作成する。
-- GitHub write 前に draft が失敗した場合は、同じ task-bound invocation を再試行する。
-- GitHub へ書き込む直前に、承認対象の draft と attach 対象が変更されていないことを確認する。
-- `## Plan`の下に JSON Plan を 1 件だけ公開し、別の encoded Plan や Plan hash を追加しない。
+- deterministic な draft error は再試行しない。network または credential の回復で変化し得る GitHub access failure だけを再試行する。
+- GitHub へ書き込む直前に、承認対象の draft と update 対象が変更されていないことを確認する。
+- 折りたたんだ`## Plan`の下に JSON Plan を 1 件だけ公開し、publication metadata、別の encoded Plan、Plan hash を追加しない。
 - Issue URL、任意の監査用 receipt、`repo + issue_number`の Build selector を返す。
 
 ## エスカレーション
@@ -30,4 +32,4 @@ Plan が不正または不完全な場合は公開せず`think`に戻す。GitHu
 
 ## 報告
 
-公開 Plan と workflow artifact は英語のままにする。Issue URL、任意の receipt、Build source、次の状態を含む、ユーザー向けの最終報告だけを設定言語へ翻訳する。source 不在で明示停止した場合は、`missing_decision`、GitHub write なし、次の状態として think を報告する。どちらの次状態にも進まない。
+公開 Plan と workflow artifact は英語のままにする。Issue の title、prose、Issue URL、任意の receipt、Build source、次の状態を含む最終報告は設定言語で書く。source 不在で明示停止した場合は、`missing_decision`、GitHub write なし、次の状態として think を報告する。どちらの次状態にも進まない。

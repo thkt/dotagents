@@ -1,4 +1,4 @@
-/** @file Outcome: Issue publishes one Think Plan and Build reads that public Plan once. */
+/** @file Outcome: Issue publishes readable prose and one Think Plan that Build reads once. */
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -75,14 +75,12 @@ class Gateway implements IssueGateway {
     url: 'https://github.com/owner/repo/issues/1',
   };
   views = 0;
+  edits = 0;
 
   checkAccess(): void {}
   view(): GitHubIssue {
     this.views += 1;
     return { ...this.issue };
-  }
-  findByPublicationId(_repository: string, publicationId: string): GitHubIssue | null {
-    return this.issue.body.includes(`publication_id:${publicationId}`) ? this.view() : null;
   }
   create(_repository: string, title: string, bodyFile: string): GitHubIssue {
     this.issue = {
@@ -93,8 +91,9 @@ class Gateway implements IssueGateway {
     };
     return this.view();
   }
-  edit(_repository: string, _issue: number, bodyFile: string): GitHubIssue {
-    this.issue = { ...this.issue, body: fs.readFileSync(bodyFile, 'utf8') };
+  edit(_repository: string, _issue: number, title: string, bodyFile: string): GitHubIssue {
+    this.edits += 1;
+    this.issue = { ...this.issue, title, body: fs.readFileSync(bodyFile, 'utf8') };
     return this.view();
   }
 }
@@ -106,6 +105,7 @@ test('Issue input derives repository identity from origin', () => {
     mode: 'create',
     think_report: thinkReport(repo),
     title: '保存',
+    prose: '## 背景\n\n値を保存できない。',
   });
   assert.equal(input.repository, 'owner/repo');
   assert.equal(input.remote, 'origin');
@@ -119,35 +119,45 @@ test('publishes the Think Plan as one public Build source', () => {
     mode: 'create',
     think_report: thinkReport(repo),
     title: '保存',
+    prose: '## 背景\n\n値を保存できない。\n\n## 決定\n\n永続化を追加する。',
   });
   const draft = draftIssue(input, gateway);
   const published = publishIssue(draft.draft_json, draft.draft_sha256, gateway);
   const parsed = parsePublicIssueBody(published.issue.body);
   assert.deepEqual(parsed.plan.authoring, plan);
+  assert.match(parsed.prose, /## 背景[\s\S]*## 決定/u);
   assert.equal((published.issue.body.match(/## Plan/gu) ?? []).length, 1);
 });
 
-test('attaching a Plan preserves existing prose', () => {
+test('updates the complete human-readable Issue around the Think Plan', () => {
   const repo = repository();
   const gateway = new Gateway();
   const input = validateIssueInput({
     repo,
-    mode: 'attach-plan',
+    mode: 'update',
     target_issue: 1,
     think_report: thinkReport(repo),
+    title: '保存機能を追加する',
+    prose:
+      '## 背景\n\nResearchで保存機能の不足を確認した。\n\n## 決定\n\nThinkで永続化を採用した。',
   });
   const draft = draftIssue(input, gateway);
   publishIssue(draft.draft_json, draft.draft_sha256, gateway);
-  assert.equal(parsePublicIssueBody(gateway.issue.body).visibleBody, '背景説明');
+  assert.equal(gateway.issue.title, '保存機能を追加する');
+  assert.equal(
+    parsePublicIssueBody(gateway.issue.body).prose,
+    '## 背景\n\nResearchで保存機能の不足を確認した。\n\n## 決定\n\nThinkで永続化を採用した。',
+  );
+  assert.equal(gateway.edits, 1);
 });
 
-test('Build accepts a human-authored terminal JSON Plan and fetches the Issue once', () => {
+test('Build reads the published Plan once with optional delivery input', () => {
   const repo = repository();
   const gateway = new Gateway();
   gateway.issue = {
     ...gateway.issue,
     title: '保存',
-    body: `背景\n\n## Plan\n\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n`,
+    body: renderPublicIssueBody('## 背景\n\n保存機能が必要。', compileBuildPlan(plan)),
   };
   const source = resolveBuildSource(
     {
@@ -172,17 +182,50 @@ test('Issue refuses a Think result that still requires Research', () => {
     mode: 'create',
     think_report: thinkReport(repo, null),
     title: '保存',
+    prose: '## 背景\n\n保存機能が必要。',
   });
   assert.throws(() => draftIssue(input, gateway), /must be issue-ready/u);
 });
 
-test('round-trips publication identity and the Build Plan', () => {
-  const body = renderPublicIssueBody(
-    '背景',
-    compileBuildPlan(plan),
-    '123e4567-e89b-42d3-a456-426614174000',
-  );
+test('round-trips readable prose and a collapsed Build Plan', () => {
+  const body = renderPublicIssueBody('## 背景\n\n保存機能が必要。', compileBuildPlan(plan));
   const parsed = parsePublicIssueBody(body);
-  assert.equal(parsed.publication_id, '123e4567-e89b-42d3-a456-426614174000');
+  assert.equal(parsed.prose, '## 背景\n\n保存機能が必要。');
+  assert.match(body, /<details>\n<summary>Build Plan<\/summary>/u);
   assert.deepEqual(parsed.plan.authoring, plan);
+});
+
+test('rejects a second Plan authored in human prose', () => {
+  const repo = repository();
+  assert.throws(
+    () =>
+      validateIssueInput({
+        repo,
+        mode: 'create',
+        think_report: thinkReport(repo),
+        title: '保存',
+        prose: '## Plan\n\n手書きのPlan',
+      }),
+    /reserved Plan section/u,
+  );
+});
+
+test('stops an update when the target changed after draft validation', () => {
+  const repo = repository();
+  const gateway = new Gateway();
+  const input = validateIssueInput({
+    repo,
+    mode: 'update',
+    target_issue: 1,
+    think_report: thinkReport(repo),
+    title: '保存機能を追加する',
+    prose: '## 背景\n\n保存機能が必要。',
+  });
+  const draft = draftIssue(input, gateway);
+  gateway.issue = { ...gateway.issue, body: '第三者が更新した本文' };
+  assert.throws(
+    () => publishIssue(draft.draft_json, draft.draft_sha256, gateway),
+    /target issue changed/u,
+  );
+  assert.equal(gateway.edits, 0);
 });

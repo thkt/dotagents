@@ -13,7 +13,6 @@ export type GitHubWriteAuthority = 'issue-publication' | 'build-ship';
 export type GitHubOperation =
   | 'repo:view'
   | 'issue:view'
-  | 'issue:publication-search'
   | 'issue:create'
   | 'issue:edit'
   | 'pr:create'
@@ -28,7 +27,6 @@ export const GITHUB_OPERATION_POLICIES: Readonly<Record<GitHubOperation, GitHubO
   Object.freeze({
     'repo:view': Object.freeze({ access: 'read', authority: null }),
     'issue:view': Object.freeze({ access: 'read', authority: null }),
-    'issue:publication-search': Object.freeze({ access: 'read', authority: null }),
     'issue:create': Object.freeze({ access: 'write', authority: 'issue-publication' }),
     'issue:edit': Object.freeze({ access: 'write', authority: 'issue-publication' }),
     'pr:create': Object.freeze({ access: 'write', authority: 'build-ship' }),
@@ -75,26 +73,6 @@ export function githubIssueView(repository: string, issue: number): GitHubInvoca
   ]);
 }
 
-export function githubIssuePublicationSearch(
-  repository: string,
-  publicationId: string,
-): GitHubInvocation {
-  return invocation('issue:publication-search', [
-    'issue',
-    'list',
-    '--repo',
-    repository,
-    '--state',
-    'all',
-    '--search',
-    `${publicationId} in:body`,
-    '--limit',
-    '100',
-    '--json',
-    'number,title,body,url',
-  ]);
-}
-
 export function githubIssueCreate(
   repository: string,
   title: string,
@@ -115,6 +93,7 @@ export function githubIssueCreate(
 export function githubIssueEdit(
   repository: string,
   issue: number,
+  title: string,
   bodyFile: string,
 ): GitHubInvocation {
   return invocation('issue:edit', [
@@ -123,6 +102,8 @@ export function githubIssueEdit(
     String(issue),
     '--repo',
     repository,
+    '--title',
+    title,
     '--body-file',
     bodyFile,
   ]);

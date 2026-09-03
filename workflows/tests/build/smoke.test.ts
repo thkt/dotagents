@@ -35,11 +35,7 @@ function buildFixture(plan: BuildPlanAuthoring) {
   const startPoint = git(repo, 'rev-parse', 'HEAD');
   git(repo, 'update-ref', 'refs/remotes/origin/main', startPoint);
   git(repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
-  const body = renderPublicIssueBody(
-    '',
-    compileBuildPlan(plan),
-    '00000000-0000-4000-8000-000000000002',
-  );
+  const body = renderPublicIssueBody('Build fixture.', compileBuildPlan(plan));
   const issueFile = `${repo}.issue.json`;
   fs.writeFileSync(
     issueFile,

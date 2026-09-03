@@ -5,7 +5,6 @@ import {
   GITHUB_RESPONSE_ERROR,
   githubIssueCreate,
   githubIssueEdit,
-  githubIssuePublicationSearch,
   githubIssueView,
   githubRepoView,
   parseGitHubJson,
@@ -25,9 +24,8 @@ export interface GitHubIssue {
 export interface IssueGateway {
   checkAccess(repository: string): void;
   view(repository: string, issue: number): GitHubIssue;
-  findByPublicationId(repository: string, publicationId: string): GitHubIssue | null;
   create(repository: string, title: string, bodyFile: string): GitHubIssue;
-  edit(repository: string, issue: number, bodyFile: string): GitHubIssue;
+  edit(repository: string, issue: number, title: string, bodyFile: string): GitHubIssue;
 }
 
 function parseIssue(raw: unknown): GitHubIssue {
@@ -49,13 +47,6 @@ function parseIssue(raw: unknown): GitHubIssue {
     body: raw.body,
     url: raw.url,
   };
-}
-
-function parseIssueList(raw: unknown): GitHubIssue[] {
-  if (!Array.isArray(raw)) {
-    throw new FlowError('GitHub returned an invalid issue list', GITHUB_RESPONSE_ERROR);
-  }
-  return raw.map(parseIssue);
 }
 
 function issueNumber(url: string): number {
@@ -89,24 +80,13 @@ export class GhIssueGateway implements IssueGateway {
     return view(repository, issue);
   }
 
-  findByPublicationId(repository: string, publicationId: string): GitHubIssue | null {
-    const output = runGitHub(githubIssuePublicationSearch(repository, publicationId));
-    const matches = parseIssueList(parseGitHubJson(output, 'GitHub issue list output')).filter(
-      (issue) => issue.body.includes(`publication_id:${publicationId}`),
-    );
-    if (matches.length > 1) {
-      throw new FlowError('GitHub returned duplicate issue publications', GITHUB_RESPONSE_ERROR);
-    }
-    return matches[0] ?? null;
-  }
-
   create(repository: string, title: string, bodyFile: string): GitHubIssue {
     const url = runGitHub(githubIssueCreate(repository, title, bodyFile), this.writeAuthority);
     return view(repository, issueNumber(url));
   }
 
-  edit(repository: string, issue: number, bodyFile: string): GitHubIssue {
-    runGitHub(githubIssueEdit(repository, issue, bodyFile), this.writeAuthority);
+  edit(repository: string, issue: number, title: string, bodyFile: string): GitHubIssue {
+    runGitHub(githubIssueEdit(repository, issue, title, bodyFile), this.writeAuthority);
     return view(repository, issue);
   }
 }
