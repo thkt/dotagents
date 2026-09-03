@@ -7,8 +7,6 @@ import {
   githubIssueEdit,
   githubIssuePublicationSearch,
   githubIssueView,
-  githubLabelCreate,
-  githubLabelList,
   githubRepoView,
   parseGitHubJson,
   runGitHub,
@@ -22,16 +20,14 @@ export interface GitHubIssue {
   title: string;
   body: string;
   url: string;
-  labels: string[];
 }
 
 export interface IssueGateway {
   checkAccess(repository: string): void;
   view(repository: string, issue: number): GitHubIssue;
   findByPublicationId(repository: string, publicationId: string): GitHubIssue | null;
-  ensureLabel(repository: string, label: string): void;
-  create(repository: string, title: string, bodyFile: string, label: string): GitHubIssue;
-  edit(repository: string, issue: number, bodyFile: string, label: string): GitHubIssue;
+  create(repository: string, title: string, bodyFile: string): GitHubIssue;
+  edit(repository: string, issue: number, bodyFile: string): GitHubIssue;
 }
 
 function parseIssue(raw: unknown): GitHubIssue {
@@ -43,34 +39,16 @@ function parseIssue(raw: unknown): GitHubIssue {
     !raw.title.trim() ||
     typeof raw.body !== 'string' ||
     typeof raw.url !== 'string' ||
-    !raw.url.startsWith('https://github.com/') ||
-    !Array.isArray(raw.labels)
+    !raw.url.startsWith('https://github.com/')
   ) {
     throw new FlowError('GitHub returned an invalid issue record', GITHUB_RESPONSE_ERROR);
   }
-  const labels = raw.labels.map((label) => {
-    if (!isObject(label) || typeof label.name !== 'string' || !label.name) {
-      throw new FlowError('GitHub returned an invalid issue label', GITHUB_RESPONSE_ERROR);
-    }
-    return label.name;
-  });
   return {
     number: Number(raw.number),
     title: raw.title,
     body: raw.body,
     url: raw.url,
-    labels,
   };
-}
-
-function parseLabelNames(raw: unknown): string[] {
-  if (!Array.isArray(raw))
-    throw new FlowError('GitHub returned invalid labels', GITHUB_RESPONSE_ERROR);
-  return raw.map((item) => {
-    if (!isObject(item) || typeof item.name !== 'string')
-      throw new FlowError('GitHub returned invalid labels', GITHUB_RESPONSE_ERROR);
-    return item.name;
-  });
 }
 
 function parseIssueList(raw: unknown): GitHubIssue[] {
@@ -85,16 +63,6 @@ function issueNumber(url: string): number {
   if (!match) throw new FlowError('GitHub did not return an issue URL', GITHUB_RESPONSE_ERROR);
   return Number(match[1]);
 }
-
-const PRIORITY_LABELS: Record<string, { color: string; description: string }> = {
-  'priority:critical': { color: 'b60205', description: 'Work that requires immediate attention.' },
-  'priority:high': { color: 'd93f0b', description: 'Work that should be addressed soon.' },
-  'priority:medium': { color: 'fbca04', description: 'Work with normal delivery priority.' },
-  'priority:low': {
-    color: '0e8a16',
-    description: 'Work that can be addressed when capacity allows.',
-  },
-};
 
 function view(repository: string, issue: number): GitHubIssue {
   const output = runGitHub(githubIssueView(repository, issue));
@@ -132,28 +100,13 @@ export class GhIssueGateway implements IssueGateway {
     return matches[0] ?? null;
   }
 
-  ensureLabel(repository: string, label: string): void {
-    const output = runGitHub(githubLabelList(repository, label));
-    const labels = parseGitHubJson(output, 'GitHub label output');
-    if (parseLabelNames(labels).includes(label)) return;
-    const priority = PRIORITY_LABELS[label];
-    if (!priority) throw new FlowError(`Unsupported issue label: ${label}`, 'decision_error');
-    runGitHub(
-      githubLabelCreate(repository, label, priority.color, priority.description),
-      this.writeAuthority,
-    );
-  }
-
-  create(repository: string, title: string, bodyFile: string, label: string): GitHubIssue {
-    const url = runGitHub(
-      githubIssueCreate(repository, title, bodyFile, label),
-      this.writeAuthority,
-    );
+  create(repository: string, title: string, bodyFile: string): GitHubIssue {
+    const url = runGitHub(githubIssueCreate(repository, title, bodyFile), this.writeAuthority);
     return view(repository, issueNumber(url));
   }
 
-  edit(repository: string, issue: number, bodyFile: string, label: string): GitHubIssue {
-    runGitHub(githubIssueEdit(repository, issue, bodyFile, label), this.writeAuthority);
+  edit(repository: string, issue: number, bodyFile: string): GitHubIssue {
+    runGitHub(githubIssueEdit(repository, issue, bodyFile), this.writeAuthority);
     return view(repository, issue);
   }
 }

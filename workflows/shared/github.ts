@@ -14,8 +14,6 @@ export type GitHubOperation =
   | 'repo:view'
   | 'issue:view'
   | 'issue:publication-search'
-  | 'label:list'
-  | 'label:create'
   | 'issue:create'
   | 'issue:edit'
   | 'pr:create'
@@ -31,8 +29,6 @@ export const GITHUB_OPERATION_POLICIES: Readonly<Record<GitHubOperation, GitHubO
     'repo:view': Object.freeze({ access: 'read', authority: null }),
     'issue:view': Object.freeze({ access: 'read', authority: null }),
     'issue:publication-search': Object.freeze({ access: 'read', authority: null }),
-    'label:list': Object.freeze({ access: 'read', authority: null }),
-    'label:create': Object.freeze({ access: 'write', authority: 'issue-publication' }),
     'issue:create': Object.freeze({ access: 'write', authority: 'issue-publication' }),
     'issue:edit': Object.freeze({ access: 'write', authority: 'issue-publication' }),
     'pr:create': Object.freeze({ access: 'write', authority: 'build-ship' }),
@@ -75,7 +71,7 @@ export function githubIssueView(repository: string, issue: number): GitHubInvoca
     '--repo',
     repository,
     '--json',
-    'number,title,body,url,labels',
+    'number,title,body,url',
   ]);
 }
 
@@ -95,41 +91,7 @@ export function githubIssuePublicationSearch(
     '--limit',
     '100',
     '--json',
-    'number,title,body,url,labels',
-  ]);
-}
-
-export function githubLabelList(repository: string, label: string): GitHubInvocation {
-  return invocation('label:list', [
-    'label',
-    'list',
-    '--repo',
-    repository,
-    '--search',
-    label,
-    '--limit',
-    '100',
-    '--json',
-    'name',
-  ]);
-}
-
-export function githubLabelCreate(
-  repository: string,
-  label: string,
-  color: string,
-  description: string,
-): GitHubInvocation {
-  return invocation('label:create', [
-    'label',
-    'create',
-    label,
-    '--repo',
-    repository,
-    '--color',
-    color,
-    '--description',
-    description,
+    'number,title,body,url',
   ]);
 }
 
@@ -137,7 +99,6 @@ export function githubIssueCreate(
   repository: string,
   title: string,
   bodyFile: string,
-  label: string,
 ): GitHubInvocation {
   return invocation('issue:create', [
     'issue',
@@ -148,8 +109,6 @@ export function githubIssueCreate(
     title,
     '--body-file',
     bodyFile,
-    '--label',
-    label,
   ]);
 }
 
@@ -157,7 +116,6 @@ export function githubIssueEdit(
   repository: string,
   issue: number,
   bodyFile: string,
-  label: string,
 ): GitHubInvocation {
   return invocation('issue:edit', [
     'issue',
@@ -167,8 +125,6 @@ export function githubIssueEdit(
     repository,
     '--body-file',
     bodyFile,
-    '--add-label',
-    label,
   ]);
 }
 

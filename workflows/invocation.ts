@@ -30,7 +30,7 @@ interface ApprovalSpec {
 
 const ISSUE_APPROVAL: ApprovalSpec = {
   protocol: ISSUE_APPROVAL_PROTOCOL,
-  operation: 'publish-one-github-issue-and-ensure-priority-label',
+  operation: 'publish-one-github-issue',
   path: issueApprovalPath,
   label: 'issue publication approval',
   missing: 'explicit $issue publication approval is required',

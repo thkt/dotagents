@@ -22,4 +22,4 @@ description: プロジェクトまたは技術上の問い1つを調査し、別
 
 ## 報告
 
-成功した Research は topic 別の Knowledge を自動更新する。workflow artifact は英語のままにする。回答、finding と未確定事項の件数、成果物パス、次の状態が`think`であることを含む、ユーザー向けの最終報告だけを設定言語へ翻訳する。Think へは進まない。
+成功した Research は永続化済み report から topic 別 Knowledge の再構築を試みる。Knowledge の書き込み失敗によって Research report を無効にしない。workflow artifact は英語のままにする。回答、finding と未確定事項の件数、成果物パス、次の状態が`think`であることを含む、ユーザー向けの最終報告だけを設定言語へ翻訳する。Think へは進まない。

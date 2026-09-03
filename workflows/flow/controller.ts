@@ -272,6 +272,7 @@ function startWorkflow(runId: string, inputFile: string): PublicState {
     correction_counts: {},
     gate_reports: [],
     build_plan: null,
+    screenshots: [],
     workflow_baseline: workflowBaseline,
     actor_baseline: null,
     action_baseline: null,

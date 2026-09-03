@@ -244,6 +244,7 @@ export interface FlowState {
   correction_counts: Record<string, number>;
   gate_reports: GateReport[];
   build_plan: BuildPlanContext | null;
+  screenshots: ScreenshotSpec[];
   workflow_baseline: RepoSnapshot;
   actor_baseline: RepositoryInvariant | null;
   action_baseline: RepositoryInvariant | null;
@@ -266,8 +267,6 @@ export interface BuildPlanContext {
   title: string;
   outcome: string;
   test_command: string;
-  manual_verification: string[];
-  screenshots?: ScreenshotSpec[];
   units: BuildPlanUnit[];
 }
 

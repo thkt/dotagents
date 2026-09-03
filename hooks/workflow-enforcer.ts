@@ -356,6 +356,7 @@ function userPromptSubmit(input: HookInput): HookResponse {
           repo: pending.repo,
           issue_number: buildIssue,
           ship: true,
+          screenshots: [],
         });
       }
     } catch (error) {
@@ -366,7 +367,7 @@ function userPromptSubmit(input: HookInput): HookResponse {
       pending.workflow === 'build'
         ? buildIssue === null
           ? ` Prepare the build input at ${pending.input_path}.`
-          : ` The build input for ${buildRepository}#${buildIssue} is already prepared. The controller will read the public Plan once and compile its execution. If this invocation explicitly excludes Ship, set ship to false before running.`
+          : ` The build input for ${buildRepository}#${buildIssue} is already prepared. The controller will read the public Plan once and compile its execution. If this invocation explicitly excludes Ship, set ship to false before running. Add screenshot name and alt pairs only when the user explicitly requests PR screenshots.`
         : '';
     const { executable, flag, start, noun } = invocationRuntime(pending);
     const command = `${executable} ${start} ${flag} ${shellArgument(pending.input_path)}`;
@@ -376,7 +377,7 @@ function userPromptSubmit(input: HookInput): HookResponse {
         : '';
     const externalWriteApproval =
       workflow === 'issue'
-        ? " The user's leading explicit $issue invocation authorizes at most one GitHub Issue create or edit and, if absent, creation of its selected supported priority label for this task and repository; no additional publication confirmation is required. Run the controller with GitHub network access."
+        ? " The user's leading explicit $issue invocation authorizes at most one GitHub Issue create or edit for this task and repository; no additional publication confirmation is required. Run the controller with GitHub network access."
         : workflow === 'build'
           ? " The user's leading explicit $build invocation authorizes one final commit and, when Ship is enabled, one push and one draft PR creation for this task and repository; include Ship unless the same request explicitly excludes push or draft PR creation, and do not request another Ship confirmation. Run the bound Issue read and controller with GitHub network access."
           : '';

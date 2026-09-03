@@ -26,7 +26,7 @@ export interface WorkflowAgent {
   ): Promise<BuildReviewResult>;
 }
 
-const ACTOR_RESULT_SCHEMA = {
+export const ACTOR_RESULT_SCHEMA = {
   type: 'object',
   properties: {
     status: { type: 'string', enum: ['completed', 'escalated'] },
@@ -51,7 +51,7 @@ export class ActorEscalation extends Error {
   }
 }
 
-const BUILD_REVIEW_RESULT_SCHEMA = {
+export const BUILD_REVIEW_RESULT_SCHEMA = {
   type: 'object',
   properties: {
     protocol: { type: 'string', enum: ['codex-build-review'] },

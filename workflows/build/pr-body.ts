@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-/** @file Outcome: Draft PR bodies expose complete mechanical verification facts without unsafe rendering. */
+/** @file Outcome: Draft PR bodies expose only observed Build verification facts. */
 
 import * as fs from 'node:fs';
 import path from 'node:path';
@@ -21,12 +21,8 @@ const REQUIRED_KEYS = ['issue', 'tests_pass', 'gates_pass'];
 const LABELS = {
   header:
     '_Automated build verification, including an independent semantic review of the diff against the published issue Plan._',
-  manual: 'Manual verification checklist (complete before merge)',
   scope: "Files outside the plan's scope",
-  untouched: 'Planned files never changed',
-  missing: 'Planned test statements not found',
   advisories: 'Advisory findings (not mechanically reproduced)',
-  output: 'verify output',
   screenshots: 'Screenshots',
 } as const;
 
@@ -35,11 +31,7 @@ interface PrBodyPayload {
   tests_pass: boolean;
   gates_pass: boolean;
   scope_deviations?: unknown;
-  untouched_plan_files?: unknown;
-  missing_tests?: unknown;
-  manual_checks?: unknown;
   advisories?: unknown;
-  verification_output?: unknown;
   screenshots?: unknown;
 }
 
@@ -52,13 +44,6 @@ function inlineCode(value: unknown): string {
   const longest = Math.max(0, ...[...text.matchAll(/`+/g)].map((match) => match[0].length));
   const fence = '`'.repeat(Math.max(1, longest + 1));
   return `${fence}${text}${fence}`;
-}
-
-export function codeFence(value: unknown): string {
-  const text = String(value);
-  const longest = Math.max(0, ...[...text.matchAll(/`+/g)].map((match) => match[0].length));
-  const fence = '`'.repeat(Math.max(3, longest + 1));
-  return `${fence}\n${text}\n${fence}`;
 }
 
 function list(value: unknown, key: string): unknown[] {
@@ -107,9 +92,6 @@ export function validatePayload(payload: unknown): asserts payload is PrBodyPayl
 export function render(payload: unknown): string {
   validatePayload(payload);
   const scope = list(payload.scope_deviations, 'scope_deviations');
-  const untouched = list(payload.untouched_plan_files, 'untouched_plan_files');
-  const missing = list(payload.missing_tests, 'missing_tests');
-  const manual = list(payload.manual_checks, 'manual_checks');
   const advisories = list(payload.advisories, 'advisories');
   const screenshots = list(payload.screenshots, 'screenshots');
   const tests = payload.tests_pass ? 'pass' : 'FAIL';
@@ -117,26 +99,11 @@ export function render(payload: unknown): string {
   const status = [
     `<code>verify tests=${tests} gates=${gates}</code>`,
     `<code>scope-deviations ${scope.length}</code>`,
-    `<code>untouched-plan-files ${untouched.length}</code>`,
-    `<code>missing-tests ${missing.length}</code>`,
   ].join(' · ');
 
   const folded = [];
-  if ((!payload.tests_pass || !payload.gates_pass) && payload.verification_output) {
-    folded.push(
-      `<details><summary>${LABELS.output}</summary>\n\n${codeFence(payload.verification_output)}\n\n</details>`,
-    );
-  }
   for (const section of [
-    renderSection(LABELS.manual, manual, (item) => `[ ] ${oneLine(item)}`),
     renderSection(LABELS.scope, scope, inlineCode),
-    renderSection(LABELS.untouched, untouched, (item) =>
-      inlineCode(isObject(item) ? item.file : item),
-    ),
-    renderSection(LABELS.missing, missing, (item) => {
-      if (!isObject(item)) return oneLine(item);
-      return `${inlineCode(item.test_id || '?')} ${oneLine(item.name || '')}`.trim();
-    }),
     renderSection(LABELS.advisories, advisories, oneLine),
   ]) {
     if (section) folded.push(section);
@@ -167,11 +134,7 @@ export function describe() {
       tests_pass: true,
       gates_pass: true,
       scope_deviations: [],
-      untouched_plan_files: [],
-      missing_tests: [],
-      manual_checks: [],
       advisories: [],
-      verification_output: '',
       screenshots: [],
     },
     required_keys: [...REQUIRED_KEYS],

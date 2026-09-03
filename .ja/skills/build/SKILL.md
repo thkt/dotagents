@@ -20,7 +20,7 @@ description: 公開 GitHub Issue の Plan 1件を実装・検証し、任意で 
 - ユーザーが先頭で明示した invocation を、hook が束縛した repository における local branch、最終検証済み commit 1 件、Ship 有効時の push 1 回と下書き PR 作成 1 回の承認として扱う。`Ship`の確認を重ねて求めない。
 - 同じ依頼で push または下書き PR 作成をユーザーが明示的に除外した場合を除き、`Ship`を含める。
 - resume 時は、外部 action を繰り返す前に branch、commit、push、draft PR の postcondition を照合する。
-- 公開 Plan が screenshots を宣言した場合は、完成した UI を render し、controller が指定した path にすべての画像を撮影する。controller が seal した画像 bytes と一致する場合だけ Ship し、画像の変更や未解決の添付があれば別 PR を作らず停止する。
+- ユーザーが PR screenshots を明示的に求めた場合は、安全な画像名と alt text を準備済み Build input に追加する。完成した UI を render し、controller が指定した path に要求された画像を撮影する。controller が seal した画像 bytes と一致する場合だけ Ship し、画像の変更や未解決の添付があれば別 PR を作らず停止する。
 - 追加 Issue の候補は報告するだけで、作成しない。
 - active Build の取消をユーザーが求めた場合は hook-bound な`codex-flow cancel`を実行する。取消後は実装、commit、push、draft PR を作成しない。
 

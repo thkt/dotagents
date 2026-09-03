@@ -5,7 +5,7 @@ The project outcome is defined in [.codex/OUTCOME.md](../.codex/OUTCOME.md).
 ## Flow
 
 1. Research gathers repository and optional external evidence into one report.
-2. Completed Research automatically rebuilds topic-based Knowledge summaries with links to their source findings.
+2. Completed Research best-effort rebuilds topic-based Knowledge summaries with links to their source findings.
 3. Think reads explicitly selected reports first, adds related Knowledge, and returns one Plan or focused Research questions.
 4. Issue publishes that Plan once beneath `## Plan` in a public GitHub Issue.
 5. Build reads the selected Issue once, implements the whole Plan, tests and reviews the result, then creates one commit.
@@ -32,6 +32,7 @@ Code accepts a direct request and uses the same implementation executor as Build
 - User-authored inputs contain semantic requests and selectors, not internal execution records.
 - Workflow contracts and durable artifacts use English. The invoking Skill translates only its final user-facing report into the configured language.
 - The public Issue Plan is Build authority. Local Issue drafts and receipts support publication recovery only.
+- Optional PR screenshots are Build delivery input, not public Plan authority.
 - Research reports remain the evidence record. Knowledge is a rebuildable topic summary with report and finding references; it never derives decisions from Issue artifacts.
 - Build and Code use one implementation actor for the complete requested scope. A failed test or blocking semantic review returns to that actor, followed by tests and review again.
 - Runtime GitHub commands are declared in `shared/github.ts`. Shell tests run without GitHub credentials.

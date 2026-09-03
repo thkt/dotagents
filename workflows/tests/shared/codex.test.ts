@@ -52,7 +52,6 @@ test('streaming turn returns the final agent response and exposes safe activity 
     ),
     'prompt',
     {
-      outputSchema: {},
       modelRun: {
         label: 'test model',
         idleCode: 'test_model_idle_timeout',
@@ -199,6 +198,20 @@ test('turn.failed after reconnect exhaustion is model unavailable', async () => 
       assert.match(String((error as Error).message), /DNS unavailable/u);
       return true;
     },
+  );
+});
+
+test('a deterministic API request failure is not retryable model unavailability', async () => {
+  await assert.rejects(
+    runStreamedCodexTurn(
+      streamed(
+        { type: 'error', message: 'Invalid schema: missing required field' },
+        { type: 'turn.failed', error: { message: 'invalid_json_schema' } },
+      ),
+      'prompt',
+      { modelRun: { label: 'invalid request', idleCode: 'invalid_request_idle' } },
+    ),
+    (error: unknown) => errorCode(error) === 'execution_error',
   );
 });
 

@@ -37,7 +37,6 @@ const plan: BuildPlanContext = {
   title: 'Feature',
   outcome: 'Feature is delivered.',
   test_command: 'bun test',
-  manual_verification: [],
   units: [
     {
       id: 'U-001',
@@ -145,11 +144,35 @@ test('Ship is an explicit optional suffix', () => {
   );
 });
 
-test('Build input is only a local Issue selector plus optional Ship', () => {
+test('Build input contains only the Issue selector and optional delivery settings', () => {
   const { repo } = repository();
   assert.deepEqual(parseBuildRunInput({ ...describe('build').input_template, repo }), {
     repo,
     issue_number: 123,
     ship: false,
+    screenshots: [],
   });
+});
+
+test('Build input accepts screenshots only as optional Ship delivery artifacts', () => {
+  const { repo } = repository();
+  assert.deepEqual(
+    parseBuildRunInput({
+      repo,
+      issue_number: 123,
+      ship: true,
+      screenshots: [{ name: 'home.png', alt: 'Completed home screen' }],
+    }).screenshots,
+    [{ name: 'home.png', alt: 'Completed home screen' }],
+  );
+  assert.throws(
+    () =>
+      parseBuildRunInput({
+        repo,
+        issue_number: 123,
+        ship: false,
+        screenshots: [{ name: 'home.png', alt: 'Completed home screen' }],
+      }),
+    /require ship to be true/u,
+  );
 });

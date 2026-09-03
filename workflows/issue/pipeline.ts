@@ -128,7 +128,6 @@ export function draftIssue(
       remote: input.remote,
       issue_number: issueNumber,
       title,
-      priority_label: `priority:${input.priority}`,
       publication_id: publicationId,
       body_sha256: sha256(body),
       existing_issue: existing
@@ -168,7 +167,6 @@ function verifyPublished(draft: IssueDraft, body: string, issue: GitHubIssue): v
   if (
     issue.title !== draft.title ||
     issue.body !== body ||
-    !issue.labels.includes(draft.priority_label) ||
     (draft.issue_number !== null && issue.number !== draft.issue_number)
   ) {
     throw new FlowError('published issue does not match the validated draft', 'external_error');
@@ -196,7 +194,6 @@ export function publishIssue(
   }
   requireValidPlan(draft.issue_number ?? 1, draft.title, publicContract.plan);
   assertGitHubRemote(draft.repo, draft.remote, draft.repository);
-  gateway.ensureLabel(draft.repository, draft.priority_label);
   let issue: GitHubIssue;
   if (draft.issue_number === null) {
     const recovered = gateway.findByPublicationId(draft.repository, draft.publication_id);
@@ -204,12 +201,7 @@ export function publishIssue(
       issue = recovered;
     } else {
       try {
-        issue = gateway.create(
-          draft.repository,
-          draft.title,
-          draft.body_file,
-          draft.priority_label,
-        );
+        issue = gateway.create(draft.repository, draft.title, draft.body_file);
       } catch (error) {
         const recoveredAfterError = gateway.findByPublicationId(
           draft.repository,
@@ -222,11 +214,7 @@ export function publishIssue(
   } else {
     if (!draft.existing_issue) throw new FlowError('attach-plan draft has no target snapshot');
     const current = gateway.view(draft.repository, draft.issue_number);
-    if (
-      current.title === draft.title &&
-      current.body === body &&
-      current.labels.includes(draft.priority_label)
-    ) {
+    if (current.title === draft.title && current.body === body) {
       issue = current;
     } else {
       if (
@@ -236,19 +224,10 @@ export function publishIssue(
         throw new FlowError('target issue changed after draft validation', 'state_error');
       }
       try {
-        issue = gateway.edit(
-          draft.repository,
-          draft.issue_number,
-          draft.body_file,
-          draft.priority_label,
-        );
+        issue = gateway.edit(draft.repository, draft.issue_number, draft.body_file);
       } catch (error) {
         const recovered = gateway.view(draft.repository, draft.issue_number);
-        if (
-          recovered.title !== draft.title ||
-          recovered.body !== body ||
-          !recovered.labels.includes(draft.priority_label)
-        ) {
+        if (recovered.title !== draft.title || recovered.body !== body) {
           throw error;
         }
         issue = recovered;

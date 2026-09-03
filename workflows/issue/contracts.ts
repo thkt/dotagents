@@ -15,14 +15,11 @@ export const ISSUE_RESULT_PROTOCOL = 'codex-issue-result' as const;
 export const ISSUE_DESCRIPTION_PROTOCOL = 'codex-issue-description' as const;
 const PUBLICATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
-type IssuePriority = 'critical' | 'high' | 'medium' | 'low';
-
 interface IssueInputBase {
   repo: string;
   repository: string;
   remote: string;
   think_report: string;
-  priority: IssuePriority;
 }
 
 export type IssueInput = IssueInputBase &
@@ -41,7 +38,6 @@ export interface IssueDraft {
   remote: string;
   issue_number: number | null;
   title: string;
-  priority_label: string;
   publication_id: string;
   body_file: string;
   body_sha256: string;
@@ -83,11 +79,6 @@ export function validateIssueInput(raw: unknown): IssueInput {
         ? String(raw.think_report)
         : path.join(thinkArtifactDirectory(repo), String(raw.think_report)),
     ),
-    priority: enumValue(
-      raw.priority ?? 'medium',
-      ['critical', 'high', 'medium', 'low'] as const,
-      'issue input.priority',
-    ),
   };
   if (mode === 'attach-plan') {
     return {
@@ -118,7 +109,6 @@ export function parseIssueDraft(raw: unknown): IssueDraft {
       'remote',
       'issue_number',
       'title',
-      'priority_label',
       'publication_id',
       'body_file',
       'body_sha256',
@@ -159,11 +149,6 @@ export function parseIssueDraft(raw: unknown): IssueDraft {
     remote: remoteName(raw.remote, 'issue draft.remote'),
     issue_number: issueNumber,
     title: requiredString(raw.title, 'issue draft.title'),
-    priority_label: enumValue(
-      raw.priority_label,
-      ['priority:critical', 'priority:high', 'priority:medium', 'priority:low'] as const,
-      'issue draft.priority_label',
-    ),
     publication_id: (() => {
       const value = requiredString(raw.publication_id, 'issue draft.publication_id');
       if (!PUBLICATION_ID.test(value)) {

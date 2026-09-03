@@ -12,6 +12,7 @@ import {
 import { sandboxCodexEnvironment } from './codex-home.ts';
 import { FlowError } from './errors.ts';
 import { isObject, rejectUnknownKeys, type JsonObject } from './schema.ts';
+import { assertStructuredOutputSchema } from './structured-output.ts';
 
 /** Read-only investigation and decision threads always use the strongest reasoning profile. */
 const THINKING_THREAD_OPTIONS = {
@@ -42,6 +43,15 @@ interface ThreadResult {
 }
 
 const DEFAULT_MODEL_IDLE_TIMEOUT_MS = 10 * 60_000;
+const MODEL_UNAVAILABLE_MESSAGE =
+  /(?:reconnect|connection|network|dns|socket|fetch failed|econn|enotfound|timed? out|temporar(?:y|ily) unavailable)/iu;
+
+function streamedFailure(message: string): FlowError {
+  return new FlowError(
+    message,
+    MODEL_UNAVAILABLE_MESSAGE.test(message) ? 'model_unavailable' : 'execution_error',
+  );
+}
 
 export interface ModelActivity {
   event_type: ThreadEvent['type'];
@@ -100,6 +110,7 @@ export async function runStreamedCodexTurn(
   options: CodexTurnOptions,
   startIdleTimer: IdleTimer = idleTimer,
 ): Promise<ThreadResult> {
+  if (options.outputSchema !== undefined) assertStructuredOutputSchema(options.outputSchema);
   const { modelRun, signal: callerSignal, ...turnOptions } = options;
   const timeoutMs = modelRun.idleTimeoutMs ?? DEFAULT_MODEL_IDLE_TIMEOUT_MS;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
@@ -155,12 +166,11 @@ export async function runStreamedCodexTurn(
       } else if (event.type === 'turn.failed') {
         terminalFailed = true;
         if (streamError) {
-          throw new FlowError(
+          throw streamedFailure(
             `${event.error.message}; last stream error: ${streamError.message}`,
-            'model_unavailable',
           );
         }
-        throw new Error(event.error.message);
+        throw streamedFailure(event.error.message);
       } else if (event.type === 'error') {
         // The CLI can emit reconnect diagnostics before a later lifecycle terminal.
         // Preserve the latest diagnostic, but let turn.completed or turn.failed decide the verdict.
@@ -168,7 +178,7 @@ export async function runStreamedCodexTurn(
       }
     }
     if (!completed) {
-      if (streamError) throw new FlowError(streamError.message, 'model_unavailable');
+      if (streamError) throw streamedFailure(streamError.message);
       throw new FlowError(
         `${modelRun.label} stream ended without turn.completed`,
         'execution_error',
@@ -178,15 +188,12 @@ export async function runStreamedCodexTurn(
   } catch (error) {
     if (idleFailure) {
       if (streamError) {
-        throw new FlowError(
-          `${idleFailure.message}; last stream error: ${streamError.message}`,
-          'model_unavailable',
-        );
+        throw streamedFailure(`${idleFailure.message}; last stream error: ${streamError.message}`);
       }
       throw idleFailure;
     }
     if (streamError && !terminalFailed) {
-      throw new FlowError(streamError.message, 'model_unavailable');
+      throw streamedFailure(streamError.message);
     }
     throw error;
   } finally {

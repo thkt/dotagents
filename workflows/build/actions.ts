@@ -233,17 +233,16 @@ export function prepareShipInput(state: FlowState): void {
     return [`${finding.code}: ${finding.message}${files.length ? ` [${files.join(', ')}]` : ''}`];
   });
   const allPassed = currentReports.every((report) => report.verdict === 'pass');
+  const testReports = currentReports.filter((report) => report.gate_id === 'test');
+  const testsPassed =
+    testReports.length > 0 && testReports.every((report) => report.verdict === 'pass');
   atomicWrite(prInputPath(state.run_id), {
     issue: state.build_plan.issue,
-    tests_pass: allPassed,
+    tests_pass: testsPassed,
     gates_pass: allPassed,
     scope_deviations: values('scope_deviations'),
-    untouched_plan_files: values('untouched_plan_files'),
-    missing_tests: values('missing_tests'),
-    manual_checks: state.build_plan.manual_verification,
-    screenshots: state.build_plan.screenshots ?? [],
+    screenshots: state.screenshots ?? [],
     advisories: reviewAdvisories,
-    verification_output: '',
   });
   try {
     fs.unlinkSync(prBodyPath(state.run_id));

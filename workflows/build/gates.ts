@@ -28,8 +28,6 @@ function buildPlanContext(value: ResolvedBuildSource): BuildPlanContext {
     title: value.title,
     outcome: value.plan.outcome,
     test_command: value.plan.test_command,
-    manual_verification: value.plan.manual_verification,
-    screenshots: value.plan.screenshots ?? [],
     units: value.plan.units.map((unit, unitIndex) => ({
       id: `U-${String(unitIndex + 1).padStart(3, '0')}`,
       goal: unit.goal,
@@ -169,6 +167,7 @@ export function runStructuredBuildGate(state: FlowState, step: GateStep): GateRe
       if (report.verdict === 'pass') {
         if (!input) throw new FlowError('validated Plan input has no build context', 'state_error');
         state.build_plan = buildPlanContext(input);
+        state.screenshots = input.screenshots;
       }
       break;
     }

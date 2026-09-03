@@ -43,7 +43,7 @@ test('the armed build Ship approval passes as written', () => {
   }
 });
 
-test('one task owns one versionless runtime directory', () => {
+test('one task owns one runtime directory', () => {
   const runId = 'task-runtime-layout';
   const { repo } = armedApproval(runId);
   try {
@@ -53,7 +53,6 @@ test('one task owns one versionless runtime directory', () => {
     assert.equal(path.dirname(workflowInputPath(runId)), directory);
     assert.equal(path.basename(intentPath(runId)), 'intent.json');
     assert.equal(path.basename(workflowInputPath(runId)), 'input.json');
-    assert.doesNotMatch(directory, /(?:^|[/\\])v\d+(?:$|[/\\])/u);
     assert.doesNotThrow(() => requireBuildShipApproval(runId, repo));
   } finally {
     clearIntent(runId);

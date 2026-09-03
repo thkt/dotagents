@@ -25,7 +25,7 @@ function hasExactKeys(value: object, expected: readonly string[]): boolean {
 }
 
 export function screenshotAttachments(state: FlowState): ScreenshotAttachment[] {
-  return (state.build_plan?.screenshots ?? []).map((screenshot) => ({
+  return (state.screenshots ?? []).map((screenshot) => ({
     ...screenshot,
     path: buildScreenshotPath(state.run_id, screenshot.name),
   }));

@@ -48,7 +48,6 @@ const issue = {
   title: 'literal $(touch never)',
   body: 'body',
   url: 'https://github.com/owner/repo/issues/7',
-  labels: [{ name: 'priority:medium' }],
 };
 
 test('checkAccess verifies the exact repository through a read-only gh command', () => {
@@ -69,14 +68,9 @@ else process.exit(2);
 `,
     'issue-publication',
   );
-  const created = fake.gateway.create(
-    'owner/repo',
-    issue.title,
-    '/tmp/body with spaces.md',
-    'priority:medium',
-  );
+  const created = fake.gateway.create('owner/repo', issue.title, '/tmp/body with spaces.md');
 
-  assert.deepEqual(created, { ...issue, labels: ['priority:medium'] });
+  assert.deepEqual(created, issue);
   assert.deepEqual(fake.invocations(), [
     [
       'issue',
@@ -87,46 +81,15 @@ else process.exit(2);
       issue.title,
       '--body-file',
       '/tmp/body with spaces.md',
-      '--label',
-      'priority:medium',
     ],
-    ['issue', 'view', '7', '--repo', 'owner/repo', '--json', 'number,title,body,url,labels'],
+    ['issue', 'view', '7', '--repo', 'owner/repo', '--json', 'number,title,body,url'],
   ]);
-});
-
-test('ensureLabel creates a missing supported priority and refuses unsupported labels', () => {
-  const fake = fakeGh(
-    `
-if (args[0] === 'label' && args[1] === 'list') console.log('[]');
-else if (args[0] === 'label' && args[1] === 'create') process.exit(0);
-else process.exit(2);
-`,
-    'issue-publication',
-  );
-  fake.gateway.ensureLabel('owner/repo', 'priority:high');
-  assert.deepEqual(fake.invocations()[1], [
-    'label',
-    'create',
-    'priority:high',
-    '--repo',
-    'owner/repo',
-    '--color',
-    'd93f0b',
-    '--description',
-    'Work that should be addressed soon.',
-  ]);
-
-  assert.throws(
-    () => fake.gateway.ensureLabel('owner/repo', 'arbitrary'),
-    /Unsupported issue label/u,
-  );
-  assert.equal(fake.invocations().filter((args) => args[1] === 'create').length, 1);
 });
 
 test('write methods reject a read-only gateway before spawning gh', () => {
   const fake = fakeGh(`process.exit(2);`);
   assert.throws(
-    () => fake.gateway.create('owner/repo', 'title', '/tmp/body', 'priority:low'),
+    () => fake.gateway.create('owner/repo', 'title', '/tmp/body'),
     /requires issue-publication/u,
   );
   assert.equal(fake.invocations().length, 0);
@@ -143,10 +106,7 @@ if (args[0] === 'issue' && args[1] === 'list') console.log(${JSON.stringify(JSON
 else process.exit(2);
 `);
 
-  assert.deepEqual(fake.gateway.findByPublicationId('owner/repo', publicationId), {
-    ...published,
-    labels: ['priority:medium'],
-  });
+  assert.deepEqual(fake.gateway.findByPublicationId('owner/repo', publicationId), published);
   assert.deepEqual(fake.invocations()[0], [
     'issue',
     'list',
@@ -159,7 +119,7 @@ else process.exit(2);
     '--limit',
     '100',
     '--json',
-    'number,title,body,url,labels',
+    'number,title,body,url',
   ]);
 });
 
