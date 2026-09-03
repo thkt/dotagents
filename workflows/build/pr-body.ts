@@ -16,9 +16,11 @@ import {
 
 const PROTOCOL = 'codex-build-pr-body';
 const DESCRIPTION_PROTOCOL = 'codex-build-pr-body-description';
-const REQUIRED_KEYS = ['issue', 'tests_pass', 'gates_pass'];
+const REQUIRED_KEYS = ['issue', 'outcome', 'unit_goals', 'tests_pass', 'gates_pass'];
 
 const LABELS = {
+  summary: 'Summary',
+  verification: 'Verification',
   header:
     '_Automated build verification, including an independent semantic review of the diff against the published issue Plan._',
   scope: "Files outside the plan's scope",
@@ -28,6 +30,8 @@ const LABELS = {
 
 interface PrBodyPayload {
   issue: string | number;
+  outcome: string;
+  unit_goals: string[];
   tests_pass: boolean;
   gates_pass: boolean;
   scope_deviations?: unknown;
@@ -52,6 +56,17 @@ function list(value: unknown, key: string): unknown[] {
   return value;
 }
 
+function text(value: unknown, key: string): string {
+  if (typeof value !== 'string' || !value.trim()) throw usageError(`${key} must be non-empty text`);
+  return oneLine(value);
+}
+
+function textList(value: unknown, key: string): string[] {
+  const items = list(value, key);
+  if (!items.length) throw usageError(`${key} must contain at least one item`);
+  return items.map((item, index) => text(item, `${key}[${index}]`));
+}
+
 function renderSection<T>(
   label: string,
   items: readonly T[],
@@ -69,6 +84,8 @@ export function validatePayload(payload: unknown): asserts payload is PrBodyPayl
   if (!/^\d+$/.test(String(payload.issue)) || Number(payload.issue) < 1) {
     throw usageError('issue must be a positive integer');
   }
+  text(payload.outcome, 'outcome');
+  textList(payload.unit_goals, 'unit_goals');
   for (const key of ['tests_pass', 'gates_pass']) {
     if (typeof payload[key] !== 'boolean') throw usageError(`${key} must be boolean`);
   }
@@ -94,6 +111,8 @@ export function render(payload: unknown): string {
   const scope = list(payload.scope_deviations, 'scope_deviations');
   const advisories = list(payload.advisories, 'advisories');
   const screenshots = list(payload.screenshots, 'screenshots');
+  const outcome = text(payload.outcome, 'outcome');
+  const unitGoals = textList(payload.unit_goals, 'unit_goals');
   const tests = payload.tests_pass ? 'pass' : 'FAIL';
   const gates = payload.gates_pass ? 'pass' : 'FAIL';
   const status = [
@@ -121,7 +140,8 @@ export function render(payload: unknown): string {
         )
         .join('\n\n')}`
     : '';
-  return `\n\n---\n\n${LABELS.header}\n\nCloses #${payload.issue}${visualEvidence}\n\n${verification}\n`;
+  const summary = `${outcome}\n\n${unitGoals.map((goal) => `- ${goal}`).join('\n')}`;
+  return `## ${LABELS.summary}\n\n${summary}\n\n## ${LABELS.verification}\n\n${LABELS.header}\n\n${verification}${visualEvidence}\n\nCloses #${payload.issue}\n`;
 }
 
 export function describe() {
@@ -131,6 +151,8 @@ export function describe() {
     command: 'codex-build-pr-body --input <absolute-json> --output <absolute-markdown>',
     input_template: {
       issue: 123,
+      outcome: 'The requested behavior is implemented.',
+      unit_goals: ['Implement the planned behavior.'],
       tests_pass: true,
       gates_pass: true,
       scope_deviations: [],
