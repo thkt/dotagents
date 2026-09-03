@@ -5,12 +5,19 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'bun:test';
 
+import { prepareShipInput } from '../../build/actions.ts';
 import { describe, main, render, validatePayload } from '../../build/pr-body.ts';
-import { temporaryDirectory } from '../shared/fixtures.ts';
+import type { FlowState } from '../../flow/contracts.ts';
+import { prInputPath } from '../../shared/storage.ts';
+import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
+
+useTemporaryWorkflowStorage('codex-pr-body-tests-');
 
 function payload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     issue: 42,
+    outcome: 'Users can save and retrieve a value.',
+    unit_goals: ['Persist the value.'],
     tests_pass: true,
     gates_pass: true,
     scope_deviations: [],
@@ -18,11 +25,46 @@ function payload(overrides: Record<string, unknown> = {}): Record<string, unknow
   };
 }
 
-test('renders a compact clean status with the GitHub closing keyword', () => {
+test('renders the Plan outcome and unit goals before verification', () => {
   const body = render(payload());
+  assert.match(body, /^## Summary/u);
+  assert.match(body, /Users can save and retrieve a value\./u);
+  assert.match(body, /- Persist the value\./u);
+  assert.match(body, /## Verification/u);
   assert.match(body, /Closes #42/);
   assert.match(body, /verify tests=pass gates=pass/);
   assert.doesNotMatch(body, /<details>/);
+});
+
+test('prepares Summary content from the loaded Issue Plan', () => {
+  const runId = `pr-body-${crypto.randomUUID()}`;
+  prepareShipInput({
+    run_id: runId,
+    build_plan: {
+      repository: 'owner/repo',
+      issue: 42,
+      title: 'Save values',
+      outcome: 'Users can save and retrieve a value.',
+      test_command: 'bun test',
+      units: [
+        {
+          id: 'U-001',
+          goal: 'Persist the value.',
+          contract: 'The saved value can be retrieved.',
+          files: ['src/value.ts'],
+          tests: [{ id: 'T-001', name: 'returns the saved value' }],
+        },
+      ],
+    },
+    gate_reports: [],
+    screenshots: [],
+  } as unknown as FlowState);
+  const prepared = JSON.parse(fs.readFileSync(prInputPath(runId), 'utf8')) as Record<
+    string,
+    unknown
+  >;
+  assert.equal(prepared.outcome, 'Users can save and retrieve a value.');
+  assert.deepEqual(prepared.unit_goals, ['Persist the value.']);
 });
 
 test('self-describes a payload accepted by the same renderer', () => {
@@ -52,6 +94,8 @@ test('fails closed when a safety-critical key is absent or not boolean', () => {
   assert.throws(() => validatePayload({ issue: 1, tests_pass: true }), /gates_pass/);
   assert.throws(() => validatePayload(payload({ tests_pass: 'yes' })), /must be boolean/);
   assert.throws(() => validatePayload(payload({ issue: 0 })), /positive integer/);
+  assert.throws(() => validatePayload(payload({ outcome: '' })), /outcome/u);
+  assert.throws(() => validatePayload(payload({ unit_goals: [] })), /unit_goals/u);
 });
 
 test('renders declared screenshots as local references for gh to rewrite', () => {

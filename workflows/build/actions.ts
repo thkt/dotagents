@@ -238,6 +238,8 @@ export function prepareShipInput(state: FlowState): void {
     testReports.length > 0 && testReports.every((report) => report.verdict === 'pass');
   atomicWrite(prInputPath(state.run_id), {
     issue: state.build_plan.issue,
+    outcome: state.build_plan.outcome,
+    unit_goals: state.build_plan.units.map((unit) => unit.goal),
     tests_pass: testsPassed,
     gates_pass: allPassed,
     scope_deviations: values('scope_deviations'),
