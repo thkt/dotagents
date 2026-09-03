@@ -9,6 +9,7 @@ import { onTestFinished, test } from 'bun:test';
 
 import { runResearch } from '../../../workflows/research/pipeline.ts';
 import {
+  parseResearchAudit,
   validateResearchInput,
   type ResearchAudit,
   type ResearchDraft,
@@ -340,6 +341,50 @@ test('research prompt exposes relevant Knowledge once', () => {
   }
   assert.match(prompts[0], /Find the smallest evidence set/u);
   assert.match(prompts[1], /Open every cited repository source/u);
+});
+
+test('research prompts state the repository locator contract for both agents', () => {
+  const repo = repoFixture();
+  assert.match(investigationPrompt(input(repo), []), /L<number> or L<number>-L<number>/u);
+  assert.match(
+    auditPrompt(input(repo), { findings: [], unknowns: [] }, []),
+    /L<number> or L<number>-L<number>/u,
+  );
+});
+
+test('research audit parser rejects malformed repository locators but preserves web sections', () => {
+  const base = { answer: 'answer', findings: [], rejected: [], unknowns: [], limitations: [] };
+  const finding = (evidence: object) => ({
+    statement: 'x',
+    kind: 'fact',
+    confidence: 'high',
+    qualification: null,
+    evidence: [evidence],
+    implication: 'x',
+  });
+  assert.throws(
+    () =>
+      parseResearchAudit({
+        ...base,
+        findings: [
+          finding({ kind: 'repository', source: 'src/index.ts', locator: 'L1-2', supports: 'x' }),
+        ],
+      }),
+    /locator must use Lx or Lx-Ly/u,
+  );
+  assert.doesNotThrow(() =>
+    parseResearchAudit({
+      ...base,
+      findings: [
+        finding({
+          kind: 'web',
+          source: 'https://example.com',
+          locator: 'Results section',
+          supports: 'x',
+        }),
+      ],
+    }),
+  );
 });
 
 const failingResearchAgent: ResearchAgent = {

@@ -7,7 +7,9 @@ import path from 'node:path';
 import { FlowError } from './errors.ts';
 import { normalizeRepoPath, realpathInside } from './repository.ts';
 
-const LINE_LOCATOR = /^L(\d+)(?:-L?(\d+))?$/u;
+/** Canonical locator body shared by runtime validation and Structured Output schemas. */
+export const REPOSITORY_LINE_LOCATOR_PATTERN = String.raw`L(\d+)(?:-L(\d+))?`;
+export const REPOSITORY_LINE_LOCATOR = new RegExp(`^${REPOSITORY_LINE_LOCATOR_PATTERN}$`, 'u');
 
 export interface RepositoryEvidenceSnapshot {
   source: string;
@@ -28,7 +30,7 @@ export function readRepositoryEvidence(
   if (!stat?.isFile() || stat.isSymbolicLink() || !realpathInside(repo, absolute)) {
     throw new FlowError(`${label}.source must name a regular repository file`, 'evidence_error');
   }
-  const match = typeof locator === 'string' ? LINE_LOCATOR.exec(locator) : null;
+  const match = typeof locator === 'string' ? REPOSITORY_LINE_LOCATOR.exec(locator) : null;
   const start = Number(match?.[1]);
   const end = Number(match?.[2] ?? match?.[1]);
   const text = fs.readFileSync(absolute, 'utf8');

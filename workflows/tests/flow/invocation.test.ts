@@ -7,6 +7,7 @@ import path from 'node:path';
 import { test } from 'bun:test';
 
 import { armIntent, clearIntent, requireBuildShipApproval } from '../../invocation.ts';
+import { handle } from '../../../hooks/workflow-enforcer.ts';
 import {
   buildShipApprovalPath,
   intentPath,
@@ -95,5 +96,41 @@ test('a build Ship approval for another repository is rejected', () => {
     );
   } finally {
     clearIntent(runId);
+  }
+});
+
+test('explicit workflows require network escalation on their first bound command', () => {
+  const repo = repoFixture();
+  const persistent = new Map([
+    ['research', '["codex-research", "run"]'],
+    ['think', '["codex-think", "run"]'],
+  ]);
+  for (const workflow of ['research', 'think', 'code', 'issue', 'build'] as const) {
+    const runId = `network-${workflow}`;
+    try {
+      const response = handle({
+        hook_event_name: 'UserPromptSubmit',
+        session_id: runId,
+        cwd: repo,
+        prompt: `$${workflow}`,
+      });
+      const context = response.hookSpecificOutput?.additionalContext ?? '';
+      assert.match(
+        context,
+        workflow === 'issue'
+          ? /first bound draft command itself with network escalation/u
+          : /first bound workflow command itself with network escalation/u,
+      );
+      const prefix = persistent.get(workflow);
+      if (prefix) {
+        assert.match(context, /request persistent approval/u);
+        assert.equal(context.includes(prefix), true);
+      } else {
+        assert.match(context, /Do not request persistent approval/u);
+      }
+      if (workflow === 'issue') assert.match(context, /stop command does not require/u);
+    } finally {
+      clearIntent(runId);
+    }
   }
 });
