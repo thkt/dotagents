@@ -5,7 +5,7 @@ description: Implement one direct repository change with an optional scope and t
 
 # Code
 
-Inspect the current input with `codex-flow describe --workflow code`, then run the hook-bound command. The controller compiles the request through the same implementation executor used by Build.
+Inspect the current input with `codex-flow describe --workflow code`, then invoke the first hook-bound command itself with network escalation. Do not request persistent approval for the `codex-flow run` prefix because the same executable can run Build and Ship. The controller compiles the request through the same implementation executor used by Build.
 
 ## Decisions
 

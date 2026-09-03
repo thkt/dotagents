@@ -19,7 +19,7 @@ description: レビュー済みのResearchとThink成果物から、人間が読
 ## 公開
 
 - ユーザーが先頭で明示した `$issue` invocation を、hook が束縛したリポジトリに対する GitHub Issue の create または edit 最大 1 回の承認として扱う。公開確認を重ねて求めない。
-- controller は GitHub network access を有効にして実行する。execution sandbox が`api.github.com`を拒否した場合は、承認が消費される前に同じ hook-bound コマンドを network escalation 付きで再実行する。
+- 公開する場合は、最初の hook-bound `codex-issue draft` command 自体を network escalation で呼ぶ。GitHub へ書き込むため、その prefix の永続的な許可は要求しない。missing-source の`codex-issue stop` command には network escalation を使わない。一時的な access failure が発生した場合だけ、publication approval が消費される前に同じ draft command を network escalation で正確に再実行する。
 - GitHub へ書き込む前に draft を作成する。
 - deterministic な draft error は再試行しない。network または credential の回復で変化し得る GitHub access failure だけを再試行する。
 - Plan は draft 作成時に検証し、GitHub へ書き込む直前には update 対象が変更されていないことだけを確認する。

@@ -93,6 +93,7 @@ export function auditPrompt(
       'Audit candidate research, then produce the final answer.',
       ...commonResearchContext(input),
       'Open every cited repository source and seek contradictory evidence for each candidate.',
+      'Cite repository evidence by repo-relative path and L<number> or L<number>-L<number>; cite web evidence by HTTPS URL and a non-empty page section locator.',
       'Keep only findings supported by a current source. Reject unsupported claims; set qualification only for a surviving material caveat. Knowledge summaries are not proof.',
       'Limit the answer to final findings and explicit unknowns.',
       knowledgeInstruction(input, knowledge),

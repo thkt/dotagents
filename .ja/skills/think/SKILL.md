@@ -6,7 +6,7 @@ description: 実装方法を比較し、変更依頼1件を、出典に基づい
 # Think
 
 `codex-think describe`で現在の入力形式と設計判断の契約を確認する。
-束縛された workflow command は network access 付きで実行する。sandbox が入れ子 Codex の接続を拒否した場合は、同じ command を network escalation で再実行する。`model_unavailable` はその再実行のため intent を保持する。
+最初の束縛された workflow command 自体を network escalation で呼び、その同じ tool call で対応していれば prefix `["codex-think", "run"]` の永続的な許可を要求する。一時的な`model_unavailable`が発生した場合は、intent を保持して同じ command を network escalation で正確に再実行する。
 
 ## 判断
 

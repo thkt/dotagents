@@ -8,7 +8,7 @@ description: Turn one change request and optional Research reports into an indep
 When present, read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) and the relevant [workflow contracts](../../workflows/README.md) to judge scope. Put implementation constraints in the affected unit contract and planned tests instead of copying repository guidance into the Plan.
 
 Inspect the current input and decision contract with `codex-think describe`.
-Run the bound workflow command with network access. If the sandbox blocks the nested Codex connection, retry the same command with network escalation; `model_unavailable` preserves the intent for that retry.
+Invoke the first bound workflow command itself with network escalation, requesting persistent approval for prefix `["codex-think", "run"]` in that same tool call when supported. If a genuine transient `model_unavailable` occurs, preserve the intent and retry the exact same command with network escalation.
 
 ## Decisions
 

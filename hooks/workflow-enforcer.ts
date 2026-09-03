@@ -339,6 +339,20 @@ function invocationRuntime(pending: WorkflowIntent): {
   return WORKFLOW_RUNTIMES[pending.workflow];
 }
 
+/** Makes the outer workflow process network-capable before it starts an SDK or GitHub request. */
+function networkExecutionInstruction(workflow: WorkflowIntent['workflow']): string {
+  if (workflow === 'research') {
+    return ' Invoke the first bound workflow command itself with network escalation and, when supported, request persistent approval for prefix ["codex-research", "run"] in that same tool call.';
+  }
+  if (workflow === 'think') {
+    return ' Invoke the first bound workflow command itself with network escalation and, when supported, request persistent approval for prefix ["codex-think", "run"] in that same tool call.';
+  }
+  if (workflow === 'issue') {
+    return ' When publishing, invoke the first bound draft command itself with network escalation. Do not request persistent approval for this command prefix because it writes to GitHub. The missing-source stop command does not require network escalation.';
+  }
+  return ' Invoke the first bound workflow command itself with network escalation. Do not request persistent approval for this command prefix because it can perform repository or GitHub writes.';
+}
+
 function userPromptSubmit(input: HookInput): HookResponse {
   const workflow = parseExplicitInvocation(input.prompt);
   if (!workflow) return {};
@@ -377,14 +391,15 @@ function userPromptSubmit(input: HookInput): HookResponse {
         : '';
     const externalWriteApproval =
       workflow === 'issue'
-        ? " The user's leading explicit $issue invocation authorizes at most one GitHub Issue create or edit for this task and repository; no additional publication confirmation is required. Run the controller with GitHub network access."
+        ? " The user's leading explicit $issue invocation authorizes at most one GitHub Issue create or edit for this task and repository; no additional publication confirmation is required."
         : workflow === 'build'
-          ? " The user's leading explicit $build invocation authorizes one final commit and, when Ship is enabled, one push and one draft PR creation for this task and repository; include Ship unless the same request explicitly excludes push or draft PR creation, and do not request another Ship confirmation. Run the bound Issue read and controller with GitHub network access."
+          ? " The user's leading explicit $build invocation authorizes one final commit and, when Ship is enabled, one push and one draft PR creation for this task and repository; include Ship unless the same request explicitly excludes push or draft PR creation, and do not request another Ship confirmation."
           : '';
+    const networkExecution = networkExecutionInstruction(workflow);
     return {
       hookSpecificOutput: {
         hookEventName: 'UserPromptSubmit',
-        additionalContext: `Explicit $${workflow} is armed.${externalWriteApproval}${missingSource} Otherwise write the ${noun} only to the hook-supplied path ${pending.input_path}.${buildPaths} Then run ${command}.`,
+        additionalContext: `Explicit $${workflow} is armed.${externalWriteApproval}${networkExecution}${missingSource} Otherwise write the ${noun} only to the hook-supplied path ${pending.input_path}.${buildPaths} Then run ${command}.`,
       },
     };
   } catch (error) {

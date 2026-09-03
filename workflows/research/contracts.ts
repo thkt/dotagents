@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 
 import { FlowError } from '../shared/errors.ts';
+import { REPOSITORY_LINE_LOCATOR, REPOSITORY_LINE_LOCATOR_PATTERN } from '../shared/evidence.ts';
 import { gitRoot, normalizeRepoPath, realpathInside } from '../shared/repository.ts';
 import {
   enumValue,
@@ -14,6 +15,7 @@ import {
   stringArray,
   type JsonObject,
 } from '../shared/schema.ts';
+import { NON_BLANK_STRING_SCHEMA } from '../shared/structured-output.ts';
 
 export const RESEARCH_REPORT_PROTOCOL = 'codex-research-report' as const;
 export const RESEARCH_RESULT_PROTOCOL = 'codex-research-result' as const;
@@ -22,7 +24,6 @@ export const RESEARCH_DESCRIPTION_PROTOCOL = 'codex-research-description' as con
 type EvidenceKind = 'repository' | 'web';
 type FindingKind = 'fact' | 'inference';
 type Confidence = 'high' | 'medium' | 'low';
-const LINE_LOCATOR = /^L\d+(?:-L?\d+)?$/u;
 
 export interface ResearchInput {
   repo: string;
@@ -91,22 +92,37 @@ export interface ResearchReport extends Omit<ResearchAudit, 'findings'> {
 }
 
 const EVIDENCE_SCHEMA = {
-  type: 'object',
-  properties: {
-    kind: { type: 'string', enum: ['repository', 'web'] },
-    source: { type: 'string' },
-    locator: { type: 'string' },
-    supports: { type: 'string' },
-  },
-  required: ['kind', 'source', 'locator', 'supports'],
-  additionalProperties: false,
+  anyOf: [
+    {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['repository'] },
+        source: NON_BLANK_STRING_SCHEMA,
+        locator: { type: 'string', pattern: `^${REPOSITORY_LINE_LOCATOR_PATTERN}$` },
+        supports: NON_BLANK_STRING_SCHEMA,
+      },
+      required: ['kind', 'source', 'locator', 'supports'],
+      additionalProperties: false,
+    },
+    {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['web'] },
+        source: { type: 'string', pattern: '^\\s*https://\\S+\\s*$' },
+        locator: NON_BLANK_STRING_SCHEMA,
+        supports: NON_BLANK_STRING_SCHEMA,
+      },
+      required: ['kind', 'source', 'locator', 'supports'],
+      additionalProperties: false,
+    },
+  ],
 } as const;
 
 const UNKNOWN_SCHEMA = {
   type: 'object',
   properties: {
-    question: { type: 'string' },
-    resolution: { type: 'string' },
+    question: NON_BLANK_STRING_SCHEMA,
+    resolution: NON_BLANK_STRING_SCHEMA,
   },
   required: ['question', 'resolution'],
   additionalProperties: false,
@@ -120,10 +136,10 @@ export const RESEARCH_DRAFT_SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          statement: { type: 'string' },
+          statement: NON_BLANK_STRING_SCHEMA,
           kind: { type: 'string', enum: ['fact', 'inference'] },
-          evidence: { type: 'array', items: EVIDENCE_SCHEMA },
-          implication: { type: 'string' },
+          evidence: { type: 'array', minItems: 1, items: EVIDENCE_SCHEMA },
+          implication: NON_BLANK_STRING_SCHEMA,
         },
         required: ['statement', 'kind', 'evidence', 'implication'],
         additionalProperties: false,
@@ -138,18 +154,18 @@ export const RESEARCH_DRAFT_SCHEMA = {
 export const RESEARCH_AUDIT_SCHEMA = {
   type: 'object',
   properties: {
-    answer: { type: 'string' },
+    answer: NON_BLANK_STRING_SCHEMA,
     findings: {
       type: 'array',
       items: {
         type: 'object',
         properties: {
-          statement: { type: 'string' },
+          statement: NON_BLANK_STRING_SCHEMA,
           kind: { type: 'string', enum: ['fact', 'inference'] },
           confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
-          qualification: { type: ['string', 'null'] },
-          evidence: { type: 'array', items: EVIDENCE_SCHEMA },
-          implication: { type: 'string' },
+          qualification: { anyOf: [NON_BLANK_STRING_SCHEMA, { type: 'null' }] },
+          evidence: { type: 'array', minItems: 1, items: EVIDENCE_SCHEMA },
+          implication: NON_BLANK_STRING_SCHEMA,
         },
         required: ['statement', 'kind', 'confidence', 'qualification', 'evidence', 'implication'],
         additionalProperties: false,
@@ -159,13 +175,13 @@ export const RESEARCH_AUDIT_SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        properties: { statement: { type: 'string' }, reason: { type: 'string' } },
+        properties: { statement: NON_BLANK_STRING_SCHEMA, reason: NON_BLANK_STRING_SCHEMA },
         required: ['statement', 'reason'],
         additionalProperties: false,
       },
     },
     unknowns: { type: 'array', items: UNKNOWN_SCHEMA },
-    limitations: { type: 'array', items: { type: 'string' } },
+    limitations: { type: 'array', items: NON_BLANK_STRING_SCHEMA },
   },
   required: ['answer', 'findings', 'rejected', 'unknowns', 'limitations'],
   additionalProperties: false,
@@ -204,10 +220,20 @@ export function validateResearchInput(raw: unknown): ResearchRequest {
 
 function parseEvidence(raw: JsonObject, label: string): ResearchEvidence {
   rejectUnknownKeys(raw, ['kind', 'source', 'locator', 'supports'], label, 'execution_error');
+  const kind = enumValue(
+    raw.kind,
+    ['repository', 'web'] as const,
+    `${label}.kind`,
+    'execution_error',
+  );
+  const locator = requiredString(raw.locator, `${label}.locator`, 'execution_error');
+  if (kind === 'repository' && !REPOSITORY_LINE_LOCATOR.test(locator)) {
+    throw new FlowError(`${label}.locator must use Lx or Lx-Ly`, 'execution_error');
+  }
   return {
-    kind: enumValue(raw.kind, ['repository', 'web'] as const, `${label}.kind`, 'execution_error'),
+    kind,
     source: requiredString(raw.source, `${label}.source`, 'execution_error'),
-    locator: requiredString(raw.locator, `${label}.locator`, 'execution_error'),
+    locator,
     supports: requiredString(raw.supports, `${label}.supports`, 'execution_error'),
   };
 }
@@ -235,7 +261,11 @@ function parseReportEvidence(raw: JsonObject, label: string): ResearchReportEvid
     return { ...evidence, kind: 'web' };
   }
   const normalized = normalizeRepoPath(evidence.source);
-  if (!normalized || normalized !== evidence.source || !LINE_LOCATOR.test(evidence.locator)) {
+  if (
+    !normalized ||
+    normalized !== evidence.source ||
+    !REPOSITORY_LINE_LOCATOR.test(evidence.locator)
+  ) {
     throw new FlowError(
       `${label} must contain a normalized repository path and line locator`,
       'execution_error',

@@ -9,6 +9,7 @@ import {
   stringArray,
 } from '../shared/schema.ts';
 import { oneLine, sentenceItems } from '../shared/text.ts';
+import { NON_BLANK_STRING_SCHEMA } from '../shared/structured-output.ts';
 
 export interface BuildPlanAuthoring {
   outcome: string;
@@ -27,22 +28,21 @@ export interface CompiledBuildPlan {
   markdown: string;
 }
 
-const STRING_ARRAY_SCHEMA = { type: 'array', items: { type: 'string' } } as const;
-
 export const BUILD_PLAN_AUTHORING_SCHEMA = {
   type: 'object',
   properties: {
-    outcome: { type: 'string' },
-    test_command: { type: 'string' },
+    outcome: NON_BLANK_STRING_SCHEMA,
+    test_command: NON_BLANK_STRING_SCHEMA,
     units: {
       type: 'array',
+      minItems: 1,
       items: {
         type: 'object',
         properties: {
-          goal: { type: 'string' },
-          files: STRING_ARRAY_SCHEMA,
-          contract: { type: 'string' },
-          tests: STRING_ARRAY_SCHEMA,
+          goal: NON_BLANK_STRING_SCHEMA,
+          files: { type: 'array', minItems: 1, items: NON_BLANK_STRING_SCHEMA },
+          contract: NON_BLANK_STRING_SCHEMA,
+          tests: { type: 'array', minItems: 1, items: NON_BLANK_STRING_SCHEMA },
         },
         required: ['goal', 'files', 'contract', 'tests'],
         additionalProperties: false,

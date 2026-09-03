@@ -11,6 +11,7 @@ import { FlowError } from '../shared/errors.ts';
 import { gitRoot } from '../shared/repository.ts';
 import { isObject, rejectUnknownKeys, requiredString, stringArray } from '../shared/schema.ts';
 import { researchArtifactDirectory } from '../shared/storage.ts';
+import { NON_BLANK_STRING_SCHEMA } from '../shared/structured-output.ts';
 
 export type ThinkPlan = BuildPlanAuthoring;
 
@@ -54,7 +55,7 @@ const THINK_DECISION_SCHEMA = {
   properties: {
     status: { type: 'string', enum: ['ready', 'research_required'] },
     plan: { anyOf: [THINK_PLAN_SCHEMA, { type: 'null' }] },
-    research_questions: { type: 'array', items: { type: 'string' } },
+    research_questions: { type: 'array', items: NON_BLANK_STRING_SCHEMA },
   },
   required: ['status', 'plan', 'research_questions'],
   additionalProperties: false,

@@ -10,7 +10,7 @@ Run the prepared Build input with `codex-flow run --input <task-input-json>`. Th
 ## Source
 
 - Accept an Issue shorthand such as `#123` in the explicit invocation and select it from the current worktree's `origin` GitHub repository. The hook prepares the small Build input; do not author execution steps.
-- Run the controller with GitHub network access; it performs the bound Issue reads itself. If the execution sandbox denies `api.github.com`, retry the same controller command with network escalation. Do not run a separate `gh ... view` preparation command or substitute browser content as the contract.
+- Invoke the first bound controller command itself with network escalation; it performs the bound Issue reads and SDK calls itself. Do not request persistent approval for the `codex-flow run` prefix because it can commit, push, and create a draft PR. If a genuine transient access failure occurs, retry the exact same controller command with network escalation. Do not run a separate `gh ... view` preparation command or substitute browser content as the contract.
 - Read the selected Issue once at Build start. The JSON Plan in its unique `## Plan` section is the sole implementation authority; surrounding presentation markup, a publisher-local receipt, second rendering, or body hash is not required.
 - The controller derives actor goals, combined file scope, and the test command from that Plan. Build input is not an alternate source of implementation intent.
 - After final tests, require an independent read-only SDK review of the complete diff against the published goals and contracts.

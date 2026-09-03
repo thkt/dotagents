@@ -3,6 +3,9 @@
 import { FlowError } from './errors.ts';
 import { isObject } from './schema.ts';
 
+/** Reusable model-output primitives that match the runtime's non-blank string contract. */
+export const NON_BLANK_STRING_SCHEMA = { type: 'string', pattern: '\\S' } as const;
+
 function visit(schema: unknown, location: string): void {
   if (!isObject(schema)) return;
   if (schema.properties !== undefined) {

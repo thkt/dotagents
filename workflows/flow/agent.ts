@@ -13,6 +13,7 @@ import {
 import { FlowError } from '../shared/errors.ts';
 import type { BuildReviewResult, FlowDirective } from './contracts.ts';
 import { isObject, rejectUnknownKeys } from '../shared/schema.ts';
+import { NON_BLANK_STRING_SCHEMA } from '../shared/structured-output.ts';
 
 type ActorDirective = Extract<FlowDirective, { kind: 'run-actor' }>;
 type ReviewDirective = Extract<FlowDirective, { kind: 'run-review' }>;
@@ -30,9 +31,9 @@ export const ACTOR_RESULT_SCHEMA = {
   type: 'object',
   properties: {
     status: { type: 'string', enum: ['completed', 'escalated'] },
-    summary: { type: 'string' },
+    summary: NON_BLANK_STRING_SCHEMA,
     route: { type: ['string', 'null'], enum: ['think', 'research', null] },
-    question: { type: ['string', 'null'] },
+    question: { anyOf: [NON_BLANK_STRING_SCHEMA, { type: 'null' }] },
   },
   required: ['status', 'summary', 'route', 'question'],
   additionalProperties: false,
@@ -57,18 +58,18 @@ export const BUILD_REVIEW_RESULT_SCHEMA = {
     protocol: { type: 'string', enum: ['codex-build-review'] },
     verdict: { type: 'string', enum: ['pass', 'fail'] },
     classification: { type: 'string', enum: ['pass', 'semantic_review_failed'] },
-    reason_codes: { type: 'array', items: { type: 'string' } },
+    reason_codes: { type: 'array', items: NON_BLANK_STRING_SCHEMA },
     failure_route: { type: ['string', 'null'], enum: ['blocked', null] },
-    summary: { type: 'string' },
+    summary: NON_BLANK_STRING_SCHEMA,
     findings: {
       type: 'array',
       items: {
         type: 'object',
         properties: {
           severity: { type: 'string', enum: ['blocking', 'advisory'] },
-          code: { type: 'string' },
-          message: { type: 'string' },
-          files: { type: 'array', items: { type: 'string' } },
+          code: NON_BLANK_STRING_SCHEMA,
+          message: NON_BLANK_STRING_SCHEMA,
+          files: { type: 'array', items: NON_BLANK_STRING_SCHEMA },
         },
         required: ['severity', 'code', 'message', 'files'],
         additionalProperties: false,
