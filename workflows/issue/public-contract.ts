@@ -9,16 +9,12 @@ import { FlowError, errorMessage } from '../shared/errors.ts';
 
 const PLAN_OPEN = '## Plan\n\n<details>\n<summary>Build Plan</summary>\n\n```json\n';
 const PLAN_CLOSE = '\n```\n\n</details>';
+const PLAN_HEADING = /^##[ \t]+Plan[ \t]*$/gimu;
+const JSON_FENCE = /```json[ \t]*\r?\n([\s\S]*?)\r?\n```/giu;
 
 function requiredString(value: unknown, label: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new FlowError(`${label} is required`);
   return value;
-}
-
-export function digest(value: unknown, label: string): string {
-  const result = requiredString(value, label);
-  if (!/^[a-f0-9]{64}$/u.test(result)) throw new FlowError(`${label} must be a SHA-256 digest`);
-  return result;
 }
 
 export function repositoryName(value: unknown, label: string): string {
@@ -48,20 +44,25 @@ export function parsePublicIssueBody(body: string): {
   prose: string;
   plan: CompiledBuildPlan;
 } {
-  const planStart = body.indexOf(PLAN_OPEN);
-  if (planStart < 0 || body.indexOf(PLAN_OPEN, planStart + PLAN_OPEN.length) >= 0) {
+  const headings = [...body.matchAll(PLAN_HEADING)];
+  if (headings.length !== 1) {
     throw new FlowError('GitHub Issue has no unique Plan');
   }
-  const suffix = body.slice(planStart + PLAN_OPEN.length).trimEnd();
-  if (!suffix.endsWith(PLAN_CLOSE)) throw new FlowError('GitHub Issue Plan must be terminal');
+  const heading = headings[0]!;
+  const tail = body.slice(heading.index! + heading[0].length);
+  const nextHeading = tail.search(/^##[ \t]+/mu);
+  const section = (nextHeading < 0 ? tail : tail.slice(0, nextHeading)).trim();
+  const fences = [...section.matchAll(JSON_FENCE)];
+  if (fences.length !== 1) throw new FlowError('GitHub Issue Plan has no unique JSON block');
+  const fence = fences[0]!;
   let authoring;
   try {
-    authoring = parseBuildPlanAuthoring(JSON.parse(suffix.slice(0, -PLAN_CLOSE.length)) as unknown);
+    authoring = parseBuildPlanAuthoring(JSON.parse(fence[1]!) as unknown);
   } catch (error) {
     throw new FlowError(`GitHub Issue Plan is invalid: ${errorMessage(error)}`);
   }
   return {
-    prose: body.slice(0, planStart).trimEnd(),
+    prose: body.slice(0, heading.index).trimEnd(),
     plan: compileBuildPlan(authoring),
   };
 }

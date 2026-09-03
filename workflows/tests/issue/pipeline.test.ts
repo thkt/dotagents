@@ -122,7 +122,7 @@ test('publishes the Think Plan as one public Build source', () => {
     prose: '## 背景\n\n値を保存できない。\n\n## 決定\n\n永続化を追加する。',
   });
   const draft = draftIssue(input, gateway);
-  const published = publishIssue(draft.draft_json, draft.draft_sha256, gateway);
+  const published = publishIssue(draft, gateway);
   const parsed = parsePublicIssueBody(published.issue.body);
   assert.deepEqual(parsed.plan.authoring, plan);
   assert.match(parsed.prose, /## 背景[\s\S]*## 決定/u);
@@ -142,7 +142,7 @@ test('updates the complete human-readable Issue around the Think Plan', () => {
       '## 背景\n\nResearchで保存機能の不足を確認した。\n\n## 決定\n\nThinkで永続化を採用した。',
   });
   const draft = draftIssue(input, gateway);
-  publishIssue(draft.draft_json, draft.draft_sha256, gateway);
+  publishIssue(draft, gateway);
   assert.equal(gateway.issue.title, '保存機能を追加する');
   assert.equal(
     parsePublicIssueBody(gateway.issue.body).prose,
@@ -151,13 +151,13 @@ test('updates the complete human-readable Issue around the Think Plan', () => {
   assert.equal(gateway.edits, 1);
 });
 
-test('Build reads the published Plan once with optional delivery input', () => {
+test('Build reads a direct JSON Plan once with optional delivery input', () => {
   const repo = repository();
   const gateway = new Gateway();
   gateway.issue = {
     ...gateway.issue,
     title: '保存',
-    body: renderPublicIssueBody('## 背景\n\n保存機能が必要。', compileBuildPlan(plan)),
+    body: `## 背景\n\n保存機能が必要。\n\n## Plan\n\n\`\`\`json\n${JSON.stringify(plan, null, 2)}\n\`\`\`\n`,
   };
   const source = resolveBuildSource(
     {
@@ -195,6 +195,31 @@ test('round-trips readable prose and a collapsed Build Plan', () => {
   assert.deepEqual(parsed.plan.authoring, plan);
 });
 
+test('reads the Plan independently of surrounding presentation markup', () => {
+  const body = `## Background
+
+Storage is required.
+
+## Plan
+
+<section data-view="custom">
+
+\`\`\`json
+${JSON.stringify(plan, null, 2)}
+\`\`\`
+
+</section>
+
+## Notes
+
+\`\`\`json
+{"not":"a Plan"}
+\`\`\`
+`;
+  const parsed = parsePublicIssueBody(body);
+  assert.deepEqual(parsed.plan.authoring, plan);
+});
+
 test('rejects a second Plan authored in human prose', () => {
   const repo = repository();
   assert.throws(
@@ -223,9 +248,6 @@ test('stops an update when the target changed after draft validation', () => {
   });
   const draft = draftIssue(input, gateway);
   gateway.issue = { ...gateway.issue, body: '第三者が更新した本文' };
-  assert.throws(
-    () => publishIssue(draft.draft_json, draft.draft_sha256, gateway),
-    /target issue changed/u,
-  );
+  assert.throws(() => publishIssue(draft, gateway), /target issue changed/u);
   assert.equal(gateway.edits, 0);
 });
