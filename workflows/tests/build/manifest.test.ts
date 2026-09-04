@@ -63,8 +63,10 @@ test('Build adds Issue loading and one final commit around the shared implementa
     [
       'load:plan',
       'branch',
-      'implementation:direct',
-      'test',
+      'U-001:direct',
+      'U-001:test',
+      'U-001:solidify',
+      'U-001:solidify:test',
       'artifacts',
       'review:build',
       'build:commit',
@@ -76,7 +78,7 @@ test('Build adds Issue loading and one final commit around the shared implementa
   );
 });
 
-test('multiple Plan units share one correction actor with their combined scope', () => {
+test('multiple Plan units compile to independent Plan-ordered quartets', () => {
   const { repo, head } = repository();
   const manifest = compileBuildManifest({
     repo,
@@ -98,13 +100,32 @@ test('multiple Plan units share one correction actor with their combined scope',
     startPoint: head,
     ship: false,
   });
-  const actor = manifest.steps.find((step) => step.id === 'implementation:direct');
-  assert.ok(actor?.kind === 'actor');
-  assert.deepEqual(actor.files, ['src', 'tests']);
-  for (const id of ['test', 'review:build']) {
+  assert.deepEqual(
+    manifest.steps.slice(2, 10).map((step) => step.id),
+    [
+      'U-001:direct',
+      'U-001:test',
+      'U-001:solidify',
+      'U-001:solidify:test',
+      'U-002:direct',
+      'U-002:test',
+      'U-002:solidify',
+      'U-002:solidify:test',
+    ],
+  );
+  const actors = manifest.steps.filter((step) => step.kind === 'actor');
+  assert.deepEqual(
+    actors.map((actor) => actor.files),
+    [['src', 'tests'], ['src', 'tests'], ['tests'], ['tests']],
+  );
+  assert.deepEqual(
+    actors.map((actor) => actor.tests.map((item) => item.id)),
+    [['T-001'], ['T-001'], ['T-002'], ['T-002']],
+  );
+  for (const id of ['U-001:test', 'U-001:solidify:test']) {
     const gate = manifest.steps.find((step) => step.id === id);
     assert.ok(gate?.kind === 'gate');
-    assert.equal(gate.gate.failure_route, 'direct:implementation');
+    assert.equal(gate.gate.failure_route, 'direct:U-001');
   }
   const review = manifest.steps.find((step) => step.id === 'review:build');
   assert.ok(review?.kind === 'gate');
@@ -119,12 +140,22 @@ test('multiple Plan units share one correction actor with their combined scope',
       failure_route: 'blocked',
       summary: 'A unit is incomplete.',
       findings: [
-        { severity: 'blocking', code: 'incomplete', message: 'Fix the unit.', files: ['src'] },
+        {
+          severity: 'blocking',
+          code: 'incomplete',
+          message: 'Fix the unit.',
+          unit_ids: ['U-001'],
+          files: ['src'],
+          evidence: [{ path: 'src/value.ts', detail: 'missing behavior' }],
+        },
       ],
+      source_digest: 'a'.repeat(64),
+      receipt_set_digest: 'b'.repeat(64),
+      candidates: [],
     },
     1,
   );
-  assert.equal(report.failure_route, 'direct:implementation');
+  assert.equal(report.failure_route, 'blocked');
 });
 
 test('Ship is an explicit optional suffix', () => {

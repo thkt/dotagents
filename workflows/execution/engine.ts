@@ -12,9 +12,14 @@ import { ActorEscalation, CodexWorkflowAgent, type WorkflowAgent } from './agent
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
 import { requireWorkflowInput } from '../invocation.ts';
 import { parseCommand, requireExactFlags } from '../shared/cli.ts';
-import { runIsolatedActor, withRepositorySnapshot } from './repository-isolation.ts';
+import {
+  completeActorPublication,
+  runRecoverableActor,
+  withRepositorySnapshot,
+} from './repository-isolation.ts';
 import { ProgressReporter, workflowProgress, type ProgressContext } from '../shared/progress.ts';
 import { repositoryInvariant, requireUnchangedRepository } from '../shared/repository.ts';
+import { sealRepository } from './source-seal.ts';
 import {
   completeCurrentDirective,
   completeBuildReview,
@@ -107,12 +112,18 @@ async function driveWorkflow(
         case 'run-actor':
           await progress.run(progressContext(workflow, directive), async (stage) => {
             resetScreenshotAttachments(runId, directive.screenshots ?? []);
-            await runIsolatedActor(repo, directive.files, (sandboxRepo) =>
-              runtime.agent.runActor(sandboxRepo, directive, (activity) =>
-                stage.activity(activity),
-              ),
+            const actorResult = await runRecoverableActor(
+              runId,
+              directive.step_id,
+              repo,
+              directive.files,
+              (sandboxRepo) =>
+                runtime.agent.runActor(sandboxRepo, directive, (activity) =>
+                  stage.activity(activity),
+                ),
             );
-            completeCurrentDirective(runId, directive.step_id);
+            completeCurrentDirective(runId, directive.step_id, actorResult);
+            completeActorPublication(runId);
           });
           break;
         case 'run-action':
@@ -126,11 +137,33 @@ async function driveWorkflow(
           await progress.run(progressContext(workflow, directive), async (stage) => {
             const startedAt = performance.now();
             const before = repositoryInvariant(repo);
-            const review = await withRepositorySnapshot(repo, (snapshotRepo) =>
-              runtime.agent.reviewBuild(snapshotRepo, directive, (activity) =>
-                stage.activity(activity),
-              ),
-            );
+            const liveSeal = sealRepository(repo, { baseRef: directive.input.base_ref });
+            const review = await withRepositorySnapshot(repo, async (snapshotRepo) => {
+              const logical = {
+                head: liveSeal.head,
+                branch: liveSeal.branch,
+                base_commit: liveSeal.base_commit,
+              };
+              const snapshotBefore = sealRepository(snapshotRepo, { logical });
+              if (snapshotBefore.source_digest !== directive.input.source_digest) {
+                throw new FlowError(
+                  'review snapshot does not match its source binding',
+                  'state_error',
+                );
+              }
+              const candidates = await runtime.agent.reviewBuild(
+                snapshotRepo,
+                directive,
+                (activity) => stage.activity(activity),
+              );
+              if (
+                sealRepository(snapshotRepo, { logical }).source_digest !==
+                snapshotBefore.source_digest
+              ) {
+                throw new FlowError('repository changed during build review', 'state_error');
+              }
+              return candidates;
+            });
             requireUnchangedRepository(before, repo, 'build semantic review');
             completeBuildReview(
               runId,

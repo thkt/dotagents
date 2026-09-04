@@ -86,7 +86,15 @@ export function compileCodeManifest(input: CodeInput): FlowManifest {
     max_corrections: DEFAULT_MAX_CORRECTIONS,
     shipping_authorized: false,
     steps: implementationSteps(
-      [{ outcome: input.request, scope_paths: input.scope_paths }],
+      [
+        {
+          id: 'U-001',
+          outcome: input.request,
+          contract: '',
+          tests: [],
+          scope_paths: input.scope_paths,
+        },
+      ],
       input.test_command,
     ),
   });

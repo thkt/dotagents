@@ -22,6 +22,7 @@ import { readAbsoluteJson } from '../shared/runtime.ts';
 import { prBodyPath } from '../shared/storage.ts';
 
 function buildPlanContext(value: ResolvedBuildSource): BuildPlanContext {
+  let testNumber = 1;
   return {
     repository: value.repository,
     issue: value.issue,
@@ -33,8 +34,8 @@ function buildPlanContext(value: ResolvedBuildSource): BuildPlanContext {
       goal: unit.goal,
       contract: unit.contract,
       files: unit.files,
-      tests: unit.tests.map((name, testIndex) => ({
-        id: `T-${String(testIndex + 1).padStart(3, '0')}`,
+      tests: unit.tests.map((name) => ({
+        id: `T-${String(testNumber++).padStart(3, '0')}`,
         name,
       })),
     })),

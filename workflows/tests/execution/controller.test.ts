@@ -52,15 +52,33 @@ function startCode(repo: string, runId: string) {
   return pending;
 }
 
-test('starts from a Code request and completes actor then test', () => {
+function completeActor(runId: string, stepId: string): void {
+  const directive = currentDirective(runId);
+  assert.equal(directive.kind, 'run-actor');
+  if (directive.kind !== 'run-actor') return;
+  completeCurrentDirective(runId, stepId, {
+    protocol: 'codex-flow-actor-result',
+    binding: directive.binding,
+    status: 'completed',
+    summary: 'done',
+    route: null,
+    question: null,
+  });
+}
+
+test('starts from a Code request and completes its direct and solidify quartet', () => {
   const repo = repository();
   const runId = `controller-code-${crypto.randomUUID()}`;
   startCode(repo, runId);
   assert.equal(currentDirective(runId).kind, 'run-actor');
   fs.writeFileSync(path.join(repo, 'src/value.ts'), 'export const value = 2;\n');
-  completeCurrentDirective(runId, 'implementation:direct');
+  completeActor(runId, 'U-001:direct');
   assert.equal(currentDirective(runId).kind, 'run-gate');
-  completeCurrentDirective(runId, 'test');
+  completeCurrentDirective(runId, 'U-001:test');
+  assert.equal(currentDirective(runId).kind, 'run-actor');
+  completeActor(runId, 'U-001:solidify');
+  assert.equal(currentDirective(runId).kind, 'run-gate');
+  completeCurrentDirective(runId, 'U-001:solidify:test');
   assert.equal(workflowStatus(runId).status, 'completed');
 });
 
@@ -69,10 +87,7 @@ test('blocks actor completion from changing paths outside requested scope', () =
   const runId = `controller-scope-${crypto.randomUUID()}`;
   startCode(repo, runId);
   fs.writeFileSync(path.join(repo, 'outside.txt'), 'unexpected\n');
-  assert.throws(
-    () => completeCurrentDirective(runId, 'implementation:direct'),
-    /outside its declared scope/u,
-  );
+  assert.throws(() => completeActor(runId, 'U-001:direct'), /outside its declared scope/u);
 });
 
 test('requires the hook-bound input path but does not expose internal manifests', () => {

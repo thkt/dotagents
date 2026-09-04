@@ -1,6 +1,7 @@
 /** @file Outcome: Actors, shell verification, and read-only snapshots use disposable repositories so rejected changes and mid-run edits never reach the worktree. */
 
 import { spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,11 +13,19 @@ import {
   nulPaths,
   repositoryControlChanges,
   repositoryInvariant,
+  type RepositoryInvariant,
   sameRepositoryInvariant,
   sameWorkflowRepositoryInvariant,
   snapshotChanges,
 } from '../shared/repository.ts';
 import { runShellVerification } from './shell-verification.ts';
+import {
+  actorPublicationPath,
+  actorPublicationPayloadDirectory,
+  atomicWrite,
+} from '../shared/storage.ts';
+import { sealRepository, type SourceSeal } from './source-seal.ts';
+import { normalizeRepoPath } from '../shared/repository.ts';
 
 /** Tree-ish of the empty tree: the index of a repository without commits diffs against it. */
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
@@ -167,34 +176,111 @@ export async function withRepositorySnapshot<T>(
   return await run(snapshot.directory);
 }
 
-function copyActorFile(sourceRepo: string, targetRepo: string, relative: string): void {
-  const source = path.join(sourceRepo, relative);
-  const target = path.join(targetRepo, relative);
-  const stat = fs.lstatSync(source, { throwIfNoEntry: false });
-  if (!stat) {
-    try {
-      fs.unlinkSync(target);
-    } catch (error) {
-      if (errorCode(error) !== 'ENOENT') throw error;
-    }
-    return;
-  }
-  if (!stat.isFile()) throw new FlowError(`${relative} must remain a regular file`, 'scope_error');
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.copyFileSync(source, target, fs.constants.COPYFILE_FICLONE);
-  fs.chmodSync(target, stat.mode & 0o777);
+interface PublicationTarget {
+  path: string;
+  before: string;
+  after: string;
+  deleted: boolean;
+  executable: boolean;
+  payload_sha256: string | null;
 }
 
-/** Runs an actor in a disposable clone and publishes only its allowed file changes. */
-export async function runIsolatedActor(
+interface PendingPublication<T> {
+  protocol: 'codex-flow-actor-publication';
+  step_id: string;
+  source_before_digest: string;
+  source_before: RepositoryInvariant;
+  expected_after_seal: SourceSeal;
+  targets: PublicationTarget[];
+  result: T;
+}
+
+function fileFingerprint(repo: string, relative: string): string {
+  const target = path.join(repo, relative);
+  const stat = fs.lstatSync(target, { throwIfNoEntry: false });
+  if (!stat) return 'missing';
+  if (!stat.isFile()) return `unsupported:${stat.mode}`;
+  return `file:${Boolean(stat.mode & 0o111)}:${crypto.createHash('sha256').update(fs.readFileSync(target)).digest('hex')}`;
+}
+
+function stagedPayload(runId: string, relative: string): string {
+  return path.join(actorPublicationPayloadDirectory(runId), relative);
+}
+
+function applyPending<T>(runId: string, repo: string, pending: PendingPublication<T>): T {
+  const targets = new Set(pending.targets.map((target) => target.path));
+  const current = repositoryInvariant(repo);
+  const withoutTargets = (changes: Record<string, string>) =>
+    Object.fromEntries(Object.entries(changes).filter(([relative]) => !targets.has(relative)));
+  if (
+    current.head !== pending.source_before.head ||
+    current.branch !== pending.source_before.branch ||
+    JSON.stringify(current.metadata) !== JSON.stringify(pending.source_before.metadata) ||
+    JSON.stringify(withoutTargets(current.changes)) !==
+      JSON.stringify(withoutTargets(pending.source_before.changes))
+  ) {
+    throw new FlowError('non-target source changed during actor publication', 'state_error');
+  }
+  for (const target of pending.targets) {
+    const fingerprint = fileFingerprint(repo, target.path);
+    if (fingerprint === target.after) continue;
+    if (fingerprint !== target.before) {
+      throw new FlowError(`${target.path} has an unexpected publication state`, 'state_error');
+    }
+    const destination = path.join(repo, target.path);
+    if (target.deleted) {
+      fs.rmSync(destination, { force: true });
+      continue;
+    }
+    const payload = stagedPayload(runId, target.path);
+    const bytes = fs.readFileSync(payload);
+    const digest = crypto.createHash('sha256').update(bytes).digest('hex');
+    if (digest !== target.payload_sha256) {
+      throw new FlowError(`${target.path} staged payload changed`, 'state_error');
+    }
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    const temporary = `${destination}.${process.pid}.publication`;
+    fs.writeFileSync(temporary, bytes, { mode: target.executable ? 0o755 : 0o644 });
+    fs.rmSync(destination, { force: true });
+    fs.renameSync(temporary, destination);
+  }
+  const after = sealRepository(repo, {
+    logical: {
+      head: pending.expected_after_seal.head,
+      branch: pending.expected_after_seal.branch,
+      base_commit: pending.expected_after_seal.base_commit,
+    },
+  });
+  if (after.source_digest !== pending.expected_after_seal.source_digest) {
+    throw new FlowError(
+      'published repository does not match its expected source seal',
+      'state_error',
+    );
+  }
+  return pending.result;
+}
+
+/** Publishes an actor through a durable idempotent record that survives process interruption. */
+export async function runRecoverableActor<T>(
+  runId: string,
+  stepId: string,
   repo: string,
   allowedFiles: readonly string[],
-  run: (sandboxRepo: string) => Promise<void>,
-): Promise<void> {
-  const sourceBefore = repositoryInvariant(repo);
+  run: (sandboxRepo: string) => Promise<T>,
+): Promise<T> {
+  const recordPath = actorPublicationPath(runId);
+  if (fs.existsSync(recordPath)) {
+    const pending = JSON.parse(fs.readFileSync(recordPath, 'utf8')) as PendingPublication<T>;
+    if (pending.protocol !== 'codex-flow-actor-publication' || pending.step_id !== stepId) {
+      throw new FlowError('pending actor publication belongs to another step', 'state_error');
+    }
+    return applyPending(runId, repo, pending);
+  }
+  const sourceInvariant = repositoryInvariant(repo);
+  const sourceBefore = sealRepository(repo);
   using sandbox = createRepositorySandbox(repo);
   const before = repositoryInvariant(sandbox.directory);
-  await run(sandbox.directory);
+  const result = await run(sandbox.directory);
   const after = repositoryInvariant(sandbox.directory);
   const controlChanges = repositoryControlChanges(before, after);
   if (controlChanges.length) {
@@ -213,16 +299,73 @@ export async function runIsolatedActor(
           relative.startsWith(`${scope.replace(/\/$/u, '')}/`),
       ),
   );
-  if (outside.length) {
+  if (outside.length)
     throw new FlowError(
       `actor changed files outside its declared scope: ${outside.join(', ')}`,
       'scope_error',
     );
-  }
-  if (!sameWorkflowRepositoryInvariant(sourceBefore, repositoryInvariant(repo))) {
+  if (!sameWorkflowRepositoryInvariant(sourceInvariant, repositoryInvariant(repo))) {
     throw new FlowError('repository changed while actor was isolated', 'state_error');
   }
-  for (const relative of changed) copyActorFile(sandbox.directory, repo, relative);
+  const logical = {
+    head: sourceBefore.head,
+    branch: sourceBefore.branch,
+    base_commit: sourceBefore.base_commit,
+  };
+  const expectedAfter = sealRepository(sandbox.directory, { logical });
+  const targets = changed.map((relative): PublicationTarget => {
+    if (!normalizeRepoPath(relative))
+      throw new FlowError('actor produced an unsafe target', 'scope_error');
+    const source = path.join(sandbox.directory, relative);
+    const stat = fs.lstatSync(source, { throwIfNoEntry: false });
+    if (stat && !stat.isFile())
+      throw new FlowError(`${relative} must remain a regular file`, 'scope_error');
+    let payloadDigest: string | null = null;
+    if (stat) {
+      const bytes = fs.readFileSync(source);
+      payloadDigest = crypto.createHash('sha256').update(bytes).digest('hex');
+      const payload = stagedPayload(runId, relative);
+      fs.mkdirSync(path.dirname(payload), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(payload, bytes, { mode: 0o600 });
+    }
+    return {
+      path: relative,
+      before: fileFingerprint(repo, relative),
+      after: fileFingerprint(sandbox.directory, relative),
+      deleted: !stat,
+      executable: Boolean(stat && stat.mode & 0o111),
+      payload_sha256: payloadDigest,
+    };
+  });
+  const pending: PendingPublication<T> = {
+    protocol: 'codex-flow-actor-publication',
+    step_id: stepId,
+    source_before_digest: sourceBefore.source_digest,
+    source_before: sourceInvariant,
+    expected_after_seal: expectedAfter,
+    targets,
+    result,
+  };
+  atomicWrite(recordPath, pending);
+  return applyPending(runId, repo, pending);
+}
+
+export function completeActorPublication(runId: string): void {
+  fs.rmSync(actorPublicationPath(runId), { force: true });
+  fs.rmSync(actorPublicationPayloadDirectory(runId), { recursive: true, force: true });
+}
+
+export function pendingActorPublicationStep(runId: string): string | null {
+  const file = actorPublicationPath(runId);
+  if (!fs.existsSync(file)) return null;
+  const value = JSON.parse(fs.readFileSync(file, 'utf8')) as {
+    protocol?: unknown;
+    step_id?: unknown;
+  };
+  if (value.protocol !== 'codex-flow-actor-publication' || typeof value.step_id !== 'string') {
+    throw new FlowError('pending actor publication has an invalid shape', 'state_error');
+  }
+  return value.step_id;
 }
 
 /** Runs a gate in a disposable clone and blocks if it attempts any mutation. */

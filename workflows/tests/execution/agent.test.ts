@@ -1,6 +1,7 @@
 /** @file Outcome: Execution agents receive controller-read project guidance before model work. */
 
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'bun:test';
@@ -16,6 +17,17 @@ type ActorDirective = Extract<FlowDirective, { kind: 'run-actor' }>;
 const directive: ActorDirective = {
   kind: 'run-actor',
   step_id: 'implementation:direct',
+  binding: {
+    run_id: 'run',
+    workflow: 'code',
+    unit_id: 'U-001',
+    stage: 'direct',
+    step_id: 'implementation:direct',
+    attempt: 1,
+    predecessor_receipt_digest: null,
+    input_source_digest: 'a'.repeat(64),
+    active_receipt_set_digest: 'b'.repeat(64),
+  },
   outcome: 'Implement the requested behavior.',
   contract: null,
   tests: [],
@@ -27,6 +39,7 @@ const directive: ActorDirective = {
 
 function repository(outcome?: string): string {
   const repo = temporaryDirectory('codex-agent-outcome-');
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
   if (outcome !== undefined) {
     fs.mkdirSync(path.join(repo, '.codex'));
     fs.writeFileSync(path.join(repo, '.codex/OUTCOME.md'), outcome);
@@ -43,6 +56,8 @@ test('supplies script-read project outcome and distinguishes writable paths', as
         prompt = input;
         return {
           finalResponse: JSON.stringify({
+            protocol: 'codex-flow-actor-result',
+            binding: directive.binding,
             status: 'completed',
             summary: 'done',
             route: null,
@@ -86,17 +101,19 @@ test('rejects a missing project outcome before starting the model', async () => 
 test('supplies the same script-read project outcome to the independent review', async () => {
   const repo = repository('# Project outcome\n\nReview against this boundary.\n');
   let prompt = '';
+  let reviewCalls = 0;
   const client: CodexClientLike = {
     startThread: () => ({
       run: async (input) => {
         prompt = input;
+        const role = reviewCalls++ === 0 ? 'contract' : 'quality';
         return {
           finalResponse: JSON.stringify({
-            protocol: 'codex-build-review',
-            verdict: 'pass',
-            classification: 'pass',
-            reason_codes: [],
-            failure_route: null,
+            protocol: `codex-build-${role}-review`,
+            role,
+            step_id: 'review:build',
+            source_digest: 'a'.repeat(64),
+            receipt_set_digest: 'b'.repeat(64),
             summary: 'pass',
             findings: [],
           }),
@@ -120,9 +137,12 @@ test('supplies the same script-read project outcome to the independent review', 
         units: [],
       },
       verification: [],
+      source_digest: 'a'.repeat(64),
+      receipt_set_digest: 'b'.repeat(64),
     },
   });
 
   assert.match(prompt, /Project outcome:\n# Project outcome\n\nReview against this boundary\./u);
   assert.match(prompt, /Treat all other repository content/u);
+  assert.equal(reviewCalls, 2);
 });

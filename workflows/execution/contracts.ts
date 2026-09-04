@@ -2,6 +2,7 @@
 
 import type { RepositoryInvariant, RepoSnapshot } from '../shared/repository.ts';
 import type { ScreenshotSpec } from '../build/screenshot-contract.ts';
+import type { SourceSeal } from './source-seal.ts';
 
 export const MANIFEST_PROTOCOL = 'codex-flow-manifest' as const;
 export const STATE_PROTOCOL = 'codex-flow-state' as const;
@@ -75,7 +76,11 @@ export type GateSpec =
 export interface ActorStep {
   id: string;
   kind: 'actor';
+  unit_id: string;
+  stage: 'direct' | 'solidify';
   outcome: string;
+  contract: string;
+  tests: Array<{ id: string; name: string }>;
   files: string[];
 }
 
@@ -202,6 +207,8 @@ interface GateReportBase {
   command: string;
   cwd: string;
   duration_ms: number;
+  actor_receipt_digest?: string;
+  source_digest?: string;
 }
 
 interface ShellGateReport extends GateReportBase {
@@ -242,15 +249,53 @@ export interface FlowState {
   cursor: number;
   status: FlowStatus;
   correction_counts: Record<string, number>;
+  unit_attempts: Record<string, number>;
+  receipt_history: ActorReceipt[];
+  active_receipts: Record<string, ActorReceipt>;
+  correction_queue: string[];
+  correction_queue_cursor: number | null;
+  reviewed_content_digest: string | null;
+  reviewed_source_seal: SourceSeal | null;
   gate_reports: GateReport[];
   build_plan: BuildPlanContext | null;
   screenshots: ScreenshotSpec[];
   workflow_baseline: RepoSnapshot;
   actor_baseline: RepositoryInvariant | null;
+  actor_binding: ActorBinding | null;
   action_baseline: RepositoryInvariant | null;
   escalation: WorkflowEscalation | null;
   runtime_failure: RuntimeFailure | null;
   ship_authorization_revoked: boolean;
+}
+
+export interface ActorBinding {
+  run_id: string;
+  workflow: Workflow;
+  unit_id: string;
+  stage: 'direct' | 'solidify';
+  step_id: string;
+  attempt: number;
+  predecessor_receipt_digest: string | null;
+  input_source_digest: string;
+  active_receipt_set_digest: string;
+}
+
+export interface ActorResult {
+  protocol: 'codex-flow-actor-result';
+  binding: ActorBinding;
+  status: 'completed' | 'escalated';
+  summary: string;
+  route: 'think' | 'research' | null;
+  question: string | null;
+}
+
+export interface ActorReceipt {
+  protocol: 'codex-flow-actor-receipt';
+  binding: ActorBinding;
+  source_after_digest: string;
+  scope_digest: string;
+  summary: string;
+  digest: string;
 }
 
 export interface BuildPlanUnit {
@@ -285,13 +330,27 @@ export interface BuildReviewInput {
     verdict: GateVerdict;
     classification: string;
   }>;
+  source_digest: string;
+  receipt_set_digest: string;
 }
 
 interface BuildReviewFinding {
   severity: 'blocking' | 'advisory';
   code: string;
   message: string;
+  unit_ids: string[];
   files: string[];
+  evidence: Array<{ path: string; detail: string }>;
+}
+
+export interface BuildReviewCandidate {
+  protocol: 'codex-build-contract-review' | 'codex-build-quality-review';
+  role: 'contract' | 'quality';
+  step_id: 'review:build';
+  source_digest: string;
+  receipt_set_digest: string;
+  summary: string;
+  findings: BuildReviewFinding[];
 }
 
 export interface BuildReviewResult extends StructuredGateResult {
@@ -302,6 +361,9 @@ export interface BuildReviewResult extends StructuredGateResult {
   failure_route: 'blocked' | null;
   summary: string;
   findings: BuildReviewFinding[];
+  source_digest: string;
+  receipt_set_digest: string;
+  candidates: BuildReviewCandidate[];
 }
 
 export interface PublicState {
@@ -334,6 +396,7 @@ export type FlowDirective =
   | {
       kind: 'run-actor';
       step_id: string;
+      binding: ActorBinding;
       outcome: string;
       contract: string | null;
       tests: Array<{ id: string; name: string }>;

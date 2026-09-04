@@ -1,7 +1,10 @@
 /** @file Outcome: Code and Build share one repository implementation and test step sequence. */
 
 export interface ImplementationUnit {
+  id?: string;
   outcome: string;
+  contract?: string;
+  tests?: Array<{ id: string; name: string }>;
   scope_paths: string[];
 }
 
@@ -10,24 +13,40 @@ export function implementationSteps(
   testCommand: string,
 ): unknown[] {
   if (!units.length) throw new Error('implementation requires at least one unit');
-  const files = [...new Set(units.flatMap((unit) => unit.scope_paths))];
-  const outcome = units.map((unit) => unit.outcome).join('\n');
-  return [
-    {
-      id: 'implementation:direct',
-      kind: 'actor',
-      outcome,
-      files,
-    },
-    {
-      id: 'test',
+  return units.flatMap((unit, index) => {
+    const id = unit.id ?? `U-${String(index + 1).padStart(3, '0')}`;
+    const tests = unit.tests ?? [];
+    const direct = `${id}:direct`;
+    const solidify = `${id}:solidify`;
+    const gate = (gateId: string, owner: string) => ({
+      id: gateId,
       kind: 'gate',
-      owner: 'implementation:direct',
-      gate: {
-        authority: 'shell',
-        command: testCommand,
-        expect: 'pass',
+      owner,
+      gate: { authority: 'shell', command: testCommand, expect: 'pass' },
+    });
+    return [
+      {
+        id: direct,
+        kind: 'actor',
+        unit_id: id,
+        stage: 'direct',
+        outcome: unit.outcome,
+        contract: unit.contract ?? '',
+        tests,
+        files: [...new Set(unit.scope_paths)],
       },
-    },
-  ];
+      gate(`${id}:test`, direct),
+      {
+        id: solidify,
+        kind: 'actor',
+        unit_id: id,
+        stage: 'solidify',
+        outcome: unit.outcome,
+        contract: unit.contract ?? '',
+        tests,
+        files: [...new Set(unit.scope_paths)],
+      },
+      gate(`${id}:solidify:test`, solidify),
+    ];
+  });
 }

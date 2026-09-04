@@ -27,7 +27,7 @@ import { FlowError } from '../shared/errors.ts';
 import { isObject, rejectUnknownKeys, type JsonObject } from '../shared/schema.ts';
 
 const ACTIONS = new Set<ActionName>(['branch', 'commit', 'ship']);
-export const IMPLEMENTATION_ACTOR_ID = 'implementation:direct';
+export const IMPLEMENTATION_ACTOR_ID = 'U-001:direct';
 const BUILD_OPENING_IDS = ['load:plan', 'branch'] as const;
 export const DEFAULT_MAX_CORRECTIONS = 3;
 const GATE_AUTHORITIES = new Set<GateAuthority>([
@@ -67,7 +67,8 @@ function validateActorFile(repo: string, value: unknown, label: string): string 
 function failureRouteForOwner(owner: unknown): string | null {
   if (owner === undefined) return null;
   if (typeof owner !== 'string') throw new FlowError('gate.owner must be an actor id');
-  if (owner === IMPLEMENTATION_ACTOR_ID) return 'direct:implementation';
+  const unit = /^(U-\d{3}):(?:direct|solidify)$/u.exec(owner)?.[1];
+  if (unit) return `direct:${unit}`;
   throw new FlowError(`gate.owner must name a supported actor: ${owner}`);
 }
 
@@ -193,11 +194,69 @@ function validateSequence(manifest: FlowManifest, steps: FlowStep[]): void {
   const firstActor = steps.findIndex((step) => step.kind === 'actor');
   if (firstActor < 0) throw new FlowError('workflow requires an implementation actor');
 
-  const implementationActors = steps.filter(
-    (step) => step.kind === 'actor' && step.id === IMPLEMENTATION_ACTOR_ID,
+  const actors = steps.filter(
+    (step): step is Extract<FlowStep, { kind: 'actor' }> => step.kind === 'actor',
   );
-  if (implementationActors.length !== 1) {
-    throw new FlowError('workflow requires exactly one implementation actor');
+  if (!actors.length) throw new FlowError('workflow requires an implementation actor');
+  const seenUnits = new Set<string>();
+  const seenTests = new Set<string>();
+  const expectedStages = ['direct', 'test', 'solidify', 'solidify:test'] as const;
+  for (let i = 0; i < actors.length; i += 2) {
+    const direct = actors[i];
+    const solidify = actors[i + 1];
+    if (
+      !direct ||
+      direct.stage !== 'direct' ||
+      !solidify ||
+      solidify.stage !== 'solidify' ||
+      direct.unit_id !== solidify.unit_id
+    ) {
+      throw new FlowError('each unit must declare direct then solidify actors');
+    }
+    if (
+      seenUnits.has(direct.unit_id) ||
+      direct.id !== `${direct.unit_id}:direct` ||
+      solidify.id !== `${direct.unit_id}:solidify`
+    ) {
+      throw new FlowError('unit actor identity is invalid or duplicated');
+    }
+    seenUnits.add(direct.unit_id);
+    if (
+      direct.outcome !== solidify.outcome ||
+      direct.contract !== solidify.contract ||
+      JSON.stringify(direct.files) !== JSON.stringify(solidify.files) ||
+      JSON.stringify(direct.tests) !== JSON.stringify(solidify.tests)
+    ) {
+      throw new FlowError(
+        `unit ${direct.unit_id} actor stages must have identical scope and contract`,
+      );
+    }
+    for (const test of direct.tests) {
+      if (!/^T-\d{3}$/u.test(test.id) || !test.name.trim() || seenTests.has(test.id)) {
+        throw new FlowError('acceptance test identity is invalid or duplicated');
+      }
+      seenTests.add(test.id);
+    }
+    const pos = steps.indexOf(direct);
+    const ids = steps.slice(pos, pos + 4).map((s) => s.id);
+    if (
+      ids.length !== 4 ||
+      !expectedStages.every((stage, n) => ids[n] === `${direct.unit_id}:${stage}`)
+    ) {
+      throw new FlowError(
+        `unit ${direct.unit_id} must compile as direct/test/solidify/solidify:test`,
+      );
+    }
+    const directGate = steps[pos + 1];
+    const solidGate = steps[pos + 3];
+    if (
+      directGate?.kind !== 'gate' ||
+      solidGate?.kind !== 'gate' ||
+      directGate.owner !== direct.id ||
+      solidGate.owner !== solidify.id
+    ) {
+      throw new FlowError(`unit ${direct.unit_id} gates must be owned by their preceding actor`);
+    }
   }
   if (manifest.workflow === 'build') {
     const opening = steps.slice(0, BUILD_OPENING_IDS.length).map((step) => step.id);
@@ -214,10 +273,8 @@ function validateSequence(manifest: FlowManifest, steps: FlowStep[]): void {
     if (steps.some((step) => step.kind === 'gate' && step.gate.authority !== 'shell')) {
       throw new FlowError('code workflow accepts only shell gate authority');
     }
-    const lastActor = steps.findLastIndex((step) => step.kind === 'actor');
-    if (!steps.slice(lastActor + 1).some((step) => step.kind === 'gate')) {
-      throw new FlowError('code workflow requires a test gate after implementation');
-    }
+    if (steps.some((step) => step.kind === 'gate' && step.gate.authority !== 'shell'))
+      throw new FlowError('code workflow accepts only shell gate authority');
   }
 }
 
@@ -234,7 +291,7 @@ function validateBuildSequence(manifest: FlowManifest, steps: FlowStep[]): void 
       throw new FlowError(`${step.gate.authority} authority is not valid for ${step.id}`);
     }
   }
-  for (const required of ['load:plan', 'test', 'artifacts', 'review:build']) {
+  for (const required of ['load:plan', 'artifacts', 'review:build']) {
     if (!steps.some((step) => step.kind === 'gate' && step.id === required)) {
       throw new FlowError(`build requires the ${required} gate`);
     }
@@ -262,7 +319,7 @@ function validateBuildSequence(manifest: FlowManifest, steps: FlowStep[]): void 
   if (!loadPlan || loadPlan.owner !== undefined) {
     throw new FlowError('load:plan must be fail-closed');
   }
-  const testIndex = steps.findIndex((step) => step.id === 'test');
+  const testIndex = steps.findLastIndex((step) => step.id.endsWith(':solidify:test'));
   const artifactsIndex = steps.findIndex((step) => step.id === 'artifacts');
   const reviewIndex = steps.findIndex((step) => step.id === 'review:build');
   const review = steps[reviewIndex];
@@ -275,7 +332,7 @@ function validateBuildSequence(manifest: FlowManifest, steps: FlowStep[]): void 
     review.kind !== 'gate' ||
     review.gate.authority !== 'build-review'
   ) {
-    throw new FlowError('Build must run test, scope check, review, then one commit');
+    throw new FlowError('Build must run all unit quartets, artifacts, review, then one commit');
   }
   const commit = steps[commitIndex];
   if (!commit || commit.kind !== 'action' || commit.action !== 'commit') {
@@ -356,10 +413,15 @@ export function validateManifest(raw: unknown): FlowManifest {
       throw new FlowError(`${id}.kind is invalid`);
     }
     if (item.kind === 'actor') {
-      rejectUnknownKeys(item, ['id', 'kind', 'outcome', 'files'], id);
-      if (id !== IMPLEMENTATION_ACTOR_ID) {
-        throw new FlowError(`${id} is not a supported actor id`);
-      }
+      rejectUnknownKeys(
+        item,
+        ['id', 'kind', 'unit_id', 'stage', 'outcome', 'contract', 'tests', 'files'],
+        id,
+      );
+      if (typeof item.unit_id !== 'string' || !/^U-\d{3}$/u.test(item.unit_id))
+        throw new FlowError(`${id}.unit_id is invalid`);
+      if (item.stage !== 'direct' && item.stage !== 'solidify')
+        throw new FlowError(`${id}.stage is invalid`);
       if (typeof item.outcome !== 'string' || !item.outcome.trim() || item.outcome.length > 4000) {
         throw new FlowError(`${id}.outcome must be a non-empty string of at most 4000 characters`);
       }
@@ -371,7 +433,28 @@ export function validateManifest(raw: unknown): FlowManifest {
       );
       if (new Set(files).size !== files.length)
         throw new FlowError(`${id}.files contains duplicates`);
-      return { id, kind: 'actor', outcome: item.outcome.trim(), files };
+      if (typeof item.contract !== 'string') throw new FlowError(`${id}.contract must be a string`);
+      if (
+        !Array.isArray(item.tests) ||
+        item.tests.some(
+          (t) =>
+            !isObject(t) ||
+            typeof t.id !== 'string' ||
+            typeof t.name !== 'string' ||
+            !t.name.trim(),
+        )
+      )
+        throw new FlowError(`${id}.tests is invalid`);
+      return {
+        id,
+        kind: 'actor',
+        unit_id: item.unit_id,
+        stage: item.stage,
+        outcome: item.outcome.trim(),
+        contract: item.contract,
+        tests: item.tests as Array<{ id: string; name: string }>,
+        files,
+      };
     }
     if (item.kind === 'action') {
       if (typeof item.action !== 'string' || !ACTIONS.has(item.action as ActionName)) {
