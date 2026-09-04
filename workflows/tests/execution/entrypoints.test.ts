@@ -7,7 +7,7 @@ import { test } from 'bun:test';
 
 import { main } from '../../build/runner.ts';
 import { main as codeMain } from '../../code/runner.ts';
-import { armIntent } from '../../invocation.ts';
+import { armIntent } from '../../runtime/invocation.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 
 useTemporaryWorkflowStorage('codex-build-runner-tests-');

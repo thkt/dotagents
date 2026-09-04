@@ -11,7 +11,7 @@ import {
   repositoryControlChanges,
   repositoryInvariant,
   sameWorkflowRepositoryInvariant,
-} from '../../../workflows/shared/repository.ts';
+} from '../../shared/repository.ts';
 
 function repository(): string {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-repository-invariant-'));

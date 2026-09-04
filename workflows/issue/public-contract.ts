@@ -1,13 +1,13 @@
 /** @file Outcome: One GitHub Issue contains one human-readable, machine-parseable Plan. */
 
 import {
-  compileBuildPlan,
   parseBuildPlanAuthoring,
-  type CompiledBuildPlan,
+  renderPlanMarkdown,
+  type BuildPlanAuthoring,
 } from '../plan/contracts.ts';
 import { FlowError, errorMessage } from '../shared/errors.ts';
 
-const PLAN_OPEN = '## Plan\n\n<details>\n<summary>Build Plan</summary>\n\n```json\n';
+const PLAN_OPEN = '<details>\n<summary>Build Plan JSON</summary>\n\n```json\n';
 const PLAN_CLOSE = '\n```\n\n</details>';
 const PLAN_HEADING = /^##[ \t]+Plan[ \t]*$/gimu;
 const JSON_FENCE = /```json[ \t]*\r?\n([\s\S]*?)\r?\n```/giu;
@@ -32,17 +32,17 @@ export function positiveIssue(value: unknown, label: string): number {
   return Number(value);
 }
 
-/** Renders the Plan once, as readable JSON beneath the public Plan heading. */
-export function renderPublicIssueBody(prose: string, plan: CompiledBuildPlan): string {
+/** Derives visible Markdown and the canonical collapsed JSON from the same Plan. */
+export function renderPublicIssueBody(prose: string, plan: BuildPlanAuthoring): string {
   const prefix = prose.trim();
-  const json = JSON.stringify(plan.authoring, null, 2);
-  return `${prefix ? `${prefix}\n\n` : ''}${PLAN_OPEN}${json}${PLAN_CLOSE}\n`;
+  const json = JSON.stringify(plan, null, 2);
+  return `${prefix ? `${prefix}\n\n` : ''}${renderPlanMarkdown(plan).trimEnd()}\n\n${PLAN_OPEN}${json}${PLAN_CLOSE}\n`;
 }
 
-/** Reads the only Plan representation from the selected public Issue. */
+/** Reads the canonical JSON Plan independently of its human-readable presentation. */
 export function parsePublicIssueBody(body: string): {
   prose: string;
-  plan: CompiledBuildPlan;
+  plan: BuildPlanAuthoring;
 } {
   const headings = [...body.matchAll(PLAN_HEADING)];
   if (headings.length !== 1) {
@@ -63,6 +63,6 @@ export function parsePublicIssueBody(body: string): {
   }
   return {
     prose: body.slice(0, heading.index).trimEnd(),
-    plan: compileBuildPlan(authoring),
+    plan: authoring,
   };
 }

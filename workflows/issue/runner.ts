@@ -2,15 +2,14 @@
 /** @file Outcome: One explicit command validates and publishes one exact issue draft. */
 
 import {
-  clearIntent,
   consumeIssueApproval,
   requireIssueIntent,
   stopPendingIntent,
-} from '../invocation.ts';
-import { parseCommand, requireExactFlags } from '../shared/cli.ts';
-import { ISSUE_COMMAND, isMainModule } from '../shared/environment.ts';
+} from '../runtime/invocation.ts';
+import { parseCommand, requireExactFlags, readAbsoluteJson, runCli } from '../runtime/cli.ts';
+import { ISSUE_COMMAND, isMainModule } from '../runtime/environment.ts';
 import { FlowError } from '../shared/errors.ts';
-import { readAbsoluteJson, runCli } from '../shared/runtime.ts';
+
 import { ProgressReporter, workflowProgress } from '../shared/progress.ts';
 import {
   ISSUE_DESCRIPTION_PROTOCOL,
@@ -132,7 +131,6 @@ export function draftIssueWorkflow(
     draftIssue(input, draftGateway),
   );
   consumeIssueApproval(runId, input.repo);
-  clearIntent(runId);
   const publishGateway = gateway ?? new GhIssueGateway('issue-publication');
   const published = progress.runSync({ workflow: 'issue', stage: 'issue_publish' }, () =>
     publishIssue(result, publishGateway),

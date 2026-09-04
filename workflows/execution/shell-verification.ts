@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { GATE_PROTOCOL, SAFE_ID, type GateOptions, type GateReport } from './contracts.ts';
-import { isMainModule } from '../shared/environment.ts';
+import { isMainModule } from '../runtime/environment.ts';
 import { UsageError, errorMessage, usageError } from '../shared/errors.ts';
 import { withoutGitHubCredentials } from '../shared/github.ts';
 

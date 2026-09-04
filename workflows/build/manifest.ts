@@ -1,8 +1,12 @@
 /** @file Outcome: A fetched Issue Plan becomes a validated internal Build manifest. */
 
 import type { BuildPlanContext, FlowManifest } from '../execution/contracts.ts';
-import { implementationSteps } from '../execution/implementation-steps.ts';
-import { DEFAULT_MAX_CORRECTIONS, validateManifest } from '../execution/manifest-validation.ts';
+import {
+  implementationSteps,
+  DEFAULT_MAX_CORRECTIONS,
+  validateManifest,
+} from '../execution/manifest.ts';
+
 import { FlowError } from '../shared/errors.ts';
 
 interface CompileBuildOptions {
@@ -49,7 +53,7 @@ export function compileBuildManifest({
       branch_name: branchName,
       start_point: startPoint,
     },
-    ...implementationSteps(implementation, plan.test_command),
+    ...implementationSteps(implementation, plan.test_command, plan.outcome),
     {
       id: 'artifacts',
       kind: 'gate',

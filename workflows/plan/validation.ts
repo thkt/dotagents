@@ -2,18 +2,11 @@
 /** @file Outcome: Build accepts an implementable Plan with safe paths and a safe test command. */
 
 import { parseBuildPlanAuthoring } from './contracts.ts';
-import {
-  cli,
-  nonEmptyString,
-  parseSingletonArgs,
-  readJsonFile,
-  safeRepoPath,
-} from '../shared/cli.ts';
+import { cli, parseSingletonArgs, readJsonFile, safeRepoPath } from '../runtime/cli.ts';
 import type { StructuredGateResult } from '../execution/contracts.ts';
 import { SHELL_CONTROL, shellWords } from '../shared/command.ts';
-import { isMainModule } from '../shared/environment.ts';
+import { isMainModule } from '../runtime/environment.ts';
 import { usageError } from '../shared/errors.ts';
-import { isObject } from '../shared/schema.ts';
 
 const PROTOCOL = 'codex-build-plan';
 const DESCRIPTION_PROTOCOL = 'codex-build-plan-description';
@@ -37,15 +30,10 @@ function invokesGitHubCli(command: string): boolean {
 }
 
 export function validatePlan(input: unknown): PlanValidationReport {
-  if (!isObject(input)) throw usageError('input must be a JSON object');
   const blockers: string[] = [];
-  if (!Number.isInteger(input.issue) || Number(input.issue) < 1) {
-    blockers.push('issue must be a positive integer');
-  }
-  if (!nonEmptyString(input.title)) blockers.push('title is empty');
   let plan;
   try {
-    plan = parseBuildPlanAuthoring(input.plan);
+    plan = parseBuildPlanAuthoring(input);
   } catch (error) {
     blockers.push(String(error));
   }
@@ -83,20 +71,16 @@ export function validatePlan(input: unknown): PlanValidationReport {
 
 export function describe() {
   const inputTemplate = {
-    issue: 123,
-    title: 'Feature',
-    plan: {
-      outcome: 'observable done state',
-      test_command: 'repository-test-command',
-      units: [
-        {
-          goal: 'observable unit behavior',
-          files: ['path/to/file'],
-          contract: 'behavior to preserve or establish',
-          tests: ['condition and expected result'],
-        },
-      ],
-    },
+    outcome: 'observable done state',
+    test_command: 'repository-test-command',
+    units: [
+      {
+        goal: 'observable unit behavior',
+        files: ['path/to/file'],
+        contract: 'behavior to preserve or establish',
+        tests: ['condition and expected result'],
+      },
+    ],
   };
   return {
     protocol: DESCRIPTION_PROTOCOL,

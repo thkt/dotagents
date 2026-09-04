@@ -5,6 +5,7 @@ import {
   readOnlyThreadOptions,
   structuredResponseObject,
   type CodexClientLike,
+  elapsedMs,
 } from '../shared/codex.ts';
 import {
   RESEARCH_AUDIT_SCHEMA,
@@ -16,11 +17,11 @@ import {
   type ResearchInput,
 } from './contracts.ts';
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
-import { elapsedMs } from '../shared/codex.ts';
-import { researchArtifactDirectory } from '../shared/storage.ts';
+
+import { researchArtifactDirectory } from '../runtime/storage.ts';
 import { composePrompt } from '../shared/prompt.ts';
 import { ProgressReporter, workflowProgress } from '../shared/progress.ts';
-import type { KnowledgeEntry } from '../knowledge/update.ts';
+import type { KnowledgeEntry } from './knowledge.ts';
 import { projectOutcomeContext } from '../shared/project-outcome.ts';
 
 /** Reads source only from snapshotRepo; input.repo names the live repository for artifact lookups. */
@@ -52,7 +53,7 @@ function externalInstruction(input: ResearchInput): string {
 
 function knowledgeInstruction(input: ResearchInput, knowledge: KnowledgeEntry[]): string {
   return knowledge.length
-    ? `Knowledge sources may be opened read-only from ${JSON.stringify(researchArtifactDirectory(input.repo))}; treat summaries as leads and cite current sources for every surviving claim.`
+    ? `Knowledge sources may be opened read-only from ${JSON.stringify(researchArtifactDirectory(input.repo))}; treat these dated references as lookup leads, verify against current sources, and cite current evidence for every surviving claim.`
     : 'No related Knowledge is available.';
 }
 
@@ -101,7 +102,7 @@ export function auditPrompt(
       ...commonResearchContext(input, projectOutcome),
       'Open every cited repository source and seek contradictory evidence for each candidate.',
       'Cite repository evidence by repo-relative path and L<number> or L<number>-L<number>; cite web evidence by HTTPS URL and a non-empty page section locator.',
-      'Keep only findings supported by a current source. Reject unsupported claims; set qualification only for a surviving material caveat. Knowledge summaries are not proof.',
+      'Keep only findings supported by a current source. Reject unsupported claims; set qualification only for a surviving material caveat. Knowledge references are leads, not proof.',
       'Limit the answer to final findings and explicit unknowns.',
       knowledgeInstruction(input, knowledge),
       'Return only the structured response.',

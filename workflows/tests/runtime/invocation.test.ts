@@ -6,14 +6,16 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'bun:test';
 
-import { armIntent, clearIntent, loadIntent, requireBuildShipApproval } from '../../invocation.ts';
-import { handle } from '../../../hooks/workflow-enforcer.ts';
 import {
-  buildShipApprovalPath,
-  intentPath,
-  workflowInputPath,
-  workflowRunDirectory,
-} from '../../shared/storage.ts';
+  armIntent,
+  clearIntent,
+  consumeIssueApproval,
+  loadIntent,
+  requireBuildShipApproval,
+  requireWorkflowInput,
+} from '../../runtime/invocation.ts';
+import { handle } from '../../../hooks/workflow-enforcer.ts';
+import { intentPath, workflowInputPath, workflowRunDirectory } from '../../runtime/storage.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 
 useTemporaryWorkflowStorage('codex-invocation-storage-');
@@ -29,10 +31,7 @@ function repoFixture(): string {
 function armedApproval(runId: string): { repo: string; record: Record<string, unknown> } {
   const repo = repoFixture();
   const intent = armIntent({ runId, workflow: 'build', cwd: repo });
-  const record = JSON.parse(fs.readFileSync(buildShipApprovalPath(runId), 'utf8')) as Record<
-    string,
-    unknown
-  >;
+  const record = JSON.parse(fs.readFileSync(intentPath(runId), 'utf8')) as Record<string, unknown>;
   return { repo: intent.repo, record };
 }
 
@@ -52,10 +51,9 @@ test('one task owns one runtime directory', () => {
   try {
     const directory = workflowRunDirectory(runId);
     assert.equal(path.dirname(intentPath(runId)), directory);
-    assert.equal(path.dirname(buildShipApprovalPath(runId)), directory);
-    assert.equal(path.dirname(workflowInputPath(runId)), directory);
+    assert.equal(path.dirname(workflowInputPath(runId, 'build')), directory);
     assert.equal(path.basename(intentPath(runId)), 'intent.json');
-    assert.equal(path.basename(workflowInputPath(runId)), 'input.json');
+    assert.equal(path.basename(workflowInputPath(runId, 'build')), 'build-input.json');
     assert.doesNotThrow(() => requireBuildShipApproval(runId, repo));
   } finally {
     clearIntent(runId);
@@ -66,20 +64,20 @@ const rejectedRecords: [string, (record: Record<string, unknown>) => Record<stri
   ['protocol', (record) => ({ ...record, protocol: 'codex-build-ship-approval-obsolete' })],
   ['run_id', (record) => ({ ...record, run_id: 'another-run' })],
   ['repo', (record) => ({ ...record, repo: '/elsewhere' })],
-  ['operation', (record) => ({ ...record, operation: 'publish-one-github-issue' })],
+  ['authorization', (record) => ({ ...record, authorization: 'publish-one-github-issue' })],
   ['extra field', (record) => ({ ...record, granted_by: 'hook' })],
-  ['missing field', ({ operation: _dropped, ...record }) => record],
+  ['missing field', ({ authorization: _dropped, ...record }) => record],
 ];
 
 for (const [name, mutate] of rejectedRecords) {
   test(`a build Ship approval with a wrong ${name} is rejected as an invalid shape`, () => {
     const runId = `ship-approval-${name.replace(' ', '-')}`;
     const { repo, record } = armedApproval(runId);
-    fs.writeFileSync(buildShipApprovalPath(runId), JSON.stringify(mutate(record)));
+    fs.writeFileSync(intentPath(runId), JSON.stringify(mutate(record)));
     try {
       assert.throws(
         () => requireBuildShipApproval(runId, repo),
-        /build Ship approval has an invalid shape/u,
+        /workflow intent has an invalid shape|explicit \$build authorization/u,
       );
     } finally {
       clearIntent(runId);
@@ -94,7 +92,7 @@ test('a build Ship approval for another repository is rejected', () => {
   try {
     assert.throws(
       () => requireBuildShipApproval(runId, other),
-      /build Ship approval has an invalid shape/u,
+      /workflow intent has an invalid shape|explicit \$build authorization/u,
     );
   } finally {
     clearIntent(runId);
@@ -178,16 +176,45 @@ test('an armed Build runs only through the Build-only command', () => {
       /codex-build run .* --run-id 'build-only-hook-route'$/u,
     );
 
-    const rejected = handle({
-      hook_event_name: 'PreToolUse',
-      session_id: runId,
-      cwd: repo,
-      tool_name: 'Bash',
-      tool_input: { command: `codex-code run --input ${pending.input_path}` },
-    });
-    assert.equal(rejected.hookSpecificOutput?.permissionDecision, 'deny');
-    assert.match(String(rejected.hookSpecificOutput?.permissionDecisionReason), /codex-build/u);
+    assert.throws(
+      () => requireWorkflowInput(runId, 'code', pending.input_path),
+      /explicit \$code invocation is required/u,
+    );
   } finally {
     clearIntent(runId);
   }
+});
+
+test('switching workflows selects a separate input and replaces publication authority', () => {
+  const repo = repoFixture();
+  const runId = 'switch-workflow-input';
+  const build = armIntent({ runId, workflow: 'build', cwd: repo });
+  fs.writeFileSync(build.input_path, JSON.stringify({ repo, issue_number: 4 }));
+  const think = armIntent({ runId, workflow: 'think', cwd: repo });
+  assert.notEqual(think.input_path, build.input_path);
+  assert.equal(fs.existsSync(think.input_path), false);
+  assert.equal(loadIntent(runId)?.workflow, 'think');
+  assert.throws(() => requireBuildShipApproval(runId, repo), /authorization is required/u);
+  clearIntent(runId);
+});
+
+test('one Issue invocation authorizes exactly one publication attempt', () => {
+  const repo = repoFixture();
+  const runId = 'issue-consumed-once';
+  armIntent({ runId, workflow: 'issue', cwd: repo });
+  assert.throws(() => consumeIssueApproval(runId, repoFixture()), /authorization is required/u);
+  consumeIssueApproval(runId, repo);
+  assert.throws(() => consumeIssueApproval(runId, repo), /authorization is required/u);
+  assert.equal(loadIntent(runId), null);
+});
+
+test('host binding rejects forged task ids before dispatching a workflow command', () => {
+  const result = handle({
+    hook_event_name: 'PreToolUse',
+    session_id: 'real-task',
+    tool_name: 'Bash',
+    tool_input: { command: 'codex-build run --input /tmp/input.json --run-id other-task' },
+  });
+  assert.equal(result.hookSpecificOutput?.permissionDecision, 'deny');
+  assert.match(result.hookSpecificOutput?.permissionDecisionReason ?? '', /omit --run-id/u);
 });

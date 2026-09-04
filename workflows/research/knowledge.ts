@@ -2,22 +2,20 @@
 
 import * as fs from 'node:fs';
 import path from 'node:path';
-
-import { parseResearchReport, type ResearchReport } from '../research/contracts.ts';
+import { parseResearchReport, type ResearchReport } from './contracts.ts';
 import {
   atomicWrite,
   knowledgeArtifactDirectory,
   researchArtifactDirectory,
-} from '../shared/storage.ts';
+} from '../runtime/storage.ts';
 
 interface KnowledgeSource {
   report: string;
-  findings: string[];
+  generated_at: string;
 }
 
 export interface KnowledgeEntry {
   topic: string;
-  summary: string;
   sources: KnowledgeSource[];
   updated_at: string;
 }
@@ -48,7 +46,7 @@ function terms(value: string): Set<string> {
   );
 }
 
-export function relevance(query: string, value: string): number {
+function relevance(query: string, value: string): number {
   const valueTerms = terms(value);
   return [...terms(query)].reduce((score, term) => score + Number(valueTerms.has(term)), 0);
 }
@@ -89,30 +87,17 @@ function researchReports(repo: string): { path: string; report: ResearchReport }
     );
 }
 
-function knowledgeStatement(finding: ResearchReport['findings'][number]): string {
-  const notes = [
-    ...(finding.kind === 'inference' ? ['inference'] : []),
-    ...(finding.confidence === 'high' ? [] : [`${finding.confidence} confidence`]),
-    ...(finding.qualification ? [finding.qualification] : []),
-  ];
-  return notes.length ? `${finding.statement} (${notes.join('; ')})` : finding.statement;
-}
-
 function addReport(entries: KnowledgeEntry[], artifact: string, report: ResearchReport): void {
   const existing = entries.find((entry) => sameTopic(entry.topic, report.question));
-  const statements = report.findings.map(knowledgeStatement);
-  const source = { report: artifact, findings: report.findings.map((finding) => finding.id) };
+  const source = { report: artifact, generated_at: report.generated_at };
   if (!existing) {
     entries.push({
       topic: report.question,
-      summary: statements.join('\n'),
       sources: [source],
       updated_at: report.generated_at,
     });
     return;
   }
-  const priorStatements = existing.summary.split('\n').filter(Boolean);
-  existing.summary = [...new Set([...priorStatements, ...statements])].join('\n');
   existing.sources.push(source);
   existing.updated_at = report.generated_at;
 }
@@ -139,7 +124,6 @@ export function readKnowledge(repo: string): KnowledgeEntry[] {
       const value = entry as Record<string, unknown>;
       return (
         typeof value.topic === 'string' &&
-        typeof value.summary === 'string' &&
         typeof value.updated_at === 'string' &&
         Array.isArray(value.sources) &&
         value.sources.every((source) => {
@@ -147,8 +131,8 @@ export function readKnowledge(repo: string): KnowledgeEntry[] {
           const item = source as Record<string, unknown>;
           return (
             typeof item.report === 'string' &&
-            Array.isArray(item.findings) &&
-            item.findings.every((finding) => typeof finding === 'string')
+            path.basename(item.report) === item.report &&
+            typeof item.generated_at === 'string'
           );
         })
       );
@@ -156,4 +140,38 @@ export function readKnowledge(repo: string): KnowledgeEntry[] {
   } catch {
     return [];
   }
+}
+
+export const KNOWLEDGE_RESULT_LIMIT = 3;
+
+/** Selects one latest report per topic; dates rank leads, never establish factual freshness. */
+export function searchKnowledge(
+  repo: string,
+  query: string,
+  excludedReports: readonly string[] = [],
+): KnowledgeEntry[] {
+  const seen = new Set(excludedReports.map((report) => path.basename(report)));
+  const ranked = readKnowledge(repo)
+    .map((entry) => ({ entry, score: relevance(query, entry.topic) }))
+    .filter(({ score }) => score > 0)
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        right.entry.updated_at.localeCompare(left.entry.updated_at) ||
+        left.entry.topic.localeCompare(right.entry.topic),
+    );
+  const results: KnowledgeEntry[] = [];
+  for (const { entry } of ranked) {
+    const latest = [...entry.sources].sort(
+      (left, right) =>
+        right.generated_at.localeCompare(left.generated_at) ||
+        left.report.localeCompare(right.report),
+    )[0];
+    // Never fall back to older evidence when the latest report is already selected.
+    if (!latest || seen.has(latest.report)) continue;
+    seen.add(latest.report);
+    results.push({ topic: entry.topic, sources: [latest], updated_at: latest.generated_at });
+    if (results.length === KNOWLEDGE_RESULT_LIMIT) break;
+  }
+  return results;
 }

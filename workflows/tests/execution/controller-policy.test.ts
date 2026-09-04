@@ -8,7 +8,7 @@ import { test } from 'bun:test';
 
 import { compileCodeManifest, parseCodeInput } from '../../code/manifest.ts';
 import { describe } from '../../execution/controller.ts';
-import { parseBuildIssueNumber, parseExplicitInvocation } from '../../invocation.ts';
+import { parseBuildIssueNumber, parseExplicitInvocation } from '../../runtime/invocation.ts';
 import { temporaryDirectory } from '../shared/fixtures.ts';
 
 function repository(): string {
@@ -69,7 +69,7 @@ test('caller-authored execution controls are ignored rather than handed through'
   const manifest = compileCodeManifest(input);
   assert.deepEqual(
     manifest.steps.map((step) => step.id),
-    ['U-001:direct', 'U-001:test', 'U-001:solidify', 'U-001:solidify:test'],
+    ['implementation', 'test:implementation'],
   );
   assert.equal(manifest.shipping_authorized, false);
 });

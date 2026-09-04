@@ -5,7 +5,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { onTestFinished, test } from 'bun:test';
-import { cliErrorResult, readAbsoluteJson, runCli } from '../../shared/runtime.ts';
+import {
+  cliErrorResult,
+  readAbsoluteJson,
+  runCli,
+  parseCommand,
+  requireExactFlags,
+} from '../../runtime/cli.ts';
 
 test('reads absolute JSON and rejects relative or malformed input', () => {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'runtime-')), 'input.json');
@@ -50,4 +56,21 @@ test('a throwing workflow writes the blocked result and sets exit code 2', async
     classification: 'execution_error',
     error: 'workflow failed',
   });
+});
+
+test('parses one command with singleton flags', () => {
+  const parsed = parseCommand(['run', '--input', '/tmp/input.json', '--run-id', 'task-1']);
+  assert.equal(parsed.command, 'run');
+  assert.deepEqual({ ...parsed.flags }, { '--input': '/tmp/input.json', '--run-id': 'task-1' });
+});
+
+test('rejects duplicate and incomplete flags', () => {
+  assert.throws(() => parseCommand(['run', '--input', 'a', '--input', 'b']), /only once/);
+  assert.throws(() => parseCommand(['run', '--input']), /missing value/);
+});
+
+test('requires the exact flag set', () => {
+  const { flags } = parseCommand(['run', '--input', 'a']);
+  assert.doesNotThrow(() => requireExactFlags(flags, ['--input']));
+  assert.throws(() => requireExactFlags(flags, ['--run-id']), /unsupported flag/);
 });

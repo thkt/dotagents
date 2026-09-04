@@ -13,13 +13,13 @@ Invoke the first bound workflow command itself with network escalation, requesti
 ## Decisions
 
 - State one change and the observable state that should exist when it is done.
-- Explicitly select Research reports that directly determine the Plan; related Knowledge is added automatically as background.
+- Explicitly select Research reports that directly determine the Plan; the Knowledge index adds at most three related original reports as dated leads.
 - Read [decision writing](references/decision-writing.md) when wording the outcome and Plan.
 
 ## Boundaries
 
 - Route an unknown that can change the design back to research instead of planning around an assumption.
-- Use the repository snapshot and explicitly selected Research as the factual basis. Treat related Knowledge as background, and do not copy evidence, hashes, or repository rules into the Plan.
+- Use the repository snapshot and explicitly selected Research as the factual basis. Verify Knowledge-selected report claims against the current snapshot; report dates alone do not establish freshness, and do not copy evidence, hashes, or repository rules into the Plan.
 
 ## Report
 

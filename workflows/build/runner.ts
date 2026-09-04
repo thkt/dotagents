@@ -3,7 +3,7 @@
 
 import type { CommandResult } from '../execution/contracts.ts';
 import { reportMain, workflowMain } from '../execution/engine.ts';
-import { isMainModule } from '../shared/environment.ts';
+import { isMainModule } from '../runtime/environment.ts';
 
 export function main(argv: string[] = process.argv.slice(2)): Promise<CommandResult> {
   return workflowMain('build', argv);

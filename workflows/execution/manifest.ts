@@ -1,9 +1,8 @@
-/** @file Outcome: Only closed manifests with safe scopes and valid workflow structure reach execution. */
+/** @file Outcome: Code and Build construct one implementation sequence and validate its safe execution scope. */
 
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import path from 'node:path';
-
 import {
   gitRoot,
   gitOptionalText,
@@ -12,22 +11,32 @@ import {
   normalizeRepoPath,
   realpathInside,
 } from '../shared/repository.ts';
-import type {
-  ActionName,
-  ActionStep,
-  FlowManifest,
-  FlowStep,
-  GateAuthority,
-  GateSpec,
-  GateStep,
+import {
+  type ActionName,
+  type ActionStep,
+  type FlowManifest,
+  type FlowStep,
+  type GateAuthority,
+  type GateSpec,
+  type GateStep,
+  MANIFEST_PROTOCOL,
+  SAFE_ID,
 } from './contracts.ts';
-import { MANIFEST_PROTOCOL, SAFE_ID } from './contracts.ts';
+
 import { SHELL_CONTROL, shellCommand } from '../shared/command.ts';
 import { FlowError } from '../shared/errors.ts';
 import { isObject, rejectUnknownKeys, type JsonObject } from '../shared/schema.ts';
 
+export interface ImplementationUnit {
+  id?: string;
+  outcome: string;
+  contract?: string;
+  tests?: Array<{ id: string; name: string }>;
+  scope_paths: string[];
+}
+
 const ACTIONS = new Set<ActionName>(['branch', 'commit', 'ship']);
-export const IMPLEMENTATION_ACTOR_ID = 'U-001:direct';
+export const IMPLEMENTATION_ACTOR_ID = 'implementation';
 const BUILD_OPENING_IDS = ['load:plan', 'branch'] as const;
 export const DEFAULT_MAX_CORRECTIONS = 3;
 const GATE_AUTHORITIES = new Set<GateAuthority>([
@@ -67,8 +76,7 @@ function validateActorFile(repo: string, value: unknown, label: string): string 
 function failureRouteForOwner(owner: unknown): string | null {
   if (owner === undefined) return null;
   if (typeof owner !== 'string') throw new FlowError('gate.owner must be an actor id');
-  const unit = /^(U-\d{3}):(?:direct|solidify)$/u.exec(owner)?.[1];
-  if (unit) return `direct:${unit}`;
+  if (owner === IMPLEMENTATION_ACTOR_ID) return 'direct:implementation';
   throw new FlowError(`gate.owner must name a supported actor: ${owner}`);
 }
 
@@ -198,66 +206,19 @@ function validateSequence(manifest: FlowManifest, steps: FlowStep[]): void {
     (step): step is Extract<FlowStep, { kind: 'actor' }> => step.kind === 'actor',
   );
   if (!actors.length) throw new FlowError('workflow requires an implementation actor');
-  const seenUnits = new Set<string>();
-  const seenTests = new Set<string>();
-  const expectedStages = ['direct', 'test', 'solidify', 'solidify:test'] as const;
-  for (let i = 0; i < actors.length; i += 2) {
-    const direct = actors[i];
-    const solidify = actors[i + 1];
-    if (
-      !direct ||
-      direct.stage !== 'direct' ||
-      !solidify ||
-      solidify.stage !== 'solidify' ||
-      direct.unit_id !== solidify.unit_id
-    ) {
-      throw new FlowError('each unit must declare direct then solidify actors');
-    }
-    if (
-      seenUnits.has(direct.unit_id) ||
-      direct.id !== `${direct.unit_id}:direct` ||
-      solidify.id !== `${direct.unit_id}:solidify`
-    ) {
-      throw new FlowError('unit actor identity is invalid or duplicated');
-    }
-    seenUnits.add(direct.unit_id);
-    if (
-      direct.outcome !== solidify.outcome ||
-      direct.contract !== solidify.contract ||
-      JSON.stringify(direct.files) !== JSON.stringify(solidify.files) ||
-      JSON.stringify(direct.tests) !== JSON.stringify(solidify.tests)
-    ) {
-      throw new FlowError(
-        `unit ${direct.unit_id} actor stages must have identical scope and contract`,
-      );
-    }
-    for (const test of direct.tests) {
-      if (!/^T-\d{3}$/u.test(test.id) || !test.name.trim() || seenTests.has(test.id)) {
-        throw new FlowError('acceptance test identity is invalid or duplicated');
-      }
-      seenTests.add(test.id);
-    }
-    const pos = steps.indexOf(direct);
-    const ids = steps.slice(pos, pos + 4).map((s) => s.id);
-    if (
-      ids.length !== 4 ||
-      !expectedStages.every((stage, n) => ids[n] === `${direct.unit_id}:${stage}`)
-    ) {
-      throw new FlowError(
-        `unit ${direct.unit_id} must compile as direct/test/solidify/solidify:test`,
-      );
-    }
-    const directGate = steps[pos + 1];
-    const solidGate = steps[pos + 3];
-    if (
-      directGate?.kind !== 'gate' ||
-      solidGate?.kind !== 'gate' ||
-      directGate.owner !== direct.id ||
-      solidGate.owner !== solidify.id
-    ) {
-      throw new FlowError(`unit ${direct.unit_id} gates must be owned by their preceding actor`);
-    }
-  }
+  if (actors.length !== 1 || actors[0]?.id !== IMPLEMENTATION_ACTOR_ID)
+    throw new FlowError('workflow requires one implementation actor');
+  const actor = actors[0];
+  const gate = steps[firstActor + 1];
+  if (
+    gate?.kind !== 'gate' ||
+    gate.id !== 'test:implementation' ||
+    gate.owner !== actor.id ||
+    gate.gate.authority !== 'shell'
+  )
+    throw new FlowError('implementation must be followed by its shell test');
+  if (manifest.workflow === 'code' && (steps.length !== 2 || firstActor !== 0))
+    throw new FlowError('Code requires exactly implementation and test');
   if (manifest.workflow === 'build') {
     const opening = steps.slice(0, BUILD_OPENING_IDS.length).map((step) => step.id);
     if (opening.join(',') !== BUILD_OPENING_IDS.join(',')) {
@@ -319,7 +280,7 @@ function validateBuildSequence(manifest: FlowManifest, steps: FlowStep[]): void 
   if (!loadPlan || loadPlan.owner !== undefined) {
     throw new FlowError('load:plan must be fail-closed');
   }
-  const testIndex = steps.findLastIndex((step) => step.id.endsWith(':solidify:test'));
+  const testIndex = steps.findLastIndex((step) => step.id === 'test:implementation');
   const artifactsIndex = steps.findIndex((step) => step.id === 'artifacts');
   const reviewIndex = steps.findIndex((step) => step.id === 'review:build');
   const review = steps[reviewIndex];
@@ -332,7 +293,9 @@ function validateBuildSequence(manifest: FlowManifest, steps: FlowStep[]): void 
     review.kind !== 'gate' ||
     review.gate.authority !== 'build-review'
   ) {
-    throw new FlowError('Build must run all unit quartets, artifacts, review, then one commit');
+    throw new FlowError(
+      'Build must run implementation and test, artifacts, review, then one commit',
+    );
   }
   const commit = steps[commitIndex];
   if (!commit || commit.kind !== 'action' || commit.action !== 'commit') {
@@ -413,15 +376,7 @@ export function validateManifest(raw: unknown): FlowManifest {
       throw new FlowError(`${id}.kind is invalid`);
     }
     if (item.kind === 'actor') {
-      rejectUnknownKeys(
-        item,
-        ['id', 'kind', 'unit_id', 'stage', 'outcome', 'contract', 'tests', 'files'],
-        id,
-      );
-      if (typeof item.unit_id !== 'string' || !/^U-\d{3}$/u.test(item.unit_id))
-        throw new FlowError(`${id}.unit_id is invalid`);
-      if (item.stage !== 'direct' && item.stage !== 'solidify')
-        throw new FlowError(`${id}.stage is invalid`);
+      rejectUnknownKeys(item, ['id', 'kind', 'outcome', 'contract', 'tests', 'files'], id);
       if (typeof item.outcome !== 'string' || !item.outcome.trim() || item.outcome.length > 4000) {
         throw new FlowError(`${id}.outcome must be a non-empty string of at most 4000 characters`);
       }
@@ -448,8 +403,6 @@ export function validateManifest(raw: unknown): FlowManifest {
       return {
         id,
         kind: 'actor',
-        unit_id: item.unit_id,
-        stage: item.stage,
         outcome: item.outcome.trim(),
         contract: item.contract,
         tests: item.tests as Array<{ id: string; name: string }>,
@@ -593,4 +546,30 @@ function validateBranchAction(item: JsonObject, id: string, repo: string): Actio
     branch_name: item.branch_name,
     start_point: item.start_point,
   };
+}
+
+export function implementationSteps(
+  units: readonly ImplementationUnit[],
+  testCommand: string,
+  outcome = units.map((unit) => unit.outcome).join('\n\n'),
+): unknown[] {
+  if (!units.length) throw new Error('implementation requires at least one unit');
+  return [
+    {
+      id: 'implementation',
+      kind: 'actor',
+      outcome,
+      contract: units
+        .map((unit) => `${unit.id ?? 'Request'}: ${unit.outcome}\n${unit.contract ?? ''}`)
+        .join('\n\n'),
+      tests: units.flatMap((unit) => unit.tests ?? []),
+      files: [...new Set(units.flatMap((unit) => unit.scope_paths))],
+    },
+    {
+      id: 'test:implementation',
+      kind: 'gate',
+      owner: 'implementation',
+      gate: { authority: 'shell', command: testCommand, expect: 'pass' },
+    },
+  ];
 }

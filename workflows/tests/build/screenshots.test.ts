@@ -13,7 +13,7 @@ import {
   screenshotAttachments,
 } from '../../build/screenshots.ts';
 import type { FlowState } from '../../execution/contracts.ts';
-import { screenshotSealPath } from '../../shared/storage.ts';
+import { screenshotSealPath } from '../../runtime/storage.ts';
 import { temporaryDirectory } from '../shared/fixtures.ts';
 
 function state(root: string): FlowState {

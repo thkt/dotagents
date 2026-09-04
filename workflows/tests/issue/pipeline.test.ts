@@ -6,13 +6,13 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'bun:test';
 
-import { compileBuildPlan, type BuildPlanAuthoring } from '../../plan/contracts.ts';
+import type { BuildPlanAuthoring } from '../../plan/contracts.ts';
 import { resolveBuildSource } from '../../build/input.ts';
 import { validateIssueInput } from '../../issue/contracts.ts';
 import type { GitHubIssue, IssueGateway } from '../../issue/github.ts';
 import { draftIssue, publishIssue } from '../../issue/pipeline.ts';
 import { parsePublicIssueBody, renderPublicIssueBody } from '../../issue/public-contract.ts';
-import { atomicWrite, thinkArtifactDirectory } from '../../shared/storage.ts';
+import { atomicWrite, thinkArtifactDirectory } from '../../runtime/storage.ts';
 import { THINK_REPORT_PROTOCOL, type ThinkReport } from '../../think/contracts.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 
@@ -27,6 +27,12 @@ const plan: BuildPlanAuthoring = {
       files: ['src/value.ts'],
       contract: '保存した値を取得すると同じ値を返す。',
       tests: ['保存した値を取得すると同じ値になる。'],
+    },
+    {
+      goal: '保存した値を一覧表示する。',
+      files: ['src/list.ts', 'src/list.test.ts'],
+      contract: '保存済みの値を作成順に表示する。',
+      tests: ['二つの値を保存すると作成順に表示される。', '保存済みの値がないと空一覧を表示する。'],
     },
   ],
 };
@@ -111,7 +117,7 @@ test('Issue input derives repository identity from origin', () => {
   assert.equal(input.remote, 'origin');
 });
 
-test('publishes the Think Plan as one public Build source', () => {
+test('publishes visible Plan details and the same canonical Build source', () => {
   const repo = repository();
   const gateway = new Gateway();
   const input = validateIssueInput({
@@ -124,9 +130,31 @@ test('publishes the Think Plan as one public Build source', () => {
   const draft = draftIssue(input, gateway);
   const published = publishIssue(draft, gateway);
   const parsed = parsePublicIssueBody(published.issue.body);
-  assert.deepEqual(parsed.plan.authoring, plan);
+  assert.deepEqual(parsed.plan, plan);
   assert.match(parsed.prose, /## 背景[\s\S]*## 決定/u);
   assert.equal((published.issue.body.match(/## Plan/gu) ?? []).length, 1);
+  const visible = published.issue.body.split('<details>')[0]!;
+  for (const value of [
+    plan.outcome,
+    plan.test_command,
+    ...plan.units.flatMap((unit) => [unit.goal, ...unit.files, unit.contract, ...unit.tests]),
+  ]) {
+    assert.ok(visible.includes(value), `Plan value must be visible outside details: ${value}`);
+  }
+  assert.match(visible, /### 1\. 値を保存する。/u);
+  assert.match(visible, /### 2\. 保存した値を一覧表示する。/u);
+  assert.match(visible, /- Test command: `bun test`/u);
+  const jsonBlocks = [...published.issue.body.matchAll(/```json\n([\s\S]*?)\n```/gu)];
+  assert.equal(jsonBlocks.length, 1);
+  assert.deepEqual(JSON.parse(jsonBlocks[0]![1]!), plan);
+  const views = gateway.views;
+  const source = resolveBuildSource(
+    { repo, issue_number: 1, ship: false, screenshots: [] },
+    repo,
+    gateway,
+  );
+  assert.deepEqual(source.plan, plan);
+  assert.equal(gateway.views, views + 1);
 });
 
 test('updates the complete human-readable Issue around the Think Plan', () => {
@@ -187,12 +215,12 @@ test('Issue refuses a Think result that still requires Research', () => {
   assert.throws(() => draftIssue(input, gateway), /must be issue-ready/u);
 });
 
-test('round-trips readable prose and a collapsed Build Plan', () => {
-  const body = renderPublicIssueBody('## 背景\n\n保存機能が必要。', compileBuildPlan(plan));
+test('round-trips visible Plan Markdown and collapsed canonical JSON', () => {
+  const body = renderPublicIssueBody('## 背景\n\n保存機能が必要。', plan);
   const parsed = parsePublicIssueBody(body);
   assert.equal(parsed.prose, '## 背景\n\n保存機能が必要。');
-  assert.match(body, /<details>\n<summary>Build Plan<\/summary>/u);
-  assert.deepEqual(parsed.plan.authoring, plan);
+  assert.match(body, /<details>\n<summary>Build Plan JSON<\/summary>/u);
+  assert.deepEqual(parsed.plan, plan);
 });
 
 test('reads the Plan independently of surrounding presentation markup', () => {
@@ -217,7 +245,7 @@ ${JSON.stringify(plan, null, 2)}
 \`\`\`
 `;
   const parsed = parsePublicIssueBody(body);
-  assert.deepEqual(parsed.plan.authoring, plan);
+  assert.deepEqual(parsed.plan, plan);
 });
 
 test('rejects a second Plan authored in human prose', () => {

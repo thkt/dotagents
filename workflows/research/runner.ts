@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 /** @file Outcome: One explicit command turns a closed research question into verified JSON and Markdown artifacts. */
 
-import { consumeIntentAfter, requireResearchIntent } from '../invocation.ts';
-import { parseCommand, requireExactFlags } from '../shared/cli.ts';
-import { RESEARCH_COMMAND, isMainModule } from '../shared/environment.ts';
+import { consumeIntentAfter, requireResearchIntent } from '../runtime/invocation.ts';
+import { parseCommand, requireExactFlags, readAbsoluteJson, runCli } from '../runtime/cli.ts';
+import { RESEARCH_COMMAND, isMainModule } from '../runtime/environment.ts';
 import { FlowError } from '../shared/errors.ts';
-import { readAbsoluteJson, runCli } from '../shared/runtime.ts';
+
 import {
   RESEARCH_DESCRIPTION_PROTOCOL,
   RESEARCH_RESULT_PROTOCOL,

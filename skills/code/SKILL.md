@@ -7,6 +7,8 @@ description: Implement one direct repository change with an optional scope and t
 
 Inspect the current input with `codex-code describe`, then invoke the first hook-bound command itself with network escalation. Do not request persistent approval for the `codex-code run` prefix because Code can edit arbitrary in-scope repository files. The controller compiles the request through the same implementation executor used by Build.
 
+One actor implements and self-reviews the complete request, followed by the shared test gate. Only failed verification returns to implementation.
+
 ## Decisions
 
 - State one concrete change request.

@@ -7,6 +7,8 @@ description: 直接的な repository 変更1件を、任意の scope と test co
 
 `codex-code describe`で現在の input を確認し、最初の hook-bound command 自体を network escalation で呼ぶ。Code は scope 内の repository file を任意に編集できるため、`codex-code run` prefix の永続的な許可は要求しない。controller は Build と共通の implementation executor に request を compile する。
 
+1 人の actor が依頼全体を実装・自己レビューし、共通の test gate で検証する。検証で失敗した場合だけ実装へ戻す。
+
 ## 判断
 
 - 具体的な変更 request を 1 件示す。

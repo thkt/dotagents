@@ -2,11 +2,16 @@
 
 import * as fs from 'node:fs';
 import crypto from 'node:crypto';
-
 import type { FlowState } from '../execution/contracts.ts';
 import { FlowError } from '../shared/errors.ts';
-import { atomicWrite, buildScreenshotPath, screenshotSealPath } from '../shared/storage.ts';
-import type { ScreenshotSpec } from './screenshot-contract.ts';
+import { atomicWrite, buildScreenshotPath, screenshotSealPath } from '../runtime/storage.ts';
+
+export const SCREENSHOT_CAP = 50;
+
+export interface ScreenshotSpec {
+  name: string;
+  alt: string;
+}
 
 export interface ScreenshotAttachment extends ScreenshotSpec {
   path: string;
@@ -182,4 +187,21 @@ export function validateSealedScreenshotAttachments(
       throw new FlowError(`required screenshot seal changed: ${attachment.name}`);
     }
   }
+}
+
+export function safeScreenshotName(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    /^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:png|jpe?g|gif|webp)$/iu.test(value) &&
+    !value.includes('..')
+  );
+}
+
+export function markdownScreenshotAlt(value: string): string {
+  return value
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .replaceAll('\\', '\\\\')
+    .replaceAll('[', '\\[')
+    .replaceAll(']', '\\]');
 }

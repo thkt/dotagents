@@ -31,7 +31,7 @@ import {
   sameRepoSnapshot,
 } from '../shared/repository.ts';
 import { isObject } from '../shared/schema.ts';
-import { atomicWrite, prBodyPath, prInputPath } from '../shared/storage.ts';
+import { atomicWrite, prBodyPath, prInputPath } from '../runtime/storage.ts';
 
 type ActionDirective = Extract<FlowDirective, { kind: 'run-action' }>;
 
@@ -233,9 +233,7 @@ export function prepareShipInput(state: FlowState): void {
     return [`${finding.code}: ${finding.message}${files.length ? ` [${files.join(', ')}]` : ''}`];
   });
   const allPassed = currentReports.every((report) => report.verdict === 'pass');
-  const testReports = currentReports.filter((report) =>
-    /^U-\d{3}:(?:solidify:)?test$/u.test(report.gate_id),
-  );
+  const testReports = currentReports.filter((report) => report.gate_id === 'test:implementation');
   const testsPassed =
     testReports.length > 0 && testReports.every((report) => report.verdict === 'pass');
   atomicWrite(prInputPath(state.run_id), {

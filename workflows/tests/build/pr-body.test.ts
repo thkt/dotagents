@@ -8,7 +8,7 @@ import { test } from 'bun:test';
 import { prepareShipInput } from '../../build/git-actions.ts';
 import { describe, main, render, validatePayload } from '../../build/pr-body.ts';
 import type { FlowState } from '../../execution/contracts.ts';
-import { prInputPath } from '../../shared/storage.ts';
+import { prInputPath } from '../../runtime/storage.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 
 useTemporaryWorkflowStorage('codex-pr-body-tests-');

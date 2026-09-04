@@ -4,8 +4,12 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 
 import type { FlowManifest } from '../execution/contracts.ts';
-import { implementationSteps } from '../execution/implementation-steps.ts';
-import { DEFAULT_MAX_CORRECTIONS, validateManifest } from '../execution/manifest-validation.ts';
+import {
+  implementationSteps,
+  DEFAULT_MAX_CORRECTIONS,
+  validateManifest,
+} from '../execution/manifest.ts';
+
 import { SHELL_CONTROL, shellWords } from '../shared/command.ts';
 import { FlowError } from '../shared/errors.ts';
 import { gitRoot, normalizeRepoPath } from '../shared/repository.ts';

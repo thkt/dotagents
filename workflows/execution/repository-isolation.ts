@@ -17,15 +17,15 @@ import {
   sameRepositoryInvariant,
   sameWorkflowRepositoryInvariant,
   snapshotChanges,
+  normalizeRepoPath,
 } from '../shared/repository.ts';
 import { runShellVerification } from './shell-verification.ts';
 import {
   actorPublicationPath,
   actorPublicationPayloadDirectory,
   atomicWrite,
-} from '../shared/storage.ts';
+} from '../runtime/storage.ts';
 import { sealRepository, type SourceSeal } from './source-seal.ts';
-import { normalizeRepoPath } from '../shared/repository.ts';
 
 /** Tree-ish of the empty tree: the index of a repository without commits diffs against it. */
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';

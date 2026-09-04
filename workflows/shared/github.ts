@@ -7,7 +7,7 @@ import { FlowError } from './errors.ts';
 export const GITHUB_ACCESS_ERROR = 'github_access_error' as const;
 export const GITHUB_COMMAND_ERROR = 'github_command_error' as const;
 export const GITHUB_RESPONSE_ERROR = 'github_response_error' as const;
-export const GITHUB_EXECUTABLE = 'gh' as const;
+const GITHUB_EXECUTABLE = 'gh' as const;
 
 export type GitHubWriteAuthority = 'issue-publication' | 'build-ship';
 export type GitHubOperation =

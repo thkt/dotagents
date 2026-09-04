@@ -23,7 +23,7 @@ description: レビュー済みのResearchとThink成果物から、人間が読
 - GitHub へ書き込む前に draft を作成する。
 - deterministic な draft error は再試行しない。network または credential の回復で変化し得る GitHub access failure だけを再試行する。
 - Plan は draft 作成時に検証し、GitHub へ書き込む直前には update 対象が変更されていないことだけを確認する。
-- `## Plan`の下に JSON Plan を 1 件だけ公開する。renderer は読みやすさのために折りたたんでもよいが、Build は周囲の表示用 markup に依存しない。
+- 1 つの`## Plan`見出しの下に、同じ Plan から人間向けの Markdown と折りたたんだ`Build Plan JSON`を生成する。Markdown には outcome、test command、各 unit の goal・files・contract・acceptance を表示する。JSON を唯一の Build authority とし、2 つの表示を別々に手書きしない。
 - Issue URL と`repo + issue_number`の Build selector を返す。
 
 ## エスカレーション

@@ -18,8 +18,8 @@ import {
 } from '../execution/contracts.ts';
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
 import { GITHUB_ACCESS_ERROR, GITHUB_COMMAND_ERROR } from '../shared/github.ts';
-import { readAbsoluteJson } from '../shared/runtime.ts';
-import { prBodyPath } from '../shared/storage.ts';
+import { readAbsoluteJson } from '../runtime/cli.ts';
+import { prBodyPath } from '../runtime/storage.ts';
 
 function buildPlanContext(value: ResolvedBuildSource): BuildPlanContext {
   let testNumber = 1;
@@ -158,13 +158,7 @@ export function runStructuredBuildGate(state: FlowState, step: GateStep): GateRe
   let report: StructuredGateResult;
   switch (step.gate.authority) {
     case 'build-plan': {
-      report = validatePlan(
-        input && {
-          issue: input.issue,
-          title: input.title,
-          plan: input.plan,
-        },
-      );
+      report = validatePlan(input?.plan);
       if (report.verdict === 'pass') {
         if (!input) throw new FlowError('validated Plan input has no build context', 'state_error');
         state.build_plan = buildPlanContext(input);

@@ -1,7 +1,12 @@
 /** @file Outcome: Verified research has one durable JSON record and one faithful human view. */
 
-import { atomicWrite, atomicWriteText, researchArtifactDirectory } from '../shared/storage.ts';
-import { artifactPaths } from '../shared/artifacts.ts';
+import {
+  atomicWrite,
+  atomicWriteText,
+  researchArtifactDirectory,
+  artifactPaths,
+} from '../runtime/storage.ts';
+
 import { oneLine } from '../shared/text.ts';
 import type { ResearchReport, ResearchReportEvidence } from './contracts.ts';
 

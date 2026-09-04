@@ -14,11 +14,11 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|apply_patch|Edit|Write",
+        "matcher": "Bash",
         "hooks": [
           {
             "command": "codex-workflow-hook",
-            "statusMessage": "Checking enforced workflow state",
+            "statusMessage": "Binding workflow command to task",
             "timeout": 10,
             "type": "command"
           }
@@ -33,18 +33,6 @@
             "command": "codex-post-edit",
             "statusMessage": "Checking edited files",
             "timeout": 60,
-            "type": "command"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "command": "codex-workflow-hook",
-            "statusMessage": "Checking workflow completion",
-            "timeout": 10,
             "type": "command"
           }
         ]
