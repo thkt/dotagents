@@ -6,7 +6,7 @@ import path from 'node:path';
 import { test } from 'bun:test';
 
 import { gitFileList, verifyArtifacts } from '../../build/artifact-verification.ts';
-import { run } from '../../shared/cli.ts';
+import { run } from '../../runtime/cli.ts';
 import { temporaryDirectory } from '../shared/fixtures.ts';
 
 function fixture(): string {

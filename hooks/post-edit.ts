@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import path from 'node:path';
 
-import { AGENTS_ROOT, isMainModule } from '../workflows/shared/environment.ts';
+import { AGENTS_ROOT, isMainModule } from '../workflows/runtime/environment.ts';
 import { errorMessage } from '../workflows/shared/errors.ts';
 
 const TEXTLINT_CONFIG = path.join(AGENTS_ROOT, '.textlintrc.json');

@@ -1,36 +1,59 @@
-# Workflow contracts
+# Workflows
 
 プロジェクトの成果条件は[.codex/OUTCOME.md](../../.codex/OUTCOME.md)に定義する。
-この文書は安定した handoff 境界の一次情報である。
 
-- Think と Research の model stage は同一 run の immutable repository snapshot を使う。
-- Build は `repository + issue_number` で公開 GitHub Issue contract を選び、実行者固有のローカル receipt や latest scan に依存しない。
-- hook が作る task directory は一時的な intent、approval、input、controller record を保持する。repository-local な`.codex/workflow-artifacts/`は無視可能な handoff・監査 cache であり、Build authority ではない。path は固定し、互換性のない task-local state は exact schema validation で拒否し、cache は再生成可能に保つ。
-- protocol identifier はハーネス release ではなく、outcome を持つ 1 つの contract を表すため、すべて versionless とする。parser は現行の exact schema だけを受理する。durable Issue、Plan、manifest、task-local record が古い場合は、version 分岐や推測で読み替えず現行 workflow で作り直す。
-- 公開 Issue は task-local record ではなく、ハーネスをまたいで残る durable authority である。publication は固定の `codex-public-build-contract` envelope と別途 hash された publication identity を使う。Build は古い envelope を拒否し、現行 Issue workflow による再公開を要求する。
-- Build は読み込んだ公開 Plan から actor goal、contract、verification command を導出する。最終テスト後、独立した read-only Codex SDK review が完全な diff を検査してから Ship へ進む。
-- external branch、commit、push、draft PR action は、中断した controller の再開時に observable postcondition から reconcile する。
-- `codex-build`と`codex-code`は 1 つの内部 implementation runner に対する薄い公開 adapter であり、それぞれ一致する workflow binding だけを受理する。
-- terminal model failure は intent を消費する。`model_unavailable` transport failure は正確な再実行のため intent を保持し、入力または binding 検証失敗も保持する。
-- ready Think artifact がない pending Issue は、task-bound な`codex-issue stop`でだけ終了する。placeholder input や GitHub access を要求せず publication authority を失効させる。
-- Issue は canonical Plan から可視 body と machine contract を生成し、current source と完全一致を再検証して一度 publish する。Build は開始時、semantic review 前、Ship 前に同じ公開 Issue を再検証する。
-- 確立した decision は repository documentation に戻し、将来の Plan が knowledge として引用できるようにする。
-- active controller は task-bound な workflow 専用 command の`cancel`でだけ取消できる。取消は Ship authorization を失効させ、terminal `cancelled` となる。
+## Flow
 
-Think Plan は内容を再生成せず、この文書の該当規則を引用する。
+1. Research は repository と任意の外部証拠を 1 件の report にまとめる。
+2. 完了した Research は、原典 report を指す topic 別 Knowledge 索引の再構築を試みる。
+3. Think は明示的に選ばれた report と、Knowledge 索引で選ばれた最大 3 件の関連原典を読み、Plan または具体的な追加調査を返す。
+4. Issue は読みやすい説明と 1 つの canonical Plan を公開する。作成と、選択済み Issue 全体の更新に対応する。
+5. Build は選択された Issue を 1 回読み、1 人の actor が Plan 全体を実装・自己レビューする。test と独立レビュー後に 1 件の commit を作る。
+6. Ship は明示的な承認がある場合だけ push と下書き PR 作成を行う。
 
-## GitHub CLI access
+Code は直接の変更依頼を受け、Build と共通の executor を Git action なしで使う。
 
-runtime のすべての `gh` 呼び出しは `shared/github.ts` に宣言し、workflow module は GitHub command を組み立てず、そこで定義した literal argv builder を使う。
+## Ownership
 
-| Operation                                                                            | Access    | 必要な authority                                                                                         |
-| ------------------------------------------------------------------------------------ | --------- | -------------------------------------------------------------------------------------------------------- |
-| `repo view`、`issue view`、publication-id による Issue 検索、`label list`、`pr view` | read-only | なし。正確な command の実行には sandbox の network escalation が別途必要な場合がある                     |
-| `label create`、`issue create`、`issue edit`                                         | write     | 先頭の明示的な `$issue` invocation が作成し、repository に束縛された `issue-publication` approval の消費 |
-| `pr create`                                                                          | write     | 先頭の明示的な `$build` invocation が作成し、task と repository に束縛された `build-ship` approval       |
+| Directory    | 責務                                         |
+| ------------ | -------------------------------------------- |
+| `research/`  | 証拠 report と、その派生 Knowledge 索引      |
+| `think/`     | Plan の判断と追加調査の問い                  |
+| `plan/`      | 共通 Plan の契約と検証                       |
+| `issue/`     | 説明文と公開 Plan の公開                     |
+| `build/`     | Issue 読み込み、検証、commit、Ship           |
+| `code/`      | 直接の変更依頼の変換                         |
+| `execution/` | Build と Code で共有する実装・検証・再開処理 |
+| `runtime/`   | 起動承認、CLI 入出力、保存、host 環境        |
+| `shared/`    | repository・model・schema・text の汎用処理   |
 
-pending Build の hook は、source に束縛された正確な `gh issue view` command だけを許可する。Issue が提供する shell gate では `gh` を禁止し、すべての shell-gate subprocess から GitHub token を除去して独立した `GH_CONFIG_DIR` を使う。Git push は別の `build-ship` action とし、Issue 由来 command へ委譲しない。
+## Boundaries
 
-branch 作成前の GitHub network・authentication・keyring access failure は cursor 0 のままにし、manifest、`HEAD`、worktree snapshot が同一の場合だけ Build を再実行できる。Issue 不在、GitHub response 不正、Issue contract 不正は network failure として再実行できない。GitHub write failure で消費済み write approval を拡張または復元しない。
+- ユーザー入力は依頼と対象の選択を持つ。内部実行 record は持たない。
+- workflow 契約と永続 artifact は英語とし、Issue 説明文と最終報告は設定言語を使う。
+- 公開 Issue 内の唯一の JSON Plan を Build authority とする。同じ Plan から人間がレビューする Markdown を表示し、その後に JSON を折りたたんで置く。title と説明文は人向けの文脈を伝える。
+- 任意の PR screenshot は Build の納品入力とし、公開 Plan authority に含めない。
+- Research report は証拠記録であり、Knowledge は原典 report を指す再生成可能な索引である。日時は関連候補の順序付けに使い、現在の事実である証明にはしない。
+- Build と Code は依頼全体を 1 人の actor で実装する。test または blocking review の失敗時は同じ実装工程へ戻り、test と review を再実行する。
+- Plan unit は成果と受け入れ条件を整理する。actor 呼び出しの単位にはせず、レビューの証拠を編集範囲へ制限しない。編集は Plan 全体の許可範囲を守る。
+- モデルは判断と指摘を返す。runtime が invocation と source を束縛し、モデルに controller の識別子や digest の復唱を要求しない。
+- 1 件の invocation record が task、workflow、repository、外部書き込みの承認を持つ。入力ファイルは task 内で workflow ごとに分ける。hook は host identity を渡し、runner が入力検証、再開、停止理由の管理を行う。
+- runtime の GitHub command は `shared/github.ts` に宣言する。shell test には GitHub credentials を渡さない。
+- `codex-build` と `codex-code` は共通 executor の薄い adapter とし、一致する workflow binding だけを受理する。
+- Issue 公開と Ship はそれぞれ明示的な承認を必要とする。Code は commit、push、PR 作成を行わない。
+- 再開時は実行済み action の postcondition を照合し、二重適用を防ぐ。検証済み source と commit 対象の一致を確認する。
+- 安定した判断は repository documentation に記載する。
 
-Ship recovery は GitHub が明示した「pull request が存在しない」結果だけを absence として扱う。既存 PR を取得できない、response が不正、または既存 PR が期待値と不一致の場合は、`gh pr create` を再実行せず block する。
+## File naming
+
+- `runner.ts` は workflow の公開 CLI 入口とする。
+- 各 workflow の `manifest.ts` は入力を内部実行形式へ変換する。`execution/manifest.ts` は共通実装 step の構築と検証を持つ。
+- `execution/engine.ts` は共有実行 loop、`actor-receipt.ts` は受理済み作業の receipt、`repository-isolation.ts` は sandbox と再開可能な変更適用を持つ。
+- `research/knowledge.ts` は派生索引の更新と検索、`build/screenshots.ts` は画像の検証と納品をまとめて持つ。
+- `runtime/storage.ts` は保存先、atomic write、artifact 命名を持つ。ソースの移動によって保存済みデータの場所は変えない。
+- 独立した責務のない小さな helper は唯一の利用先に統合する。公開 CLI の入口は維持する。
+- テストは検証する責務と同じディレクトリ名で分類する。
+
+## Verification
+
+`bun run check` を実行する。Bun 1.4.0 と `bun.lock` から依存関係も復元する場合は `bun run verify:clean` を使う。

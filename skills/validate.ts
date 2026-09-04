@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { parseDocument } from 'yaml';
 
-import { AGENTS_ROOT, isMainModule } from '../workflows/shared/environment.ts';
+import { AGENTS_ROOT, isMainModule } from '../workflows/runtime/environment.ts';
 import { errorMessage } from '../workflows/shared/errors.ts';
 import { isObject } from '../workflows/shared/schema.ts';
 

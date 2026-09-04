@@ -9,22 +9,21 @@ import { test } from 'bun:test';
 import type { WorkflowAgent } from '../../execution/agent.ts';
 import type { BuildReviewInput } from '../../execution/contracts.ts';
 import { runWorkflow, type WorkflowRuntime } from '../../execution/engine.ts';
-import { armIntent } from '../../invocation.ts';
+import { armIntent } from '../../runtime/invocation.ts';
 import { FlowError } from '../../shared/errors.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 
 useTemporaryWorkflowStorage('codex-runner-tests-');
 
-function reviewPair(input: BuildReviewInput) {
-  return (['contract', 'quality'] as const).map((role) => ({
-    protocol: `codex-build-${role}-review` as const,
-    role,
+function reviewResult(input: BuildReviewInput) {
+  return {
+    protocol: 'codex-build-review-candidate' as const,
     step_id: 'review:build' as const,
     source_digest: input.source_digest,
-    receipt_set_digest: input.receipt_set_digest,
+    actor_receipt_digest: input.actor_receipt_digest,
     summary: 'pass',
     findings: [],
-  }));
+  };
 }
 
 function repository(): string {
@@ -79,7 +78,7 @@ test('Code runs the shared actor and test without invoking any Git action', asyn
       };
     },
     async reviewBuild(_repo, directive) {
-      return reviewPair(directive.input);
+      return reviewResult(directive.input);
     },
   };
   const runtime: WorkflowRuntime = {
@@ -96,50 +95,7 @@ test('Code runs the shared actor and test without invoking any Git action', asyn
   assert.match(fs.readFileSync(path.join(repo, 'src/value.ts'), 'utf8'), /value = 2/u);
 });
 
-test('an invalid actor result discards its sandbox and retries once', async () => {
-  const repo = repository();
-  const runId = `runner-actor-retry-${crypto.randomUUID()}`;
-  const pending = codeInput(repo, runId);
-  let directCalls = 0;
-  const agent: WorkflowAgent = {
-    async runActor(sandboxRepo, directive) {
-      if (directive.binding.stage === 'solidify')
-        return {
-          protocol: 'codex-flow-actor-result',
-          binding: directive.binding,
-          status: 'completed',
-          summary: 'done',
-          route: null,
-          question: null,
-        };
-      directCalls += 1;
-      if (directCalls === 1) {
-        fs.writeFileSync(path.join(sandboxRepo, 'src/value.ts'), 'export const value = 99;\n');
-        throw new FlowError('binding fields do not match: attempt', 'actor_result_invalid');
-      }
-      assert.match(fs.readFileSync(path.join(sandboxRepo, 'src/value.ts'), 'utf8'), /value = 1/u);
-      fs.writeFileSync(path.join(sandboxRepo, 'src/value.ts'), 'export const value = 2;\n');
-      return {
-        protocol: 'codex-flow-actor-result',
-        binding: directive.binding,
-        status: 'completed',
-        summary: 'done',
-        route: null,
-        question: null,
-      };
-    },
-    async reviewBuild(_repo, directive) {
-      return reviewPair(directive.input);
-    },
-  };
-
-  const result = await runWorkflow(runId, pending.input_path, { agent, executeAction() {} });
-  assert.equal(result.exitCode, 0);
-  assert.equal(directCalls, 2);
-  assert.match(fs.readFileSync(path.join(repo, 'src/value.ts'), 'utf8'), /value = 2/u);
-});
-
-test('two invalid actor results block without publishing either sandbox', async () => {
+test('an invalid actor result blocks without publishing its sandbox', async () => {
   const repo = repository();
   const runId = `runner-actor-invalid-${crypto.randomUUID()}`;
   const pending = codeInput(repo, runId);
@@ -157,13 +113,13 @@ test('two invalid actor results block without publishing either sandbox', async 
       );
     },
     async reviewBuild(_repo, directive) {
-      return reviewPair(directive.input);
+      return reviewResult(directive.input);
     },
   };
 
   const result = await runWorkflow(runId, pending.input_path, { agent, executeAction() {} });
   assert.equal(result.exitCode, 2);
-  assert.equal(calls, 2);
+  assert.equal(calls, 1);
   assert.match(fs.readFileSync(path.join(repo, 'src/value.ts'), 'utf8'), /value = 1/u);
   assert.ok('runtime_failure' in result.result);
   assert.equal(result.result.runtime_failure?.classification, 'actor_result_invalid');
@@ -189,12 +145,12 @@ test('a failing repository test stops the flow', async () => {
       };
     },
     async reviewBuild(_repo, directive) {
-      return reviewPair(directive.input);
+      return reviewResult(directive.input);
     },
   };
   const result = await runWorkflow(runId, pending.input_path, { agent, executeAction() {} });
   assert.equal(result.exitCode, 2);
   assert.ok('status' in result.result);
   assert.equal(result.result.status, 'blocked');
-  assert.equal(result.result.last_gate?.gate_id, 'U-001:test');
+  assert.equal(result.result.last_gate?.gate_id, 'test:implementation');
 });

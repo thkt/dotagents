@@ -18,7 +18,7 @@ import {
 import { runThink } from '../../think/pipeline.ts';
 import { persistResearchReport } from '../../research/artifact.ts';
 import { RESEARCH_REPORT_PROTOCOL, type ResearchReport } from '../../research/contracts.ts';
-import { updateKnowledge, type KnowledgeEntry } from '../../knowledge/update.ts';
+import { updateKnowledge } from '../../research/knowledge.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 
 useTemporaryWorkflowStorage('codex-think-tests-');
@@ -63,7 +63,7 @@ function repository(): string {
 class Agent implements ThinkAgent {
   reviews = 0;
   research: ThinkResearchContext[] = [];
-  knowledge: KnowledgeEntry[] = [];
+  knowledge: ThinkResearchContext[] = [];
   private readonly draft: ThinkDraft;
   private readonly decisions: ThinkDecision[];
 
@@ -75,7 +75,7 @@ class Agent implements ThinkAgent {
   async design(
     _input: ThinkInput,
     research: ThinkResearchContext[],
-    knowledge: KnowledgeEntry[],
+    knowledge: ThinkResearchContext[],
     _buildContract: unknown,
     snapshotRepo: string,
   ): Promise<ThinkDraft> {
@@ -89,7 +89,7 @@ class Agent implements ThinkAgent {
     _input: ThinkInput,
     _draft: ThinkDraft,
     _research: ThinkResearchContext[],
-    _knowledge: KnowledgeEntry[],
+    _knowledge: ThinkResearchContext[],
     _buildContract: unknown,
     _correction: ThinkReviewCorrection | undefined,
     _snapshotRepo: string,
@@ -164,7 +164,7 @@ test('automatically supplies related Knowledge to Think', async () => {
 
   assert.deepEqual(agent.research, []);
   assert.deepEqual(
-    agent.knowledge.map(({ topic }) => topic),
+    agent.knowledge.map(({ question }) => question),
     ['保存方式を調査する'],
   );
 });
@@ -217,4 +217,25 @@ test('gives one mechanically invalid reviewed Plan back for correction', async (
   const result = await runThink({ repo, request: '保存を追加する', research_reports: [] }, agent);
   assert.equal(result.report.status, 'ready');
   assert.equal(agent.reviews, 2);
+});
+
+test('uses original latest evidence without merging contradictory archived findings', async () => {
+  const repo = repository();
+  const old = archivedReport('storage choice');
+  old.generated_at = '2026-01-01T00:00:00.000Z';
+  old.findings[0]!.statement = 'Use obsolete storage';
+  persistResearchReport(repo, old);
+  const current = archivedReport('storage choice');
+  current.generated_at = '2026-09-01T00:00:00.000Z';
+  current.findings[0]!.statement = 'Current storage evidence';
+  const artifact = persistResearchReport(repo, current);
+  updateKnowledge(repo);
+  const agent = new Agent(ready, [ready]);
+  const result = await runThink({ repo, request: 'storage choice', research_reports: [] }, agent);
+  assert.deepEqual(result.report.research_reports, [path.basename(artifact.json)]);
+  assert.equal(agent.knowledge.length, 1);
+  assert.equal(agent.knowledge[0]?.path, path.basename(artifact.json));
+  assert.equal(agent.knowledge[0]?.generated_at, current.generated_at);
+  assert.deepEqual(agent.knowledge[0]?.findings, current.findings);
+  assert.deepEqual(agent.knowledge[0]?.limitations, current.limitations);
 });

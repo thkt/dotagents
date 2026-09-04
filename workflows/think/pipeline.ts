@@ -3,15 +3,13 @@
 import * as fs from 'node:fs';
 import path from 'node:path';
 
-import { compileBuildPlan } from '../plan/contracts.ts';
 import { validatePlan } from '../plan/validation.ts';
 import { withRepositorySnapshot } from '../execution/repository-isolation.ts';
-import { searchKnowledge } from '../knowledge/search.ts';
-import type { KnowledgeEntry } from '../knowledge/update.ts';
+import { searchKnowledge } from '../research/knowledge.ts';
 import { parseResearchReport } from '../research/contracts.ts';
 import { errorCode, errorMessage, FlowError } from '../shared/errors.ts';
 import { realpathInside } from '../shared/repository.ts';
-import { researchArtifactDirectory } from '../shared/storage.ts';
+import { researchArtifactDirectory } from '../runtime/storage.ts';
 import { CodexThinkAgent, type ThinkAgent, type ThinkResearchContext } from './agent.ts';
 import { persistThinkReport } from './artifact.ts';
 import {
@@ -45,6 +43,7 @@ function reportContext(repo: string, file: string, index: number): ThinkResearch
   const report = parseResearchReport(raw);
   return {
     path: path.basename(file),
+    generated_at: report.generated_at,
     question: report.question,
     answer: report.answer,
     findings: report.findings,
@@ -56,13 +55,7 @@ function reportContext(repo: string, file: string, index: number): ThinkResearch
 function validateDecision(decision: ThinkDecision): void {
   if (decision.status === 'research_required') return;
   if (!decision.plan) throw new FlowError('ready decision must contain a plan', 'decision_error');
-  const plan = compileBuildPlan(decision.plan);
-  const report = validatePlan({
-    issue: 1,
-    title: 'Think Plan',
-    body: plan.markdown,
-    plan: plan.value,
-  });
+  const report = validatePlan(decision.plan);
   if (report.verdict !== 'pass') {
     throw new FlowError(
       `think plan violates the build contract: ${[...report.blockers, ...report.reason_codes].join('; ')}`,
@@ -76,7 +69,7 @@ async function reviewedDecision(
   input: ThinkInput,
   draft: ThinkDraft,
   research: ThinkResearchContext[],
-  knowledge: KnowledgeEntry[],
+  knowledge: ThinkResearchContext[],
   buildContract: unknown,
   agent: ThinkAgent,
   snapshotRepo: string,
@@ -115,13 +108,28 @@ export async function runThink(
   agent: ThinkAgent = new CodexThinkAgent(),
 ): Promise<ThinkRunResult> {
   const { decision, research } = await withRepositorySnapshot(input.repo, async (snapshotRepo) => {
-    const research = input.research_reports.map((file, index) =>
+    const research = [...new Set(input.research_reports)].map((file, index) =>
       reportContext(input.repo, file, index),
     );
     const knowledge = searchKnowledge(
       input.repo,
       input.request,
       research.map((report) => report.path),
+    ).flatMap((entry) =>
+      entry.sources.flatMap((source) => {
+        try {
+          return [
+            reportContext(
+              input.repo,
+              path.join(researchArtifactDirectory(input.repo), source.report),
+              0,
+            ),
+          ];
+        } catch {
+          // A derived index may outlive its original report; optional context must not block Think.
+          return [];
+        }
+      }),
     );
     const buildContract = { plan_schema: THINK_PLAN_SCHEMA };
     const draft = await agent.design(input, research, knowledge, buildContract, snapshotRepo);
@@ -134,7 +142,7 @@ export async function runThink(
       agent,
       snapshotRepo,
     );
-    return { decision, research };
+    return { decision, research: [...research, ...knowledge] };
   });
   const report: ThinkReport = {
     protocol: THINK_REPORT_PROTOCOL,

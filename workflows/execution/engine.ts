@@ -10,8 +10,8 @@ import { executeAction } from '../build/git-actions.ts';
 import { resetScreenshotAttachments } from '../build/screenshots.ts';
 import { ActorEscalation, CodexWorkflowAgent, type WorkflowAgent } from './agent.ts';
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
-import { requireWorkflowInput } from '../invocation.ts';
-import { parseCommand, requireExactFlags } from '../shared/cli.ts';
+import { loadIntent, requireWorkflowInput } from '../runtime/invocation.ts';
+import { parseCommand, requireExactFlags } from '../runtime/cli.ts';
 import {
   completeActorPublication,
   runRecoverableActor,
@@ -50,25 +50,17 @@ function defaultRuntime(): WorkflowRuntime {
   };
 }
 
-async function runActorWithResultRetry(
+async function runImplementationActor(
   runId: string,
   repo: string,
   directive: Extract<FlowDirective, { kind: 'run-actor' }>,
   runtime: WorkflowRuntime,
   onActivity: Parameters<WorkflowAgent['runActor']>[2],
 ) {
-  const runAttempt = () => {
-    resetScreenshotAttachments(runId, directive.screenshots ?? []);
-    return runRecoverableActor(runId, directive.step_id, repo, directive.files, (sandboxRepo) =>
-      runtime.agent.runActor(sandboxRepo, directive, onActivity),
-    );
-  };
-  try {
-    return await runAttempt();
-  } catch (error) {
-    if (errorCode(error) !== 'actor_result_invalid') throw error;
-  }
-  return await runAttempt();
+  resetScreenshotAttachments(runId, directive.screenshots ?? []);
+  return runRecoverableActor(runId, directive.step_id, repo, directive.files, (sandboxRepo) =>
+    runtime.agent.runActor(sandboxRepo, directive, onActivity),
+  );
 }
 
 function progressContext(
@@ -132,7 +124,7 @@ async function driveWorkflow(
           return { result: workflowStatus(runId), exitCode: 0 };
         case 'run-actor':
           await progress.run(progressContext(workflow, directive), async (stage) => {
-            const actorResult = await runActorWithResultRetry(
+            const actorResult = await runImplementationActor(
               runId,
               repo,
               directive,
@@ -230,9 +222,18 @@ export async function runWorkflow(
   return driveWorkflow(runId, runtime);
 }
 
-function requireWorkflowBinding(workflow: Workflow, runId: string, inputFile: string): void {
+function requireWorkflowBinding(
+  workflow: Workflow,
+  runId: string,
+  inputFile: string,
+  allowStart = false,
+): void {
   try {
     const state = loadWorkflowState(runId).state;
+    if (allowStart && state.status !== 'running' && loadIntent(runId)) {
+      requireWorkflowInput(runId, workflow, inputFile);
+      return;
+    }
     if (state.manifest.workflow !== workflow) {
       throw new FlowError(
         `${workflow} command may only resume a ${workflow} workflow`,
@@ -257,7 +258,7 @@ export async function workflowMain(
   }
   if (command === 'run') {
     requireExactFlags(flags, ['--input', '--run-id']);
-    requireWorkflowBinding(workflow, flags['--run-id']!, flags['--input']!);
+    requireWorkflowBinding(workflow, flags['--run-id']!, flags['--input']!, true);
     return runWorkflow(flags['--run-id']!, flags['--input']!);
   }
   if (command === 'cancel') {

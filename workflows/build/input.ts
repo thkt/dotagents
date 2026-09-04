@@ -1,7 +1,7 @@
 /** @file Outcome: Build reads one selected GitHub Issue Plan at startup. */
 
 import type { BuildPlanAuthoring } from '../plan/contracts.ts';
-import { SCREENSHOT_CAP, safeScreenshotName, type ScreenshotSpec } from './screenshot-contract.ts';
+import { SCREENSHOT_CAP, safeScreenshotName, type ScreenshotSpec } from './screenshots.ts';
 import { FlowError } from '../shared/errors.ts';
 import { gitRoot } from '../shared/repository.ts';
 import { isObject, objectArray, rejectUnknownKeys, requiredString } from '../shared/schema.ts';
@@ -92,7 +92,7 @@ export function resolveBuildSource(
     repository,
     issue: issue.number,
     title: issue.title,
-    plan: parsePublicIssueBody(issue.body).plan.value,
+    plan: parsePublicIssueBody(issue.body).plan,
     screenshots: input.screenshots,
   };
 }

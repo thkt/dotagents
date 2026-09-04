@@ -9,7 +9,7 @@ import { onTestFinished, test } from 'bun:test';
 import { pathToFileURL } from 'node:url';
 
 import { cleanCodexEnvironment, sandboxCodexEnvironment } from '../../shared/codex-home.ts';
-import { defaultWorkflowRuntimeDirectory } from '../../shared/environment.ts';
+import { defaultWorkflowRuntimeDirectory } from '../../runtime/environment.ts';
 
 function fixture(prefix: string): { root: string; home: string; temporaryDirectory: string } {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));

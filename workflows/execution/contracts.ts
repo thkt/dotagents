@@ -1,7 +1,7 @@
 /** @file Outcome: All flow components share one current model of legal states and messages. */
 
 import type { RepositoryInvariant, RepoSnapshot } from '../shared/repository.ts';
-import type { ScreenshotSpec } from '../build/screenshot-contract.ts';
+import type { ScreenshotSpec } from '../build/screenshots.ts';
 import type { SourceSeal } from './source-seal.ts';
 
 export const MANIFEST_PROTOCOL = 'codex-flow-manifest' as const;
@@ -76,8 +76,6 @@ export type GateSpec =
 export interface ActorStep {
   id: string;
   kind: 'actor';
-  unit_id: string;
-  stage: 'direct' | 'solidify';
   outcome: string;
   contract: string;
   tests: Array<{ id: string; name: string }>;
@@ -249,11 +247,8 @@ export interface FlowState {
   cursor: number;
   status: FlowStatus;
   correction_counts: Record<string, number>;
-  unit_attempts: Record<string, number>;
-  receipt_history: ActorReceipt[];
-  active_receipts: Record<string, ActorReceipt>;
-  correction_queue: string[];
-  correction_queue_cursor: number | null;
+  actor_attempt: number;
+  actor_receipt: ActorReceipt | null;
   reviewed_content_digest: string | null;
   reviewed_source_seal: SourceSeal | null;
   gate_reports: GateReport[];
@@ -271,13 +266,9 @@ export interface FlowState {
 export interface ActorBinding {
   run_id: string;
   workflow: Workflow;
-  unit_id: string;
-  stage: 'direct' | 'solidify';
   step_id: string;
   attempt: number;
-  predecessor_receipt_digest: string | null;
   input_source_digest: string;
-  active_receipt_set_digest: string;
 }
 
 export interface ActorResult {
@@ -298,7 +289,7 @@ export interface ActorReceipt {
   digest: string;
 }
 
-export interface BuildPlanUnit {
+interface BuildPlanUnit {
   id: string;
   goal: string;
   contract: string;
@@ -315,12 +306,6 @@ export interface BuildPlanContext {
   units: BuildPlanUnit[];
 }
 
-export interface SolidifyContext {
-  outcome: string;
-  units: BuildPlanUnit[];
-  files: string[];
-}
-
 export interface BuildReviewInput {
   issue: number;
   base_ref: string;
@@ -331,7 +316,7 @@ export interface BuildReviewInput {
     classification: string;
   }>;
   source_digest: string;
-  receipt_set_digest: string;
+  actor_receipt_digest: string;
 }
 
 interface BuildReviewFinding {
@@ -344,11 +329,10 @@ interface BuildReviewFinding {
 }
 
 export interface BuildReviewCandidate {
-  protocol: 'codex-build-contract-review' | 'codex-build-quality-review';
-  role: 'contract' | 'quality';
+  protocol: 'codex-build-review-candidate';
   step_id: 'review:build';
   source_digest: string;
-  receipt_set_digest: string;
+  actor_receipt_digest: string;
   summary: string;
   findings: BuildReviewFinding[];
 }
@@ -362,8 +346,7 @@ export interface BuildReviewResult extends StructuredGateResult {
   summary: string;
   findings: BuildReviewFinding[];
   source_digest: string;
-  receipt_set_digest: string;
-  candidates: BuildReviewCandidate[];
+  actor_receipt_digest: string;
 }
 
 export interface PublicState {
@@ -404,7 +387,6 @@ export type FlowDirective =
       verification: ActorVerification;
       screenshots?: Array<ScreenshotSpec & { path: string }>;
       correction: CorrectionContext | null;
-      solidify: SolidifyContext | null;
     }
   | RunActionDirective
   | {

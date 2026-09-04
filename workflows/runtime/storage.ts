@@ -3,9 +3,8 @@
 import crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import path from 'node:path';
-
 import { defaultWorkflowRuntimeDirectory } from './environment.ts';
-import { FlowError } from './errors.ts';
+import { FlowError } from '../shared/errors.ts';
 
 const DEFAULT_RUNTIME_DIR = defaultWorkflowRuntimeDirectory();
 
@@ -35,16 +34,11 @@ export function intentPath(runId: string): string {
   return path.join(workflowRunDirectory(runId), 'intent.json');
 }
 
-export function issueApprovalPath(runId: string): string {
-  return path.join(workflowRunDirectory(runId), 'issue-approval.json');
-}
-
-export function buildShipApprovalPath(runId: string): string {
-  return path.join(workflowRunDirectory(runId), 'build-ship-approval.json');
-}
-
-export function workflowInputPath(runId: string): string {
-  return path.join(workflowRunDirectory(runId), 'input.json');
+export function workflowInputPath(
+  runId: string,
+  workflow: 'build' | 'code' | 'issue' | 'research' | 'think',
+): string {
+  return path.join(workflowRunDirectory(runId), `${workflow}-input.json`);
 }
 
 export function prInputPath(runId: string): string {
@@ -110,5 +104,31 @@ export function atomicWriteText(file: string, value: string): void {
   } catch (error) {
     fs.rmSync(temporary, { force: true });
     throw error;
+  }
+}
+
+export function artifactPaths(
+  directory: string,
+  seed: string,
+  generatedAt: Date,
+  fallback: string,
+): { json: string; markdown: string } {
+  const timestamp = generatedAt
+    .toISOString()
+    .replace(/[-:]/gu, '')
+    .replace(/\.\d{3}Z$/u, 'Z');
+  const slug =
+    seed
+      .toLowerCase()
+      .match(/[a-z0-9]+/gu)
+      ?.slice(0, 6)
+      .join('-') || fallback;
+  const digest = crypto.createHash('sha256').update(seed).digest('hex').slice(0, 8);
+  const base = `${timestamp}-${slug}-${digest}`;
+  for (let suffix = 1; ; suffix += 1) {
+    const name = suffix === 1 ? base : `${base}-${suffix}`;
+    const json = path.join(directory, `${name}.json`);
+    const markdown = path.join(directory, `${name}.md`);
+    if (!fs.existsSync(json) && !fs.existsSync(markdown)) return { json, markdown };
   }
 }

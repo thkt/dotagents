@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { onTestFinished, test } from 'bun:test';
-import { artifactPaths } from '../../shared/artifacts.ts';
+import { artifactPaths } from '../../runtime/storage.ts';
 
 test('generates paired paths and skips existing collisions', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'artifact-'));

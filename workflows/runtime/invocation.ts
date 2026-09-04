@@ -3,52 +3,21 @@
 import * as fs from 'node:fs';
 import path from 'node:path';
 
-import type { Workflow } from './execution/contracts.ts';
-import { errorCode, errorMessage } from './shared/errors.ts';
-import { gitRoot } from './shared/repository.ts';
-import {
-  atomicWrite,
-  buildShipApprovalPath,
-  intentPath,
-  issueApprovalPath,
-  statePath,
-  workflowInputPath,
-} from './shared/storage.ts';
+import type { Workflow } from '../execution/contracts.ts';
+import { errorCode, errorMessage } from '../shared/errors.ts';
+import { gitRoot } from '../shared/repository.ts';
+import { atomicWrite, intentPath, statePath, workflowInputPath } from './storage.ts';
 
 const INTENT_PROTOCOL = 'codex-workflow-intent' as const;
-const ISSUE_APPROVAL_PROTOCOL = 'codex-issue-approval' as const;
-const BUILD_SHIP_APPROVAL_PROTOCOL = 'codex-build-ship-approval' as const;
 type WorkflowInvocation = Workflow | 'issue' | 'research' | 'think';
-
-interface ApprovalSpec {
-  protocol: string;
-  operation: string;
-  path(runId: string): string;
-  label: string;
-  missing: string;
-}
-
-const ISSUE_APPROVAL: ApprovalSpec = {
-  protocol: ISSUE_APPROVAL_PROTOCOL,
-  operation: 'publish-one-github-issue',
-  path: issueApprovalPath,
-  label: 'issue publication approval',
-  missing: 'explicit $issue publication approval is required',
-};
-
-const BUILD_SHIP_APPROVAL: ApprovalSpec = {
-  protocol: BUILD_SHIP_APPROVAL_PROTOCOL,
-  operation: 'push-and-create-one-draft-pr',
-  path: buildShipApprovalPath,
-  label: 'build Ship approval',
-  missing: 'explicit $build Ship approval is required',
-};
+type Authorization = 'publish-one-github-issue' | 'push-and-create-one-draft-pr' | null;
 
 interface StoredWorkflowIntent {
   protocol: typeof INTENT_PROTOCOL;
   run_id: string;
   workflow: WorkflowInvocation;
   repo: string;
+  authorization: Authorization;
 }
 
 interface WorkflowIntent extends StoredWorkflowIntent {
@@ -107,59 +76,25 @@ function parseBuildIssueNumber(prompt: string | undefined): number | null {
 function hydrateIntent(intent: StoredWorkflowIntent): WorkflowIntent {
   return {
     ...intent,
-    input_path: workflowInputPath(intent.run_id),
+    input_path: workflowInputPath(intent.run_id, intent.workflow),
   };
 }
 
-function approvalFor(workflow: WorkflowInvocation): ApprovalSpec | null {
-  if (workflow === 'issue') return ISSUE_APPROVAL;
-  if (workflow === 'build') return BUILD_SHIP_APPROVAL;
+function authorizationFor(workflow: WorkflowInvocation): Authorization {
+  if (workflow === 'issue') return 'publish-one-github-issue';
+  if (workflow === 'build') return 'push-and-create-one-draft-pr';
   return null;
 }
 
-function armApproval(spec: ApprovalSpec, runId: string, repo: string): void {
-  atomicWrite(spec.path(runId), {
-    protocol: spec.protocol,
-    run_id: runId,
-    repo,
-    operation: spec.operation,
-  });
-}
-
-function requireApproval(spec: ApprovalSpec, runId: string, repo: string): string {
-  const approvalFile = spec.path(runId);
-  let value: unknown;
-  try {
-    value = JSON.parse(fs.readFileSync(approvalFile, 'utf8')) as unknown;
-  } catch (error) {
-    if (errorCode(error) === 'ENOENT') throw new Error(spec.missing);
-    throw new Error(`${spec.label} is unreadable: ${errorMessage(error)}`);
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${spec.label} has an invalid shape`);
-  }
-  const record = value as Record<string, unknown>;
-  const fields = ['protocol', 'run_id', 'repo', 'operation'];
+function requireAuthorization(runId: string, repo: string, workflow: 'issue' | 'build'): void {
+  const intent = loadIntent(runId);
   if (
-    Object.keys(record).length !== fields.length ||
-    fields.some((field) => !Object.hasOwn(record, field)) ||
-    record.protocol !== spec.protocol ||
-    record.run_id !== runId ||
-    record.repo !== repo ||
-    record.operation !== spec.operation
+    !intent ||
+    intent.repo !== repo ||
+    intent.workflow !== workflow ||
+    intent.authorization !== authorizationFor(workflow)
   ) {
-    throw new Error(`${spec.label} has an invalid shape`);
-  }
-  return approvalFile;
-}
-
-function consumeApproval(spec: ApprovalSpec, runId: string, repo: string): void {
-  const approvalFile = requireApproval(spec, runId, repo);
-  try {
-    fs.unlinkSync(approvalFile);
-  } catch (error) {
-    if (errorCode(error) === 'ENOENT') throw new Error(spec.missing);
-    throw error;
+    throw new Error(`explicit $${workflow} authorization is required for this task and repository`);
   }
 }
 
@@ -167,35 +102,28 @@ function consumeApproval(spec: ApprovalSpec, runId: string, repo: string): void 
 function armIntent({ runId, workflow, cwd }: ArmIntentOptions): WorkflowIntent {
   if (hasRunningFlow(runId)) throw new Error('a workflow is already active for this task');
   const repo = gitRoot(cwd, 'explicit workflow invocation requires a Git worktree');
-  const existing = loadIntent(runId);
-  if (existing && existing.workflow === workflow && existing.repo === repo) {
-    const approval = approvalFor(workflow);
-    if (approval) armApproval(approval, runId, repo);
-    return existing;
-  }
-  if (existing) clearIntent(runId);
   const stored: StoredWorkflowIntent = {
     protocol: INTENT_PROTOCOL,
     run_id: runId,
     workflow,
     repo,
+    authorization: authorizationFor(workflow),
   };
   const intent = hydrateIntent(stored);
   fs.mkdirSync(path.dirname(intent.input_path), { recursive: true, mode: 0o700 });
   atomicWrite(intentPath(runId), stored);
-  const approval = approvalFor(workflow);
-  if (approval) armApproval(approval, runId, repo);
   return intent;
 }
 
 /** Validates the task- and repository-bound authority before Ship enters controller state. */
 function requireBuildShipApproval(runId: string, repo: string): void {
-  requireApproval(BUILD_SHIP_APPROVAL, runId, repo);
+  requireAuthorization(runId, repo, 'build');
 }
 
 /** Atomically consumes the task- and repository-bound approval before the GitHub write starts. */
 function consumeIssueApproval(runId: string, repo: string): void {
-  consumeApproval(ISSUE_APPROVAL, runId, repo);
+  requireAuthorization(runId, repo, 'issue');
+  fs.unlinkSync(intentPath(runId));
 }
 
 /** Loads and validates an armed intent without trusting persisted JSON. */
@@ -212,7 +140,7 @@ function loadIntent(runId: string | undefined): WorkflowIntent | null {
     throw new Error('workflow intent has an invalid shape');
   }
   const record = value as Record<string, unknown>;
-  const fields = ['protocol', 'run_id', 'workflow', 'repo'];
+  const fields = ['protocol', 'run_id', 'workflow', 'repo', 'authorization'];
   if (
     Object.keys(record).length !== fields.length ||
     fields.some((field) => !Object.hasOwn(record, field)) ||
@@ -223,6 +151,7 @@ function loadIntent(runId: string | undefined): WorkflowIntent | null {
       record.workflow !== 'issue' &&
       record.workflow !== 'research' &&
       record.workflow !== 'think') ||
+    record.authorization !== authorizationFor(record.workflow as WorkflowInvocation) ||
     typeof record.repo !== 'string' ||
     !path.isAbsolute(record.repo)
   )
@@ -232,6 +161,7 @@ function loadIntent(runId: string | undefined): WorkflowIntent | null {
     run_id: record.run_id,
     workflow: record.workflow,
     repo: record.repo,
+    authorization: record.authorization as Authorization,
   });
 }
 
@@ -322,12 +252,10 @@ async function consumeIntentAfter<T>(runId: string, run: () => Promise<T>): Prom
 
 /** Clears the task-scoped intent and any external-write authority derived from it. */
 function clearIntent(runId: string): void {
-  for (const file of [intentPath(runId), issueApprovalPath(runId), buildShipApprovalPath(runId)]) {
-    try {
-      fs.unlinkSync(file);
-    } catch (error) {
-      if (errorCode(error) !== 'ENOENT') throw error;
-    }
+  try {
+    fs.unlinkSync(intentPath(runId));
+  } catch (error) {
+    if (errorCode(error) !== 'ENOENT') throw error;
   }
 }
 

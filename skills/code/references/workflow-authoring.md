@@ -4,7 +4,7 @@ Read this reference when the requested code change edits this package's workflow
 
 ## Ownership
 
-- Group modules by the outcome they maintain. Put feature-independent code in `workflows/shared/`, shared execution in `workflows/execution/`, and workflow-specific code in its named directory.
+- Group modules by the outcome they maintain. Put invocation, CLI, storage, and host setup in `workflows/runtime/`, reusable utilities in `workflows/shared/`, shared execution in `workflows/execution/`, and workflow-specific code in its named directory.
 - Keep workflow tests with the owning workflow. Use integration tests only for cross-workflow or installation boundaries.
 - Keep the Bun 1.4.0 toolchain and dependency installation at the package root.
 

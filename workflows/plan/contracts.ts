@@ -22,12 +22,6 @@ export interface BuildPlanAuthoring {
   }>;
 }
 
-export interface CompiledBuildPlan {
-  authoring: BuildPlanAuthoring;
-  value: BuildPlanAuthoring;
-  markdown: string;
-}
-
 export const BUILD_PLAN_AUTHORING_SCHEMA = {
   type: 'object',
   properties: {
@@ -103,8 +97,4 @@ export function renderPlanMarkdown(plan: BuildPlanAuthoring): string {
     );
   }
   return `${lines.join('\n')}\n`;
-}
-
-export function compileBuildPlan(authoring: BuildPlanAuthoring): CompiledBuildPlan {
-  return { authoring, value: authoring, markdown: renderPlanMarkdown(authoring) };
 }

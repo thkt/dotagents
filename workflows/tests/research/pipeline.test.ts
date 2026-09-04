@@ -7,24 +7,21 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { onTestFinished, test } from 'bun:test';
 
-import { runResearch } from '../../../workflows/research/pipeline.ts';
+import { runResearch } from '../../research/pipeline.ts';
 import {
   parseResearchAudit,
   validateResearchInput,
   type ResearchAudit,
   type ResearchDraft,
   type ResearchInput,
-} from '../../../workflows/research/contracts.ts';
-import type { ResearchAgent } from '../../../workflows/research/agent.ts';
-import type { KnowledgeEntry } from '../../../workflows/knowledge/update.ts';
-import { auditPrompt, investigationPrompt } from '../../../workflows/research/agent.ts';
-import {
-  knowledgeArtifactDirectory,
-  researchArtifactDirectory,
-} from '../../../workflows/shared/storage.ts';
-import { FlowError } from '../../../workflows/shared/errors.ts';
-import { runResearchWorkflow } from '../../../workflows/research/runner.ts';
-import { armIntent, clearIntent, loadIntent } from '../../../workflows/invocation.ts';
+} from '../../research/contracts.ts';
+import { type ResearchAgent, auditPrompt, investigationPrompt } from '../../research/agent.ts';
+import type { KnowledgeEntry } from '../../research/knowledge.ts';
+
+import { knowledgeArtifactDirectory, researchArtifactDirectory } from '../../runtime/storage.ts';
+import { FlowError } from '../../shared/errors.ts';
+import { runResearchWorkflow } from '../../research/runner.ts';
+import { armIntent, clearIntent, loadIntent } from '../../runtime/invocation.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 
 useTemporaryWorkflowStorage('codex-research-storage-');
@@ -319,8 +316,7 @@ test('research prompt exposes relevant Knowledge once', () => {
   const knowledge: KnowledgeEntry[] = [
     {
       topic: '何が正しいか？',
-      summary: 'answer は 42 である。',
-      sources: [{ report: 'r.json', findings: ['F-001'] }],
+      sources: [{ report: 'r.json', generated_at: '2026-09-01T00:00:00.000Z' }],
       updated_at: '2026-09-01T00:00:00.000Z',
     },
   ];

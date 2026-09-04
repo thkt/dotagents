@@ -17,5 +17,5 @@
     "types": ["bun", "node"],
     "verbatimModuleSyntax": true
   },
-  "include": ["hooks/**/*.ts", "workflows/**/*.ts", "workflows/tests/**/*.ts", "skills/**/*.ts"]
+  "include": ["hooks/**/*.ts", "workflows/**/*.ts", "skills/**/*.ts"]
 }

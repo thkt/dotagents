@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { onTestFinished, test } from 'bun:test';
 
-import { withRepositorySnapshot } from '../../../workflows/execution/repository-isolation.ts';
+import { withRepositorySnapshot } from '../../execution/repository-isolation.ts';
 import { temporaryDirectory } from '../shared/fixtures.ts';
 
 function commitlessRepo(): string {

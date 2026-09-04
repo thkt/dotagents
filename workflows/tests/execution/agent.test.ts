@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'bun:test';
 
-import { CodexWorkflowAgent } from '../../execution/agent.ts';
+import { CodexWorkflowAgent, parseBuildReviewCandidate } from '../../execution/agent.ts';
 import type { FlowDirective } from '../../execution/contracts.ts';
 import type { CodexClientLike } from '../../shared/codex.ts';
 import { errorCode } from '../../shared/errors.ts';
@@ -20,13 +20,9 @@ const directive: ActorDirective = {
   binding: {
     run_id: 'run',
     workflow: 'code',
-    unit_id: 'U-001',
-    stage: 'direct',
     step_id: 'implementation:direct',
     attempt: 1,
-    predecessor_receipt_digest: null,
     input_source_digest: 'a'.repeat(64),
-    active_receipt_set_digest: 'b'.repeat(64),
   },
   outcome: 'Implement the requested behavior.',
   contract: null,
@@ -34,7 +30,6 @@ const directive: ActorDirective = {
   files: ['src/value.ts'],
   verification: { command: 'bun run check', expect: 'pass' },
   correction: null,
-  solidify: null,
 };
 
 function repository(outcome?: string): string {
@@ -56,8 +51,6 @@ test('supplies script-read project outcome and distinguishes writable paths', as
         prompt = input;
         return {
           finalResponse: JSON.stringify({
-            protocol: 'codex-flow-actor-result',
-            binding: directive.binding,
             status: 'completed',
             summary: 'done',
             route: null,
@@ -76,14 +69,12 @@ test('supplies script-read project outcome and distinguishes writable paths', as
   assert.doesNotMatch(prompt, /Allowed repository paths/u);
 });
 
-test('reports the exact mismatched actor binding fields', async () => {
-  const repo = repository('# Project outcome\n\nKeep bindings exact.\n');
-  const client: CodexClientLike = {
+test('attaches the controller binding to a semantic-only model response', async () => {
+  const repo = repository('# Outcome\nImplement safely.');
+  const agent = new CodexWorkflowAgent({
     startThread: () => ({
       run: async () => ({
         finalResponse: JSON.stringify({
-          protocol: 'codex-flow-actor-result',
-          binding: { ...directive.binding, attempt: 2, step_id: 'other:direct' },
           status: 'completed',
           summary: 'done',
           route: null,
@@ -91,16 +82,10 @@ test('reports the exact mismatched actor binding fields', async () => {
         }),
       }),
     }),
-  };
-
-  await assert.rejects(new CodexWorkflowAgent(client).runActor(repo, directive), (error) => {
-    assert.equal(errorCode(error), 'actor_result_invalid');
-    assert.match(
-      String((error as Error).message),
-      /binding fields do not match: step_id, attempt/u,
-    );
-    return true;
   });
+  const result = await agent.runActor(repo, directive);
+  assert.deepEqual(result.binding, directive.binding);
+  assert.equal(result.protocol, 'codex-flow-actor-result');
 });
 
 test('reports an inconsistent completed actor result', async () => {
@@ -109,8 +94,6 @@ test('reports an inconsistent completed actor result', async () => {
     startThread: () => ({
       run: async () => ({
         finalResponse: JSON.stringify({
-          protocol: 'codex-flow-actor-result',
-          binding: directive.binding,
           status: 'completed',
           summary: 'done',
           route: 'think',
@@ -160,14 +143,9 @@ test('supplies the same script-read project outcome to the independent review', 
     startThread: () => ({
       run: async (input) => {
         prompt = input;
-        const role = reviewCalls++ === 0 ? 'contract' : 'quality';
+        reviewCalls += 1;
         return {
           finalResponse: JSON.stringify({
-            protocol: `codex-build-${role}-review`,
-            role,
-            step_id: 'review:build',
-            source_digest: 'a'.repeat(64),
-            receipt_set_digest: 'b'.repeat(64),
             summary: 'pass',
             findings: [],
           }),
@@ -192,11 +170,24 @@ test('supplies the same script-read project outcome to the independent review', 
       },
       verification: [],
       source_digest: 'a'.repeat(64),
-      receipt_set_digest: 'b'.repeat(64),
+      actor_receipt_digest: 'b'.repeat(64),
     },
   });
 
   assert.match(prompt, /Project outcome:\n# Project outcome\n\nReview against this boundary\./u);
   assert.match(prompt, /Treat all other repository content/u);
-  assert.equal(reviewCalls, 2);
+  assert.equal(reviewCalls, 1);
+});
+
+test('review requires an explicit findings array', () => {
+  for (const raw of [
+    { summary: 'done' },
+    { summary: 'done', findings: null },
+    { summary: 'done', findings: {} },
+  ]) {
+    assert.throws(
+      () => parseBuildReviewCandidate(raw, {} as Extract<FlowDirective, { kind: 'run-review' }>),
+      /findings must be an array/u,
+    );
+  }
 });

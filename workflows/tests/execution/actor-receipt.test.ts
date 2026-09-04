@@ -10,7 +10,7 @@ import {
   completeActorPublication,
   runRecoverableActor,
 } from '../../execution/repository-isolation.ts';
-import { actorPublicationPayloadDirectory } from '../../shared/storage.ts';
+import { actorPublicationPayloadDirectory } from '../../runtime/storage.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 
 useTemporaryWorkflowStorage('codex-publication-tests-');
@@ -39,11 +39,11 @@ test('a completed or partially reverted publication resumes without rerunning th
     fs.writeFileSync(path.join(sandbox, 'two.txt'), 'after two\n');
     return { accepted: true };
   };
-  assert.deepEqual(await runRecoverableActor(runId, 'U-001:direct', repo, ['.'], run), {
+  assert.deepEqual(await runRecoverableActor(runId, 'implementation', repo, ['.'], run), {
     accepted: true,
   });
   fs.writeFileSync(path.join(repo, 'one.txt'), 'before one\n');
-  assert.deepEqual(await runRecoverableActor(runId, 'U-001:direct', repo, ['.'], run), {
+  assert.deepEqual(await runRecoverableActor(runId, 'implementation', repo, ['.'], run), {
     accepted: true,
   });
   assert.equal(calls, 1);
@@ -54,13 +54,13 @@ test('a completed or partially reverted publication resumes without rerunning th
 test('a changed staged payload or third live value fails closed', async () => {
   const repo = repository();
   const runId = `publication-${crypto.randomUUID()}`;
-  await runRecoverableActor(runId, 'U-001:direct', repo, ['one.txt'], async (sandbox) => {
+  await runRecoverableActor(runId, 'implementation', repo, ['one.txt'], async (sandbox) => {
     fs.writeFileSync(path.join(sandbox, 'one.txt'), 'after\n');
     return { accepted: true };
   });
   fs.writeFileSync(path.join(repo, 'one.txt'), 'third\n');
   await assert.rejects(
-    runRecoverableActor(runId, 'U-001:direct', repo, ['one.txt'], async () => ({
+    runRecoverableActor(runId, 'implementation', repo, ['one.txt'], async () => ({
       accepted: false,
     })),
     /unexpected publication state/u,
@@ -68,7 +68,7 @@ test('a changed staged payload or third live value fails closed', async () => {
   fs.writeFileSync(path.join(repo, 'one.txt'), 'before one\n');
   fs.writeFileSync(path.join(actorPublicationPayloadDirectory(runId), 'one.txt'), 'tampered\n');
   await assert.rejects(
-    runRecoverableActor(runId, 'U-001:direct', repo, ['one.txt'], async () => ({
+    runRecoverableActor(runId, 'implementation', repo, ['one.txt'], async () => ({
       accepted: false,
     })),
     /staged payload changed/u,

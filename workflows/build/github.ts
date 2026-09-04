@@ -9,7 +9,7 @@ import {
   runGitHub,
 } from '../shared/github.ts';
 import { isObject } from '../shared/schema.ts';
-import { markdownScreenshotAlt, type ScreenshotSpec } from './screenshot-contract.ts';
+import { markdownScreenshotAlt, type ScreenshotSpec } from './screenshots.ts';
 
 interface GitHubPullRequest {
   url: string;

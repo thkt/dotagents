@@ -24,7 +24,7 @@ Inspect the current input, preview, and publication contract with `codex-issue d
 - Create the draft before any GitHub write.
 - Do not retry deterministic draft errors. Retry only a GitHub access failure that can change when network or credentials become available.
 - Validate the Plan while drafting, and confirm only that an update target is unchanged immediately before the GitHub write.
-- Publish one JSON Plan beneath `## Plan`. The renderer may collapse it for readability, but Build does not depend on surrounding presentation markup.
+- Under one `## Plan` heading, generate visible Markdown for human review and a collapsed `Build Plan JSON` block from the same Plan. Markdown shows the outcome, test command, unit goals, files, contracts, and acceptance criteria. JSON remains the sole Build authority; do not author the two views separately.
 - Return the Issue URL and local `repo + issue_number` Build selector.
 
 ## Escalation

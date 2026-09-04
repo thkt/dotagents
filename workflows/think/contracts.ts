@@ -10,7 +10,7 @@ import {
 import { FlowError } from '../shared/errors.ts';
 import { gitRoot } from '../shared/repository.ts';
 import { isObject, rejectUnknownKeys, requiredString, stringArray } from '../shared/schema.ts';
-import { researchArtifactDirectory } from '../shared/storage.ts';
+import { researchArtifactDirectory } from '../runtime/storage.ts';
 import { NON_BLANK_STRING_SCHEMA } from '../shared/structured-output.ts';
 
 export type ThinkPlan = BuildPlanAuthoring;

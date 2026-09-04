@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { defaultWorkflowRuntimeDirectory, resolveCodexHome } from './environment.ts';
+import { defaultWorkflowRuntimeDirectory, resolveCodexHome } from '../runtime/environment.ts';
 import { FlowError } from './errors.ts';
 
 const SDK_HOME_PREFIX = 'sdk-home-';

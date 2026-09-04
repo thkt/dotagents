@@ -12,13 +12,13 @@ description: 実装方法を比較し、変更依頼1件を、出典に基づい
 
 - [.codex/OUTCOME.md](../../.codex/OUTCOME.md)と関連する[workflow contracts](../../workflows/README.md)を読み、scope の判断に使う。OUTCOME.md が存在しない場合は、Think を実行する前にプロジェクトの outcome と検証可能な完了条件を記載して作成するようユーザーへ依頼する。実装上の制約は repository guidance を Plan に複製せず、対象 unit の contract と planned tests に記載する。
 - 変更を 1 つに絞り、完了時に観測できる状態を定める。
-- Plan を直接決める Research report を明示的に選ぶ。関連する Knowledge は背景情報として自動追加される。
+- Plan を直接決める Research report を明示的に選ぶ。Knowledge 索引から関連する原典 report を最大 3 件、作成日時付きの手掛かりとして追加する。
 - 完了状態と Plan の文言を決めるときは、[設計判断の文章](references/decision-writing.md)を読む。
 
 ## 境界
 
 - 設計を変え得る未確定事項は、仮定して計画にせず、追加調査へ戻す。
-- repository snapshot と明示的に選択した Research を事実の基礎にする。関連する Knowledge は背景情報として扱い、evidence、hash、repository rule を Plan に複製しない。
+- repository snapshot と明示的に選択した Research を事実の基礎にする。Knowledge で選ばれた report の主張は現在の snapshot で確認する。作成日時だけで鮮度を判断せず、evidence、hash、repository rule を Plan に複製しない。
 
 ## 報告
 

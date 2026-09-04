@@ -1,23 +1,14 @@
 #!/usr/bin/env bun
-/** @file Outcome: Explicit workflows start and resume only through their task-bound controller. */
+/** @file Outcome: The host binds explicit workflow invocations to a task; runners own execution policy. */
 
 import * as fs from 'node:fs';
-import path from 'node:path';
-
-import type { FlowState } from '../workflows/execution/contracts.ts';
-import {
-  isRetryableGitHubAccessBlock,
-  isRetryableRuntimeFailure,
-  loadWorkflowState,
-} from '../workflows/execution/controller.ts';
 import {
   armIntent,
   clearIntent,
-  loadIntent,
   parseBuildIssueNumber,
   parseExplicitInvocation,
   type WorkflowIntent,
-} from '../workflows/invocation.ts';
+} from '../workflows/runtime/invocation.ts';
 import { githubRepositoryForRemote } from '../workflows/issue/github.ts';
 import { SHELL_CONTROL, shellArgument, shellWords } from '../workflows/shared/command.ts';
 import {
@@ -26,47 +17,11 @@ import {
   ISSUE_COMMAND,
   RESEARCH_COMMAND,
   THINK_COMMAND,
-  implementationCommand,
   isMainModule,
-} from '../workflows/shared/environment.ts';
-import { errorCode, errorMessage } from '../workflows/shared/errors.ts';
-import { GITHUB_EXECUTABLE } from '../workflows/shared/github.ts';
+} from '../workflows/runtime/environment.ts';
+import { errorMessage } from '../workflows/shared/errors.ts';
 import { readProjectOutcome } from '../workflows/shared/project-outcome.ts';
-import { atomicWrite, workflowInputPath } from '../workflows/shared/storage.ts';
-
-const READ_ONLY_COMMANDS = new Set([
-  'cat',
-  'cd',
-  'cut',
-  'echo',
-  'file',
-  'grep',
-  'head',
-  'jq',
-  'ls',
-  'nl',
-  'pwd',
-  'realpath',
-  'rg',
-  'sort',
-  'stat',
-  'tail',
-  'wc',
-]);
-const READ_ONLY_GIT_COMMANDS = new Set(['diff', 'log', 'ls-files', 'rev-parse', 'show', 'status']);
-const READ_ONLY_GH_GROUPS = new Set(['issue', 'pr', 'release', 'repo', 'run', 'workflow']);
-const UNSAFE_GIT_READ_FLAGS = ['--ext-diff', '--output', '--textconv'] as const;
-const UNSAFE_FIND_ACTIONS = [
-  '-delete',
-  '-exec',
-  '-execdir',
-  '-fls',
-  '-fprint',
-  '-fprint0',
-  '-fprintf',
-  '-ok',
-  '-okdir',
-] as const;
+import { atomicWrite } from '../workflows/runtime/storage.ts';
 
 interface HookInput {
   cwd?: string;
@@ -107,24 +62,6 @@ function readInput(): HookInput {
   }
 }
 
-function activeState(runId: string | undefined): FlowState | null {
-  const state = controllerState(runId);
-  return state?.status === 'running' ||
-    (state && (isRetryableGitHubAccessBlock(state) || isRetryableRuntimeFailure(state)))
-    ? state
-    : null;
-}
-
-function controllerState(runId: string | undefined): FlowState | null {
-  if (!runId) return null;
-  try {
-    return loadWorkflowState(runId).state;
-  } catch (error) {
-    if (errorCode(error) === 'no_flow') return null;
-    throw error;
-  }
-}
-
 function deny(reason: string): HookResponse {
   return {
     hookSpecificOutput: {
@@ -135,35 +72,6 @@ function deny(reason: string): HookResponse {
   };
 }
 
-function eventCwd(input: HookInput, fallback: string): string {
-  const raw = typeof input.cwd === 'string' ? input.cwd : fallback;
-  try {
-    return fs.realpathSync(raw);
-  } catch {
-    return path.resolve(raw);
-  }
-}
-
-function requestedWriteFiles(input: HookInput, fallback: string): string[] {
-  const cwd = eventCwd(input, fallback);
-  const raw =
-    input.tool_name === 'apply_patch'
-      ? [
-          ...String(input.tool_input?.command || '').matchAll(
-            /^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$/gm,
-          ),
-        ].map((match) => match[1] || match[2])
-      : [input.tool_input?.file_path, input.tool_input?.path];
-  return raw
-    .filter((value): value is string => typeof value === 'string' && value.length > 0)
-    .map((file) => path.resolve(path.isAbsolute(file) ? file : path.join(cwd, file)));
-}
-
-function commandSubcommand(command: string, executable: string): string | null {
-  const words = shellWords(command);
-  return words[0] === executable ? words[1] || '' : null;
-}
-
 const WORKFLOW_RUNTIMES = {
   build: { executable: BUILD_COMMAND, flag: '--input', start: 'run', noun: 'build input' },
   code: { executable: CODE_COMMAND, flag: '--input', start: 'run', noun: 'code input' },
@@ -171,16 +79,9 @@ const WORKFLOW_RUNTIMES = {
   research: { executable: RESEARCH_COMMAND, flag: '--input', start: 'run', noun: 'research input' },
   think: { executable: THINK_COMMAND, flag: '--input', start: 'run', noun: 'think input' },
 } as const;
-type WorkflowName = keyof typeof WORKFLOW_RUNTIMES;
 
-function workflowSubcommand(command: string, workflow: WorkflowName): string | null {
-  return commandSubcommand(command, WORKFLOW_RUNTIMES[workflow].executable);
-}
-
-function pathArgument(command: string, flag: '--input'): string | null {
-  const words = shellWords(command);
-  const index = words.indexOf(flag);
-  return index < 0 ? null : words[index + 1] || null;
+function invocationRuntime(pending: WorkflowIntent) {
+  return WORKFLOW_RUNTIMES[pending.workflow];
 }
 
 function injectRunId(input: HookInput, command: string): HookResponse {
@@ -200,146 +101,6 @@ function injectRunId(input: HookInput, command: string): HookResponse {
       },
     },
   };
-}
-
-function readOnlyShellSegments(command: string): string[] | null {
-  if (/(?:\r|\n|`|[<>]|\$\(|(?:^|[^&])&(?!&))/u.test(command)) return null;
-  const segments = command.split(/\s*(?:&&|\|\||[;|])\s*/u).map((segment) => segment.trim());
-  return segments.length > 0 && segments.every(Boolean) ? segments : null;
-}
-
-function isReadOnlyGit(words: string[]): boolean {
-  let index = 1;
-  if (words[index] === '-C') index += 2;
-  const subcommand = words[index] || '';
-  const args = words.slice(index + 1);
-  if (READ_ONLY_GIT_COMMANDS.has(subcommand)) {
-    return !args.some((word) =>
-      UNSAFE_GIT_READ_FLAGS.some((flag) => word === flag || word.startsWith(`${flag}=`)),
-    );
-  }
-  if (subcommand === 'branch') {
-    return args.length === 0 || (args.length === 1 && args[0] === '--show-current');
-  }
-  if (subcommand !== 'remote') return false;
-  if (args.length === 0) return true;
-  if (args.length === 1 && (args[0] === '-v' || args[0] === '--verbose')) return true;
-  if (args[0] !== 'get-url') return false;
-  const targets = args.slice(1).filter((word) => word !== '--all' && word !== '--push');
-  return targets.length === 1 && targets[0]!.length > 0;
-}
-
-function isReadOnlySegment(segment: string, allowGitHubView: boolean): boolean {
-  const words = shellWords(segment);
-  const executable = path.basename(words[0] || '');
-  if (READ_ONLY_COMMANDS.has(executable)) {
-    return (
-      executable !== 'rg' || !words.some((word) => word === '--pre' || word.startsWith('--pre='))
-    );
-  }
-  if (executable === 'sed') {
-    return (
-      words[1] === '-n' &&
-      /^(?:\d+|\$)(?:,(?:\d+|\$))?p$/u.test(words[2] || '') &&
-      words.slice(3).every((word) => word === '--' || !word.startsWith('-'))
-    );
-  }
-  if (executable === 'find') {
-    return !words.some((word) =>
-      UNSAFE_FIND_ACTIONS.some((action) => word === action || word.startsWith(`${action}=`)),
-    );
-  }
-  if (executable === 'git') return isReadOnlyGit(words);
-  return (
-    allowGitHubView &&
-    executable === GITHUB_EXECUTABLE &&
-    READ_ONLY_GH_GROUPS.has(words[1] || '') &&
-    words[2] === 'view' &&
-    !words.includes('--web')
-  );
-}
-
-function isReadOnlyPreparationCommand(command: string, allowGitHubView = true): boolean {
-  const segments = readOnlyShellSegments(command);
-  return (
-    segments !== null && segments.every((segment) => isReadOnlySegment(segment, allowGitHubView))
-  );
-}
-
-function exactInputPath(
-  input: HookInput,
-  command: string,
-  flag: '--input',
-  expected: string,
-): boolean {
-  const supplied = pathArgument(command, flag);
-  if (!supplied) return false;
-  if (path.isAbsolute(supplied)) return path.resolve(supplied) === expected;
-  return (
-    typeof input.cwd === 'string' && path.resolve(eventCwd(input, input.cwd), supplied) === expected
-  );
-}
-
-function pendingWrite(input: HookInput, pending: WorkflowIntent): HookResponse {
-  const files = requestedWriteFiles(input, pending.repo);
-  const allowed = new Set([pending.input_path]);
-  return files.length === 1 && allowed.has(files[0]!)
-    ? {}
-    : deny(`prepare only the hook-supplied files: ${[...allowed].join(', ')}`);
-}
-
-function pendingPreToolUse(
-  input: HookInput,
-  pending: WorkflowIntent,
-  command: string,
-): HookResponse {
-  if (
-    input.tool_name === 'apply_patch' ||
-    input.tool_name === 'Edit' ||
-    input.tool_name === 'Write'
-  ) {
-    return pendingWrite(input, pending);
-  }
-  if (input.tool_name !== 'Bash') return {};
-  const { executable, flag, start } = invocationRuntime(pending);
-  const subcommand = commandSubcommand(command, executable);
-  if (subcommand === 'describe') {
-    return SHELL_CONTROL.test(command)
-      ? deny('workflow command may not be chained or redirected')
-      : {};
-  }
-  if (subcommand === start) {
-    return exactInputPath(input, command, flag, pending.input_path)
-      ? injectRunId(input, command)
-      : deny(`${start} with the hook-supplied input: ${pending.input_path}`);
-  }
-  if (pending.workflow === 'issue' && subcommand === 'stop') {
-    return exactInputPath(input, command, '--input', pending.input_path)
-      ? injectRunId(input, command)
-      : deny(`stop with the hook-supplied input path: ${pending.input_path}`);
-  }
-  if (subcommand !== null) return deny('run the pending workflow before other commands');
-  if (
-    [BUILD_COMMAND, CODE_COMMAND, ISSUE_COMMAND, RESEARCH_COMMAND, THINK_COMMAND].some(
-      (candidate) => candidate !== executable && commandSubcommand(command, candidate) !== null,
-    )
-  ) {
-    return deny(`the pending workflow must run through ${executable}`);
-  }
-  return isReadOnlyPreparationCommand(command, pending.workflow !== 'build')
-    ? {}
-    : deny(
-        'only read-only inspection and workflow input preparation are allowed before workflow run',
-      );
-}
-
-function invocationRuntime(pending: WorkflowIntent): {
-  executable: string;
-  flag: '--input';
-  start: 'run' | 'draft';
-  noun: string;
-} {
-  return WORKFLOW_RUNTIMES[pending.workflow];
 }
 
 /** Makes the outer workflow process network-capable before it starts an SDK or GitHub request. */
@@ -414,101 +175,27 @@ function userPromptSubmit(input: HookInput): HookResponse {
   }
 }
 
+/** Adds host identity only; each CLI validates its own intent, input and resumable state. */
 function preToolUse(input: HookInput): HookResponse {
+  if (input.tool_name !== 'Bash') return {};
   const command = String(input.tool_input?.command || '');
-  const pending = loadIntent(input.session_id);
-  if (pending) return pendingPreToolUse(input, pending, command);
-
-  const subcommand = input.tool_name === 'Bash' ? commandSubcommand(command, CODE_COMMAND) : null;
-  const build = input.tool_name === 'Bash' ? workflowSubcommand(command, 'build') : null;
-  const issue = input.tool_name === 'Bash' ? workflowSubcommand(command, 'issue') : null;
-  const research = input.tool_name === 'Bash' ? workflowSubcommand(command, 'research') : null;
-  const think = input.tool_name === 'Bash' ? workflowSubcommand(command, 'think') : null;
-  const standalone =
-    subcommand === 'describe' ||
-    build === 'describe' ||
-    issue === 'describe' ||
-    research === 'describe' ||
-    think === 'describe';
-  if (standalone && SHELL_CONTROL.test(command)) {
-    return deny('workflow command may not be chained or redirected');
-  }
-  if (standalone) return {};
-  const controller = controllerState(input.session_id);
-  const controllerSubcommand = controller?.workflow === 'build' ? build : subcommand;
-  if (controllerSubcommand === 'cancel') {
-    if (
-      !controller ||
-      (controller.status !== 'running' &&
-        controller.status !== 'cancelled' &&
-        !isRetryableGitHubAccessBlock(controller) &&
-        controller.runtime_failure == null &&
-        controller.escalation === null)
-    ) {
-      return deny('cancel requires an active workflow controller for this task');
-    }
-    const expected = workflowInputPath(controller.run_id);
-    return exactInputPath(input, command, '--input', expected)
-      ? injectRunId(input, command)
-      : deny(`cancel with the hook-supplied input: ${expected}`);
-  }
-  const state = activeState(input.session_id);
-  const activeSubcommand = state?.workflow === 'build' ? build : subcommand;
-  if (issue !== null) return deny('explicit $issue invocation is required before drafting');
-  if (research !== null) return deny('explicit $research invocation is required');
-  if (think !== null) return deny('explicit $think invocation is required');
-  if (!state) {
-    return subcommand === null && build === null
-      ? {}
-      : deny('explicit $code or $build invocation is required');
-  }
-  const expected = workflowInputPath(state.run_id);
-  if (activeSubcommand === 'run') {
-    return exactInputPath(input, command, '--input', expected)
-      ? injectRunId(input, command)
-      : deny(`resume with the hook-supplied input: ${expected}`);
-  }
-  if (input.tool_name === 'Bash' && subcommand === null && isReadOnlyPreparationCommand(command))
+  const [executable, subcommand] = shellWords(command);
+  if (!Object.values(WORKFLOW_RUNTIMES).some((runtime) => runtime.executable === executable)) {
     return {};
-  const executable = implementationCommand(state.workflow);
-  return deny(
-    `workflow controller is active; resume it with ${executable} run --input ${expected}`,
-  );
-}
-
-function stop(input: HookInput): HookResponse {
-  const pending = loadIntent(input.session_id);
-  if (pending) {
-    const { executable, flag, start } = invocationRuntime(pending);
-    const command = `${executable} ${start} ${flag} ${shellArgument(pending.input_path)}`;
-    const stopAlternative =
-      pending.workflow === 'issue'
-        ? ` If no ready Think artifact exists, run ${ISSUE_COMMAND} stop --input ${shellArgument(pending.input_path)} instead.`
-        : '';
-    return {
-      continue: false,
-      systemMessage: `The explicit $${pending.workflow} workflow is still pending. Continue it with ${command}.${stopAlternative} Its task-bound intent remains armed; report the blocker without retrying automatically.`,
-    };
   }
-  const state = activeState(input.session_id);
-  if (!state) return {};
-  const executable = implementationCommand(state.workflow);
-  const command = `${executable} run --input ${shellArgument(workflowInputPath(state.run_id))}`;
-  const reason = `The ${state.workflow} workflow is incomplete. Resume its controller with ${command}.`;
-  return input.stop_hook_active
-    ? { continue: false, systemMessage: `${reason} Report the runtime blocker if it fails again.` }
-    : { decision: 'block', reason };
+  if (SHELL_CONTROL.test(command)) return deny('workflow command may not be chained or redirected');
+  if (subcommand === 'describe') return {};
+  return injectRunId(input, command);
 }
 
-/** Applies the event-specific workflow boundary without executing workflow policy itself. */
+/** Routes host events without interpreting controller state or forcing a retry. */
 function handle(input: HookInput): HookResponse {
   try {
     if (input.hook_event_name === 'UserPromptSubmit') return userPromptSubmit(input);
     if (input.hook_event_name === 'PreToolUse') return preToolUse(input);
-    if (input.hook_event_name === 'Stop') return stop(input);
     return {};
   } catch (error) {
-    const reason = `workflow enforcement unavailable: ${errorMessage(error)}`;
+    const reason = `workflow binding unavailable: ${errorMessage(error)}`;
     return input.hook_event_name === 'PreToolUse' ? deny(reason) : { decision: 'block', reason };
   }
 }
@@ -517,14 +204,8 @@ if (isMainModule(import.meta.url)) {
   try {
     process.stdout.write(`${JSON.stringify(handle(readInput()))}\n`);
   } catch (error) {
-    process.stdout.write(
-      `${JSON.stringify({
-        decision: 'block',
-        reason: `workflow hook input is invalid: ${errorMessage(error)}`,
-      })}\n`,
-    );
+    process.stdout.write(`${JSON.stringify({ decision: 'block', reason: errorMessage(error) })}\n`);
   }
 }
 
-export { CODE_COMMAND, ISSUE_COMMAND, RESEARCH_COMMAND, THINK_COMMAND, handle, preToolUse, stop };
-export type { HookInput, HookResponse };
+export { handle };

@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { FlowError } from '../shared/errors.ts';
 import { gitRoot } from '../shared/repository.ts';
-import { thinkArtifactDirectory } from '../shared/storage.ts';
+import { thinkArtifactDirectory } from '../runtime/storage.ts';
 import { githubRepositoryForRemote } from './github.ts';
 import { positiveIssue } from './public-contract.ts';
 import { enumValue, isObject, requiredString } from '../shared/schema.ts';

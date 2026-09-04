@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 /** @file Outcome: One explicit command turns a change request into a reviewed decision or a concrete research route. */
 
-import { consumeIntentAfter, requireThinkIntent } from '../invocation.ts';
-import { parseCommand, requireExactFlags } from '../shared/cli.ts';
-import { isMainModule, THINK_COMMAND } from '../shared/environment.ts';
+import { consumeIntentAfter, requireThinkIntent } from '../runtime/invocation.ts';
+import { parseCommand, requireExactFlags, readAbsoluteJson, runCli } from '../runtime/cli.ts';
+import { isMainModule, THINK_COMMAND } from '../runtime/environment.ts';
 import { FlowError } from '../shared/errors.ts';
-import { readAbsoluteJson, runCli } from '../shared/runtime.ts';
+
 import {
   THINK_DESCRIPTION_PROTOCOL,
   THINK_RESULT_PROTOCOL,

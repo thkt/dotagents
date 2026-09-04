@@ -16,10 +16,8 @@ import {
   type ActorVerification,
   type BuildReviewInput,
   type BuildReviewResult,
-  type BuildPlanUnit,
   type CorrectionContext,
   type FlowDirective,
-  type SolidifyContext,
   type FlowDescription,
   type FlowManifest,
   type FlowState,
@@ -40,11 +38,11 @@ import {
   requireBuildShipApproval,
   requireIntent,
   requireWorkflowInput,
-} from '../invocation.ts';
+} from '../runtime/invocation.ts';
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
-import { implementationCommand } from '../shared/environment.ts';
-import { readAbsoluteJson } from '../shared/runtime.ts';
-import { atomicWrite, statePath, workflowInputPath } from '../shared/storage.ts';
+import { implementationCommand } from '../runtime/environment.ts';
+import { readAbsoluteJson } from '../runtime/cli.ts';
+import { atomicWrite, statePath, workflowInputPath } from '../runtime/storage.ts';
 import {
   gitText,
   gitOptionalText,
@@ -59,7 +57,7 @@ import {
 } from '../shared/repository.ts';
 import { shellCommand } from '../shared/command.ts';
 import { isGitHubAccessFailureMessage } from '../shared/github.ts';
-import { DEFAULT_MAX_CORRECTIONS, IMPLEMENTATION_ACTOR_ID } from './manifest-validation.ts';
+import { DEFAULT_MAX_CORRECTIONS, IMPLEMENTATION_ACTOR_ID } from './manifest.ts';
 import { isObject } from '../shared/schema.ts';
 import {
   completeActorPublication,
@@ -81,10 +79,9 @@ import { parseBuildReviewCandidate } from './agent.ts';
 import {
   ACTOR_RESULT_PROTOCOL,
   createActorReceipt,
-  receiptSetDigest,
   sameActorBinding,
   validateReceipt,
-} from './actor-publication.ts';
+} from './actor-receipt.ts';
 import { sealRepository } from './source-seal.ts';
 
 /** Loads the task-bound state and rejects stale or malformed records. */
@@ -104,61 +101,33 @@ function loadWorkflowState(runId: string): { file: string; state: FlowState } {
     if (state.run_id !== runId) {
       throw new FlowError('workflow state has an invalid run id', 'state_error');
     }
-    state.unit_attempts ??= {};
-    state.receipt_history ??= [];
-    state.active_receipts ??= {};
-    state.actor_binding ??= null;
-    state.correction_queue ??= [];
-    state.correction_queue_cursor ??= null;
-    state.reviewed_content_digest ??= null;
-    state.reviewed_source_seal ??= null;
-    if (!Array.isArray(state.receipt_history) || !isObject(state.active_receipts)) {
-      throw new FlowError('workflow state has invalid actor receipts', 'state_error');
+    if (
+      'unit_attempts' in state ||
+      'active_receipts' in state ||
+      !Number.isInteger(state.actor_attempt) ||
+      state.actor_attempt < 1 ||
+      !Object.hasOwn(state, 'actor_receipt')
+    ) {
+      throw new FlowError(
+        'workflow state uses an obsolete execution contract; start a new workflow from current inputs',
+        'state_error',
+      );
     }
-    for (const receipt of state.receipt_history) validateReceipt(receipt);
-    for (const receipt of Object.values(state.active_receipts)) validateReceipt(receipt);
-    validateReceiptState(state);
+    if (state.actor_receipt) {
+      validateReceipt(state.actor_receipt);
+      if (
+        state.actor_receipt.binding.run_id !== runId ||
+        state.actor_receipt.binding.workflow !== state.workflow ||
+        state.actor_receipt.binding.step_id !== IMPLEMENTATION_ACTOR_ID
+      )
+        throw new FlowError('actor receipt does not belong to this workflow', 'state_error');
+    }
     return { file, state };
   } catch (error) {
     if (errorCode(error) === 'ENOENT')
       throw new FlowError('no workflow is active for this task', 'no_flow');
     if (error instanceof FlowError) throw error;
     throw new FlowError(`workflow state is unreadable: ${errorMessage(error)}`, 'state_error');
-  }
-}
-
-function validateReceiptState(state: FlowState): void {
-  const latestByUnit = new Map<string, string>();
-  const directByAttempt = new Map<string, string>();
-  const historyDigests = new Set<string>();
-  for (const receipt of state.receipt_history) {
-    const binding = receipt.binding;
-    if (
-      binding.run_id !== state.run_id ||
-      binding.workflow !== state.workflow ||
-      binding.step_id !== `${binding.unit_id}:${binding.stage}` ||
-      !Number.isInteger(binding.attempt) ||
-      binding.attempt < 1
-    ) {
-      throw new FlowError('actor receipt binding does not belong to this workflow', 'state_error');
-    }
-    const expectedPredecessor =
-      binding.stage === 'direct'
-        ? (latestByUnit.get(binding.unit_id) ?? null)
-        : (directByAttempt.get(`${binding.unit_id}:${binding.attempt}`) ?? null);
-    if (binding.predecessor_receipt_digest !== expectedPredecessor) {
-      throw new FlowError('actor receipt chain is invalid', 'state_error');
-    }
-    if (binding.stage === 'direct') {
-      directByAttempt.set(`${binding.unit_id}:${binding.attempt}`, receipt.digest);
-    }
-    latestByUnit.set(binding.unit_id, receipt.digest);
-    historyDigests.add(receipt.digest);
-  }
-  for (const [stepId, receipt] of Object.entries(state.active_receipts)) {
-    if (stepId !== receipt.binding.step_id || !historyDigests.has(receipt.digest)) {
-      throw new FlowError('active actor receipt is not in receipt history', 'state_error');
-    }
   }
 }
 
@@ -298,6 +267,12 @@ function save(file: string, state: FlowState): PublicState {
 
 /** Starts an armed workflow after capturing its immutable repository baseline. */
 function startWorkflow(runId: string, inputFile: string): PublicState {
+  if (pendingActorPublicationStep(runId)) {
+    throw new FlowError(
+      'previous actor publication is unresolved; resume its workflow or start in a new task',
+      'state_error',
+    );
+  }
   const manifest = startManifest(runId, inputFile);
   const file = statePath(runId);
   if (fs.existsSync(file)) {
@@ -339,15 +314,8 @@ function startWorkflow(runId: string, inputFile: string): PublicState {
     cursor: 0,
     status: 'running',
     correction_counts: {},
-    unit_attempts: Object.fromEntries(
-      manifest.steps
-        .filter((step): step is ActorStep => step.kind === 'actor' && step.stage === 'direct')
-        .map((step) => [step.unit_id, 1]),
-    ),
-    receipt_history: [],
-    active_receipts: {},
-    correction_queue: [],
-    correction_queue_cursor: null,
+    actor_attempt: 1,
+    actor_receipt: null,
     reviewed_content_digest: null,
     reviewed_source_seal: null,
     gate_reports: [],
@@ -368,7 +336,7 @@ function startWorkflow(runId: string, inputFile: string): PublicState {
 }
 
 function requireOriginalInput(state: FlowState, inputFile: string): void {
-  if (path.resolve(inputFile) !== workflowInputPath(state.run_id)) {
+  if (path.resolve(inputFile) !== workflowInputPath(state.run_id, state.workflow)) {
     throw new FlowError('resume requires the hook-supplied input path', 'state_error');
   }
   if (inputHash(inputFile) !== state.input_sha256) {
@@ -424,6 +392,7 @@ function startOrResumeWorkflow(runId: string, inputFile: string): PublicState {
   try {
     const loaded = loadWorkflowState(runId);
     const existing = loaded.state;
+    if (existing.status !== 'running' && loadIntent(runId)) return startWorkflow(runId, inputFile);
     if (isRetryableGitHubAccessBlock(existing)) {
       requireOriginalInput(existing, inputFile);
       const branch = existing.manifest.steps.find(
@@ -447,7 +416,7 @@ function startOrResumeWorkflow(runId: string, inputFile: string): PublicState {
         (existing.escalation !== null || existing.runtime_failure != null) &&
         !loadIntent(runId)
       ) {
-        if (path.resolve(inputFile) !== workflowInputPath(runId)) {
+        if (path.resolve(inputFile) !== workflowInputPath(runId, existing.workflow)) {
           throw new FlowError('resume requires the hook-supplied input path', 'state_error');
         }
         return publicState(existing);
@@ -465,7 +434,7 @@ function startOrResumeWorkflow(runId: string, inputFile: string): PublicState {
 /** Cancels only the exact active controller bound to this task and hook-supplied input. */
 function cancelWorkflow(runId: string, inputFile: string): PublicState {
   const { file, state } = loadWorkflowState(runId);
-  if (path.resolve(inputFile) !== workflowInputPath(runId)) {
+  if (path.resolve(inputFile) !== workflowInputPath(runId, state.workflow)) {
     throw new FlowError('cancel requires the hook-supplied input path', 'state_error');
   }
   if (state.status === 'cancelled') return publicState(state);
@@ -536,11 +505,7 @@ function buildBaseRef(state: FlowState): string | null {
 }
 
 function actorBinding(state: FlowState, step: ActorStep): ActorBinding {
-  const attempt = state.unit_attempts[step.unit_id] ?? 1;
-  const predecessor =
-    step.stage === 'solidify'
-      ? state.active_receipts[`${step.unit_id}:direct`]
-      : state.receipt_history.findLast((receipt) => receipt.binding.unit_id === step.unit_id);
+  const attempt = state.actor_attempt;
   const seal = sealRepository(state.manifest.repo, {
     scopes: step.files,
     baseRef: buildBaseRef(state),
@@ -548,13 +513,9 @@ function actorBinding(state: FlowState, step: ActorStep): ActorBinding {
   return {
     run_id: state.run_id,
     workflow: state.workflow,
-    unit_id: step.unit_id,
-    stage: step.stage,
     step_id: step.id,
     attempt,
-    predecessor_receipt_digest: predecessor?.digest ?? null,
     input_source_digest: seal.source_digest,
-    active_receipt_set_digest: receiptSetDigest(state.active_receipts),
   };
 }
 
@@ -629,8 +590,7 @@ function completeActorOrAction(runId: string, stepId: string, rawResult?: unknow
       seal.source_digest,
       scopeDigest,
     );
-    state.receipt_history.push(receipt);
-    state.active_receipts[step.id] = receipt;
+    state.actor_receipt = receipt;
     sealScreenshotAttachments(state.run_id, actorScreenshotAttachments(state, step.id));
   }
   if (step.kind === 'action') {
@@ -688,8 +648,7 @@ function gateArgs(stepId: string, gate: ShellGateSpec, repo: string): string[] {
 
 function correctionActorId(route: string | null): string | null {
   if (route === 'direct:implementation') return IMPLEMENTATION_ACTOR_ID;
-  const unit = /^direct:(U-\d{3})$/u.exec(route ?? '')?.[1];
-  return unit ? `${unit}:direct` : null;
+  return null;
 }
 
 function correctionOwner(state: FlowState, route: string | null): string | null {
@@ -704,9 +663,7 @@ function correctionOwner(state: FlowState, route: string | null): string | null 
 function correctionContext(state: FlowState, actorId: string): CorrectionContext | null {
   const gate = state.gate_reports.at(-1);
   if (!gate || gate.verdict !== 'fail') return null;
-  const queuedUnit = state.correction_queue[state.correction_queue_cursor ?? -1];
-  const reviewCorrection = gate.gate_id === 'review:build' && actorId === `${queuedUnit}:direct`;
-  if (!reviewCorrection && correctionActorId(gate.failure_route) !== actorId) return null;
+  if (correctionActorId(gate.failure_route) !== actorId) return null;
   const attempt = state.correction_counts[gate.gate_id];
   if (!attempt || attempt > state.manifest.max_corrections) return null;
   return { attempt, max_attempts: state.manifest.max_corrections, gate };
@@ -721,27 +678,7 @@ function applyGateOutcome(
 ): void {
   state.gate_reports.push(report);
   if (report.verdict === 'pass') {
-    const queuedUnit = /^((?:U-)\d{3}):solidify:test$/u.exec(step.id)?.[1];
-    if (
-      advanceOnPass &&
-      queuedUnit &&
-      state.correction_queue_cursor !== null &&
-      state.correction_queue[state.correction_queue_cursor] === queuedUnit
-    ) {
-      state.correction_queue_cursor += 1;
-      const next = state.correction_queue[state.correction_queue_cursor];
-      if (next) {
-        state.cursor = state.manifest.steps.findIndex(
-          (candidate) => candidate.id === `${next}:direct`,
-        );
-        prepareCurrentStep(state);
-      } else {
-        state.correction_queue = [];
-        state.correction_queue_cursor = null;
-        state.cursor = state.manifest.steps.findIndex((candidate) => candidate.id === 'artifacts');
-        prepareCurrentStep(state);
-      }
-    } else if (advanceOnPass) advanceToNextStep(state);
+    if (advanceOnPass) advanceToNextStep(state);
     return;
   }
   if (report.verdict === 'blocked') {
@@ -763,11 +700,10 @@ function applyGateOutcome(
     return;
   }
   state.cursor = state.manifest.steps.findIndex((candidate) => candidate.id === owner);
-  const unit = /^U-\d{3}/u.exec(owner)?.[0];
-  if (unit) {
-    state.unit_attempts[unit] = (state.unit_attempts[unit] ?? 1) + 1;
-    delete state.active_receipts[`${unit}:solidify`];
-  }
+  state.actor_attempt += 1;
+  state.actor_receipt = null;
+  state.reviewed_content_digest = null;
+  state.reviewed_source_seal = null;
   prepareCurrentStep(state);
 }
 
@@ -807,14 +743,6 @@ function compileLoadedBuild(state: FlowState, step: Extract<FlowStep, { kind: 'g
     );
   }
   state.manifest = compiled;
-  state.unit_attempts = Object.fromEntries(
-    compiled.steps
-      .filter(
-        (candidate): candidate is ActorStep =>
-          candidate.kind === 'actor' && candidate.stage === 'direct',
-      )
-      .map((candidate) => [candidate.unit_id, 1]),
-  );
 }
 
 function compilationFailure(report: GateReport, error: unknown): GateReport {
@@ -849,7 +777,7 @@ function runGate(runId: string, stepId: string): { result: PublicState; exitCode
     report = runIsolatedShellVerification(
       parseGateArgs(gateArgs(step.id, step.gate, state.manifest.repo)),
     ).report;
-    const receipt = step.owner ? state.active_receipts[step.owner] : undefined;
+    const receipt = step.owner ? state.actor_receipt : null;
     if (step.owner && !receipt) {
       throw new FlowError(`${step.id} has no accepted actor receipt`, 'state_error');
     }
@@ -898,7 +826,7 @@ function actorVerification(state: FlowState, step: ActorStep): ActorVerification
   const gate = state.manifest.steps.find(
     (candidate): candidate is GateStep =>
       candidate.kind === 'gate' &&
-      candidate.id === `${step.unit_id}:${step.stage === 'direct' ? 'test' : 'solidify:test'}` &&
+      candidate.id === 'test:implementation' &&
       candidate.gate.authority === 'shell',
   );
   if (!gate) throw new FlowError(`${step.id} has no shared test gate`, 'state_error');
@@ -921,11 +849,7 @@ function buildReviewInput(state: FlowState): BuildReviewInput {
   if (!branch || branch.action !== 'branch') {
     throw new FlowError('review:build has no branch context', 'state_error');
   }
-  const missing = state.build_plan.units.filter(
-    (unit) => !state.active_receipts[`${unit.id}:solidify`],
-  );
-  if (missing.length)
-    throw new FlowError('review:build has incomplete actor receipts', 'state_error');
+  if (!state.actor_receipt) throw new FlowError('review:build has no actor receipt', 'state_error');
   const seal = sealRepository(state.manifest.repo, { baseRef: branch.start_point });
   return {
     issue: state.build_plan.issue,
@@ -937,42 +861,8 @@ function buildReviewInput(state: FlowState): BuildReviewInput {
       classification: report.classification,
     })),
     source_digest: seal.source_digest,
-    receipt_set_digest: receiptSetDigest(state.active_receipts),
+    actor_receipt_digest: state.actor_receipt.digest,
   };
-}
-
-function requireBuildPlan(state: FlowState): {
-  goal: string;
-  contract: string;
-  tests: Array<{ id: string; name: string }>;
-  testCommand: string;
-  outcome: string;
-  units: BuildPlanUnit[];
-  files: string[];
-} {
-  if (!state.build_plan) {
-    throw new FlowError('implementation actor has no validated Plan context', 'state_error');
-  }
-  return {
-    goal: state.build_plan.outcome,
-    contract: state.build_plan.units
-      .map((unit) => `${unit.id}: ${unit.goal}\n${unit.contract}`)
-      .join('\n\n'),
-    tests: state.build_plan.units.flatMap((unit) => unit.tests),
-    testCommand: state.build_plan.test_command,
-    outcome: state.build_plan.outcome,
-    units: state.build_plan.units,
-    files: [...new Set(state.build_plan.units.flatMap((unit) => unit.files))],
-  };
-}
-
-function solidifyContext(state: FlowState, step: ActorStep): SolidifyContext | null {
-  if (state.workflow !== 'build' || step.stage !== 'solidify') return null;
-  const last = state.gate_reports.at(-1);
-  if (!last || last.gate_id !== `${step.unit_id}:test` || last.verdict !== 'pass') return null;
-  const unit = requireBuildPlan(state).units.find((candidate) => candidate.id === step.unit_id);
-  if (!unit) throw new FlowError(`${step.id} has no Plan unit`, 'state_error');
-  return { outcome: step.outcome, units: [unit], files: step.files };
 }
 
 /** Derives the sole permitted next operation from persisted controller state. */
@@ -1000,7 +890,6 @@ function directiveForState(state: FlowState): FlowDirective {
       verification: actorVerification(state, step),
       screenshots: actorScreenshotAttachments(state, step.id),
       correction: correctionContext(state, step.id),
-      solidify: solidifyContext(state, step),
     };
   }
   if (step.kind === 'action') {
@@ -1039,40 +928,36 @@ function completeBuildReview(
     step_id: 'review:build',
     input: buildReviewInput(state),
   };
-  if (!Array.isArray(rawResult) || rawResult.length !== 2) {
-    throw new FlowError('build review requires one complete candidate pair', 'execution_error');
-  }
-  const candidates = (['contract', 'quality'] as const).map((role, index) =>
-    parseBuildReviewCandidate(rawResult[index], directive, role),
+  const raw = rawResult as BuildReviewCandidate;
+  if (
+    raw?.protocol !== 'codex-build-review-candidate' ||
+    raw.step_id !== directive.step_id ||
+    raw.source_digest !== directive.input.source_digest ||
+    raw.actor_receipt_digest !== directive.input.actor_receipt_digest
+  )
+    throw new FlowError('build review binding is stale or invalid', 'execution_error');
+  const candidate = parseBuildReviewCandidate(
+    { summary: raw.summary, findings: raw.findings },
+    directive,
   );
-  validateReviewScopes(state, candidates);
-  const findings = candidates.flatMap((candidate) => candidate.findings);
-  const blocking = candidates.flatMap((candidate) =>
-    candidate.findings
-      .filter((finding) => finding.severity === 'blocking')
-      .map((finding) => ({ role: candidate.role, finding })),
-  );
-  const reasonCodes = blocking.map(({ role, finding }) => `${role}:${finding.code}`).sort();
+  validateReviewScopes(state, candidate);
+  const { findings } = candidate;
+  const blocking = findings.filter((finding) => finding.severity === 'blocking');
+  const reasonCodes = blocking.map((finding) => finding.code).sort();
   const review: BuildReviewResult = {
     protocol: 'codex-build-review',
     verdict: blocking.length ? 'fail' : 'pass',
     classification: blocking.length ? 'semantic_review_failed' : 'pass',
     reason_codes: reasonCodes,
     failure_route: blocking.length ? 'blocked' : null,
-    summary: candidates.map((candidate) => `${candidate.role}: ${candidate.summary}`).join('\n'),
+    summary: candidate.summary,
     findings,
     source_digest: directive.input.source_digest,
-    receipt_set_digest: directive.input.receipt_set_digest,
-    candidates,
+    actor_receipt_digest: directive.input.actor_receipt_digest,
   };
   const report = buildReviewGateReport(step, state.manifest.repo, review, durationMs);
   if (blocking.length)
-    applyReviewFailure(
-      state,
-      step,
-      report,
-      blocking.flatMap(({ finding }) => finding.unit_ids),
-    );
+    applyGateOutcome(state, step, { ...report, failure_route: 'direct:implementation' }, true);
   else {
     state.reviewed_source_seal = sealRepository(state.manifest.repo, {
       baseRef: buildBaseRef(state),
@@ -1088,19 +973,16 @@ function completeBuildReview(
 function validateCommitBindings(state: FlowState): void {
   if (!state.build_plan) throw new FlowError('build:commit has no Plan', 'state_error');
   const source = sealRepository(state.manifest.repo, { baseRef: buildBaseRef(state) });
-  const activeDigest = receiptSetDigest(state.active_receipts);
-  for (const unit of state.build_plan.units) {
-    const receipt = state.active_receipts[`${unit.id}:solidify`];
-    const gate = state.gate_reports.findLast(
-      (report) => report.gate_id === `${unit.id}:solidify:test`,
-    );
-    if (!receipt || gate?.verdict !== 'pass' || gate.actor_receipt_digest !== receipt.digest) {
-      throw new FlowError(
-        `build:commit has stale lifecycle evidence for ${unit.id}`,
-        'state_error',
-      );
-    }
-  }
+  const receipt = state.actor_receipt;
+  const gate = state.gate_reports.findLast((report) => report.gate_id === 'test:implementation');
+  if (
+    !receipt ||
+    gate?.verdict !== 'pass' ||
+    gate.actor_receipt_digest !== receipt.digest ||
+    gate.source_digest !== source.source_digest
+  )
+    throw new FlowError('build:commit has stale implementation verification', 'state_error');
+  const activeDigest = receipt.digest;
   const artifacts = state.gate_reports.findLast((report) => report.gate_id === 'artifacts');
   const review = state.gate_reports.findLast((report) => report.gate_id === 'review:build');
   const evidence = review?.evidence.kind === 'structured' ? review.evidence.report : null;
@@ -1109,94 +991,39 @@ function validateCommitBindings(state: FlowState): void {
     artifacts.source_digest !== source.source_digest ||
     review?.verdict !== 'pass' ||
     evidence?.source_digest !== source.source_digest ||
-    evidence?.receipt_set_digest !== activeDigest ||
+    evidence?.actor_receipt_digest !== activeDigest ||
     state.reviewed_content_digest !== source.content_digest
   ) {
     throw new FlowError(
-      `build:commit binding is stale: artifacts=${artifacts?.verdict === 'pass' && artifacts.source_digest === source.source_digest}, review=${review?.verdict === 'pass' && evidence?.source_digest === source.source_digest}, receipts=${evidence?.receipt_set_digest === activeDigest}, content=${state.reviewed_content_digest === source.content_digest}`,
+      `build:commit binding is stale: artifacts=${artifacts?.verdict === 'pass' && artifacts.source_digest === source.source_digest}, review=${review?.verdict === 'pass' && evidence?.source_digest === source.source_digest}, receipts=${evidence?.actor_receipt_digest === activeDigest}, content=${state.reviewed_content_digest === source.content_digest}`,
       'state_error',
     );
   }
 }
 
-function pathInScope(relative: string, scope: string): boolean {
-  return (
-    scope === '.' || relative === scope || relative.startsWith(`${scope.replace(/\/$/u, '')}/`)
-  );
-}
-
-function scopesOverlap(left: readonly string[], right: readonly string[]): boolean {
-  return left.some((a) =>
-    right.some((b) => a === '.' || b === '.' || pathInScope(a, b) || pathInScope(b, a)),
-  );
-}
-
-function validateReviewScopes(state: FlowState, candidates: readonly BuildReviewCandidate[]): void {
+function validateReviewScopes(state: FlowState, candidate: BuildReviewCandidate): void {
   const units = new Map((state.build_plan?.units ?? []).map((unit) => [unit.id, unit]));
-  for (const candidate of candidates) {
-    for (const finding of candidate.findings) {
-      const named = finding.unit_ids.map((id) => units.get(id));
-      if (named.some((unit) => !unit))
-        throw new FlowError('review finding names an unknown unit', 'execution_error');
-      const paths = [...finding.files, ...finding.evidence.map((item) => item.path)];
-      for (const raw of paths) {
-        const relative = normalizeRepoPath(raw);
-        if (
-          !relative ||
-          !named.some((unit) => unit?.files.some((scope) => pathInScope(relative, scope)))
-        ) {
-          throw new FlowError(
-            'review finding path is outside its named unit scope',
-            'execution_error',
-          );
-        }
+  for (const finding of candidate.findings) {
+    const named = finding.unit_ids.map((id) => units.get(id));
+    if (named.some((unit) => !unit))
+      throw new FlowError('review finding names an unknown unit', 'execution_error');
+    const paths = [...finding.files, ...finding.evidence.map((item) => item.path)];
+    for (const raw of paths) {
+      const relative = normalizeRepoPath(raw);
+      if (!relative) {
+        throw new FlowError(
+          'review finding path must be a safe repository-relative path',
+          'execution_error',
+        );
       }
     }
   }
 }
 
-function applyReviewFailure(
-  state: FlowState,
-  step: GateStep,
-  report: GateReport,
-  reportedUnits: readonly string[],
-): void {
-  state.gate_reports.push(report);
-  const correction = (state.correction_counts[step.id] ?? 0) + 1;
-  state.correction_counts[step.id] = correction;
-  if (correction > state.manifest.max_corrections || !state.build_plan) {
-    state.status = 'blocked';
-    return;
-  }
-  const selected = new Set(reportedUnits);
-  for (const [index, unit] of state.build_plan.units.entries()) {
-    if (!selected.has(unit.id)) continue;
-    for (const later of state.build_plan.units.slice(index + 1)) {
-      if (scopesOverlap(unit.files, later.files)) selected.add(later.id);
-    }
-  }
-  state.correction_queue = state.build_plan.units
-    .filter((unit) => selected.has(unit.id))
-    .map((unit) => unit.id);
-  if (!state.correction_queue.length)
-    throw new FlowError('review correction queue is empty', 'execution_error');
-  state.correction_queue_cursor = 0;
-  state.reviewed_content_digest = null;
-  state.reviewed_source_seal = null;
-  for (const unit of state.correction_queue) {
-    state.unit_attempts[unit] = (state.unit_attempts[unit] ?? 1) + 1;
-    delete state.active_receipts[`${unit}:solidify`];
-  }
-  state.cursor = state.manifest.steps.findIndex(
-    (candidate) => candidate.id === `${state.correction_queue[0]}:direct`,
-  );
-  prepareCurrentStep(state);
-}
-
 function currentDirective(runId: string): FlowDirective {
   const loaded = loadWorkflowState(runId);
   const pendingStep = pendingActorPublicationStep(runId);
-  if (pendingStep && loaded.state.active_receipts[pendingStep]) {
+  if (pendingStep && loaded.state.actor_receipt?.binding.step_id === pendingStep) {
     completeActorPublication(runId);
   } else if (pendingStep && loaded.state.manifest.steps[loaded.state.cursor]?.id !== pendingStep) {
     throw new FlowError(
@@ -1287,7 +1114,5 @@ export {
   loadWorkflowState,
   reconcileCurrentAction,
   startOrResumeWorkflow,
-  isRetryableGitHubAccessBlock,
-  isRetryableRuntimeFailure,
   workflowStatus,
 };

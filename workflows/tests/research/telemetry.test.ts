@@ -2,11 +2,11 @@
 
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { CodexResearchAgent } from '../../../workflows/research/agent.ts';
-import type { CodexClientLike } from '../../../workflows/shared/codex.ts';
-import type { ResearchInput } from '../../../workflows/research/contracts.ts';
-import { FlowError, errorCode } from '../../../workflows/shared/errors.ts';
-import { ProgressReporter, type ProgressEvent } from '../../../workflows/shared/progress.ts';
+import { CodexResearchAgent } from '../../research/agent.ts';
+import type { CodexClientLike } from '../../shared/codex.ts';
+import type { ResearchInput } from '../../research/contracts.ts';
+import { FlowError, errorCode } from '../../shared/errors.ts';
+import { ProgressReporter, type ProgressEvent } from '../../shared/progress.ts';
 import * as fs from 'node:fs';
 import path from 'node:path';
 import { temporaryDirectory } from '../shared/fixtures.ts';

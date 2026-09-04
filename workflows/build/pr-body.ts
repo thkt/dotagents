@@ -4,15 +4,11 @@
 import * as fs from 'node:fs';
 import path from 'node:path';
 
-import { cli, parseSingletonArgs, readJsonFile } from '../shared/cli.ts';
-import { isMainModule } from '../shared/environment.ts';
+import { cli, parseSingletonArgs, readJsonFile } from '../runtime/cli.ts';
+import { isMainModule } from '../runtime/environment.ts';
 import { usageError } from '../shared/errors.ts';
 import { isObject } from '../shared/schema.ts';
-import {
-  markdownScreenshotAlt,
-  SCREENSHOT_CAP,
-  safeScreenshotName,
-} from './screenshot-contract.ts';
+import { markdownScreenshotAlt, SCREENSHOT_CAP, safeScreenshotName } from './screenshots.ts';
 
 const PROTOCOL = 'codex-build-pr-body';
 const DESCRIPTION_PROTOCOL = 'codex-build-pr-body-description';

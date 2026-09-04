@@ -1,11 +1,10 @@
-/** @file Outcome: Workflow CLIs accept only explicit commands and their exact singleton flags. */
+/** @file Outcome: Workflow CLIs parse strict inputs and emit stable results and errors. */
 
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import * as fs from 'node:fs';
 import path from 'node:path';
-
-import { FlowError, UsageError, errorMessage, usageError } from './errors.ts';
-import { normalizeRepoPath } from './repository.ts';
+import { FlowError, UsageError, errorMessage, usageError, errorCode } from '../shared/errors.ts';
+import { normalizeRepoPath } from '../shared/repository.ts';
 
 export type CliResult<Report = unknown> =
   | { report: Report; exitCode?: number }
@@ -89,10 +88,6 @@ export function readJsonFile(value: string | undefined, flag = '--input'): unkno
   }
 }
 
-export function nonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && Boolean(value.trim());
-}
-
 export function safeRepoPath(value: unknown): value is string {
   return normalizeRepoPath(value) !== null;
 }
@@ -144,4 +139,36 @@ export function cli(main: () => CliResult, protocol: string): void {
     process.stdout.write(`${JSON.stringify(blockedReport(protocol, error), null, 2)}\n`);
     process.exitCode = 2;
   }
+}
+
+export function readAbsoluteJson(file: string, label: string): unknown {
+  if (!path.isAbsolute(file)) throw new FlowError(`${label} must be absolute`);
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
+  } catch (error) {
+    throw new FlowError(`${label} is unreadable JSON: ${errorMessage(error)}`);
+  }
+}
+
+export function writeCliResult(result: unknown): void {
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+export function cliErrorResult(protocol: string, error: unknown): Record<string, unknown> {
+  return {
+    protocol,
+    status: 'blocked',
+    classification: errorCode(error) ?? 'execution_error',
+    error: errorMessage(error),
+  };
+}
+export function writeCliError(protocol: string, error: unknown): void {
+  writeCliResult(cliErrorResult(protocol, error));
+  process.exitCode = 2;
+}
+
+export function runCli(main: () => unknown, protocol: string): void {
+  void Promise.resolve()
+    .then(main)
+    .then(writeCliResult)
+    .catch((error: unknown) => writeCliError(protocol, error));
 }

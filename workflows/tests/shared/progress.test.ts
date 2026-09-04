@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { test } from 'bun:test';
 
-import { FlowError } from '../../../workflows/shared/errors.ts';
-import { ProgressReporter, type ProgressEvent } from '../../../workflows/shared/progress.ts';
+import { FlowError } from '../../shared/errors.ts';
+import { ProgressReporter, type ProgressEvent } from '../../shared/progress.ts';
 
 function events(lines: string[]): ProgressEvent[] {
   return lines.map((line) => JSON.parse(line) as ProgressEvent);
@@ -136,8 +136,8 @@ test('telemetry writer and cleanup failures cannot change the operation result',
 });
 
 test('CLI result JSON stays isolated on stdout while progress is NDJSON on stderr', () => {
-  const progressUrl = new URL('../../../workflows/shared/progress.ts', import.meta.url).href;
-  const runtimeUrl = new URL('../../../workflows/shared/runtime.ts', import.meta.url).href;
+  const progressUrl = new URL('../../shared/progress.ts', import.meta.url).href;
+  const runtimeUrl = new URL('../../runtime/cli.ts', import.meta.url).href;
   const script = [
     `import { ProgressReporter } from ${JSON.stringify(progressUrl)};`,
     `import { writeCliResult } from ${JSON.stringify(runtimeUrl)};`,

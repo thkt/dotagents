@@ -13,7 +13,7 @@ description: 公開 GitHub Issue の Plan 1件を実装・検証し、任意で 
 - 最初の束縛された controller command 自体を network escalation で呼び、対応していれば同じ tool call で prefix `["codex-build", "run"]`の永続的な許可を要求する。Build 専用 command は task と repository に束縛された`$build` approval を引き続き必須とし、Build の run と cancel だけを公開するため、この prefix は永続的に許可できる。一時的な access failure が発生した場合だけ、同じ controller command を network escalation で正確に再実行する。準備のために別の`gh ... view`を実行せず、ブラウザの内容を contract の代わりにしない。
 - Build 開始時に選択した Issue を 1 回だけ読み、一意な`## Plan` section 内の JSON Plan を唯一の実装 authority とする。周囲の表示用 markup、公開者の local receipt、別 rendering、body hash は要求しない。
 - controller は Plan から actor goal、結合した file scope、test command を導出する。Build input を実装意図の別 source にしない。
-- final test 後に、公開済みの goals と contracts に対して差分全体を独立した read-only SDK review にかける。
+- 1 人の actor が Plan 全体を実装・自己レビューし、test 後に 1 人の独立した read-only SDK reviewer が契約適合と品質を確認する。具体的な失敗があれば実装 actor に戻し、再検証する。
 
 ## 権限
 

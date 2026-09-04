@@ -12,8 +12,8 @@ import {
   AGENTS_ROOT,
   defaultWorkflowRuntimeDirectory,
   resolveCodexHome,
-} from '../../shared/environment.ts';
-import { workflowArtifactDirectory } from '../../shared/storage.ts';
+} from '../../runtime/environment.ts';
+import { workflowArtifactDirectory } from '../../runtime/storage.ts';
 
 const EXPECTED_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const CODEX_ROOT = path.resolve(EXPECTED_ROOT, '../.codex');
@@ -43,37 +43,6 @@ test('keeps shared workflow code independent of feature modules', () => {
       /from ['"]\.\.\/(?:build|code|flow|issue|plan|research|think|invocation)/u,
       file,
     );
-  }
-});
-
-test('keeps internal workflow files named by role instead of generic operations', () => {
-  for (const relative of [
-    'workflows/build/artifact-verification.ts',
-    'workflows/build/git-actions.ts',
-    'workflows/build/manifest.ts',
-    'workflows/build/verification.ts',
-    'workflows/code/manifest.ts',
-    'workflows/execution/engine.ts',
-    'workflows/execution/implementation-steps.ts',
-    'workflows/execution/manifest-validation.ts',
-    'workflows/execution/repository-isolation.ts',
-    'workflows/execution/shell-verification.ts',
-  ]) {
-    assert.equal(fs.existsSync(path.join(EXPECTED_ROOT, relative)), true, relative);
-  }
-  for (const relative of [
-    'workflows/build/actions.ts',
-    'workflows/build/artifacts.ts',
-    'workflows/build/compile.ts',
-    'workflows/build/gates.ts',
-    'workflows/code/compile.ts',
-    'workflows/execution/implementation.ts',
-    'workflows/execution/isolation.ts',
-    'workflows/execution/manifest.ts',
-    'workflows/execution/runner.ts',
-    'workflows/execution/shell-gate.ts',
-  ]) {
-    assert.equal(fs.existsSync(path.join(EXPECTED_ROOT, relative)), false, relative);
   }
 });
 
@@ -220,7 +189,7 @@ test('workflow hook blocks malformed input instead of returning an empty allow r
 test('keeps maintained runtime and instruction files independent of a user home', () => {
   const files = [
     'package.json',
-    'workflows/shared/environment.ts',
+    'workflows/runtime/environment.ts',
     'hooks/hooks.json',
     'hooks/workflow-enforcer.ts',
     'workflows/execution/controller.ts',

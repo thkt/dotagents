@@ -5,11 +5,16 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'bun:test';
 
-import { searchKnowledge } from '../../knowledge/search.ts';
-import { readKnowledge, updateKnowledge } from '../../knowledge/update.ts';
+import {
+  KNOWLEDGE_RESULT_LIMIT,
+  searchKnowledge,
+  readKnowledge,
+  updateKnowledge,
+} from '../../research/knowledge.ts';
+
 import { persistResearchReport } from '../../research/artifact.ts';
 import { RESEARCH_REPORT_PROTOCOL, type ResearchReport } from '../../research/contracts.ts';
-import { knowledgeArtifactDirectory, researchArtifactDirectory } from '../../shared/storage.ts';
+import { knowledgeArtifactDirectory, researchArtifactDirectory } from '../../runtime/storage.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 
 useTemporaryWorkflowStorage('knowledge-index-');
@@ -70,12 +75,15 @@ test('groups related Research into one topic with source references', () => {
   const entries = updateKnowledge(repo);
 
   assert.equal(entries.length, 2);
-  assert.deepEqual(entries[0]?.summary.split('\n'), ['JSONへ保存できる。', 'SQLiteも利用できる。']);
+  assert.deepEqual(
+    entries[0]?.sources.map((source) => source.generated_at),
+    ['2026-09-01T00:00:00.000Z', '2026-09-02T00:00:00.000Z'],
+  );
   assert.equal(entries[0]?.sources.length, 2);
   assert.deepEqual(readKnowledge(repo), entries);
 });
 
-test('search returns related Knowledge without a fixed result limit', () => {
+test('search returns relevant report references', () => {
   const repo = temporaryDirectory('knowledge-repo-');
   persistResearchReport(
     repo,
@@ -93,7 +101,7 @@ test('search returns related Knowledge without a fixed result limit', () => {
   );
 });
 
-test('omits a topic when it contains explicitly selected Research', () => {
+test('keeps the latest related report when older Research was explicitly selected', () => {
   const repo = temporaryDirectory('knowledge-repo-');
   const selected = persistResearchReport(
     repo,
@@ -105,7 +113,9 @@ test('omits a topic when it contains explicitly selected Research', () => {
   );
   updateKnowledge(repo);
 
-  assert.deepEqual(searchKnowledge(repo, '保存方式', [selected.json]), []);
+  const results = searchKnowledge(repo, '保存方式', [selected.json]);
+  assert.equal(results.length, 1);
+  assert.equal(results[0]?.sources[0]?.generated_at, '2026-09-02T00:00:00.000Z');
 });
 
 test('rebuild recovers the derived index from valid Research', () => {
@@ -124,4 +134,54 @@ test('rebuild recovers the derived index from valid Research', () => {
 
   assert.equal(rebuilt.length, 1);
   assert.deepEqual(readKnowledge(repo), rebuilt);
+});
+
+test('bounds topic results and selects one latest original report per topic', () => {
+  const repo = temporaryDirectory('knowledge-repo-');
+  const indexFile = path.join(knowledgeArtifactDirectory(repo), 'index.json');
+  fs.mkdirSync(path.dirname(indexFile), { recursive: true });
+  fs.writeFileSync(
+    indexFile,
+    JSON.stringify(
+      Array.from({ length: 8 }, (_, index) => ({
+        topic: `storage choice ${index}`,
+        updated_at: `2026-09-0${index + 1}T00:00:00.000Z`,
+        sources: [
+          { report: `old-${index}.json`, generated_at: '2026-01-01T00:00:00.000Z' },
+          { report: `new-${index}.json`, generated_at: `2026-09-0${index + 1}T00:00:00.000Z` },
+        ],
+      })),
+    ),
+  );
+  const results = searchKnowledge(repo, 'storage');
+  assert.equal(results.length, KNOWLEDGE_RESULT_LIMIT);
+  assert.deepEqual(
+    results.map((entry) => entry.sources.map((source) => source.report)),
+    [['new-7.json'], ['new-6.json'], ['new-5.json']],
+  );
+  assert.equal(
+    searchKnowledge(repo, 'storage', ['new-7.json'])[0]?.sources[0]?.report,
+    'new-6.json',
+  );
+});
+
+test('deduplicates original reports shared by topics and does not fall back to old selected evidence', () => {
+  const repo = temporaryDirectory('knowledge-repo-');
+  const indexFile = path.join(knowledgeArtifactDirectory(repo), 'index.json');
+  fs.mkdirSync(path.dirname(indexFile), { recursive: true });
+  fs.writeFileSync(
+    indexFile,
+    JSON.stringify(
+      ['storage choice', 'storage architecture'].map((topic) => ({
+        topic,
+        updated_at: '2026-09-01T00:00:00.000Z',
+        sources: [
+          { report: 'old.json', generated_at: '2026-01-01T00:00:00.000Z' },
+          { report: 'latest.json', generated_at: '2026-09-01T00:00:00.000Z' },
+        ],
+      })),
+    ),
+  );
+  assert.equal(searchKnowledge(repo, 'storage').length, 1);
+  assert.deepEqual(searchKnowledge(repo, 'storage', ['latest.json']), []);
 });

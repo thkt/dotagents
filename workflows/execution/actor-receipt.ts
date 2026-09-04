@@ -1,4 +1,4 @@
-/** @file Outcome: Accepted actor work has deterministic bindings, receipts, and receipt-set identity. */
+/** @file Outcome: Accepted implementation work has one deterministic receipt bound to its source. */
 
 import crypto from 'node:crypto';
 
@@ -22,15 +22,6 @@ function canonical(value: unknown): string {
 
 function digest(domain: string, value: unknown): string {
   return crypto.createHash('sha256').update(`${domain}\0`).update(canonical(value)).digest('hex');
-}
-
-export function receiptSetDigest(receipts: Readonly<Record<string, ActorReceipt>>): string {
-  return digest(
-    'codex-flow-active-receipt-set',
-    Object.entries(receipts)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([step, receipt]) => [step, receipt.digest]),
-  );
 }
 
 function actorReceiptDigest(receipt: Omit<ActorReceipt, 'digest'>): string {
@@ -65,17 +56,7 @@ export function validateReceipt(receipt: ActorReceipt): void {
   );
   rejectUnknownKeys(
     receipt.binding,
-    [
-      'run_id',
-      'workflow',
-      'unit_id',
-      'stage',
-      'step_id',
-      'attempt',
-      'predecessor_receipt_digest',
-      'input_source_digest',
-      'active_receipt_set_digest',
-    ],
+    ['run_id', 'workflow', 'step_id', 'attempt', 'input_source_digest'],
     'actor receipt binding',
     'state_error',
   );
@@ -88,15 +69,11 @@ export function validateReceipt(receipt: ActorReceipt): void {
     typeof receipt.summary !== 'string' ||
     !receipt.summary.trim() ||
     typeof receipt.binding.run_id !== 'string' ||
+    receipt.binding.step_id !== 'implementation' ||
     (receipt.binding.workflow !== 'build' && receipt.binding.workflow !== 'code') ||
-    !/^U-\d{3}$/u.test(receipt.binding.unit_id) ||
-    (receipt.binding.stage !== 'direct' && receipt.binding.stage !== 'solidify') ||
     !Number.isInteger(receipt.binding.attempt) ||
     receipt.binding.attempt < 1 ||
     !/^[0-9a-f]{64}$/u.test(receipt.binding.input_source_digest) ||
-    !/^[0-9a-f]{64}$/u.test(receipt.binding.active_receipt_set_digest) ||
-    (receipt.binding.predecessor_receipt_digest !== null &&
-      !/^[0-9a-f]{64}$/u.test(receipt.binding.predecessor_receipt_digest)) ||
     actorReceiptDigest(body) !== actual
   ) {
     throw new FlowError('actor receipt is malformed or has an invalid digest', 'state_error');

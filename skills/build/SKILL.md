@@ -13,7 +13,7 @@ Run the prepared Build input with `codex-build run --input <task-input-json>`. T
 - Invoke the first bound controller command itself with network escalation, requesting persistent approval for prefix `["codex-build", "run"]` in that same tool call when supported. This prefix is safe to persist because the Build-only command still requires the task- and repository-bound `$build` approval and exposes only Build run and cancel operations. If a genuine transient access failure occurs, retry the exact same controller command with network escalation. Do not run a separate `gh ... view` preparation command or substitute browser content as the contract.
 - Read the selected Issue once at Build start. The JSON Plan in its unique `## Plan` section is the sole implementation authority; surrounding presentation markup, a publisher-local receipt, second rendering, or body hash is not required.
 - The controller derives actor goals, combined file scope, and the test command from that Plan. Build input is not an alternate source of implementation intent.
-- After final tests, require an independent read-only SDK review of the complete diff against the published goals and contracts.
+- Run one actor to implement and self-review the whole Plan, then run tests and one independent read-only SDK review of contract compliance and quality. Return concrete failures to the implementation actor and repeat verification.
 
 ## Authority
 

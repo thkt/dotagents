@@ -1,8 +1,13 @@
 /** @file Outcome: One reviewed Think result has one compact JSON handoff and readable view. */
 
 import { renderPlanMarkdown } from '../plan/contracts.ts';
-import { artifactPaths } from '../shared/artifacts.ts';
-import { atomicWrite, atomicWriteText, thinkArtifactDirectory } from '../shared/storage.ts';
+import {
+  artifactPaths,
+  atomicWrite,
+  atomicWriteText,
+  thinkArtifactDirectory,
+} from '../runtime/storage.ts';
+
 import { oneLine } from '../shared/text.ts';
 import { thinkNextStep, type ThinkReport } from './contracts.ts';
 
