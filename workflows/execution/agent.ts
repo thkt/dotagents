@@ -188,6 +188,32 @@ function actorPrompt(directive: ActorDirective, projectOutcome: string): string 
   ].join('\n\n');
 }
 
+function invalidActorResultReason(response: Record<string, unknown>, directive: ActorDirective) {
+  if (response.protocol !== ACTOR_RESULT_PROTOCOL) return 'protocol does not match';
+  if (!isObject(response.binding)) return 'binding is missing or invalid';
+  const binding = response.binding as Record<string, unknown>;
+  if (!sameActorBinding(binding as never, directive.binding)) {
+    const mismatches = Object.entries(directive.binding).flatMap(([field, expected]) =>
+      binding[field] === expected ? [] : [field],
+    );
+    return `binding fields do not match: ${mismatches.join(', ') || 'unknown'}`;
+  }
+  if (response.status !== 'completed' && response.status !== 'escalated')
+    return 'status is invalid';
+  if (typeof response.summary !== 'string' || !response.summary.trim())
+    return 'summary is blank or invalid';
+  if (response.status === 'completed' && (response.route !== null || response.question !== null))
+    return 'completed result must have null route and question';
+  if (
+    response.status === 'escalated' &&
+    ((response.route !== 'think' && response.route !== 'research') ||
+      typeof response.question !== 'string' ||
+      !response.question.trim())
+  )
+    return 'escalated result requires a think/research route and non-blank question';
+  return null;
+}
+
 /** Renders the immutable public Plan and verified gate summary as semantic review criteria. */
 function buildReviewPrompt(
   directive: ReviewDirective,
@@ -309,32 +335,21 @@ export class CodexWorkflowAgent implements WorkflowAgent {
       },
     });
     const response = structuredResponseObject(result.finalResponse, directive.step_id);
-    if (
-      response.protocol !== ACTOR_RESULT_PROTOCOL ||
-      !response.binding ||
-      !sameActorBinding(response.binding as never, directive.binding) ||
-      (response.status !== 'completed' && response.status !== 'escalated') ||
-      typeof response.summary !== 'string' ||
-      !response.summary.trim() ||
-      (response.status === 'completed' &&
-        (response.route !== null || response.question !== null)) ||
-      (response.status === 'escalated' &&
-        ((response.route !== 'think' && response.route !== 'research') ||
-          typeof response.question !== 'string' ||
-          !response.question.trim()))
-    ) {
+    const invalidReason = invalidActorResultReason(response, directive);
+    if (invalidReason) {
       throw new FlowError(
-        `${directive.step_id} returned an invalid actor result`,
-        'execution_error',
+        `${directive.step_id} returned an invalid actor result: ${invalidReason}`,
+        'actor_result_invalid',
       );
     }
-    if (response.status === 'escalated')
+    const actorResult = response as unknown as ActorResult;
+    if (actorResult.status === 'escalated')
       throw new ActorEscalation(
-        response.route as 'think' | 'research',
-        response.question as string,
-        response.summary,
+        actorResult.route as 'think' | 'research',
+        actorResult.question as string,
+        actorResult.summary,
       );
-    return response as unknown as ActorResult;
+    return actorResult;
   }
 
   async reviewBuild(

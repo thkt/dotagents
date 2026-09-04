@@ -50,6 +50,27 @@ function defaultRuntime(): WorkflowRuntime {
   };
 }
 
+async function runActorWithResultRetry(
+  runId: string,
+  repo: string,
+  directive: Extract<FlowDirective, { kind: 'run-actor' }>,
+  runtime: WorkflowRuntime,
+  onActivity: Parameters<WorkflowAgent['runActor']>[2],
+) {
+  const runAttempt = () => {
+    resetScreenshotAttachments(runId, directive.screenshots ?? []);
+    return runRecoverableActor(runId, directive.step_id, repo, directive.files, (sandboxRepo) =>
+      runtime.agent.runActor(sandboxRepo, directive, onActivity),
+    );
+  };
+  try {
+    return await runAttempt();
+  } catch (error) {
+    if (errorCode(error) !== 'actor_result_invalid') throw error;
+  }
+  return await runAttempt();
+}
+
 function progressContext(
   workflow: 'build' | 'code',
   directive: Exclude<FlowDirective, { kind: 'done' | 'blocked' | 'cancelled' }>,
@@ -111,16 +132,12 @@ async function driveWorkflow(
           return { result: workflowStatus(runId), exitCode: 0 };
         case 'run-actor':
           await progress.run(progressContext(workflow, directive), async (stage) => {
-            resetScreenshotAttachments(runId, directive.screenshots ?? []);
-            const actorResult = await runRecoverableActor(
+            const actorResult = await runActorWithResultRetry(
               runId,
-              directive.step_id,
               repo,
-              directive.files,
-              (sandboxRepo) =>
-                runtime.agent.runActor(sandboxRepo, directive, (activity) =>
-                  stage.activity(activity),
-                ),
+              directive,
+              runtime,
+              (activity) => stage.activity(activity),
             );
             completeCurrentDirective(runId, directive.step_id, actorResult);
             completeActorPublication(runId);
