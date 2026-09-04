@@ -14,7 +14,7 @@ description: レビュー済みのResearchとThink成果物から、人間が読
 - Think artifact が参照する Research report を読む。確認済みの事実と Think の決定だけを使って Issue を作成する。
 - `create`または`update`を選ぶ。`update`では対象 Issue を読み、ユーザーの依頼に必要な title と本文を全体的に更新する。既存内容は引き続き有用な場合だけ残す。
 - 作業種別の接頭辞を付けず、内容を具体的に表す短い title にする。設定言語で読みやすい prose を書き、背景、確認済みの事実、決定、完了状態のうち有用な section だけを使う。
-- prose に Plan を複製したり`## Plan` section を追加したりしない。完成した title と prose を controller へ渡し、Think artifact の正確な Plan は controller に追加させる。
+- `prose` に Plan を含めない。ready Think Plan から、Issue の title・prose に使う設定言語の `plan_markdown` を作る。outcome、各 unit の goal・contract・acceptance を省略せず忠実に翻訳し、順序・条件・範囲を維持する。code identifier、file path、test command は原文のまま保つ。ラベルと `###` unit 見出しも翻訳し、`## Plan` 見出し、code fence、HTML block は含めない。section と canonical JSON は controller が追加する。
 
 ## 公開
 
@@ -23,7 +23,7 @@ description: レビュー済みのResearchとThink成果物から、人間が読
 - GitHub へ書き込む前に draft を作成する。
 - deterministic な draft error は再試行しない。network または credential の回復で変化し得る GitHub access failure だけを再試行する。
 - Plan は draft 作成時に検証し、GitHub へ書き込む直前には update 対象が変更されていないことだけを確認する。
-- 1 つの`## Plan`見出しの下に、同じ Plan から人間向けの Markdown と折りたたんだ`Build Plan JSON`を生成する。Markdown には outcome、test command、各 unit の goal・files・contract・acceptance を表示する。JSON を唯一の Build authority とし、2 つの表示を別々に手書きしない。
+- 公開前に `plan_markdown` を原文 Plan と照合する。outcome、test command、全 unit の goal・files・contract・acceptance が揃い、要件の追加・省略・変更がないことを確認する。controller は 1 つの `## Plan` 見出しの下に翻訳した表示を置き、その後に正確な英語の Plan を折りたたんだ `Build Plan JSON` として追加する。JSON を唯一の Build authority とし、翻訳は表示だけに使う。言語を揃えて公開するときは必ず `plan_markdown` を渡す。省略時の英語描画は既存 caller の互換用に残す。
 - Issue URL と`repo + issue_number`の Build selector を返す。
 
 ## エスカレーション
@@ -32,4 +32,4 @@ Plan が不正または不完全な場合は公開せず`think`に戻す。GitHu
 
 ## 報告
 
-公開 Plan と workflow artifact は英語のままにする。Issue の title、prose、Issue URL、Build source、次の状態を含む最終報告は設定言語で書く。source 不在で明示停止した場合は、`missing_decision`、GitHub write なし、次の状態として think を報告する。どちらの次状態にも進まない。
+canonical JSON Plan と機械向け workflow artifact は英語のままにする。Issue の title、prose、表示する Plan Markdown、Issue URL・Build source・次の状態を含む最終報告は設定言語で書く。source 不在で明示停止した場合は、`missing_decision`、GitHub write なし、次の状態として think を報告する。どちらの次状態にも進まない。

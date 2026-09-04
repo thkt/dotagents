@@ -30,8 +30,8 @@ Code は直接の変更依頼を受け、Build と共通の executor を Git act
 ## Boundaries
 
 - ユーザー入力は依頼と対象の選択を持つ。内部実行 record は持たない。
-- workflow 契約と永続 artifact は英語とし、Issue 説明文と最終報告は設定言語を使う。
-- 公開 Issue 内の唯一の JSON Plan を Build authority とする。同じ Plan から人間がレビューする Markdown を表示し、その後に JSON を折りたたんで置く。title と説明文は人向けの文脈を伝える。
+- workflow 契約と機械向け artifact は英語とし、Issue 説明文・表示する Plan Markdown・最終報告は設定言語を使う。
+- 公開 Issue 内の唯一の JSON Plan を Build authority とする。Issue 作成時に ready Think Plan を title・prose に使う設定言語の `plan_markdown` へ忠実に翻訳し、全要件・identifier・file path・command を維持する。controller が Plan 見出しと変更のない canonical JSON block を追加する。翻訳表示を省略する既存 caller は英語描画を継続する。
 - 任意の PR screenshot は Build の納品入力とし、公開 Plan authority に含めない。
 - Research report は証拠記録であり、Knowledge は原典 report を指す再生成可能な索引である。日時は関連候補の順序付けに使い、現在の事実である証明にはしない。
 - Build と Code は依頼全体を 1 人の actor で実装する。test または blocking review の失敗時は同じ実装工程へ戻り、test と review を再実行する。

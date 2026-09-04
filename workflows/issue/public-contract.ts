@@ -32,11 +32,35 @@ export function positiveIssue(value: unknown, label: string): number {
   return Number(value);
 }
 
-/** Derives visible Markdown and the canonical collapsed JSON from the same Plan. */
-export function renderPublicIssueBody(prose: string, plan: BuildPlanAuthoring): string {
+/** Keeps caller-supplied display text inside the runtime-owned Plan section. */
+export function validatePlanMarkdown(value: unknown): string {
+  const markdown = requiredString(value, 'issue input.plan_markdown').trim();
+  if (
+    /^ {0,3}#{1,2}(?:[ \t]|$)/mu.test(markdown) ||
+    /^ {0,3}(?:=+|-+)[ \t]*$/mu.test(markdown) ||
+    /`{3,}|~{3,}/u.test(markdown) ||
+    /<\/?(?:details|summary|h1|h2)\b/iu.test(markdown)
+  ) {
+    throw new FlowError(
+      'issue input.plan_markdown must contain only the Plan display body, without H1/H2 headings, code fences, details or summary tags',
+    );
+  }
+  return markdown;
+}
+
+/** Renders optional localized display text beside the unchanged canonical JSON Plan. */
+export function renderPublicIssueBody(
+  prose: string,
+  plan: BuildPlanAuthoring,
+  planMarkdown?: string,
+): string {
   const prefix = prose.trim();
   const json = JSON.stringify(plan, null, 2);
-  return `${prefix ? `${prefix}\n\n` : ''}${renderPlanMarkdown(plan).trimEnd()}\n\n${PLAN_OPEN}${json}${PLAN_CLOSE}\n`;
+  const display =
+    planMarkdown === undefined
+      ? renderPlanMarkdown(plan).trimEnd()
+      : `## Plan\n\n${validatePlanMarkdown(planMarkdown)}`;
+  return `${prefix ? `${prefix}\n\n` : ''}${display}\n\n${PLAN_OPEN}${json}${PLAN_CLOSE}\n`;
 }
 
 /** Reads the canonical JSON Plan independently of its human-readable presentation. */

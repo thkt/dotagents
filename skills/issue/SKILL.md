@@ -15,7 +15,7 @@ Inspect the current input, preview, and publication contract with `codex-issue d
 - Read the Research reports referenced by that Think artifact. Use only their verified findings and the Think decision to draft the Issue.
 - Choose `create` or `update`. For `update`, read the selected Issue and revise any part of its title and prose needed by the user's request; retain existing content only while it remains useful.
 - Write a concise title without a task-type prefix. Write readable prose in the configured language, using only the useful sections among Background, Verified findings, Decision, and Done state.
-- Do not copy the Plan into the prose or add a `## Plan` section. Pass the complete title and prose to the controller; it appends the exact Plan from the Think artifact.
+- Keep the Plan out of `prose`. Derive `plan_markdown` from the ready Think Plan in the configured language used for the Issue title and prose. Translate every outcome, unit goal, contract, and acceptance criterion faithfully, preserving their order, conditions, and scope. Keep code identifiers, file paths, and the test command verbatim. Include localized labels and `###` unit headings, but no `## Plan` heading, code fences, or HTML blocks; the controller owns the section and canonical JSON.
 
 ## Publication
 
@@ -24,7 +24,7 @@ Inspect the current input, preview, and publication contract with `codex-issue d
 - Create the draft before any GitHub write.
 - Do not retry deterministic draft errors. Retry only a GitHub access failure that can change when network or credentials become available.
 - Validate the Plan while drafting, and confirm only that an update target is unchanged immediately before the GitHub write.
-- Under one `## Plan` heading, generate visible Markdown for human review and a collapsed `Build Plan JSON` block from the same Plan. Markdown shows the outcome, test command, unit goals, files, contracts, and acceptance criteria. JSON remains the sole Build authority; do not author the two views separately.
+- Review `plan_markdown` against the source Plan before publication: include the outcome, test command, all unit goals, files, contracts, and acceptance criteria without adding, omitting, or changing requirements. The controller places that translated view under one `## Plan` heading, followed by the exact English Plan in a collapsed `Build Plan JSON` block. JSON remains the sole Build authority; translation is presentation only. Always supply `plan_markdown` for localized publication; omitted input retains the English renderer for existing callers.
 - Return the Issue URL and local `repo + issue_number` Build selector.
 
 ## Escalation
@@ -33,4 +33,4 @@ An invalid or incomplete Plan returns to `think`. GitHub failures stop in `issue
 
 ## Report
 
-Keep the published Plan and workflow artifacts in English. Write the Issue title, Issue prose, and final report in the configured language. Include the Issue URL, Build source, and next state in the report. For an explicit missing-source stop, report `missing_decision`, no GitHub write, and think as the next state. Do not continue into either next state.
+Keep the canonical JSON Plan and machine-readable workflow artifacts in English. Write the Issue title, prose, visible Plan Markdown, and final report in the configured language. Include the Issue URL, Build source, and next state in the report. For an explicit missing-source stop, report `missing_decision`, no GitHub write, and think as the next state. Do not continue into either next state.
