@@ -16,6 +16,30 @@ import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtu
 
 useTemporaryWorkflowStorage('codex-build-smoke-storage-');
 
+function reviewPair(directive: Extract<FlowDirective, { kind: 'run-review' }>, blocking = false) {
+  return (['contract', 'quality'] as const).map((role) => ({
+    protocol: `codex-build-${role}-review` as const,
+    role,
+    step_id: 'review:build' as const,
+    source_digest: directive.input.source_digest,
+    receipt_set_digest: directive.input.receipt_set_digest,
+    summary: blocking && role === 'contract' ? '主値に修正が必要。' : 'Plan を満たす。',
+    findings:
+      blocking && role === 'contract'
+        ? [
+            {
+              severity: 'blocking' as const,
+              code: 'incomplete',
+              message: '主値を修正する。',
+              unit_ids: ['U-001'],
+              files: ['unit.ts'],
+              evidence: [{ path: 'unit.ts', detail: 'value is incomplete' }],
+            },
+          ]
+        : [],
+  }));
+}
+
 function git(repo: string, ...args: string[]) {
   const result = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
@@ -86,25 +110,25 @@ test('Build fetches the Issue Plan, implements, verifies, reviews, and commits o
   const { repo, startPoint, countFile, runId, input } = buildFixture(plan);
   const runtime: WorkflowRuntime = {
     agent: {
-      async runActor(sandboxRepo) {
+      async runActor(sandboxRepo, directive) {
         fs.writeFileSync(path.join(sandboxRepo, 'unit.ts'), 'export const value = 2;\n');
-      },
-      async reviewBuild() {
         return {
-          protocol: 'codex-build-review',
-          verdict: 'pass',
-          classification: 'pass',
-          reason_codes: [],
-          failure_route: null,
-          summary: 'Plan を満たす。',
-          findings: [],
+          protocol: 'codex-flow-actor-result',
+          binding: directive.binding,
+          status: 'completed',
+          summary: 'done',
+          route: null,
+          question: null,
         };
+      },
+      async reviewBuild(_repo, directive) {
+        return reviewPair(directive);
       },
     },
     executeAction,
   };
   const result = await runWorkflow(runId, input, runtime);
-  assert.equal(result.exitCode, 0);
+  assert.equal(result.exitCode, 0, JSON.stringify(result.result));
   assert.ok('status' in result.result);
   assert.equal(result.result.status, 'completed');
   assert.equal(fs.readFileSync(countFile, 'utf8'), 'x');
@@ -141,40 +165,26 @@ test('a blocking semantic review corrects the shared actor, then re-verifies and
     agent: {
       async runActor(sandboxRepo, directive) {
         actorCalls.push(directive);
-        if (directive.solidify) return;
-        const value = actorCalls.length >= 3 ? 3 : 2;
-        fs.writeFileSync(path.join(sandboxRepo, 'unit.ts'), `export const value = ${value};\n`);
-        fs.writeFileSync(path.join(sandboxRepo, 'other.ts'), 'export const other = 2;\n');
-      },
-      async reviewBuild() {
-        reviews += 1;
-        if (reviews === 1) {
-          return {
-            protocol: 'codex-build-review',
-            verdict: 'fail',
-            classification: 'semantic_review_failed',
-            reason_codes: ['incomplete'],
-            failure_route: 'blocked',
-            summary: '主値に修正が必要。',
-            findings: [
-              {
-                severity: 'blocking',
-                code: 'incomplete',
-                message: '主値を修正する。',
-                files: ['unit.ts'],
-              },
-            ],
-          };
+        if (!directive.solidify) {
+          const target = directive.files[0]!;
+          const value = actorCalls.length >= 5 ? 3 : 2;
+          fs.writeFileSync(
+            path.join(sandboxRepo, target),
+            target === 'unit.ts' ? `export const value = ${value};\n` : 'export const other = 2;\n',
+          );
         }
         return {
-          protocol: 'codex-build-review',
-          verdict: 'pass',
-          classification: 'pass',
-          reason_codes: [],
-          failure_route: null,
-          summary: 'Plan を満たす。',
-          findings: [],
+          protocol: 'codex-flow-actor-result',
+          binding: directive.binding,
+          status: 'completed',
+          summary: 'done',
+          route: null,
+          question: null,
         };
+      },
+      async reviewBuild(_repo, directive) {
+        reviews += 1;
+        return reviewPair(directive, reviews === 1);
       },
     },
     executeAction(actionRepo, directive) {
@@ -191,67 +201,45 @@ test('a blocking semantic review corrects the shared actor, then re-verifies and
   };
 
   const result = await runWorkflow(runId, input, runtime);
-  assert.equal(result.exitCode, 0);
+  assert.equal(result.exitCode, 0, JSON.stringify(result.result));
   assert.ok('status' in result.result);
   assert.equal(result.result.status, 'completed');
   assert.equal(reviews, 2);
-  assert.equal(actorCalls.length, 4);
+  assert.equal(actorCalls.length, 6);
   assert.equal(actorCalls[0]?.correction, null);
   assert.deepEqual(
     actorCalls.map((call) => call.files),
-    [
-      ['unit.ts', 'other.ts'],
-      ['unit.ts', 'other.ts'],
-      ['unit.ts', 'other.ts'],
-      ['unit.ts', 'other.ts'],
-    ],
+    [['unit.ts'], ['unit.ts'], ['other.ts'], ['other.ts'], ['unit.ts'], ['unit.ts']],
   );
-  assert.equal(actorCalls[2]?.correction?.attempt, 1);
-  assert.equal(actorCalls[2]?.correction?.gate.gate_id, 'review:build');
-  assert.equal(actorCalls[2]?.correction?.gate.verdict, 'fail');
-  assert.equal(actorCalls[2]?.correction?.gate.evidence.kind, 'structured');
-  if (actorCalls[2]?.correction?.gate.evidence.kind === 'structured') {
-    assert.deepEqual(actorCalls[2].correction.gate.evidence.report, {
-      protocol: 'codex-build-review',
-      verdict: 'fail',
-      classification: 'semantic_review_failed',
-      reason_codes: ['incomplete'],
-      failure_route: 'blocked',
-      summary: '主値に修正が必要。',
-      findings: [
-        {
-          severity: 'blocking',
-          code: 'incomplete',
-          message: '主値を修正する。',
-          files: ['unit.ts'],
-        },
-      ],
-    });
-  }
-  assert.equal(actorCalls[1]?.solidify?.outcome, plan.outcome);
-  assert.equal(actorCalls[3]?.solidify?.outcome, plan.outcome);
-  assert.deepEqual(actorCalls[1]?.solidify?.units, actorCalls[3]?.solidify?.units);
-  assert.deepEqual(actorCalls[1]?.solidify?.files, ['unit.ts', 'other.ts']);
+  assert.equal(actorCalls[4]?.correction?.attempt, 1);
+  assert.equal(actorCalls[4]?.correction?.gate.gate_id, 'review:build');
+  assert.equal(actorCalls[1]?.solidify?.outcome, plan.units[0]?.goal);
+  assert.equal(actorCalls[3]?.solidify?.outcome, plan.units[1]?.goal);
+  assert.deepEqual(actorCalls[1]?.solidify?.files, ['unit.ts']);
   assert.deepEqual(directives, [
     'load:plan',
     'branch',
     'implementation',
-    'test',
+    'U-001:test',
     'solidify',
-    'test',
+    'U-001:solidify:test',
+    'implementation',
+    'U-002:test',
+    'solidify',
+    'U-002:solidify:test',
     'artifacts',
     'review:build',
     'implementation',
-    'test',
+    'U-001:test',
     'solidify',
-    'test',
+    'U-001:solidify:test',
     'artifacts',
     'review:build',
     'commit',
   ]);
   const gateIds = result.result.gate_reports.map((gate) => gate.gate_id);
   assert.equal(gateIds.filter((id) => id === 'load:plan').length, 1);
-  assert.equal(gateIds.filter((id) => id === 'test').length, 4);
+  assert.equal(gateIds.filter((id) => id.endsWith(':test')).length, 6);
   assert.equal(gateIds.filter((id) => id === 'review:build').length, 2);
   assert.deepEqual(actions, ['branch', 'commit']);
   assert.equal(fs.readFileSync(countFile, 'utf8'), 'x');

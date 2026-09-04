@@ -63,6 +63,14 @@ export function screenshotSealPath(runId: string): string {
   return path.join(workflowRunDirectory(runId), 'screenshot-seal.json');
 }
 
+export function actorPublicationPath(runId: string): string {
+  return path.join(workflowRunDirectory(runId), 'actor-publication.json');
+}
+
+export function actorPublicationPayloadDirectory(runId: string): string {
+  return path.join(workflowRunDirectory(runId), 'actor-publication-payloads');
+}
+
 /** Repository-local artifacts are durable handoff and audit cache, never Build authority. */
 export function workflowArtifactDirectory(repo: string): string {
   const configured = process.env.CODEX_FLOW_ARTIFACT_DIR?.trim();

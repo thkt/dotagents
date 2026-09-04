@@ -23,7 +23,7 @@ const FLAGS = new Set([
   '--timeout-ms',
   '--tail-bytes',
 ]);
-const ROUTE_PATTERN = /^(?:blocked|direct:implementation)$/u;
+const ROUTE_PATTERN = /^(?:blocked|direct:implementation|direct:U-\d{3})$/u;
 
 function positiveInteger(value: string, flag: string): number {
   const parsed = Number(value);
@@ -50,7 +50,7 @@ export function parseArgs(argv: string[]): GateOptions {
   const failureRoute = values.get('--failure-route');
   if (!failureRoute) throw usageError('--failure-route is required');
   if (!ROUTE_PATTERN.test(failureRoute)) {
-    throw usageError('--failure-route must be blocked or direct:implementation');
+    throw usageError('--failure-route must be blocked, direct:implementation, or direct:U-NNN');
   }
   const cwd = values.get('--cwd');
   if (!cwd) throw usageError('--cwd is required');

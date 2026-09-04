@@ -43,7 +43,7 @@ test('described Code input uses the shared actor and test without Git actions', 
   );
   assert.deepEqual(
     manifest.steps.map((step) => step.id),
-    ['implementation:direct', 'test'],
+    ['U-001:direct', 'U-001:test', 'U-001:solidify', 'U-001:solidify:test'],
   );
   assert.equal(
     manifest.steps.some((step) => step.kind === 'action'),

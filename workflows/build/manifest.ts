@@ -24,8 +24,15 @@ export function compileBuildManifest({
   baseBranch,
   ship,
 }: CompileBuildOptions): FlowManifest {
+  let testNumber = 1;
   const implementation = plan.units.map((unit) => ({
+    id: unit.id,
     outcome: unit.goal,
+    contract: unit.contract,
+    tests: unit.tests.map((test) => ({
+      ...test,
+      id: `T-${String(testNumber++).padStart(3, '0')}`,
+    })),
     scope_paths: unit.files,
   }));
   if (!implementation.length) throw new FlowError('Build Plan must contain an implementation unit');
@@ -51,8 +58,7 @@ export function compileBuildManifest({
     {
       id: 'review:build',
       kind: 'gate',
-      owner: 'implementation:direct',
-      gate: { authority: 'build-review' },
+      gate: { authority: 'build-review', failure_route: 'blocked' },
     },
     {
       id: 'build:commit',

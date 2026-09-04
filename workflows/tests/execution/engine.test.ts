@@ -7,22 +7,24 @@ import path from 'node:path';
 import { test } from 'bun:test';
 
 import type { WorkflowAgent } from '../../execution/agent.ts';
-import type { BuildReviewResult } from '../../execution/contracts.ts';
+import type { BuildReviewInput } from '../../execution/contracts.ts';
 import { runWorkflow, type WorkflowRuntime } from '../../execution/engine.ts';
 import { armIntent } from '../../invocation.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 
 useTemporaryWorkflowStorage('codex-runner-tests-');
 
-const unusedReview: BuildReviewResult = {
-  protocol: 'codex-build-review',
-  verdict: 'pass',
-  classification: 'pass',
-  reason_codes: [],
-  failure_route: null,
-  summary: 'pass',
-  findings: [],
-};
+function reviewPair(input: BuildReviewInput) {
+  return (['contract', 'quality'] as const).map((role) => ({
+    protocol: `codex-build-${role}-review` as const,
+    role,
+    step_id: 'review:build' as const,
+    source_digest: input.source_digest,
+    receipt_set_digest: input.receipt_set_digest,
+    summary: 'pass',
+    findings: [],
+  }));
+}
 
 function repository(): string {
   const repo = temporaryDirectory('codex-runner-repo-');
@@ -59,11 +61,19 @@ test('Code runs the shared actor and test without invoking any Git action', asyn
   );
   let actions = 0;
   const agent: WorkflowAgent = {
-    async runActor(sandboxRepo) {
+    async runActor(sandboxRepo, directive) {
       fs.writeFileSync(path.join(sandboxRepo, 'src/value.ts'), 'export const value = 2;\n');
+      return {
+        protocol: 'codex-flow-actor-result',
+        binding: directive.binding,
+        status: 'completed',
+        summary: 'done',
+        route: null,
+        question: null,
+      };
     },
-    async reviewBuild() {
-      return unusedReview;
+    async reviewBuild(_repo, directive) {
+      return reviewPair(directive.input);
     },
   };
   const runtime: WorkflowRuntime = {
@@ -89,14 +99,23 @@ test('a failing repository test stops the flow', async () => {
     JSON.stringify({ repo, request: '値を更新する', scope_paths: ['src'], test_command: 'false' }),
   );
   const agent: WorkflowAgent = {
-    async runActor() {},
-    async reviewBuild() {
-      return unusedReview;
+    async runActor(_repo, directive) {
+      return {
+        protocol: 'codex-flow-actor-result',
+        binding: directive.binding,
+        status: 'completed',
+        summary: 'done',
+        route: null,
+        question: null,
+      };
+    },
+    async reviewBuild(_repo, directive) {
+      return reviewPair(directive.input);
     },
   };
   const result = await runWorkflow(runId, pending.input_path, { agent, executeAction() {} });
   assert.equal(result.exitCode, 2);
   assert.ok('status' in result.result);
   assert.equal(result.result.status, 'blocked');
-  assert.equal(result.result.last_gate?.gate_id, 'test');
+  assert.equal(result.result.last_gate?.gate_id, 'U-001:test');
 });
