@@ -76,6 +76,60 @@ test('supplies script-read project outcome and distinguishes writable paths', as
   assert.doesNotMatch(prompt, /Allowed repository paths/u);
 });
 
+test('reports the exact mismatched actor binding fields', async () => {
+  const repo = repository('# Project outcome\n\nKeep bindings exact.\n');
+  const client: CodexClientLike = {
+    startThread: () => ({
+      run: async () => ({
+        finalResponse: JSON.stringify({
+          protocol: 'codex-flow-actor-result',
+          binding: { ...directive.binding, attempt: 2, step_id: 'other:direct' },
+          status: 'completed',
+          summary: 'done',
+          route: null,
+          question: null,
+        }),
+      }),
+    }),
+  };
+
+  await assert.rejects(new CodexWorkflowAgent(client).runActor(repo, directive), (error) => {
+    assert.equal(errorCode(error), 'actor_result_invalid');
+    assert.match(
+      String((error as Error).message),
+      /binding fields do not match: step_id, attempt/u,
+    );
+    return true;
+  });
+});
+
+test('reports an inconsistent completed actor result', async () => {
+  const repo = repository('# Project outcome\n\nKeep completion closed.\n');
+  const client: CodexClientLike = {
+    startThread: () => ({
+      run: async () => ({
+        finalResponse: JSON.stringify({
+          protocol: 'codex-flow-actor-result',
+          binding: directive.binding,
+          status: 'completed',
+          summary: 'done',
+          route: 'think',
+          question: 'Unexpected handoff.',
+        }),
+      }),
+    }),
+  };
+
+  await assert.rejects(new CodexWorkflowAgent(client).runActor(repo, directive), (error) => {
+    assert.equal(errorCode(error), 'actor_result_invalid');
+    assert.match(
+      String((error as Error).message),
+      /completed result must have null route and question/u,
+    );
+    return true;
+  });
+});
+
 test('rejects a missing project outcome before starting the model', async () => {
   const repo = repository();
   let starts = 0;
