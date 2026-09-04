@@ -30,8 +30,8 @@ Code accepts a direct request and uses the same implementation executor as Build
 ## Boundaries
 
 - User-authored inputs contain semantic requests and selectors, not internal execution records.
-- Workflow contracts and durable artifacts use English. Human-facing Issue prose and final reports use the configured language.
-- The public Issue JSON Plan is Build authority. The same Plan also generates visible Markdown for human review, followed by a collapsed JSON block. The surrounding title and prose explain the Research and Think decision to people.
+- Workflow contracts and machine-readable artifacts use English. Human-facing Issue prose, visible Plan Markdown, and final reports use the configured language.
+- The public Issue JSON Plan is Build authority. Issue authors derive a faithful `plan_markdown` translation from the ready Think Plan in the configured language used for the title and prose, preserving every requirement, identifier, file path, and command. The controller adds the Plan heading and unchanged canonical JSON block. Existing callers that omit the translated view retain English rendering.
 - Optional PR screenshots are Build delivery input, not public Plan authority.
 - Research reports remain the evidence record. Knowledge is a rebuildable index of original reports; it never derives decisions from Issue artifacts.
 - Build and Code use one implementation actor for the complete requested scope. A failed test or blocking semantic review returns to that actor, followed by tests and review again.

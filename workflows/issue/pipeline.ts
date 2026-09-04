@@ -90,7 +90,7 @@ export function draftIssue(
   const existing =
     input.mode === 'update' ? gateway.view(input.repository, input.target_issue) : null;
   const plan = report.plan;
-  const body = renderPublicIssueBody(input.prose, plan);
+  const body = renderPublicIssueBody(input.prose, plan, input.plan_markdown);
   requireValidPlan(plan);
   if (input.mode === 'create') gateway.checkAccess(input.repository);
   const draft: IssueDraft = {

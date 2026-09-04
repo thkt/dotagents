@@ -279,3 +279,121 @@ test('stops an update when the target changed after draft validation', () => {
   assert.throws(() => publishIssue(draft, gateway), /target issue changed/u);
   assert.equal(gateway.edits, 0);
 });
+
+const englishPlan: BuildPlanAuthoring = {
+  outcome: 'Save and list values.',
+  test_command: 'bun test',
+  units: [
+    {
+      goal: 'Save a value.',
+      files: ['src/value.ts'],
+      contract: 'Return the saved value unchanged.',
+      tests: ['Saving value 2 returns 2.'],
+    },
+    {
+      goal: 'List saved values.',
+      files: ['src/list.ts'],
+      contract: 'Return values in creation order.',
+      tests: ['Two saved values retain their creation order.'],
+    },
+  ],
+};
+
+const japaneseDisplay = `- 成果: 値を保存し、一覧表示できる。
+- 検証コマンド: \`bun test\`
+
+### 1. 値を保存する。
+
+- ファイル: \`src/value.ts\`
+- 契約: 保存した値を変更せず返す。
+- 受け入れ条件: 値 2 を保存すると 2 を返す。
+
+### 2. 保存した値を一覧表示する。
+
+- ファイル: \`src/list.ts\`
+- 契約: 作成順で値を返す。
+- 受け入れ条件: 二つの保存済みの値は作成順を保つ。`;
+
+for (const mode of ['create', 'update'] as const) {
+  test(`${mode} publishes localized display while preserving the canonical English Plan`, () => {
+    const repo = repository();
+    const gateway = new Gateway();
+    const input = validateIssueInput({
+      repo,
+      mode,
+      ...(mode === 'update' ? { target_issue: 1 } : {}),
+      think_report: thinkReport(repo, englishPlan),
+      title: '値の保存と一覧',
+      prose: '## 背景\n\n値の保存と一覧が必要。',
+      plan_markdown: japaneseDisplay,
+    });
+    const published = publishIssue(draftIssue(input, gateway), gateway).issue;
+    const visible = published.body.split('<details>')[0]!;
+    assert.ok(visible.includes(japaneseDisplay));
+    assert.equal((published.body.match(/^## Plan$/gmu) ?? []).length, 1);
+    assert.equal((published.body.match(/```json/gu) ?? []).length, 1);
+    assert.deepEqual(parsePublicIssueBody(published.body).plan, englishPlan);
+    assert.deepEqual(
+      resolveBuildSource({ repo, issue_number: 1, ship: false, screenshots: [] }, repo, gateway)
+        .plan,
+      englishPlan,
+    );
+    assert.equal(gateway.edits, mode === 'update' ? 1 : 0);
+  });
+}
+
+test('rejects invalid localized display before writing an Issue', () => {
+  const repo = repository();
+  const gateway = new Gateway();
+  const original = { ...gateway.issue };
+  const report = thinkReport(repo, englishPlan);
+  for (const planMarkdown of [
+    '',
+    '  ',
+    null,
+    42,
+    '# Heading',
+    '## Plan',
+    '  ## Another section',
+    'Heading\n===',
+    'Heading\n---',
+    '```json\n{}\n```',
+    '~~~json\n{}\n~~~',
+    '<details>Other Plan</details>',
+    '</DETAILS>',
+    '<summary>Other Plan</summary>',
+    '<h2>Other section</h2>',
+  ]) {
+    assert.throws(() => {
+      const input = validateIssueInput({
+        repo,
+        mode: 'update',
+        target_issue: 1,
+        think_report: report,
+        title: '値の保存と一覧',
+        prose: '背景。',
+        plan_markdown: planMarkdown,
+      });
+      publishIssue(draftIssue(input, gateway), gateway);
+    }, /plan_markdown/u);
+  }
+  assert.equal(gateway.edits, 0);
+  assert.deepEqual(gateway.issue, original);
+  assert.throws(
+    () => renderPublicIssueBody('Background.', englishPlan, '## Plan'),
+    /plan_markdown/u,
+  );
+});
+
+test('omitting localized display preserves the English rendering fallback', () => {
+  const body = renderPublicIssueBody('Background.', englishPlan);
+  const visible = body.split('<details>')[0]!;
+  assert.match(visible, /- Outcome:/u);
+  assert.ok(visible.includes(englishPlan.outcome));
+  for (const unit of englishPlan.units) {
+    for (const value of [unit.goal, unit.contract, ...unit.files, ...unit.tests]) {
+      assert.ok(visible.includes(value));
+    }
+  }
+  assert.deepEqual(parsePublicIssueBody(body).plan, englishPlan);
+});

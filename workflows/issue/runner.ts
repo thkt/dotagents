@@ -34,6 +34,7 @@ interface IssueDescription {
     think_report: string;
     title: string;
     prose: string;
+    plan_markdown: string;
   };
   update_template: {
     repo: string;
@@ -42,8 +43,15 @@ interface IssueDescription {
     target_issue: number;
     title: string;
     prose: string;
+    plan_markdown: string;
   };
-  contracts: { source: string; missing_source: string; preview: string; publish: string };
+  contracts: {
+    source: string;
+    missing_source: string;
+    preview: string;
+    publish: string;
+    plan_markdown: string;
+  };
 }
 
 export interface IssuePublishCommandResult {
@@ -86,6 +94,7 @@ export function describeIssue(): IssueDescription {
       think_report: '/absolute/private-think-report.json',
       title: 'Concise title without a task-type prefix',
       prose: 'Human-readable issue context in the configured language',
+      plan_markdown: 'Optional faithful Plan display body in the configured language',
     },
     update_template: {
       repo: '/absolute/git-root',
@@ -94,9 +103,12 @@ export function describeIssue(): IssueDescription {
       target_issue: 123,
       title: 'Updated concise title',
       prose: 'Updated human-readable issue context in the configured language',
+      plan_markdown: 'Optional faithful Plan display body in the configured language',
     },
     contracts: {
       source: 'think_report must contain a ready Plan',
+      plan_markdown:
+        'Optional presentation only: translate the complete ready Think Plan outcome, test command, unit goals, files, contracts and acceptance checks in the same order into the configured language used for the Issue title and prose. Preserve identifiers, test_command and file paths verbatim. Supply only the display body with H3 or smaller headings; omit H1/H2, fences and details/summary tags. The runtime adds the Plan heading and unchanged canonical JSON. Omit this field to use the existing English-label renderer.',
       missing_source:
         'stop consumes the pending intent and publication approval without creating an input or writing to GitHub',
       preview: 'draft is validated before publication',

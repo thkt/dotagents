@@ -6,7 +6,7 @@ import { FlowError } from '../shared/errors.ts';
 import { gitRoot } from '../shared/repository.ts';
 import { thinkArtifactDirectory } from '../runtime/storage.ts';
 import { githubRepositoryForRemote } from './github.ts';
-import { positiveIssue } from './public-contract.ts';
+import { positiveIssue, validatePlanMarkdown } from './public-contract.ts';
 import { enumValue, isObject, requiredString } from '../shared/schema.ts';
 
 export const ISSUE_RESULT_PROTOCOL = 'codex-issue-result' as const;
@@ -19,6 +19,7 @@ interface IssueInputBase {
   think_report: string;
   title: string;
   prose: string;
+  plan_markdown?: string;
 }
 
 export type IssueInput = IssueInputBase &
@@ -44,6 +45,9 @@ export function validateIssueInput(raw: unknown): IssueInput {
   const repo = gitRoot(suppliedRepo, 'issue input.repo must be a Git worktree');
   const remote = 'origin';
   const common = {
+    ...(raw.plan_markdown === undefined
+      ? {}
+      : { plan_markdown: validatePlanMarkdown(raw.plan_markdown) }),
     repo,
     repository: githubRepositoryForRemote(repo, remote),
     remote,
