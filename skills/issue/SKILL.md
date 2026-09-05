@@ -5,6 +5,8 @@ description: Turn reviewed Research and Think artifacts into a readable, build-r
 
 # Issue
 
+Follow the common [contract granularity](../../workflows/README.md) when deciding what this stage must establish.
+
 Before preparing a publication contract, read [.codex/OUTCOME.md](../../.codex/OUTCOME.md).
 
 Inspect the current input, preview, and publication contract with `codex-issue describe`.
@@ -29,7 +31,7 @@ Inspect the current input, preview, and publication contract with `codex-issue d
 
 ## Escalation
 
-An invalid or incomplete Plan returns to `think`. GitHub failures stop in `issue`.
+A Plan missing required behavior, scope, compatibility, safety, or acceptance returns to `think`; unspecified internal choices alone are not incompleteness. Publish the reviewed contract unchanged. GitHub failures stop in `issue`.
 
 ## Report
 

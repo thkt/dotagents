@@ -11,4 +11,6 @@ Turn Research findings into a Think Plan, publish that Plan once in a public Iss
 - Code uses the same implementation executor as Build without creating commits, pushes, or pull requests.
 - Workflow contracts and canonical JSON Plans stay in English; human-facing Issue prose, visible Plan Markdown, and final reports use the configured language.
 
+Contract granularity follows [the common workflow policy](../workflows/README.md): establish observable requirements and necessary compatibility/safety boundaries, then delegate in-scope implementation decisions.
+
 Verification uses `bun run check`.

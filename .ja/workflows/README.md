@@ -13,6 +13,16 @@
 
 Code は直接の変更依頼を受け、Build と共通の executor を Git action なしで使う。
 
+## 契約の粒度
+
+この節を Research・Think・Issue・Build・Code の共通方針とする。
+
+契約には、観測可能な動作、許可する編集範囲、必要な外部互換性・永続データの互換性、安全条件、受け入れを確認する証拠を定める。正確な名前・型・field・format・algorithm は、明示した互換性または安全性の要件に必要な場合だけ指定する。それ以外の内部の型・関数・範囲内のファイル構成・algorithm は実装担当が選ぶ。Issue に全 TypeScript schema や API 名を列挙する必要はない。
+
+Research は事実を確認し、未解決の事実上の主張を示す。未指定の実装上の選択は証拠不足ではない。Think は委譲に必要な外部要件と制約を確定し、実装上の選択を担当へ残す。その要件を変え得る、本当に未確定の事実は Research へ戻す。Issue はレビュー済みの同じ Plan を忠実に公開し、公開や翻訳で内部要件を追加しない。
+
+Build と Code はこの区別に従い、認可された範囲で実装・自己レビューする。handoff を提案した場合だけ、返却前に独立した read-only review が、本当に契約外の設計判断または事実不足かを確認する。handoff が不要なら、その指摘を同じ実装 actor に返し、1回だけ修正する。unit stage や、成功した actor 呼び出しへの無条件の review は追加しない。確認された設計判断は Think、事実不足は Research に戻す。通常の実装上の選択と test failure はローカルの作業として扱う。現在の test・source・review・公開時の検証は維持する。
+
 ## Ownership
 
 | Directory    | 責務                                         |

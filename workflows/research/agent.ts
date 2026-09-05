@@ -1,5 +1,6 @@
 /** @file Outcome: Independent read-only Codex threads discover and challenge evidence before it becomes research. */
 
+import { PLAN_DECISION_GUIDANCE } from '../plan/contracts.ts';
 import {
   createSignedInCodexClient,
   readOnlyThreadOptions,
@@ -62,6 +63,8 @@ function commonResearchContext(input: ResearchInput, projectOutcome: string): st
     `Question: ${JSON.stringify(input.question)}`,
     projectOutcome,
     'Write all contract statements in English. Preserve repository identifiers and quoted source text.',
+    PLAN_DECISION_GUIDANCE,
+    'Establish requested facts and identify unresolved factual claims. Do not require a future implementation to exist already or invent internal API requirements; distinguish current repository evidence from implementation choices left to Think and the implementation owner.',
     scopeInstruction(input),
     externalInstruction(input),
     'Inspect the smallest relevant primary repository documentation. Cite repository docs as ordinary evidence and independently verify their claims; do not rely on implicit artifact context.',
