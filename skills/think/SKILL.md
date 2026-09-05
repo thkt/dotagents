@@ -5,7 +5,9 @@ description: Turn one change request and optional Research reports into an indep
 
 # Think
 
-Read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) and the relevant [workflow contracts](../../workflows/README.md) to judge scope. If OUTCOME.md is missing, ask the user to create it with the project outcome and verifiable completion criteria before running Think. Put implementation constraints in the affected unit contract and planned tests instead of copying repository guidance into the Plan.
+Follow the common [contract granularity](../../workflows/README.md) when deciding what this stage must establish.
+
+Read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) and the relevant [workflow contracts](../../workflows/README.md) to judge scope. If OUTCOME.md is missing, ask the user to create it with the project outcome and verifiable completion criteria before running Think. State the required behavior and justified constraints in the affected unit contract and acceptance tests without copying repository guidance.
 
 Inspect the current input and decision contract with `codex-think describe`.
 Invoke the first bound workflow command itself with network escalation, requesting persistent approval for prefix `["codex-think", "run"]` in that same tool call when supported. If a genuine transient `model_unavailable` occurs, preserve the intent and retry the exact same command with network escalation.
@@ -18,8 +20,8 @@ Invoke the first bound workflow command itself with network escalation, requesti
 
 ## Boundaries
 
-- Route an unknown that can change the design back to research instead of planning around an assumption.
-- Use the repository snapshot and explicitly selected Research as the factual basis. Verify Knowledge-selected report claims against the current snapshot; report dates alone do not establish freshness, and do not copy evidence, hashes, or repository rules into the Plan.
+- Route unresolved facts that can change the requirements to Research. Leave in-scope implementation choices to the owner; their absence does not make a Plan incomplete.
+- Use the repository snapshot and explicitly selected Research as the factual basis. Verify Knowledge-selected report claims against the current snapshot; report dates alone do not establish freshness, and do not copy investigation evidence or repository rules into the Plan.
 
 ## Report
 

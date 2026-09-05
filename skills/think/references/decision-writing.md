@@ -1,6 +1,6 @@
 # Decision Writing
 
-Read this reference when wording the outcome or Plan.
+Read this reference when wording the outcome or Plan. Follow the common [contract granularity](../../../workflows/README.md).
 
 ## Concrete claims
 
@@ -13,9 +13,9 @@ Read this reference when wording the outcome or Plan.
 ## Outcome and Plan
 
 - Describe a subject's observable done state without naming the implementation.
-- Make each unit goal independently observable and each contract name the source or constraint it preserves.
+- Make each unit goal independently observable and each contract state the required behavior and constraints it preserves. Leave internal design choices open unless compatibility or safety requires a specific choice.
 - Write each `unit.tests[]` item as an observable acceptance condition under `test_command`.
-- Do not copy source citations, repository rules, hashes, alternatives, or rationale into the Plan. Think uses them to decide; Build does not need them to implement.
+- Keep research citations, copied repository rules, alternatives, and general rationale out of the Plan. Include exact formats, identifiers, or digest behavior only when a stated external, persisted-compatibility, or safety requirement needs them; do not enumerate internal APIs for completeness.
 
 ## Deletion
 

@@ -5,6 +5,8 @@ description: Investigate one repository question into a source-checked report wi
 
 # Research
 
+Follow the common [contract granularity](../../workflows/README.md) when deciding what this stage must establish.
+
 Read [.codex/OUTCOME.md](../../.codex/OUTCOME.md) and inspect only the minimal relevant primary sources. If it is missing, ask the user to create it with the project outcome and verifiable completion criteria before running Research.
 
 Inspect the current input and artifact contract with `codex-research describe`.
@@ -18,7 +20,7 @@ Invoke the first bound workflow command itself with network escalation, requesti
 
 ## Boundaries
 
-- Leave unresolved claims explicit instead of completing them by assumption.
+- Leave unresolved factual claims explicit; an internal implementation choice left to the owner is not a factual unknown.
 - Treat related Knowledge as a lead and cite the current repository or external source that supports each finding.
 
 ## Report

@@ -11,6 +11,10 @@ import {
 import { oneLine, sentenceItems } from '../shared/text.ts';
 import { NON_BLANK_STRING_SCHEMA } from '../shared/structured-output.ts';
 
+/** Shared decision boundary for Plan authors, implementers, and reviewers. */
+export const PLAN_DECISION_GUIDANCE =
+  'A Plan fixes observable behavior, authorized edit scope, required external or persisted compatibility, safety conditions, and acceptance evidence. Specify exact internal names, types, fields, formats, or algorithms only when a stated compatibility or safety requirement depends on them. Otherwise the implementation owner chooses internal types, record layouts, functions, APIs, and algorithms within scope. Unspecified implementation choices are not missing facts; do not invent hidden compatibility requirements. Preserve requirements established by the authorized contract and current repository evidence.';
+
 export interface BuildPlanAuthoring {
   outcome: string;
   test_command: string;

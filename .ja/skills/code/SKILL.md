@@ -5,9 +5,11 @@ description: 直接的な repository 変更1件を、任意の scope と test co
 
 # Code
 
+この段階で確定する内容は、共通の[契約の粒度](../../workflows/README.md)に従う。
+
 `codex-code describe`で現在の input を確認し、最初の hook-bound command 自体を network escalation で呼ぶ。Code は scope 内の repository file を任意に編集できるため、`codex-code run` prefix の永続的な許可は要求しない。controller は Build と共通の implementation executor に request を compile する。
 
-1 人の actor が依頼全体を実装・自己レビューし、共通の test gate で検証する。検証で失敗した場合だけ実装へ戻す。
+1 人の actor が依頼全体を実装・自己レビューし、共通の test gate で検証する。検証の失敗は実装へ戻す。却下された handoff 提案には、共通方針に従って1回の修正を行う。
 
 ## 判断
 
@@ -25,7 +27,7 @@ description: 直接的な repository 変更1件を、任意の scope と test co
 
 ## エスカレーション
 
-契約外の設計不足は `think` に戻し、事実・証拠不足は `research` に戻す。機械的な実装・テスト失敗はローカルで修正する。
+設計質問を `think`、事実不足を `research` に返す前に、共通方針の handoff review を行う。未指定の内部実装の選択は実装担当が決める。
 
 ## 報告
 
