@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'bun:test';
 
-import type { WorkflowAgent } from '../../execution/agent.ts';
+import { CodexWorkflowAgent, type WorkflowAgent } from '../../execution/agent.ts';
 import type { BuildReviewInput } from '../../execution/contracts.ts';
 import { runWorkflow, type WorkflowRuntime } from '../../execution/engine.ts';
 import { armIntent } from '../../runtime/invocation.ts';
@@ -127,6 +127,75 @@ test('an invalid actor result blocks without publishing its sandbox', async () =
     result.result.runtime_failure?.error ?? '',
     /completed result must have null route/u,
   );
+});
+
+test('an unsupported handoff continues in the same sandbox and publishes only completion', async () => {
+  const repo = repository();
+  fs.mkdirSync(path.join(repo, '.codex'));
+  fs.writeFileSync(path.join(repo, '.codex/OUTCOME.md'), '# Outcome\nUpdate the value.');
+  const pending = codeInput(repo, `runner-handoff-${crypto.randomUUID()}`);
+  let calls = 0;
+  let starts = 0;
+  let reviews = 0;
+  const agent = new CodexWorkflowAgent({
+    startThread(options) {
+      const file = path.join(options!.workingDirectory!, 'src/value.ts');
+      assert.notEqual(options!.workingDirectory, repo);
+      if (options?.sandboxMode === 'read-only') {
+        return {
+          async run() {
+            reviews += 1;
+            assert.match(fs.readFileSync(file, 'utf8'), /value = 2/u);
+            assert.match(fs.readFileSync(path.join(repo, 'src/value.ts'), 'utf8'), /value = 1/u);
+            return {
+              finalResponse: JSON.stringify({
+                decision: 'continue',
+                reason: 'Complete the authorized value update.',
+              }),
+            };
+          },
+        };
+      }
+      starts += 1;
+      return {
+        async run() {
+          calls += 1;
+          if (calls === 1) {
+            fs.writeFileSync(file, 'export const value = 2;\n');
+            return {
+              finalResponse: JSON.stringify({
+                status: 'escalated',
+                route: 'think',
+                question: 'Please provide another implementation turn.',
+                summary: 'Partial progress.',
+              }),
+            };
+          }
+          assert.match(fs.readFileSync(file, 'utf8'), /value = 2/u);
+          fs.writeFileSync(file, 'export const value = 3;\n');
+          return {
+            finalResponse: JSON.stringify({
+              status: 'completed',
+              route: null,
+              question: null,
+              summary: 'Implemented and verified.',
+            }),
+          };
+        },
+      };
+    },
+  });
+  const result = await runWorkflow(pending.run_id, pending.input_path, {
+    agent,
+    executeAction() {
+      throw new Error('Code must not perform Git actions');
+    },
+  });
+  assert.equal(result.exitCode, 0);
+  assert.equal(starts, 1);
+  assert.equal(calls, 2);
+  assert.equal(reviews, 1);
+  assert.match(fs.readFileSync(path.join(repo, 'src/value.ts'), 'utf8'), /value = 3/u);
 });
 
 test('a failing repository test stops the flow', async () => {
