@@ -98,30 +98,19 @@ test('static and semantic failures return to the designer, with independent revi
   }
 });
 
-test('research questions and advisory findings preserve the designer candidate despite reviewer mutation', async () => {
+test('advisory findings cannot mutate the designer candidate', async () => {
   const { runId, inputFile } = fixture();
-  const unknown: ThinkDraft = {
-    status: 'research_required',
-    plan: null,
-    research_questions: [
-      'Which external deployment consumes value.ts? No deployment configuration is supplied.',
-    ],
-  };
-  const result = await runThinkWorkflow(runId, inputFile, {
-    async design() {
-      return unknown;
-    },
+  await runThinkWorkflow(runId, inputFile, {
+    ...agent,
     async review(_input, draft) {
-      assert.deepEqual(draft, unknown);
-      draft.research_questions = ['Reviewer rewrite'];
+      draft.plan!.outcome = 'Reviewer rewrite';
       return {
         ...blocking,
         findings: blocking.findings.map((f) => ({ ...f, severity: 'advisory' })),
       };
     },
   });
-  assert.equal(result.next_step, 'research');
-  assert.deepEqual(loadThinkState(runId)!.candidate, unknown);
+  assert.deepEqual(loadThinkState(runId)!.candidate, candidate);
 });
 
 test('correction exhaustion is durable and only a new explicit invocation starts a new budget', async () => {

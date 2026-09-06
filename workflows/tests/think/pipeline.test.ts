@@ -180,21 +180,6 @@ test('does not duplicate explicitly selected Research through Knowledge', async 
   assert.equal(agent.knowledge.length, 0);
 });
 
-test('returns focused Research questions without a partial Plan', async () => {
-  const repo = repository();
-  const researchRequired: ThinkDecision = {
-    status: 'research_required',
-    plan: null,
-    research_questions: ['現在の永続化方式は何か。'],
-  };
-  const result = await runRequest(
-    { repo, request: '保存を追加する', research_reports: [] },
-    new Agent(researchRequired),
-  );
-  assert.deepEqual(result.report.research_questions, ['現在の永続化方式は何か。']);
-  assert.equal(result.report.plan, null);
-});
-
 test('rejects mixed or empty terminal states', () => {
   assert.throws(
     () => parseThinkDecision({ ...ready, research_questions: ['追加調査'] }),

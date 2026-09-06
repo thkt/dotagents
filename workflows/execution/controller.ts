@@ -77,6 +77,10 @@ import { describeBuildRunInput, parseBuildRunInput } from '../build/input.ts';
 import { compileCodeManifest, describeCodeInput, parseCodeInput } from '../code/manifest.ts';
 import { parseBuildReviewCandidate } from './agent.ts';
 import { requireCompletedActor, createActorReceipt, validateReceipt } from './actor-receipt.ts';
+import { createRepositorySnapshot } from './repository-isolation.ts';
+import { workflowRunDirectory } from '../runtime/storage.ts';
+import { thinkDigest } from '../think/state.ts';
+import type { ResearchReport } from '../research/contracts.ts';
 import { sealRepository } from './source-seal.ts';
 
 /** Loads the task-bound state and rejects stale or malformed records. */
@@ -97,7 +101,17 @@ function loadWorkflowState(runId: string): { file: string; state: FlowState } {
       throw new FlowError('workflow state has an invalid run id', 'state_error');
     }
     if (
-      state.execution_revision !== 1 ||
+      state.execution_revision !== 2 ||
+      !Array.isArray(state.research_context) ||
+      !(
+        state.handoff === null ||
+        (state.handoff &&
+          typeof state.handoff.snapshot === 'string' &&
+          path.isAbsolute(state.handoff.snapshot) &&
+          typeof state.handoff.source_digest === 'string' &&
+          typeof state.handoff.binding === 'string' &&
+          (state.handoff.proposal === null || typeof state.handoff.proposal === 'string'))
+      ) ||
       typeof state.actor_dispatched !== 'boolean' ||
       typeof state.review_dispatch_id !== 'string' ||
       !state.review_dispatch_id ||
@@ -316,7 +330,7 @@ function startWorkflow(runId: string, inputFile: string): PublicState {
   }
   const state: FlowState = {
     protocol: STATE_PROTOCOL,
-    execution_revision: 1,
+    execution_revision: 2,
     invocation_id: crypto.randomUUID(),
     actor_dispatched: false,
     review_dispatch_id: crypto.randomUUID(),
@@ -338,6 +352,8 @@ function startWorkflow(runId: string, inputFile: string): PublicState {
     actor_baseline: null,
     actor_binding: null,
     action_baseline: null,
+    handoff: null,
+    research_context: [],
     escalation: null,
     runtime_failure: null,
     ship_authorization_revoked: false,
@@ -364,6 +380,26 @@ export function escalateWorkflow(
 ): PublicState {
   const { file, state } = loadWorkflowState(runId);
   const step = requireStep(state, stepId, ['actor']);
+  if (state.workflow === 'build') {
+    const snapshot = path.join(
+      workflowRunDirectory(runId),
+      'handoffs',
+      crypto.randomUUID(),
+      'snapshot',
+    );
+    createRepositorySnapshot(state.manifest.repo, snapshot);
+    state.handoff = {
+      snapshot,
+      source_digest: sealRepository(state.manifest.repo).source_digest,
+      binding: thinkDigest({
+        invocation: state.invocation_id,
+        actor: state.actor_binding,
+        plan: state.build_plan,
+        escalationData,
+      }),
+      proposal: null,
+    };
+  }
   state.status = 'blocked';
   state.actor_baseline = null;
   state.action_baseline = null;
@@ -434,9 +470,7 @@ function startOrResumeWorkflow(runId: string, inputFile: string): PublicState {
         (existing.escalation !== null || existing.runtime_failure != null) &&
         !loadIntent(runId)
       ) {
-        if (path.resolve(inputFile) !== workflowInputPath(runId, existing.workflow)) {
-          throw new FlowError('resume requires the hook-supplied input path', 'state_error');
-        }
+        requireOriginalInput(existing, inputFile);
         return publicState(existing);
       }
       requireOriginalInput(existing, inputFile);
@@ -951,6 +985,7 @@ function directiveForState(state: FlowState): FlowDirective {
       verification: actorVerification(state, step),
       screenshots: actorScreenshotAttachments(state, step.id),
       correction: correctionContext(state, step.id),
+      ...(state.research_context.length ? { research: state.research_context } : {}),
     };
   }
   if (step.kind === 'action') {
@@ -1198,3 +1233,46 @@ export {
   startOrResumeWorkflow,
   workflowStatus,
 };
+
+/** Adopt read-only evidence only under the suspended public Plan and unchanged source. */
+export function finishStageReturn(
+  runId: string,
+  binding: string,
+  result: { research?: ResearchReport; proposal?: string; error?: string },
+): PublicState {
+  const { file, state } = loadWorkflowState(runId);
+  if (
+    !state.handoff ||
+    state.handoff.binding !== binding ||
+    !state.escalation ||
+    state.status !== 'blocked'
+  )
+    throw new FlowError('stale Build stage return', 'state_error');
+  if (result.error) {
+    state.runtime_failure = {
+      step_id: state.escalation.step_id,
+      stage: 'cross_stage_return',
+      classification: 'stage_return_blocked',
+      error: result.error,
+      retryable: false,
+    };
+    return save(file, state);
+  }
+  requireOriginalInput(state, workflowInputPath(runId, state.workflow));
+  if (sealRepository(state.manifest.repo).source_digest !== state.handoff.source_digest)
+    throw new FlowError('Build source changed during stage return', 'state_error');
+  state.runtime_failure = null;
+  if (result.proposal) {
+    state.handoff.proposal = result.proposal;
+    state.escalation.next_step = 'issue';
+    state.escalation.summary = `Proposed Plan: ${result.proposal}. Authorize Issue publication and start a new Build; this Build cannot adopt the proposal.`;
+  } else if (result.research) {
+    state.research_context.push(result.research);
+    state.handoff = null;
+    state.escalation = null;
+    state.status = 'running';
+    state.actor_attempt++;
+    prepareCurrentStep(state);
+  }
+  return save(file, state);
+}
