@@ -10,9 +10,9 @@ import { runResearchWorkflow } from '../../research/runner.ts';
 import {
   loadResearchState,
   saveResearchState,
-  researchDigest,
   researchSnapshotPath,
   researchPublicationPaths,
+  researchDigest,
 } from '../../research/state.ts';
 import { researchArtifactDirectory, researchStatePath } from '../../runtime/storage.ts';
 import { type ResearchAgent } from '../../research/agent.ts';
@@ -153,23 +153,27 @@ test('three corrections remain exhausted across retries without new intent', asy
   assert.equal(calls, 4);
 });
 
-test('malformed auditor and transport failures retry once without investigator corrections', async () => {
-  for (const invalid of ['malformed', 'transport']) {
-    const { runId, inputFile, repo } = fixture();
-    let audits = 0;
-    const failing: ResearchAgent = {
-      ...agent,
-      async audit() {
-        audits++;
-        if (invalid === 'transport') throw new Error('timeout');
-        return { answer: 'Auditor cannot author a report.' } as unknown as ResearchAudit;
-      },
-    };
-    await assert.rejects(runResearchWorkflow(runId, inputFile, failing), /Research blocked/);
-    await assert.rejects(runResearchWorkflow(runId, inputFile, failing), /Research blocked/);
-    assert.equal(audits, 2);
-    assert.equal(loadResearchState(runId)!.corrections, 0);
-    assert.equal(fs.existsSync(researchArtifactDirectory(repo)), false);
+test('indeterminate model failures stop at the retry budget without publication or corrections', async () => {
+  for (const stage of ['investigate', 'audit'] as const) {
+    for (const failure of ['malformed', 'transport'] as const) {
+      const { runId, inputFile, repo } = fixture();
+      let calls = 0;
+      const fail = async () => {
+        calls++;
+        if (failure === 'transport') throw new Error('model connection unavailable');
+        return {};
+      };
+      const failing = { ...agent, [stage]: fail } as ResearchAgent;
+      await assert.rejects(runResearchWorkflow(runId, inputFile, failing), /Research blocked/);
+      await assert.rejects(runResearchWorkflow(runId, inputFile, failing), /Research blocked/);
+      const state = loadResearchState(runId)!;
+      assert.equal(state.phase, 'blocked');
+      assert.ok(state.reason);
+      assert.equal(state.corrections, 0);
+      assert.equal(calls, 2);
+      assert.equal(loadIntent(runId), null);
+      assert.equal(fs.existsSync(researchArtifactDirectory(repo)), false);
+    }
   }
 });
 
@@ -190,6 +194,11 @@ test('a competing run or intent cannot dispatch while an owner holds the Researc
   const before = fs.readFileSync(researchStatePath(runId), 'utf8');
   try {
     await assert.rejects(runResearchWorkflow(runId, inputFile, agent), /active runtime owner/);
+    // Even invalid input is inspected only after ownership, so a contender cannot race startup.
+    await assert.rejects(
+      runResearchWorkflow(runId, '/missing-input.json', agent),
+      /active runtime owner/,
+    );
     assert.throws(
       () => armIntent({ runId, workflow: 'research', cwd: repo }),
       /active runtime owner/,
@@ -306,7 +315,7 @@ test('real process exits resume saved candidates, audits and paired publication 
   }
 }, 15000);
 
-test('resume rejects changed input and old or corrupt state before dispatch', async () => {
+test('resume rejects changed input and unsupported or corrupt state before dispatch', async () => {
   const { runId, inputFile } = fixture();
   const originalInput = fs.readFileSync(inputFile, 'utf8');
   const saved = await interruptAt(runId, inputFile, 'audit');
@@ -314,16 +323,10 @@ test('resume rejects changed input and old or corrupt state before dispatch', as
   await assert.rejects(runResearchWorkflow(runId, inputFile, agent), /exact original input/);
   assert.equal(fs.readFileSync(researchStatePath(runId), 'utf8'), saved);
   fs.writeFileSync(inputFile, originalInput);
-  const obsolete = JSON.parse(saved);
-  obsolete.state.protocol = 'codex-research-state-v1';
-  obsolete.state.report = null;
-  delete obsolete.state.generated_at;
-  obsolete.digest = researchDigest(obsolete.state);
-  for (const corrupt of [
-    JSON.stringify(obsolete),
-    '{}',
-    saved.replace('codex-research-state-v2', 'codex-research-state-v0'),
-  ]) {
+  const unsupported = JSON.parse(saved);
+  unsupported.state.protocol = 'unsupported-research-state';
+  unsupported.digest = researchDigest(unsupported.state);
+  for (const corrupt of ['{}', JSON.stringify(unsupported)]) {
     fs.writeFileSync(researchStatePath(runId), corrupt);
     await assert.rejects(runResearchWorkflow(runId, inputFile, agent), /Retain the record/);
     assert.equal(fs.readFileSync(researchStatePath(runId), 'utf8'), corrupt);

@@ -1,11 +1,11 @@
 /** @file Outcome: Research validates, independently audits, corrects and resumes one immutable snapshot. */
 
 import crypto from 'node:crypto';
-import fs from 'node:fs';
 import path from 'node:path';
 import { errorCode, errorMessage, FlowError } from '../shared/errors.ts';
 import { readRepositoryEvidence } from '../shared/evidence.ts';
 import {
+  validateResearchInput,
   parseResearchDraft,
   parseResearchAudit,
   parseResearchReport,
@@ -16,10 +16,11 @@ import {
 import { CodexResearchAgent, type ResearchAgent } from './agent.ts';
 import { persistResearchReport } from './artifact.ts';
 import { searchKnowledge, updateKnowledge } from './knowledge.ts';
-import { withRepositorySnapshot } from '../execution/repository-isolation.ts';
+import { createRepositorySnapshot } from '../execution/repository-isolation.ts';
 import { sealRepository } from '../execution/source-seal.ts';
 import { acquireWorkflowOwnership } from '../runtime/ownership.ts';
 import { clearIntent, loadIntent, requireResearchIntent } from '../runtime/invocation.ts';
+import { readAbsoluteJson } from '../runtime/cli.ts';
 import { workflowInputPath } from '../runtime/storage.ts';
 import {
   loadResearchState,
@@ -122,26 +123,30 @@ function correct(runId: string, state: ResearchState, reason: string): void {
   saveResearchState(runId, state);
 }
 
-/** Optional context is the CLI's exact task binding; library calls create separate runs. */
+/** Starts or resumes only the exact task-bound input while holding exclusive ownership. */
 export async function runResearch(
-  input: ResearchInput,
+  runId: string,
+  inputFile: string,
   agent?: ResearchAgent,
-  context?: { runId: string; inputFile: string },
 ): Promise<ResearchRunResult> {
-  input = structuredClone(input);
-  const runId = context?.runId ?? crypto.randomUUID();
   using _ownership = acquireWorkflowOwnership(runId);
   let state = loadResearchState(runId);
-  if (context) {
-    if (!state || loadIntent(runId)) requireResearchIntent(runId, input.repo, context.inputFile);
-    if (path.resolve(context.inputFile) !== workflowInputPath(runId, 'research'))
-      throw new FlowError(
-        'use the research input path supplied by the workflow hook',
-        'authorization_error',
-      );
-    // A new explicit invocation can replace only a terminal run, never active work.
-    if (state && ['completed', 'blocked'].includes(state.phase) && loadIntent(runId)) state = null;
-  }
+  const intent = loadIntent(runId);
+  const scopeRepo =
+    state && !intent
+      ? state.phase === 'completed'
+        ? null
+        : researchSnapshotPath(runId, state)
+      : undefined;
+  const input = validateResearchInput(readAbsoluteJson(inputFile, 'research'), scopeRepo);
+  if (!state || intent) requireResearchIntent(runId, input.repo, inputFile);
+  if (path.resolve(inputFile) !== workflowInputPath(runId, 'research'))
+    throw new FlowError(
+      'use the research input path supplied by the workflow hook',
+      'authorization_error',
+    );
+  // A new explicit invocation can replace only a terminal run, never active work.
+  if (state && ['completed', 'blocked'].includes(state.phase) && intent) state = null;
   if (state && researchDigest(state.input) !== researchDigest(input))
     throw new FlowError(
       'Research resume requires the exact original input; use a new task for a different question',
@@ -150,10 +155,7 @@ export async function runResearch(
   if (!state) {
     const invocation = crypto.randomUUID();
     const snapshot = researchSnapshotPath(runId, { invocation });
-    await withRepositorySnapshot(input.repo, async (source) => {
-      fs.mkdirSync(path.dirname(snapshot), { recursive: true, mode: 0o700 });
-      fs.cpSync(source, snapshot, { recursive: true, verbatimSymlinks: true });
-    });
+    createRepositorySnapshot(input.repo, snapshot);
     state = {
       protocol: 'codex-research-state-v2',
       invocation,
@@ -175,7 +177,7 @@ export async function runResearch(
     saveResearchState(runId, state);
   }
   // The durable state now carries authorization and exact input; restarting needs no new intent.
-  if (context) clearIntent(runId);
+  clearIntent(runId);
   const investigator = () => (agent ??= new CodexResearchAgent());
   while (true) {
     if (state.phase === 'blocked')

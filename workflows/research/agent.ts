@@ -75,7 +75,7 @@ function commonResearchContext(input: ResearchInput, projectOutcome: string): st
 }
 
 /** Gives the investigator an answerable boundary without prescribing search mechanics. */
-export function investigationPrompt(
+function investigationPrompt(
   input: ResearchInput,
   knowledge: KnowledgeEntry[],
   projectOutcome: string,
@@ -104,7 +104,7 @@ export function investigationPrompt(
 }
 
 /** Gives a fresh thread the candidate record and requires independent counter-search before synthesis. */
-export function auditPrompt(
+function auditPrompt(
   input: ResearchInput,
   draft: ResearchDraft,
   knowledge: KnowledgeEntry[],

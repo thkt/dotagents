@@ -81,6 +81,8 @@ PR 作成時点では PR #33 はマージ済み。`main` と作業ブランチ�
 
 最初の fixture は必須 OUTCOME がなく、モデル呼び出し前に停止した。上記は fixture を補完した後の成功実測であり、最初の295 msの停止や、一般的な成功率とは区別する。この実測後に追加した task binding と保存先の固定は deterministic な再開テストで検証する。
 
-P2 の最終 `bun run check` は 278 pass / 0 fail。実プロセスを調査 dispatch 前、候補保存後、監査前、監査保存後、公開状態保存後、JSON 保存後に終了して再開した。修正途中の文脈保持、2回の未受理 dispatch による再試行上限、競合所有、変更された入力・snapshot・dispatch の拒否、削除された live scope の snapshot による検証、保存先設定変更後の部分公開復旧も確認した。旧 Research Report を使う Think / Knowledge の既存テストを維持した。
+P2 の最終 `bun run check` は 272 pass / 0 fail。実プロセスを調査 dispatch 前、候補保存後、監査前、監査保存後、公開状態保存後、JSON 保存後に終了して再開した。修正途中の文脈保持、2回の未受理 dispatch による再試行上限、競合所有、変更された入力・snapshot・dispatch の拒否、削除された live scope の snapshot による検証、保存先設定変更後の部分公開復旧も確認した。旧 Research Report を使う Think / Knowledge の既存テストを維持した。
 
 PR #37 のレビュー後、完成直後の Markdown 二重書き込みと、完成結果の取得時に snapshot を要求する処理を修正した。正常な成果物は書き直さず、欠落した Markdown は snapshot なしで再生成する。Report の二重保存を除き、候補と固定生成日時から導出する Research state v2 に更新した。v1 は記録を保持して拒否する。2回目の Markdown 書き込みを失敗させる子プロセス検証、snapshot と live scope の削除後の取得、生成日時・JSON・mtime の保持、Markdown の欠落復旧、旧形式の拒否を deterministic tests で確認した。
+
+追加の簡素化では、入力・intent・state の確認を pipeline の所有 lock 内に集約し、テスト専用の任意 context 経路を削除した。snapshot は再開用の保存先へ直接作成し、一時 snapshot からの全体コピーを除いた。重複した正常系・失敗系と固定の prompt 文言テストを、本番 runner 経由の境界検証と独立 SDK thread への入力確認に統合した。保存先の上書き拒否、未追跡・staged ファイルの保持、失敗時の上限・未公開、未対応 state の拒否を含めて deterministic tests で確認した。
