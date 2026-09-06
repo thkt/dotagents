@@ -24,6 +24,16 @@ Research establishes facts and names unresolved factual claims. An unspecified i
 
 Build and Code implement and self-review within the authorized scope using this distinction. Before returning a proposed handoff, an independent read-only review checks whether it identifies a genuine contract-external design decision or missing fact. If the handoff is unnecessary, return the finding to the same implementation actor for one correction; do not add a unit stage or an unconditional review to successful actor calls. Confirmed design decisions return to Think and missing facts to Research. Ordinary implementation choices and test failures remain local work. Preserve the current test, source, review, and publication checks.
 
+## Issue review and publication recovery
+
+The bound `codex-issue draft --input ...` runner treats the supplied title, prose and optional localized display as its initial candidate. It validates the rendered Plan and runs an independent read-only fidelity review. Blocking presentation findings return to a separate author; corrected candidates are validated and independently reviewed again. The canonical Think Plan never changes. A required Plan change stops for Think. There are at most three corrections and two attempts per model operation; restarts preserve both budgets and the saved assignment.
+
+Issue state uses `codex-issue-state-v1` under the existing task ownership lock. The explicit Issue approval transfers into this saved invocation before model work. Resume with the original input through the same draft command; do not arm a replacement invocation while review or publication is pending. Input, Think report, review binding, contract, snapshot and preview changes reject stale publication. Legacy preview files do not establish review or authorization, and incompatible state is retained with recovery instructions.
+
+The runtime saves a pending write before GitHub create/edit. A saved create identity or fixed update target can be reconciled against the exact accepted title and body. If create may have succeeded but no identity was captured, the runner reports `publication_unknown` and never retries create. Retain the run record, inspect GitHub and resolve the uncertain publication explicitly before starting another task; do not delete the record or treat another approval as evidence that create failed. A conflicting update is also retained rather than overwriting another edit. Completed runs return their saved verified result without another write.
+
+A Build → Think proposal can be selected for an explicitly authorized Issue update. The returned `build_source` is input for a new explicitly authorized Build, which reads the revised public Plan once. The old Build keeps its captured Plan and remains stopped. Issue never starts Build or grants Ship by itself.
+
 ## Ownership
 
 | Directory    | Responsibility                                                                   |

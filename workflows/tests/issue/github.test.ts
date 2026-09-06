@@ -133,3 +133,27 @@ test('view rejects malformed JSON and invalid Issue records from gh', () => {
   );
   assert.throws(() => invalid.gateway.view('owner/repo', 7), /invalid issue record/u);
 });
+
+test('create records its known identity before a failing verification read', () => {
+  const fake = fakeGh(
+    `
+if (args[0] === 'issue' && args[1] === 'create') console.log(${JSON.stringify(issue.url)});
+else process.exit(2);
+`,
+    'issue-publication',
+  );
+  let recorded: number | null = null;
+  assert.throws(() =>
+    fake.gateway.create('owner/repo', 'title', '/tmp/body', (number) => {
+      recorded = number;
+    }),
+  );
+  assert.equal(recorded, 7);
+  assert.deepEqual(
+    fake.invocations().map((args) => args.slice(0, 2)),
+    [
+      ['issue', 'create'],
+      ['issue', 'view'],
+    ],
+  );
+});

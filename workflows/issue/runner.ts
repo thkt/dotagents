@@ -1,23 +1,16 @@
 #!/usr/bin/env bun
 /** @file Outcome: One explicit command validates and publishes one exact issue draft. */
 
-import {
-  consumeIssueApproval,
-  requireIssueIntent,
-  stopPendingIntent,
-} from '../runtime/invocation.ts';
-import { parseCommand, requireExactFlags, readAbsoluteJson, runCli } from '../runtime/cli.ts';
+import { stopPendingIntent } from '../runtime/invocation.ts';
+import { parseCommand, requireExactFlags, runCli } from '../runtime/cli.ts';
 import { ISSUE_COMMAND, isMainModule } from '../runtime/environment.ts';
 import { FlowError } from '../shared/errors.ts';
 
 import { ProgressReporter, workflowProgress } from '../shared/progress.ts';
-import {
-  ISSUE_DESCRIPTION_PROTOCOL,
-  ISSUE_RESULT_PROTOCOL,
-  validateIssueInput,
-} from './contracts.ts';
-import { GhIssueGateway, type IssueGateway } from './github.ts';
-import { draftIssue, publishIssue } from './pipeline.ts';
+import { ISSUE_DESCRIPTION_PROTOCOL, ISSUE_RESULT_PROTOCOL } from './contracts.ts';
+import type { IssueGateway } from './github.ts';
+import type { IssueAgent } from './agent.ts';
+import { runIssue } from './lifecycle.ts';
 
 interface IssueDescription {
   protocol: typeof ISSUE_DESCRIPTION_PROTOCOL;
@@ -111,8 +104,10 @@ export function describeIssue(): IssueDescription {
         'Optional presentation only: translate the complete ready Think Plan outcome, test command, unit goals, files, contracts and acceptance checks in the same order into the configured language used for the Issue title and prose. Preserve identifiers, test_command and file paths verbatim. Supply only the display body with H3 or smaller headings; omit H1/H2, fences and details/summary tags. The runtime adds the Plan heading and unchanged canonical JSON. Omit this field to use the existing English-label renderer.',
       missing_source:
         'stop consumes the pending intent and publication approval without creating an input or writing to GitHub',
-      preview: 'draft is validated before publication',
-      publish: 'one validated create or update is written, then verified against its draft',
+      preview:
+        'draft passes static validation and independent fidelity review; corrections are bounded and resumable',
+      publish:
+        'one accepted create or update is written and verified; uncertain create outcomes block without retry, known targets are reconciled on resume',
     },
   };
 }
@@ -130,22 +125,15 @@ export function stopIssueWorkflow(runId: string, inputFile: string): IssueStopCo
 }
 
 /** Validates and publishes only the issue input armed for this Codex task. */
-export function draftIssueWorkflow(
+export async function draftIssueWorkflow(
   runId: string,
   inputFile: string,
   gateway?: IssueGateway,
   progress: ProgressReporter = workflowProgress,
-): IssuePublishCommandResult {
-  const input = validateIssueInput(readAbsoluteJson(inputFile, 'issue'));
-  requireIssueIntent(runId, input.repo, inputFile);
-  const draftGateway = gateway ?? new GhIssueGateway();
-  const result = progress.runSync({ workflow: 'issue', stage: 'issue_draft' }, () =>
-    draftIssue(input, draftGateway),
-  );
-  consumeIssueApproval(runId, input.repo);
-  const publishGateway = gateway ?? new GhIssueGateway('issue-publication');
-  const published = progress.runSync({ workflow: 'issue', stage: 'issue_publish' }, () =>
-    publishIssue(result, publishGateway),
+  agent?: IssueAgent,
+): Promise<IssuePublishCommandResult> {
+  const published = await progress.run({ workflow: 'issue', stage: 'issue_draft' }, () =>
+    runIssue(runId, inputFile, gateway, agent, progress),
   );
   return {
     protocol: ISSUE_RESULT_PROTOCOL,
@@ -153,16 +141,16 @@ export function draftIssueWorkflow(
     issue_number: published.issue.number,
     url: published.issue.url,
     build_source: {
-      repo: input.repo,
+      repo: published.repo,
       issue_number: published.issue.number,
     },
     next_step: 'build',
   };
 }
 
-export function main(
+export async function main(
   argv: string[] = process.argv.slice(2),
-): IssueDescription | IssueCommandResult {
+): Promise<IssueDescription | IssueCommandResult> {
   const { command, flags } = parseCommand(argv);
   if (command === 'describe') {
     requireExactFlags(flags, []);

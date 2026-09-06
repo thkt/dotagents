@@ -11,6 +11,7 @@ import { acquireWorkflowOwnership } from './ownership.ts';
 import { CHILD_PREFIX } from './stage-return.ts';
 import { loadThinkState } from '../think/state.ts';
 import { loadResearchState } from '../research/state.ts';
+import { loadIssueState } from '../issue/state.ts';
 
 const INTENT_PROTOCOL = 'codex-workflow-intent' as const;
 type WorkflowInvocation = Workflow | 'issue' | 'research' | 'think';
@@ -113,6 +114,11 @@ function armIntent({ runId, workflow, cwd }: ArmIntentOptions): WorkflowIntent {
   if (runId.startsWith(CHILD_PREFIX))
     throw new Error('child invocations require the parent runner');
   using _ownership = acquireWorkflowOwnership(runId);
+  const issue = loadIssueState(runId);
+  if (issue && issue.phase !== 'completed' && issue.phase !== 'blocked')
+    throw new Error(
+      'Issue is active or publication is unresolved; resume it and reconcile publication before a new intent',
+    );
   const think = loadThinkState(runId);
   if (think && think.phase !== 'completed' && think.phase !== 'blocked')
     throw new Error('Think is active for this task; resume it with the original input');
@@ -218,6 +224,7 @@ function stopPendingIntent(
   inputFile: string,
   inputName: WorkflowInputName,
 ): WorkflowIntent {
+  using _ownership = acquireWorkflowOwnership(runId);
   const intent = requireBoundInput(runId, workflow, inputFile, inputName);
   clearIntent(runId);
   return intent;

@@ -128,3 +128,21 @@ Think → Research → Think は採用した証拠で候補を作り直して独
 - Build → Think: `value.ts` の変更を要求しながら writable paths を `notes.md` に限定した public Issue fixture を使用した。actor と独立 handoff review が scope 決定の必要を確認し、Think が `value.ts` を許可する提案を作成した。提案の検証コマンドに対する静的・意味的修正を3回行い、最終的に独立レビューが合格した。263,607 ms、actor handoff 1回・設計4回・Think review 2回、工程間の戻り1回。旧 Build は `blocked / next_step: issue`、runtime failure なしで停止した。
 - 最初の Build fixture はモデル起動前の975 msで `gate_mutated_repository` により停止した。同時刻の `.DS_Store` 出現を確認したため、非表示の新規 fixture で測り直した。前者は fixture の状態変化による停止として分離し、成功実測に含めない。
 - 記録は `/private/tmp/dotagents-p4/measurement.json` と `measurement-build.json`、対応する `measure.ts` / `measure-build.ts` とログ。一時ファイルのため長期の観測記録は本書とする。測定は限定した事例であり一般的な成功率ではない。実測後の親からの入力導出の集約・pending handoff 置換防止・unknowns 引継ぎ・保存済み snapshot の同一性照合の整理は deterministic tests で検証した。
+
+## P5 Issue 原稿の独立レビューと公開の再開 — Issue #42
+
+PR #41 マージ後の `1c408bf3078cb618eefb85812e32db0afe96a3f7` を調査した。Issue は ready Think Plan の静的検証と同期公開を行っていたが、原稿の独立した意味的レビュー、担当者による修正、公開操作の途中再開はなかった。create の応答や後続 view が失われると、作成済みの Issue を runner が確定できなかった。
+
+P5 は既存の原稿生成・GitHub adapter・SQLite ownership・read-only SDK を再利用し、Issue 専用の状態を追加した。初期原稿を検証・独立レビューし、blocking な表現の問題だけを原稿担当へ戻す。canonical Plan は固定し、その変更が必要なら Think で停止する。修正は最大3回、各モデル処理は最大2回で、保存済みの原稿・指摘・試行回数から再開する。
+
+公開前に pending を保存する。create の URL が返れば view の前に Issue 番号を記録し、応答喪失後は既知の対象を照合する。番号さえ不明な create は再送せず、記録を保持して明示的な解決を要求する。update は既存 target の競合を検出し、照合で一致した場合だけ完了する。原稿生成を新 runner でも共有し、旧 helper だけを通る別の本番処理は追加していない。
+
+### P5 の検証記録
+
+`bun run check` は 309 pass / 0 fail（46 files）。production Issue runner で追加・省略・矛盾・翻訳による意味変更の修正と再レビュー、原稿担当と reviewer の SDK thread 分離、無許可・入力/Report/snapshot/preview の変更拒否、上限維持を確認した。実プロセスを review 前・review 保存後・公開前・pending write 保存後・create 番号保存後・完了後に終了し、既知の結果を照合して write を重複させないことを確認した。GitHub adapter の view が失敗する前に create 番号を保存する経路も検証した。
+
+P4 の Build → Think → Research → Think が提案した変更を、明示許可した Issue update で再公開し、新しい明示許可の Build が変更後の public Plan を1回だけ読んで完了する接続を確認した。旧 Build の保存状態は同一 bytes のまま停止し、Issue から Build や Ship を自動起動しない。
+
+最終コードの隔離実モデル検証では、canonical Plan が value 2 を要求するのに title/prose が value 3 を要求する fixture を与えた。`gpt-5.6-sol/high` の独立レビューが矛盾を検出し、原稿修正1回・独立レビュー2回を経て `completed` になった。22,922 ms、corrections 1、停止理由なし。`caffeinate -i` を使用し、GitHub はローカル stub、外部公開・Build・Ship は実行していない。usage は wrapper から取得できない。初回の同条件検証も21,325 msで同じ回数・結果となり、原稿生成処理を集約した後の最終コードで測り直した。
+
+記録は `/private/tmp/dotagents-p5/measurement.json`、`measure.ts`、`model.log`。一時ファイルのため長期の観測記録は本書とする。実モデルで観測したのはこの限定した矛盾修正であり、意味的レビュー全般の正確性や成功率を保証するものではない。

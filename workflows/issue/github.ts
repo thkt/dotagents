@@ -24,7 +24,12 @@ export interface GitHubIssue {
 export interface IssueGateway {
   checkAccess(repository: string): void;
   view(repository: string, issue: number): GitHubIssue;
-  create(repository: string, title: string, bodyFile: string): GitHubIssue;
+  create(
+    repository: string,
+    title: string,
+    bodyFile: string,
+    onCreated?: (issue: number) => void,
+  ): GitHubIssue;
   edit(repository: string, issue: number, title: string, bodyFile: string): GitHubIssue;
 }
 
@@ -80,9 +85,16 @@ export class GhIssueGateway implements IssueGateway {
     return view(repository, issue);
   }
 
-  create(repository: string, title: string, bodyFile: string): GitHubIssue {
+  create(
+    repository: string,
+    title: string,
+    bodyFile: string,
+    onCreated?: (issue: number) => void,
+  ): GitHubIssue {
     const url = runGitHub(githubIssueCreate(repository, title, bodyFile), this.writeAuthority);
-    return view(repository, issueNumber(url));
+    const number = issueNumber(url);
+    onCreated?.(number);
+    return view(repository, number);
   }
 
   edit(repository: string, issue: number, title: string, bodyFile: string): GitHubIssue {
