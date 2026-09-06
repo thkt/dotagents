@@ -8,6 +8,7 @@ import { errorCode, errorMessage } from '../shared/errors.ts';
 import { gitRoot } from '../shared/repository.ts';
 import { atomicWrite, intentPath, statePath, workflowInputPath } from './storage.ts';
 import { acquireWorkflowOwnership } from './ownership.ts';
+import { loadResearchState } from '../research/state.ts';
 
 const INTENT_PROTOCOL = 'codex-workflow-intent' as const;
 type WorkflowInvocation = Workflow | 'issue' | 'research' | 'think';
@@ -102,6 +103,9 @@ function requireAuthorization(runId: string, repo: string, workflow: 'issue' | '
 /** Binds one explicit invocation to its task, workflow, repository, and private paths. */
 function armIntent({ runId, workflow, cwd }: ArmIntentOptions): WorkflowIntent {
   using _ownership = acquireWorkflowOwnership(runId);
+  const research = loadResearchState(runId);
+  if (research && research.phase !== 'completed' && research.phase !== 'blocked')
+    throw new Error('Research is active for this task; resume it with the original input');
   if (hasRunningFlow(runId)) throw new Error('a workflow is already active for this task');
   const repo = gitRoot(cwd, 'explicit workflow invocation requires a Git worktree');
   const stored: StoredWorkflowIntent = {

@@ -7,7 +7,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { onTestFinished, test } from 'bun:test';
 
-import { withRepositorySnapshot } from '../../execution/repository-isolation.ts';
+import {
+  withRepositorySnapshot,
+  createRepositorySnapshot,
+} from '../../execution/repository-isolation.ts';
 import { temporaryDirectory } from '../shared/fixtures.ts';
 
 function commitlessRepo(): string {
@@ -92,7 +95,7 @@ function snapshotInChild(options: { repo: string; timeoutMs?: number; gitBin?: s
     [
       `import * as fs from 'node:fs';`,
       `import os from 'node:os';`,
-      `import { withRepositorySnapshot } from ${JSON.stringify(
+      `import { withRepositorySnapshot, createRepositorySnapshot } from ${JSON.stringify(
         path.resolve(import.meta.dir, '../../execution/repository-isolation.ts'),
       )};`,
       `const [repo, timeout] = process.argv.slice(2);`,
@@ -156,4 +159,34 @@ test('entering a snapshot removes sandbox roots older than a day and keeps young
   await withRepositorySnapshot(repo, async () => undefined);
   assert.equal(fs.existsSync(stale), false);
   assert.equal(fs.existsSync(fresh), true);
+});
+
+test('a durable snapshot retains staged and untracked source without replacing existing destinations', () => {
+  const repo = commitlessRepo();
+  fs.writeFileSync(path.join(repo, '.gitignore'), 'ignored.txt\n');
+  fs.writeFileSync(path.join(repo, 'ignored.txt'), 'not evidence');
+  const destination = path.join(temporaryDirectory('durable-snapshot-'), 'snapshot');
+  createRepositorySnapshot(repo, destination);
+  assert.equal(fs.readFileSync(path.join(destination, 'staged.txt'), 'utf8'), 'staged\n');
+  assert.equal(fs.readFileSync(path.join(destination, 'untracked.txt'), 'utf8'), 'untracked\n');
+  assert.equal(fs.existsSync(path.join(destination, 'ignored.txt')), false);
+  assert.equal(
+    execFileSync('git', ['diff', '--cached', '--name-only'], {
+      cwd: destination,
+      encoding: 'utf8',
+    }).trim(),
+    'staged.txt',
+  );
+  fs.writeFileSync(path.join(destination, 'untracked.txt'), 'keep existing snapshot');
+  assert.throws(() => createRepositorySnapshot(repo, destination));
+  assert.equal(
+    fs.readFileSync(path.join(destination, 'untracked.txt'), 'utf8'),
+    'keep existing snapshot',
+  );
+  assert.throws(
+    () => createRepositorySnapshot(repo, path.join(repo, 'nested')),
+    /outside the source/,
+  );
+  assert.equal(fs.existsSync(path.join(repo, 'nested')), false);
+  assert.equal(fs.readFileSync(path.join(repo, 'untracked.txt'), 'utf8'), 'untracked\n');
 });

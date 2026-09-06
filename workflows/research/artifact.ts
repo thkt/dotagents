@@ -7,6 +7,8 @@ import {
   artifactPaths,
 } from '../runtime/storage.ts';
 
+import fs from 'node:fs';
+import { FlowError } from '../shared/errors.ts';
 import { oneLine } from '../shared/text.ts';
 import type { ResearchReport, ResearchReportEvidence } from './contracts.ts';
 
@@ -94,14 +96,25 @@ function renderResearchMarkdown(report: ResearchReport): string {
 export function persistResearchReport(
   repo: string,
   report: ResearchReport,
+  publicationPaths?: { json: string; markdown: string },
 ): { json: string; markdown: string } {
-  const paths = artifactPaths(
-    researchArtifactDirectory(repo),
-    report.question,
-    new Date(report.generated_at),
-    'research',
-  );
-  atomicWrite(paths.json, report);
-  atomicWriteText(paths.markdown, renderResearchMarkdown(report));
+  const paths =
+    publicationPaths ??
+    artifactPaths(
+      researchArtifactDirectory(repo),
+      report.question,
+      new Date(report.generated_at),
+      'research',
+    );
+  if (
+    fs.existsSync(paths.json) &&
+    fs.readFileSync(paths.json, 'utf8') !== `${JSON.stringify(report, null, 2)}\n`
+  )
+    throw new FlowError('Research publication conflicts with an existing report', 'state_error');
+  if (!fs.existsSync(paths.json)) atomicWrite(paths.json, report);
+  const markdown = renderResearchMarkdown(report);
+  if (!fs.existsSync(paths.markdown) || fs.readFileSync(paths.markdown, 'utf8') !== markdown) {
+    atomicWriteText(paths.markdown, markdown);
+  }
   return paths;
 }

@@ -1,10 +1,14 @@
-/** @file Outcome: Only source-valid, independently audited research becomes a durable repository artifact. */
+/** @file Outcome: Research validates, independently audits, corrects and resumes one immutable snapshot. */
 
-import { errorMessage, FlowError } from '../shared/errors.ts';
+import crypto from 'node:crypto';
+import path from 'node:path';
+import { errorCode, errorMessage, FlowError } from '../shared/errors.ts';
 import { readRepositoryEvidence } from '../shared/evidence.ts';
 import {
-  RESEARCH_REPORT_PROTOCOL,
-  type ResearchAudit,
+  validateResearchInput,
+  parseResearchDraft,
+  parseResearchAudit,
+  parseResearchReport,
   type ResearchEvidence,
   type ResearchInput,
   type ResearchReport,
@@ -12,8 +16,21 @@ import {
 import { CodexResearchAgent, type ResearchAgent } from './agent.ts';
 import { persistResearchReport } from './artifact.ts';
 import { searchKnowledge, updateKnowledge } from './knowledge.ts';
-
-import { withRepositorySnapshot } from '../execution/repository-isolation.ts';
+import { createRepositorySnapshot } from '../execution/repository-isolation.ts';
+import { sealRepository } from '../execution/source-seal.ts';
+import { acquireWorkflowOwnership } from '../runtime/ownership.ts';
+import { clearIntent, loadIntent, requireResearchIntent } from '../runtime/invocation.ts';
+import { readAbsoluteJson } from '../runtime/cli.ts';
+import { workflowInputPath } from '../runtime/storage.ts';
+import {
+  loadResearchState,
+  saveResearchState,
+  researchDigest,
+  researchSnapshotPath,
+  researchPublicationPaths,
+  reportForCandidate,
+  type ResearchState,
+} from './state.ts';
 
 export interface ResearchRunResult {
   report: ResearchReport;
@@ -63,57 +80,221 @@ function validateEvidence(input: ResearchInput, evidence: ResearchEvidence[], la
   }
 }
 
-function validateAuditSources(input: ResearchInput, audit: ResearchAudit): void {
-  for (const [index, finding] of audit.findings.entries()) {
-    validateEvidence(input, finding.evidence, `research audit.findings[${index}].evidence`);
-  }
-  if (!audit.findings.length && !audit.unknowns.length) {
+function validateCandidate(input: ResearchInput, state: ResearchState): void {
+  const candidate = state.candidate!;
+  for (const [index, finding] of candidate.findings.entries())
+    validateEvidence(input, finding.evidence, `research candidate.findings[${index}].evidence`);
+  if (!candidate.findings.length && !candidate.unknowns.length)
     throw new FlowError(
-      'research audit must contain a finding or an explicit unknown',
+      'research candidate must contain a finding or an explicit unknown',
+      'evidence_error',
+    );
+  try {
+    parseResearchReport(reportForCandidate(state, new Date().toISOString()));
+  } catch (error) {
+    throw new FlowError(
+      `Research candidate cannot form a valid report: ${errorMessage(error)}`,
       'evidence_error',
     );
   }
 }
 
-/** Executes a stable-snapshot investigation and writes JSON first-class evidence plus its Markdown view. */
-export async function runResearch(
-  input: ResearchInput,
-  agent: ResearchAgent = new CodexResearchAgent(),
-): Promise<ResearchRunResult> {
-  const { audit, findings } = await withRepositorySnapshot(input.repo, async (snapshotRepo) => {
-    const validationInput = { ...input, repo: snapshotRepo };
-    const knowledge = searchKnowledge(input.repo, input.question);
-    const draft = await agent.investigate(input, knowledge, snapshotRepo);
-    const audit = await agent.audit(input, draft, knowledge, snapshotRepo);
-    validateAuditSources(validationInput, audit);
-    const findings = audit.findings.map((finding, index) => ({
-      ...finding,
-      id: `F-${String(index + 1).padStart(3, '0')}`,
-    }));
-    return { audit, findings };
-  });
-  const generatedAt = new Date();
-  const report: ResearchReport = {
-    protocol: RESEARCH_REPORT_PROTOCOL,
-    generated_at: generatedAt.toISOString(),
-    question: input.question,
-    scope_paths: input.scope_paths,
-    answer: audit.answer,
-    findings,
-    rejected: audit.rejected,
-    unknowns: audit.unknowns,
-    limitations: audit.limitations,
-  };
-  const paths = persistResearchReport(input.repo, report);
-  try {
-    updateKnowledge(input.repo);
-  } catch (error) {
-    // Knowledge is rebuildable; its write failure must not invalidate persisted Research.
-    process.stderr.write(`Knowledge update skipped: ${errorMessage(error)}\n`);
+function requireSnapshot(runId: string, state: ResearchState): string {
+  const snapshot = researchSnapshotPath(runId, state);
+  if (sealRepository(snapshot).source_digest !== state.source_digest)
+    throw new FlowError(
+      'Research snapshot changed; retain the run and start a new task to investigate current sources',
+      'state_error',
+    );
+  return snapshot;
+}
+
+function correct(runId: string, state: ResearchState, reason: string): void {
+  state.reason = reason;
+  state.correction = reason;
+  state.dispatch = null;
+  if (state.corrections === 3) state.phase = 'blocked';
+  else {
+    state.corrections += 1;
+    state.phase = 'investigate';
+    state.attempts = 0;
+    state.audit = null;
   }
-  return {
-    report,
-    report_json: paths.json,
-    report_markdown: paths.markdown,
-  };
+  saveResearchState(runId, state);
+}
+
+/** Starts or resumes only the exact task-bound input while holding exclusive ownership. */
+export async function runResearch(
+  runId: string,
+  inputFile: string,
+  agent?: ResearchAgent,
+): Promise<ResearchRunResult> {
+  using _ownership = acquireWorkflowOwnership(runId);
+  let state = loadResearchState(runId);
+  const intent = loadIntent(runId);
+  const scopeRepo =
+    state && !intent
+      ? state.phase === 'completed'
+        ? null
+        : researchSnapshotPath(runId, state)
+      : undefined;
+  const input = validateResearchInput(readAbsoluteJson(inputFile, 'research'), scopeRepo);
+  if (!state || intent) requireResearchIntent(runId, input.repo, inputFile);
+  if (path.resolve(inputFile) !== workflowInputPath(runId, 'research'))
+    throw new FlowError(
+      'use the research input path supplied by the workflow hook',
+      'authorization_error',
+    );
+  // A new explicit invocation can replace only a terminal run, never active work.
+  if (state && ['completed', 'blocked'].includes(state.phase) && intent) state = null;
+  if (state && researchDigest(state.input) !== researchDigest(input))
+    throw new FlowError(
+      'Research resume requires the exact original input; use a new task for a different question',
+      'state_error',
+    );
+  if (!state) {
+    const invocation = crypto.randomUUID();
+    const snapshot = researchSnapshotPath(runId, { invocation });
+    createRepositorySnapshot(input.repo, snapshot);
+    state = {
+      protocol: 'codex-research-state-v2',
+      invocation,
+      run_id: runId,
+      input,
+      source_digest: sealRepository(snapshot).source_digest,
+      knowledge: searchKnowledge(input.repo, input.question),
+      phase: 'investigate',
+      candidate: null,
+      audit: null,
+      corrections: 0,
+      attempts: 0,
+      dispatch: null,
+      reason: null,
+      correction: null,
+      generated_at: null,
+      publication: null,
+    };
+    saveResearchState(runId, state);
+  }
+  // The durable state now carries authorization and exact input; restarting needs no new intent.
+  clearIntent(runId);
+  const investigator = () => (agent ??= new CodexResearchAgent());
+  while (true) {
+    if (state.phase === 'blocked')
+      throw new FlowError(
+        `Research blocked after ${state.corrections} corrections: ${state.reason}. Retain this record; a new explicit Research invocation starts a new budget.`,
+        'research_blocked',
+      );
+    if (state.phase === 'completed') {
+      const paths = researchPublicationPaths(state);
+      // Repair a lost Markdown view, but never replace another JSON report.
+      const report = reportForCandidate(state);
+      persistResearchReport(input.repo, report, paths);
+      return { report, report_json: paths.json, report_markdown: paths.markdown };
+    }
+    const snapshot = requireSnapshot(runId, state);
+    const validationInput = { ...input, repo: snapshot };
+    if (state.phase === 'validate') {
+      try {
+        validateCandidate(validationInput, state);
+      } catch (error) {
+        if (errorCode(error) !== 'evidence_error') throw error;
+        correct(runId, state, errorMessage(error));
+        continue;
+      }
+      state.phase = 'audit';
+      state.attempts = 0;
+      state.reason = null;
+      saveResearchState(runId, state);
+      continue;
+    }
+    if (state.phase === 'decide') {
+      const blocking = state.audit!.findings.filter((finding) => finding.severity === 'blocking');
+      if (blocking.length) {
+        correct(runId, state, JSON.stringify(blocking));
+        continue;
+      }
+      state.generated_at = new Date().toISOString();
+      state.publication = researchPublicationPaths(state);
+      state.phase = 'publish';
+      saveResearchState(runId, state);
+      continue;
+    }
+    if (state.phase === 'publish') {
+      validateCandidate(validationInput, state);
+      persistResearchReport(input.repo, reportForCandidate(state), researchPublicationPaths(state));
+      state.phase = 'completed';
+      saveResearchState(runId, state);
+      try {
+        updateKnowledge(input.repo);
+      } catch (error) {
+        process.stderr.write(`Knowledge update skipped: ${errorMessage(error)}\n`);
+      }
+      continue;
+    }
+    // Each stage and candidate gets one retry, including an interrupted in-flight dispatch.
+    if (state.attempts === 2) {
+      state.phase = 'blocked';
+      state.reason =
+        state.reason ?? 'Both permitted model dispatches were interrupted before acceptance';
+      saveResearchState(runId, state);
+      continue;
+    }
+    state.attempts += 1;
+    state.dispatch = crypto.randomUUID();
+    saveResearchState(runId, state);
+    const pendingDigest = researchDigest(state);
+    let result: unknown;
+    let failure: unknown;
+    try {
+      result =
+        state.phase === 'investigate'
+          ? await investigator().investigate(
+              structuredClone(input),
+              structuredClone(state.knowledge),
+              snapshot,
+              state.candidate && state.correction
+                ? { candidate: structuredClone(state.candidate), reason: state.correction }
+                : undefined,
+            )
+          : await investigator().audit(
+              structuredClone(input),
+              structuredClone(state.candidate!),
+              structuredClone(state.knowledge),
+              snapshot,
+            );
+    } catch (error) {
+      failure = error;
+    }
+    // Validate the pending identity even on rejection: never overwrite a newer dispatch.
+    if (researchDigest(loadResearchState(runId)) !== pendingDigest)
+      throw new FlowError(
+        'Research dispatch is stale or its candidate/input changed',
+        'state_error',
+      );
+    requireSnapshot(runId, state);
+    try {
+      if (failure !== undefined) throw failure;
+      if (state.phase === 'investigate') {
+        state.candidate = parseResearchDraft(result);
+        state.phase = 'validate';
+        state.audit = null;
+      } else {
+        const audit = parseResearchAudit(result);
+        for (const [index, finding] of audit.findings.entries())
+          validateEvidence(
+            validationInput,
+            finding.evidence,
+            `research audit.findings[${index}].evidence`,
+          );
+        state.audit = audit;
+        state.phase = 'decide';
+      }
+      state.dispatch = null;
+    } catch (error) {
+      // Invalid responses and transport errors are indeterminate, not investigator defects.
+      state.reason = errorMessage(error);
+    }
+    saveResearchState(runId, state);
+  }
 }

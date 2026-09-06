@@ -55,11 +55,6 @@ export interface ResearchUnknown {
   resolution: string;
 }
 
-export interface ResearchDraft {
-  findings: ResearchDraftFinding[];
-  unknowns: ResearchUnknown[];
-}
-
 interface AuditedFinding extends ResearchDraftFinding {
   confidence: Confidence;
   qualification: string | null;
@@ -75,7 +70,7 @@ interface RejectedFinding {
   reason: string;
 }
 
-export interface ResearchAudit {
+export interface ResearchDraft {
   answer: string;
   findings: AuditedFinding[];
   rejected: RejectedFinding[];
@@ -83,7 +78,7 @@ export interface ResearchAudit {
   limitations: string[];
 }
 
-export interface ResearchReport extends Omit<ResearchAudit, 'findings'> {
+export interface ResearchReport extends Omit<ResearchDraft, 'findings'> {
   protocol: typeof RESEARCH_REPORT_PROTOCOL;
   generated_at: string;
   question: string;
@@ -131,29 +126,6 @@ const UNKNOWN_SCHEMA = {
 export const RESEARCH_DRAFT_SCHEMA = {
   type: 'object',
   properties: {
-    findings: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          statement: NON_BLANK_STRING_SCHEMA,
-          kind: { type: 'string', enum: ['fact', 'inference'] },
-          evidence: { type: 'array', minItems: 1, items: EVIDENCE_SCHEMA },
-          implication: NON_BLANK_STRING_SCHEMA,
-        },
-        required: ['statement', 'kind', 'evidence', 'implication'],
-        additionalProperties: false,
-      },
-    },
-    unknowns: { type: 'array', items: UNKNOWN_SCHEMA },
-  },
-  required: ['findings', 'unknowns'],
-  additionalProperties: false,
-} as const;
-
-export const RESEARCH_AUDIT_SCHEMA = {
-  type: 'object',
-  properties: {
     answer: NON_BLANK_STRING_SCHEMA,
     findings: {
       type: 'array',
@@ -187,9 +159,82 @@ export const RESEARCH_AUDIT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-function validateScopePath(repo: string, value: string, label: string): string {
+export interface ResearchAudit {
+  summary: string;
+  findings: Array<{
+    severity: 'blocking' | 'advisory';
+    condition: string;
+    message: string;
+    evidence: ResearchEvidence[];
+  }>;
+}
+
+export interface ResearchCorrection {
+  candidate: ResearchDraft;
+  reason: string;
+}
+
+export const RESEARCH_AUDIT_SCHEMA = {
+  type: 'object',
+  properties: {
+    summary: NON_BLANK_STRING_SCHEMA,
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          severity: { type: 'string', enum: ['blocking', 'advisory'] },
+          condition: NON_BLANK_STRING_SCHEMA,
+          message: NON_BLANK_STRING_SCHEMA,
+          evidence: { type: 'array', minItems: 1, items: EVIDENCE_SCHEMA },
+        },
+        required: ['severity', 'condition', 'message', 'evidence'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['summary', 'findings'],
+  additionalProperties: false,
+} as const;
+
+/** An auditor can report defects but cannot replace the investigator's candidate. */
+export function parseResearchAudit(raw: unknown): ResearchAudit {
+  if (!isObject(raw)) throw new FlowError('research audit must be an object', 'execution_error');
+  rejectUnknownKeys(raw, ['summary', 'findings'], 'research audit', 'execution_error');
+  return {
+    summary: requiredString(raw.summary, 'research audit.summary', 'execution_error'),
+    findings: objectArray(raw.findings, 'research audit.findings').map((item, index) => {
+      const label = `research audit.findings[${index}]`;
+      rejectUnknownKeys(
+        item,
+        ['severity', 'condition', 'message', 'evidence'],
+        label,
+        'execution_error',
+      );
+      const evidence = objectArray(item.evidence, `${label}.evidence`).map((value, i) =>
+        parseEvidence(value, `${label}.evidence[${i}]`),
+      );
+      if (!evidence.length)
+        throw new FlowError(`${label}.evidence must not be empty`, 'execution_error');
+      return {
+        severity: enumValue(
+          item.severity,
+          ['blocking', 'advisory'] as const,
+          `${label}.severity`,
+          'execution_error',
+        ),
+        condition: requiredString(item.condition, `${label}.condition`, 'execution_error'),
+        message: requiredString(item.message, `${label}.message`, 'execution_error'),
+        evidence,
+      };
+    }),
+  };
+}
+
+function validateScopePath(repo: string | null, value: string, label: string): string {
   const relative = normalizeRepoPath(value);
   if (!relative) throw new FlowError(`${label} must be a repo-relative path outside .git`);
+  if (repo === null) return relative;
   const absolute = path.resolve(repo, relative);
   const stat = fs.statSync(absolute, { throwIfNoEntry: false });
   if (!stat || (!stat.isFile() && !stat.isDirectory()) || !realpathInside(repo, absolute)) {
@@ -198,14 +243,19 @@ function validateScopePath(repo: string, value: string, label: string): string {
   return relative;
 }
 
-/** Validates the caller-authored research boundary before any agent starts. */
-export function validateResearchInput(raw: unknown): ResearchRequest {
+/** Validates research input; null scopeRepo checks path syntax only for completed-result retrieval. */
+export function validateResearchInput(raw: unknown, scopeRepo?: string | null): ResearchRequest {
   if (!isObject(raw)) throw new FlowError('research input must be an object');
   const repoPath = requiredString(raw.repo, 'research input.repo');
   const repo = gitRoot(repoPath, 'research input.repo must be a Git worktree');
   const question = requiredString(raw.question, 'research input.question');
   const scopePaths = stringArray(raw.scope_paths ?? [], 'research input.scope_paths').map(
-    (value, index) => validateScopePath(repo, value, `research input.scope_paths[${index}]`),
+    (value, index) =>
+      validateScopePath(
+        scopeRepo === undefined ? repo : scopeRepo,
+        value,
+        `research input.scope_paths[${index}]`,
+      ),
   );
   if (raw.allow_external_sources !== undefined && typeof raw.allow_external_sources !== 'boolean') {
     throw new FlowError('research input.allow_external_sources must be boolean');
@@ -300,16 +350,6 @@ function parseFindingContent<T extends ResearchEvidence>(
   };
 }
 
-function parseFinding(raw: JsonObject, label: string): ResearchDraftFinding {
-  rejectUnknownKeys(
-    raw,
-    ['statement', 'kind', 'evidence', 'implication'],
-    label,
-    'execution_error',
-  );
-  return parseFindingContent(raw, label, parseEvidence);
-}
-
 function parseAuditedFinding<T extends ResearchEvidence>(
   raw: JsonObject,
   label: string,
@@ -339,33 +379,18 @@ function parseRejected(raw: JsonObject, label: string): RejectedFinding {
   };
 }
 
-/** Parses investigator output without relying on TypeScript casts or prompt compliance. */
+/** Parses the complete investigator-owned candidate before source validation. */
 export function parseResearchDraft(raw: unknown): ResearchDraft {
   if (!isObject(raw))
     throw new FlowError('research investigator returned an invalid object', 'execution_error');
-  rejectUnknownKeys(raw, ['findings', 'unknowns'], 'research draft', 'execution_error');
-  return {
-    findings: objectArray(raw.findings, 'research draft.findings').map((item, index) =>
-      parseFinding(item, `research draft.findings[${index}]`),
-    ),
-    unknowns: objectArray(raw.unknowns, 'research draft.unknowns').map((item, index) =>
-      parseUnknown(item, `research draft.unknowns[${index}]`),
-    ),
-  };
-}
-
-/** Parses independent audit output into the only shape allowed to become an artifact. */
-export function parseResearchAudit(raw: unknown): ResearchAudit {
-  if (!isObject(raw))
-    throw new FlowError('research auditor returned an invalid object', 'execution_error');
   rejectUnknownKeys(
     raw,
     ['answer', 'findings', 'rejected', 'unknowns', 'limitations'],
-    'research audit',
+    'research draft',
     'execution_error',
   );
-  const findings = objectArray(raw.findings, 'research audit.findings').map((item, index) => {
-    const label = `research audit.findings[${index}]`;
+  const findings = objectArray(raw.findings, 'research draft.findings').map((item, index) => {
+    const label = `research draft.findings[${index}]`;
     rejectUnknownKeys(
       item,
       ['statement', 'kind', 'confidence', 'qualification', 'evidence', 'implication'],
@@ -374,17 +399,17 @@ export function parseResearchAudit(raw: unknown): ResearchAudit {
     );
     return parseAuditedFinding(item, label, parseEvidence);
   });
-  const rejected = objectArray(raw.rejected, 'research audit.rejected').map((item, index) =>
-    parseRejected(item, `research audit.rejected[${index}]`),
+  const rejected = objectArray(raw.rejected, 'research draft.rejected').map((item, index) =>
+    parseRejected(item, `research draft.rejected[${index}]`),
   );
   return {
-    answer: requiredString(raw.answer, 'research audit.answer', 'execution_error'),
+    answer: requiredString(raw.answer, 'research draft.answer', 'execution_error'),
     findings,
     rejected,
-    unknowns: objectArray(raw.unknowns, 'research audit.unknowns').map((item, index) =>
-      parseUnknown(item, `research audit.unknowns[${index}]`),
+    unknowns: objectArray(raw.unknowns, 'research draft.unknowns').map((item, index) =>
+      parseUnknown(item, `research draft.unknowns[${index}]`),
     ),
-    limitations: stringArray(raw.limitations, 'research audit.limitations', 'execution_error'),
+    limitations: stringArray(raw.limitations, 'research draft.limitations', 'execution_error'),
   };
 }
 

@@ -111,10 +111,21 @@ function reapStaleSandboxes(now: number = Date.now()): void {
 function createRepositorySandbox(
   repo: string,
   options: SandboxOptions = DEFAULT_SANDBOX_OPTIONS,
+  destination?: string,
 ): RepositorySandbox {
   const sourceBefore = repositoryInvariant(repo);
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), SANDBOX_PREFIX));
-  const directory = path.join(root, 'repo');
+  if (destination) {
+    const relative = path.relative(repo, path.resolve(destination));
+    if (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+      throw new FlowError(
+        'snapshot destination must be outside the source repository',
+        'state_error',
+      );
+    fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
+    fs.mkdirSync(destination, { mode: 0o700 }); // Reserve a new directory; never remove existing work.
+  }
+  const root = destination ?? fs.mkdtempSync(path.join(os.tmpdir(), SANDBOX_PREFIX));
+  const directory = destination ?? path.join(root, 'repo');
   try {
     const clone = spawnSync('git', ['clone', '--quiet', '--no-local', repo, directory], {
       encoding: 'utf8',
@@ -160,6 +171,18 @@ function createRepositorySandbox(
     fs.rmSync(root, { recursive: true, force: true });
     throw error;
   }
+}
+
+/** Captures a durable read-only snapshot directly at a new caller-owned destination. */
+export function createRepositorySnapshot(repo: string, destination: string): void {
+  createRepositorySandbox(
+    repo,
+    {
+      includeIgnored: false,
+      timeoutMs: SANDBOX_GIT_TIMEOUT_MS,
+    },
+    destination,
+  );
 }
 
 /** Runs read-only work against one disposable copy of the repository state captured at entry. */

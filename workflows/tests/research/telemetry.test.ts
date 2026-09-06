@@ -4,7 +4,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { CodexResearchAgent } from '../../research/agent.ts';
 import type { CodexClientLike } from '../../shared/codex.ts';
-import type { ResearchInput } from '../../research/contracts.ts';
+import type { ResearchInput, ResearchDraft } from '../../research/contracts.ts';
 import { FlowError, errorCode } from '../../shared/errors.ts';
 import { ProgressReporter, type ProgressEvent } from '../../shared/progress.ts';
 import * as fs from 'node:fs';
@@ -84,4 +84,65 @@ test('Research model failure preserves the idle classification from the shared b
     assert.match(String((error as Error).message), /idle stream/u);
     return true;
   });
+});
+
+test('independent read-only threads receive the governing input, candidate and correction context', async () => {
+  const repo = snapshotRepo();
+  const request = { ...input, repo, question: 'Which deployment uses the value?' };
+  const candidate: ResearchDraft = {
+    answer: 'Deployment cannot be established.',
+    findings: [],
+    rejected: [],
+    unknowns: [
+      {
+        question: 'No deployment is described in the inspected source.',
+        resolution: 'Obtain deployment configuration.',
+      },
+    ],
+    limitations: [],
+  };
+  const correction = { candidate, reason: 'Include the inspected scope in the explanation.' };
+  const knowledge = [
+    {
+      topic: request.question,
+      sources: [{ report: 'prior.json', generated_at: '2026-09-01T00:00:00.000Z' }],
+      updated_at: '2026-09-01T00:00:00.000Z',
+    },
+  ];
+  const prompts: string[] = [];
+  let threads = 0;
+  const client: CodexClientLike = {
+    startThread(options) {
+      const author = threads++ === 0;
+      assert.ok(options);
+      assert.equal(options.workingDirectory, repo);
+      assert.equal(options.sandboxMode, 'read-only');
+      assert.equal(options.webSearchMode, 'disabled');
+      return {
+        async run(prompt) {
+          prompts.push(prompt);
+          return {
+            finalResponse: JSON.stringify(
+              author ? candidate : { summary: 'Supported unknown.', findings: [] },
+            ),
+          };
+        },
+      };
+    },
+  };
+  const agent = new CodexResearchAgent(client);
+  const draft = await agent.investigate(request, knowledge, repo, correction);
+  assert.deepEqual(draft, candidate);
+  assert.deepEqual(await agent.audit(request, draft, knowledge, repo), {
+    summary: 'Supported unknown.',
+    findings: [],
+  });
+  assert.equal(threads, 2);
+  for (const prompt of prompts) {
+    assert.ok(prompt.includes(request.question));
+    assert.ok(prompt.includes('prior.json'));
+    assert.ok(prompt.includes(candidate.answer));
+    assert.ok(prompt.includes('# Project outcome'));
+  }
+  assert.ok(prompts[0]!.includes(correction.reason));
 });

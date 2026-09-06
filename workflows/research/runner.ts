@@ -1,16 +1,11 @@
 #!/usr/bin/env bun
 /** @file Outcome: One explicit command turns a closed research question into verified JSON and Markdown artifacts. */
 
-import { consumeIntentAfter, requireResearchIntent } from '../runtime/invocation.ts';
-import { parseCommand, requireExactFlags, readAbsoluteJson, runCli } from '../runtime/cli.ts';
+import { parseCommand, requireExactFlags, runCli } from '../runtime/cli.ts';
 import { RESEARCH_COMMAND, isMainModule } from '../runtime/environment.ts';
 import { FlowError } from '../shared/errors.ts';
 
-import {
-  RESEARCH_DESCRIPTION_PROTOCOL,
-  RESEARCH_RESULT_PROTOCOL,
-  validateResearchInput,
-} from './contracts.ts';
+import { RESEARCH_DESCRIPTION_PROTOCOL, RESEARCH_RESULT_PROTOCOL } from './contracts.ts';
 import { runResearch } from './pipeline.ts';
 import type { ResearchAgent } from './agent.ts';
 
@@ -79,10 +74,7 @@ export async function runResearchWorkflow(
   inputFile: string,
   agent?: ResearchAgent,
 ): Promise<ResearchCommandResult> {
-  const request = validateResearchInput(readAbsoluteJson(inputFile, 'research'));
-  requireResearchIntent(runId, request.repo, inputFile);
-  const input = request;
-  const result = await consumeIntentAfter(runId, () => runResearch(input, agent));
+  const result = await runResearch(runId, inputFile, agent);
   return {
     protocol: RESEARCH_RESULT_PROTOCOL,
     status: 'completed',
