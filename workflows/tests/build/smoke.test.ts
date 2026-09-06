@@ -8,7 +8,9 @@ import { onTestFinished, test } from 'bun:test';
 
 import { ActorEscalation } from '../../execution/agent.ts';
 import { loadWorkflowState } from '../../execution/controller.ts';
-import { workflowRunDirectory } from '../../runtime/storage.ts';
+import { workflowRunDirectory, workflowInputPath } from '../../runtime/storage.ts';
+import { draftIssueWorkflow } from '../../issue/runner.ts';
+import type { IssueGateway } from '../../issue/github.ts';
 import { executeAction } from '../../build/git-actions.ts';
 import { type BuildPlanAuthoring } from '../../plan/contracts.ts';
 import type { FlowDirective } from '../../execution/contracts.ts';
@@ -327,6 +329,9 @@ test('verified Build Research returns to the same actor under the original publi
 
 test('Build Think may research once but stops for Issue publication without adopting the proposed Plan', async () => {
   const { repo, runId, input, countFile } = buildFixture(returnPlan);
+  const proposedPlan = JSON.parse(
+    JSON.stringify(returnPlan).replaceAll('value 2', 'value 3').replaceAll('is 2', 'is 3'),
+  ) as BuildPlanAuthoring;
   let designs = 0;
   let actors = 0;
   const runtime: WorkflowRuntime = {
@@ -350,7 +355,7 @@ test('Build Think may research once but stops for Issue publication without adop
         async design(_i, reports) {
           designs++;
           return reports.length
-            ? { status: 'ready', plan: returnPlan, research_questions: [] }
+            ? { status: 'ready', plan: proposedPlan, research_questions: [] }
             : {
                 status: 'research_required',
                 plan: null,
@@ -382,7 +387,108 @@ test('Build Think may research once but stops for Issue publication without adop
   await runWorkflow(runId, input, runtime);
   assert.equal(actors, 1);
   assert.equal(designs, 2);
-}, 15000);
+
+  const originalState = fs.readFileSync(
+    path.join(workflowRunDirectory(runId), 'state.json'),
+    'utf8',
+  );
+  const issueInput = workflowInputPath(runId, 'issue');
+  fs.writeFileSync(
+    issueInput,
+    JSON.stringify({
+      repo,
+      mode: 'update',
+      target_issue: 1,
+      think_report: state.handoff!.proposal,
+      title: 'Export value 3.',
+      prose: 'Update the required value to 3.',
+    }),
+  );
+  const remote = `${repo}.issue.json`;
+  let issueWrites = 0;
+  const gateway: IssueGateway = {
+    checkAccess() {},
+    view() {
+      return JSON.parse(fs.readFileSync(remote, 'utf8'));
+    },
+    create() {
+      throw new Error('must update the existing Issue');
+    },
+    edit(_repo, _number, title, bodyFile) {
+      issueWrites++;
+      const issue = {
+        ...this.view('owner/repo', 1),
+        title,
+        body: fs.readFileSync(bodyFile, 'utf8'),
+      };
+      fs.writeFileSync(remote, JSON.stringify(issue));
+      return issue;
+    },
+  };
+  const issueAgent = {
+    async correct() {
+      throw new Error('faithful initial draft');
+    },
+    async review() {
+      return { summary: 'Faithful revised Plan.', findings: [] };
+    },
+  };
+  await assert.rejects(
+    draftIssueWorkflow(runId, issueInput, gateway, undefined, issueAgent),
+    /explicit/,
+  );
+  armIntent({ runId, workflow: 'issue', cwd: repo });
+  const publication = await draftIssueWorkflow(runId, issueInput, gateway, undefined, issueAgent);
+  assert.equal(issueWrites, 1);
+  assert.equal(
+    fs.readFileSync(path.join(workflowRunDirectory(runId), 'state.json'), 'utf8'),
+    originalState,
+  );
+  assert.equal(publication.next_step, 'build');
+  const nextRun = crypto.randomUUID();
+  const nextInput = armIntent({ runId: nextRun, workflow: 'build', cwd: repo }).input_path;
+  fs.writeFileSync(nextInput, JSON.stringify({ ...publication.build_source, ship: false }));
+  let nextActors = 0;
+  const next = await runWorkflow(nextRun, nextInput, {
+    agent: {
+      async runActor(sandbox, directive) {
+        nextActors++;
+        fs.writeFileSync(path.join(sandbox, 'unit.ts'), 'export const value = 3;\n');
+        return {
+          protocol: 'codex-flow-actor-result',
+          binding: directive.binding,
+          status: 'completed',
+          summary: 'Exported value 3.',
+          route: null,
+          question: null,
+        };
+      },
+      async reviewBuild(_repo, directive) {
+        return reviewResult(directive);
+      },
+    },
+    executeAction,
+  });
+  assert.equal(next.exitCode, 0, JSON.stringify(next));
+  assert.equal(nextActors, 1);
+  assert.equal(fs.readFileSync(countFile, 'utf8'), 'xx');
+  const accepted = loadWorkflowState(nextRun).state.build_plan!;
+  assert.equal(accepted.outcome, proposedPlan.outcome);
+  assert.equal(accepted.test_command, proposedPlan.test_command);
+  assert.deepEqual(
+    accepted.units.map(({ goal, files, contract, tests }) => ({
+      goal,
+      files,
+      contract,
+      tests: tests.map((test) => test.name),
+    })),
+    proposedPlan.units,
+  );
+  assert.equal(
+    fs.readFileSync(path.join(workflowRunDirectory(runId), 'state.json'), 'utf8'),
+    originalState,
+  );
+}, 30000);
 
 test('nested Think gaps cannot exceed the Build root budget and retain a diagnostic stop', async () => {
   const { runId, input, repo } = buildFixture(returnPlan);

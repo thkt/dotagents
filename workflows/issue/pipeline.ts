@@ -1,6 +1,7 @@
 /** @file Outcome: Research-backed prose and a ready Think Plan become one verified GitHub Issue. */
 
 import * as fs from 'node:fs';
+import path from 'node:path';
 import type { BuildPlanAuthoring } from '../plan/contracts.ts';
 import { renderPublicIssueBody } from './public-contract.ts';
 import { validatePlan } from '../plan/validation.ts';
@@ -11,7 +12,6 @@ import {
   thinkArtifactDirectory,
   atomicWriteText,
   issueArtifactDirectory,
-  artifactPaths,
 } from '../runtime/storage.ts';
 import { parseThinkReport, type ThinkPlan, type ThinkReport } from '../think/contracts.ts';
 import type { IssueDraft, IssueInput } from './contracts.ts';
@@ -57,7 +57,7 @@ function isReady(report: ThinkReport): report is ReadyThinkReport {
   return report.status === 'ready' && report.plan !== null;
 }
 
-function loadThinkReport(repo: string, file: string): ReadyThinkReport {
+export function loadThinkReport(repo: string, file: string): ReadyThinkReport {
   const content = regularArtifact(file, thinkArtifactDirectory(repo), 'issue input.think_report');
   const report = parseThinkReport(parseJson(content, 'issue input.think_report'));
   if (!isReady(report)) {
@@ -66,7 +66,7 @@ function loadThinkReport(repo: string, file: string): ReadyThinkReport {
   return report;
 }
 
-function requireValidPlan(plan: BuildPlanAuthoring): void {
+export function requireValidPlan(plan: BuildPlanAuthoring): void {
   const validation = validatePlan(plan);
   if (validation.verdict !== 'pass') {
     throw new FlowError(
@@ -83,12 +83,15 @@ function requireValidPlan(plan: BuildPlanAuthoring): void {
 export function draftIssue(
   input: IssueInput,
   gateway: IssueGateway = new GhIssueGateway(),
-): IssueDraftResult {
+  invocation = crypto.randomUUID(),
+): IssueDraftResult & { report: ReadyThinkReport } {
   const report = loadThinkReport(input.repo, input.think_report);
   assertGitHubRemote(input.repo, input.remote, input.repository);
   const issueNumber = input.mode === 'update' ? input.target_issue : null;
   const existing =
     input.mode === 'update' ? gateway.view(input.repository, input.target_issue) : null;
+  if (existing && existing.number !== issueNumber)
+    throw new FlowError('Issue target identity mismatch', 'state_error');
   const plan = report.plan;
   const body = renderPublicIssueBody(input.prose, plan, input.plan_markdown);
   requireValidPlan(plan);
@@ -99,15 +102,17 @@ export function draftIssue(
     title: input.title,
     existing_issue: existing ? { title: existing.title, body_sha256: sha256(existing.body) } : null,
   };
-  const bodyMarkdown = persistIssuePreview(input.repo, input.title, new Date(), body);
+  const bodyMarkdown = path.join(issueArtifactDirectory(input.repo), `issue-${invocation}.md`);
+  atomicWriteText(bodyMarkdown, body);
   return {
+    report,
     draft,
     body_markdown: bodyMarkdown,
     body,
   };
 }
 
-function verifyPublished(draft: IssueDraft, body: string, issue: GitHubIssue): void {
+export function verifyPublished(draft: IssueDraft, body: string, issue: GitHubIssue): void {
   if (
     issue.title !== draft.title ||
     issue.body !== body ||
@@ -121,11 +126,19 @@ function verifyPublished(draft: IssueDraft, body: string, issue: GitHubIssue): v
 export function publishIssue(
   prepared: IssueDraftResult,
   gateway: IssueGateway,
+  onCreated?: (issue: number) => void,
+  beforeWrite?: () => void,
 ): IssuePublishResult {
   const { draft, body } = prepared;
+  const requireWrite = () => {
+    beforeWrite?.();
+    if (fs.readFileSync(prepared.body_markdown, 'utf8') !== body)
+      throw new FlowError('Issue preview changed after review', 'state_error');
+  };
   let issue: GitHubIssue;
   if (draft.issue_number === null) {
-    issue = gateway.create(draft.repository, draft.title, prepared.body_markdown);
+    requireWrite();
+    issue = gateway.create(draft.repository, draft.title, prepared.body_markdown, onCreated);
   } else {
     if (!draft.existing_issue) throw new FlowError('update draft has no target snapshot');
     const current = gateway.view(draft.repository, draft.issue_number);
@@ -138,6 +151,7 @@ export function publishIssue(
       ) {
         throw new FlowError('target issue changed after draft validation', 'state_error');
       }
+      requireWrite();
       try {
         issue = gateway.edit(
           draft.repository,
@@ -156,10 +170,4 @@ export function publishIssue(
   }
   verifyPublished(draft, body, issue);
   return { issue };
-}
-
-function persistIssuePreview(repo: string, title: string, generatedAt: Date, body: string): string {
-  const paths = artifactPaths(issueArtifactDirectory(repo), title, generatedAt, 'issue');
-  atomicWriteText(paths.markdown, body);
-  return paths.markdown;
 }
