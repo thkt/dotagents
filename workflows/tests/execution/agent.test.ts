@@ -27,6 +27,7 @@ const directive: ActorDirective = {
     step_id: 'implementation:direct',
     attempt: 1,
     input_source_digest: 'a'.repeat(64),
+    invocation_id: 'test-invocation',
   },
   outcome: 'Implement the requested behavior.',
   contract: null,
@@ -175,6 +176,7 @@ test('supplies the same script-read project outcome to the independent review', 
       verification: [],
       source_digest: 'a'.repeat(64),
       actor_receipt_digest: 'b'.repeat(64),
+      dispatch_id: 'test-dispatch',
     },
   });
 

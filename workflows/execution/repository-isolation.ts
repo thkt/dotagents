@@ -267,6 +267,7 @@ export async function runRecoverableActor<T>(
   repo: string,
   allowedFiles: readonly string[],
   run: (sandboxRepo: string) => Promise<T>,
+  validateResult?: (result: T) => void,
 ): Promise<T> {
   const recordPath = actorPublicationPath(runId);
   if (fs.existsSync(recordPath)) {
@@ -274,6 +275,7 @@ export async function runRecoverableActor<T>(
     if (pending.protocol !== 'codex-flow-actor-publication' || pending.step_id !== stepId) {
       throw new FlowError('pending actor publication belongs to another step', 'state_error');
     }
+    validateResult?.(pending.result);
     return applyPending(runId, repo, pending);
   }
   const sourceInvariant = repositoryInvariant(repo);
@@ -281,6 +283,7 @@ export async function runRecoverableActor<T>(
   using sandbox = createRepositorySandbox(repo);
   const before = repositoryInvariant(sandbox.directory);
   const result = await run(sandbox.directory);
+  validateResult?.(result);
   const after = repositoryInvariant(sandbox.directory);
   const controlChanges = repositoryControlChanges(before, after);
   if (controlChanges.length) {

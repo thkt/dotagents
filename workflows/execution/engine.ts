@@ -12,6 +12,8 @@ import { ActorEscalation, CodexWorkflowAgent, type WorkflowAgent } from './agent
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
 import { loadIntent, requireWorkflowInput } from '../runtime/invocation.ts';
 import { parseCommand, requireExactFlags } from '../runtime/cli.ts';
+import { acquireWorkflowOwnership } from '../runtime/ownership.ts';
+import { requireCompletedActor } from './actor-receipt.ts';
 import {
   completeActorPublication,
   runRecoverableActor,
@@ -32,6 +34,7 @@ import {
   workflowStatus,
   escalateWorkflow,
   blockWorkflowOnRuntimeFailure,
+  prepareWorkflowDispatch,
 } from './controller.ts';
 
 type ActionDirective = Extract<FlowDirective, { kind: 'run-action' }>;
@@ -58,8 +61,13 @@ async function runImplementationActor(
   onActivity: Parameters<WorkflowAgent['runActor']>[2],
 ) {
   resetScreenshotAttachments(runId, directive.screenshots ?? []);
-  return runRecoverableActor(runId, directive.step_id, repo, directive.files, (sandboxRepo) =>
-    runtime.agent.runActor(sandboxRepo, directive, onActivity),
+  return runRecoverableActor(
+    runId,
+    directive.step_id,
+    repo,
+    directive.files,
+    (sandboxRepo) => runtime.agent.runActor(sandboxRepo, directive, onActivity),
+    (result) => requireCompletedActor(result, directive.binding),
   );
 }
 
@@ -105,6 +113,7 @@ async function driveWorkflow(
     let failedDirective: FlowDirective | null = null;
     let stage = 'controller_dispatch';
     try {
+      prepareWorkflowDispatch(runId);
       const directive = currentDirective(runId);
       failedDirective = directive;
       runtime.onDirective?.(directive);
@@ -146,7 +155,9 @@ async function driveWorkflow(
           await progress.run(progressContext(workflow, directive), async (stage) => {
             const startedAt = performance.now();
             const before = repositoryInvariant(repo);
-            const liveSeal = sealRepository(repo, { baseRef: directive.input.base_ref });
+            const liveSeal = sealRepository(repo, {
+              baseRef: workflow === 'code' ? null : directive.input.base_ref,
+            });
             const review = await withRepositorySnapshot(repo, async (snapshotRepo) => {
               const logical = {
                 head: liveSeal.head,
@@ -216,10 +227,11 @@ async function driveWorkflow(
 export async function runWorkflow(
   runId: string,
   inputFile: string,
-  runtime: WorkflowRuntime = defaultRuntime(),
+  runtime?: WorkflowRuntime,
 ): Promise<CommandResult> {
+  using _ownership = acquireWorkflowOwnership(runId);
   startOrResumeWorkflow(runId, inputFile);
-  return driveWorkflow(runId, runtime);
+  return await driveWorkflow(runId, runtime ?? defaultRuntime());
 }
 
 function requireWorkflowBinding(
@@ -263,6 +275,7 @@ export async function workflowMain(
   }
   if (command === 'cancel') {
     requireExactFlags(flags, ['--input', '--run-id']);
+    using _ownership = acquireWorkflowOwnership(flags['--run-id']!);
     requireWorkflowBinding(workflow, flags['--run-id']!, flags['--input']!);
     return { result: cancelWorkflow(flags['--run-id']!, flags['--input']!), exitCode: 0 };
   }

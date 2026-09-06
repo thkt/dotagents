@@ -69,7 +69,7 @@ test('caller-authored execution controls are ignored rather than handed through'
   const manifest = compileCodeManifest(input);
   assert.deepEqual(
     manifest.steps.map((step) => step.id),
-    ['implementation', 'test:implementation'],
+    ['implementation', 'test:implementation', 'review:build'],
   );
   assert.equal(manifest.shipping_authorized, false);
 });

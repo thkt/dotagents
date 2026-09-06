@@ -172,9 +172,9 @@ function buildReviewPrompt(
   const begin = `----- BEGIN PUBLISHED BUILD CONTRACT ${nonce} -----`;
   const end = `----- END PUBLISHED BUILD CONTRACT ${nonce} -----`;
   return [
-    `Review build ${directive.step_id} independently for contract compliance and quality in read-only mode.`,
+    `Review ${directive.step_id} independently for contract compliance and quality in read-only mode. Issue 0 and repository local identify a direct Code request, not a public Issue.`,
     projectOutcome,
-    `Inspect the repository diff from ${directive.input.base_ref} through HEAD and the relevant implementation and tests.`,
+    `Inspect the repository diff from ${directive.input.base_ref} including uncommitted and untracked implementation files and the relevant tests.`,
     PLAN_DECISION_GUIDANCE,
     'Do not block an implementation merely because it uses a different internal design where the contract leaves that choice open.',
     'Assess every published goal and acceptance test, correctness, security, data loss, and regression risk.',
@@ -246,6 +246,7 @@ export function parseBuildReviewCandidate(
     step_id: directive.step_id,
     source_digest: directive.input.source_digest,
     actor_receipt_digest: directive.input.actor_receipt_digest,
+    dispatch_id: directive.input.dispatch_id,
   } as unknown as BuildReviewCandidate;
 }
 

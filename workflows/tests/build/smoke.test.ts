@@ -22,6 +22,7 @@ function reviewResult(directive: Extract<FlowDirective, { kind: 'run-review' }>,
     step_id: 'review:build' as const,
     source_digest: directive.input.source_digest,
     actor_receipt_digest: directive.input.actor_receipt_digest,
+    dispatch_id: directive.input.dispatch_id,
     summary: blocking ? '主値に修正が必要。' : 'Plan を満たす。',
     findings: blocking
       ? [

@@ -8,6 +8,7 @@ import { test } from 'bun:test';
 
 import { compileCodeManifest, parseCodeInput } from '../../code/manifest.ts';
 import { describe } from '../../execution/controller.ts';
+import { validateManifest } from '../../execution/manifest.ts';
 import { temporaryDirectory } from '../shared/fixtures.ts';
 
 function repository(): string {
@@ -43,7 +44,7 @@ test('described Code input uses the shared actor and test without Git actions', 
   );
   assert.deepEqual(
     manifest.steps.map((step) => step.id),
-    ['implementation', 'test:implementation'],
+    ['implementation', 'test:implementation', 'review:build'],
   );
   assert.equal(
     manifest.steps.some((step) => step.kind === 'action'),
@@ -62,4 +63,23 @@ test('Code prefers a repository-defined check command', () => {
     parseCodeInput({ repo, request: 'Implement the feature.' }).test_command,
     'bun run check',
   );
+});
+
+test('a shell command cannot impersonate the independent review gate', () => {
+  const repo = repository();
+  const manifest = compileCodeManifest(
+    parseCodeInput({ repo, request: 'Update value', scope_paths: ['src'], test_command: 'true' }),
+  );
+  manifest.steps[2] = {
+    id: 'review:build',
+    kind: 'gate',
+    owner: 'implementation',
+    gate: {
+      authority: 'shell',
+      command: 'true',
+      expect: 'pass',
+      failure_route: 'direct:implementation',
+    },
+  };
+  assert.throws(() => validateManifest(manifest), /independent review/);
 });
