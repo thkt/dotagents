@@ -41,9 +41,8 @@ import {
   type IssueState,
 } from './state.ts';
 
-function context(s: IssueState, inputFile: string, source = true): void {
+function context(s: IssueState, inputFile: string): void {
   if (
-    path.resolve(inputFile) !== workflowInputPath(s.run_id, 'issue') ||
     thinkDigest(readAbsoluteJson(inputFile, 'issue')) !== s.input_digest ||
     thinkDigest(loadThinkReport(s.input.repo, s.input.think_report)) !== thinkDigest(s.report) ||
     issueContractDigest() !== s.contract_digest
@@ -53,7 +52,7 @@ function context(s: IssueState, inputFile: string, source = true): void {
       'state_error',
     );
   assertGitHubRemote(s.input.repo, s.input.remote, s.input.repository);
-  if (source && sealRepository(issueWorkspace(s)).source_digest !== s.source_digest)
+  if (sealRepository(issueWorkspace(s)).source_digest !== s.source_digest)
     throw new FlowError('Issue snapshot changed', 'state_error');
 }
 function prepared(s: IssueState): IssueDraftResult {
@@ -112,6 +111,8 @@ export async function runIssue(
   progress: ProgressReporter = workflowProgress,
 ): Promise<{ issue: GitHubIssue; repo: string }> {
   using _ownership = acquireWorkflowOwnership(runId);
+  if (path.resolve(inputFile) !== workflowInputPath(runId, 'issue'))
+    throw new FlowError('use the Issue input path supplied by the workflow hook', 'state_error');
   let state = loadIssueState(runId);
   const intent = loadIntent(runId);
   if (state && ['completed', 'blocked'].includes(state.phase) && intent?.workflow === 'issue')
@@ -155,7 +156,7 @@ export async function runIssue(
     saveIssueState(state);
     consumeIssueApproval(runId, input.repo);
   } else {
-    context(state, inputFile, state.phase !== 'completed');
+    if (state.phase === 'completed') return { issue: state.published!, repo: state.input.repo };
     // Finish transfer if the process ended between saving authorization and consuming its intent.
     if (intent && state.phase !== 'blocked') {
       requireIssueIntent(runId, state.input.repo, inputFile);
@@ -163,15 +164,14 @@ export async function runIssue(
     }
   }
   const s = state;
+  context(s, inputFile);
   const worker = () => (agent ??= new CodexIssueAgent(undefined, progress));
   while (true) {
-    if (s.phase === 'completed') return { issue: s.published!, repo: s.input.repo };
     if (s.phase === 'blocked')
       throw new FlowError(
         `Issue blocked: ${s.reason}. Next step: ${s.next_step}; retain this run.`,
         s.next_step === 'think' ? 'think_required' : 'issue_blocked',
       );
-    context(s, inputFile);
     if (s.phase === 'validate') {
       try {
         prepared(s);
@@ -227,16 +227,23 @@ export async function runIssue(
       const requirePending = () => {
         if (thinkDigest(loadIssueState(runId)) !== pending)
           throw new FlowError('stale Issue publication result', 'state_error');
-        context(s, inputFile);
       };
       try {
         const result = progress.runSync({ workflow: 'issue', stage: 'issue_publish' }, () =>
-          publishIssue(p, gateway ?? new GhIssueGateway('issue-publication'), (number) => {
-            requirePending();
-            s.created_issue = positiveIssue(number, 'created Issue');
-            saveIssueState(s);
-            pending = thinkDigest(s);
-          }),
+          publishIssue(
+            p,
+            gateway ?? new GhIssueGateway('issue-publication'),
+            (number) => {
+              requirePending();
+              s.created_issue = positiveIssue(number, 'created Issue');
+              saveIssueState(s);
+              pending = thinkDigest(s);
+            },
+            () => {
+              requirePending();
+              context(s, inputFile);
+            },
+          ),
         );
         requirePending();
         if (s.input.mode === 'create') {
@@ -248,6 +255,7 @@ export async function runIssue(
             pending = thinkDigest(s);
           }
         }
+        context(s, inputFile);
         return { issue: completed(s, p, result.issue), repo: s.input.repo };
       } catch (error) {
         if (thinkDigest(loadIssueState(runId)) !== pending) throw error;

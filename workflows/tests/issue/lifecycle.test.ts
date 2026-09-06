@@ -327,3 +327,72 @@ test('update preflight cannot replace reviewed preview bytes before edit', async
   await assert.rejects(run(f), /preview changed/);
   assert.equal(fs.existsSync(f.remote + '.writes'), false);
 });
+
+test('governing changes during update preflight reject before any write', async () => {
+  for (const change of ['input', 'report', 'snapshot', 'state']) {
+    const f = fixture('update');
+    let views = 0;
+    f.gateway.view = function () {
+      if (++views === 2) {
+        if (change === 'input') fs.writeFileSync(f.input, '{}');
+        if (change === 'report')
+          fs.writeFileSync(
+            f.think,
+            JSON.stringify({ ...report, request: 'Changed governing report' }),
+          );
+        if (change === 'snapshot')
+          fs.writeFileSync(
+            path.join(issueWorkspace(loadIssueState(f.runId)!), 'value.ts'),
+            'Changed',
+          );
+        if (change === 'state') {
+          const s = loadIssueState(f.runId)!;
+          s.candidate.prose = 'Changed';
+          saveIssueState(s);
+        }
+      }
+      return Gateway.prototype.view.call(this);
+    };
+    await assert.rejects(run(f), /changed|stale/);
+    assert.equal(fs.existsSync(f.remote + '.writes'), false);
+    assert.equal(Gateway.prototype.view.call(f.gateway).body, 'Old');
+  }
+});
+
+test('create identity survives report drift and reconciles without repeating create', async () => {
+  for (const callback of [true, false]) {
+    const f = fixture();
+    f.gateway.create = function (repository, title, file, onCreated) {
+      const result = Gateway.prototype.create.call(this, repository, title, file, (number) => {
+        fs.writeFileSync(f.think, JSON.stringify({ ...report, request: 'Changed' }));
+        if (callback) onCreated?.(number);
+      });
+      return result;
+    };
+    await assert.rejects(run(f), /changed/);
+    const s = loadIssueState(f.runId)!;
+    assert.equal(s.created_issue, 7);
+    assert.equal(s.phase, 'publishing');
+    fs.writeFileSync(f.think, JSON.stringify(report));
+    assert.equal((await run(f)).issue_number, 7);
+    assert.equal(fs.readFileSync(f.remote + '.writes', 'utf8'), 'create\n');
+  }
+});
+
+test('completed result remains available without source artifacts or a live repository', async () => {
+  const f = fixture();
+  const result = await run(f);
+  fs.unlinkSync(f.input);
+  fs.unlinkSync(f.think);
+  fs.rmSync(issueWorkspace(loadIssueState(f.runId)!), { recursive: true });
+  fs.rmSync(f.repo, { recursive: true });
+  f.gateway.view = () => {
+    throw new Error('completed result must not reread GitHub');
+  };
+  assert.deepEqual(await run(f), result);
+  assert.equal(fs.readFileSync(f.remote + '.writes', 'utf8'), 'create\n');
+  const state = loadIssueState(f.runId)!;
+  state.published!.body = 'Corrupt publication';
+  saveIssueState(state);
+  await assert.rejects(run(f), /publication evidence does not match/);
+});

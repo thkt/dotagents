@@ -139,10 +139,12 @@ P5 は既存の原稿生成・GitHub adapter・SQLite ownership・read-only SDK 
 
 ### P5 の検証記録
 
-`bun run check` は 309 pass / 0 fail（46 files）。production Issue runner で追加・省略・矛盾・翻訳による意味変更の修正と再レビュー、原稿担当と reviewer の SDK thread 分離、無許可・入力/Report/snapshot/preview の変更拒否、上限維持を確認した。実プロセスを review 前・review 保存後・公開前・pending write 保存後・create 番号保存後・完了後に終了し、既知の結果を照合して write を重複させないことを確認した。GitHub adapter の view が失敗する前に create 番号を保存する経路も検証した。
+`bun run check` は 312 pass / 0 fail（46 files）。production Issue runner で追加・省略・矛盾・翻訳による意味変更の修正と再レビュー、原稿担当と reviewer の SDK thread 分離、無許可・入力/Report/snapshot/preview の変更拒否、上限維持を確認した。実プロセスを review 前・review 保存後・公開前・pending write 保存後・create 番号保存後・完了後に終了し、既知の結果を照合して write を重複させないことを確認した。GitHub adapter の view が失敗する前に create 番号を保存する経路も検証した。
 
 P4 の Build → Think → Research → Think が提案した変更を、明示許可した Issue update で再公開し、新しい明示許可の Build が変更後の public Plan を1回だけ読んで完了する接続を確認した。旧 Build の保存状態は同一 bytes のまま停止し、Issue から Build や Ship を自動起動しない。
 
 最終コードの隔離実モデル検証では、canonical Plan が value 2 を要求するのに title/prose が value 3 を要求する fixture を与えた。`gpt-5.6-sol/high` の独立レビューが矛盾を検出し、原稿修正1回・独立レビュー2回を経て `completed` になった。22,922 ms、corrections 1、停止理由なし。`caffeinate -i` を使用し、GitHub はローカル stub、外部公開・Build・Ship は実行していない。usage は wrapper から取得できない。初回の同条件検証も21,325 msで同じ回数・結果となり、原稿生成処理を集約した後の最終コードで測り直した。
 
 記録は `/private/tmp/dotagents-p5/measurement.json`、`measure.ts`、`model.log`。一時ファイルのため長期の観測記録は本書とする。実モデルで観測したのはこの限定した矛盾修正であり、意味的レビュー全般の正確性や成功率を保証するものではない。
+
+P5 レビュー後に、update の事前 view 後・write 直前へ governing input の検証を配置した。create 番号の保存は当該 pending state との照合だけに分離し、Report の変更を理由に既知番号を失わない。完了済み結果は保存状態の整合性を検証して返し、元入力・Report・snapshot・現在の repository を不要とした。モデル実行と外部操作の境界で検証を保ち、正常系の snapshot 全走査を8回から5回へ削減した。これらの変更は production runner の回帰テストと走査計測で検証した。上記の実モデル記録はこの修正前の測定であり、今回の再開・公開境界の修正後に実モデルを再実行していない。

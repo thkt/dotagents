@@ -127,12 +127,17 @@ export function publishIssue(
   prepared: IssueDraftResult,
   gateway: IssueGateway,
   onCreated?: (issue: number) => void,
+  beforeWrite?: () => void,
 ): IssuePublishResult {
   const { draft, body } = prepared;
-  if (fs.readFileSync(prepared.body_markdown, 'utf8') !== body)
-    throw new FlowError('Issue preview changed after review', 'state_error');
+  const requireWrite = () => {
+    beforeWrite?.();
+    if (fs.readFileSync(prepared.body_markdown, 'utf8') !== body)
+      throw new FlowError('Issue preview changed after review', 'state_error');
+  };
   let issue: GitHubIssue;
   if (draft.issue_number === null) {
+    requireWrite();
     issue = gateway.create(draft.repository, draft.title, prepared.body_markdown, onCreated);
   } else {
     if (!draft.existing_issue) throw new FlowError('update draft has no target snapshot');
@@ -146,8 +151,7 @@ export function publishIssue(
       ) {
         throw new FlowError('target issue changed after draft validation', 'state_error');
       }
-      if (fs.readFileSync(prepared.body_markdown, 'utf8') !== body)
-        throw new FlowError('Issue preview changed after review', 'state_error');
+      requireWrite();
       try {
         issue = gateway.edit(
           draft.repository,

@@ -6,7 +6,7 @@ import { thinkDigest } from '../think/state.ts';
 import { parseThinkReport, type ThinkReport, type ThinkPlan } from '../think/contracts.ts';
 import { isObject, rejectUnknownKeys } from '../shared/schema.ts';
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
-import { validateIssueInput, type IssueInput, type IssueDraft } from './contracts.ts';
+import type { IssueInput, IssueDraft } from './contracts.ts';
 import {
   parseIssueCandidate,
   parseIssueReview,
@@ -14,7 +14,12 @@ import {
   type IssueReview,
 } from './agent.ts';
 import type { GitHubIssue } from './github.ts';
-import { renderPublicIssueBody } from './public-contract.ts';
+import {
+  renderPublicIssueBody,
+  repositoryName,
+  positiveIssue,
+  validatePlanMarkdown,
+} from './public-contract.ts';
 
 export interface IssueState {
   protocol: 'codex-issue-state-v1';
@@ -119,8 +124,40 @@ export function loadIssueState(runId: string): IssueState | null {
     for (const key of ['input_digest', 'contract_digest', 'source_digest'])
       if (typeof s[key] !== 'string' || !/^[a-f0-9]{64}$/u.test(s[key]))
         throw new Error('invalid binding');
-    if (thinkDigest(validateIssueInput(s.input)) !== thinkDigest(s.input))
-      throw new Error('governing repository or input changed');
+    // Read durable evidence without consulting today's repository or origin configuration.
+    if (
+      !isObject(s.input) ||
+      typeof s.input.repo !== 'string' ||
+      !path.isAbsolute(s.input.repo) ||
+      typeof s.input.think_report !== 'string' ||
+      !path.isAbsolute(s.input.think_report) ||
+      s.input.remote !== 'origin' ||
+      !['create', 'update'].includes(String(s.input.mode))
+    )
+      throw new Error('invalid stored Issue input');
+    rejectUnknownKeys(
+      s.input,
+      [
+        'repo',
+        'mode',
+        'repository',
+        'remote',
+        'think_report',
+        'title',
+        'prose',
+        'plan_markdown',
+        ...(s.input.mode === 'update' ? ['target_issue'] : []),
+      ],
+      'stored Issue input',
+    );
+    repositoryName(s.input.repository, 'stored repository');
+    parseIssueCandidate({
+      title: s.input.title,
+      prose: s.input.prose,
+      plan_markdown: s.input.plan_markdown ?? null,
+    });
+    if (s.input.plan_markdown !== undefined) validatePlanMarkdown(s.input.plan_markdown);
+    if (s.input.mode === 'update') positiveIssue(s.input.target_issue, 'stored target Issue');
     const report = parseThinkReport(s.report);
     if (report.status !== 'ready' || !report.plan) throw new Error('non-ready governing report');
     parseIssueCandidate(s.candidate);
