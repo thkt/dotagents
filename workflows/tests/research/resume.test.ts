@@ -10,6 +10,7 @@ import { runResearchWorkflow } from '../../research/runner.ts';
 import {
   loadResearchState,
   saveResearchState,
+  researchDigest,
   researchSnapshotPath,
   researchPublicationPaths,
 } from '../../research/state.ts';
@@ -133,7 +134,7 @@ test('explicit unknowns and advisory findings can complete without reviewer rewr
       };
     },
   });
-  assert.equal(loadResearchState(runId)!.report!.answer, unknown.answer);
+  assert.equal(loadResearchState(runId)!.candidate!.answer, unknown.answer);
   assert.equal(loadResearchState(runId)!.corrections, 0);
 });
 
@@ -313,9 +314,15 @@ test('resume rejects changed input and old or corrupt state before dispatch', as
   await assert.rejects(runResearchWorkflow(runId, inputFile, agent), /exact original input/);
   assert.equal(fs.readFileSync(researchStatePath(runId), 'utf8'), saved);
   fs.writeFileSync(inputFile, originalInput);
+  const obsolete = JSON.parse(saved);
+  obsolete.state.protocol = 'codex-research-state-v1';
+  obsolete.state.report = null;
+  delete obsolete.state.generated_at;
+  obsolete.digest = researchDigest(obsolete.state);
   for (const corrupt of [
+    JSON.stringify(obsolete),
     '{}',
-    saved.replace('codex-research-state-v1', 'codex-research-state-v0'),
+    saved.replace('codex-research-state-v2', 'codex-research-state-v0'),
   ]) {
     fs.writeFileSync(researchStatePath(runId), corrupt);
     await assert.rejects(runResearchWorkflow(runId, inputFile, agent), /Retain the record/);
@@ -412,4 +419,81 @@ test('report-incompatible citation syntax is corrected before the independent au
   });
   assert.equal(authors, 2);
   assert.equal(auditors, 1);
+});
+
+test('completed retrieval needs no snapshot or writes and repairs only missing views', async () => {
+  const { runId, inputFile, repo } = fixture();
+  const input = JSON.parse(fs.readFileSync(inputFile, 'utf8'));
+  input.scope_paths = ['value.ts'];
+  fs.writeFileSync(inputFile, JSON.stringify(input));
+  const result = await runResearchWorkflow(runId, inputFile, agent);
+  const saved = loadResearchState(runId)!;
+  assert.equal('report' in saved, false);
+  assert.equal(
+    saved.generated_at,
+    JSON.parse(fs.readFileSync(result.report_json, 'utf8')).generated_at,
+  );
+  const before = fs.readFileSync(result.report_json, 'utf8');
+  const markdown = fs.readFileSync(result.report_markdown, 'utf8');
+  fs.rmSync(researchSnapshotPath(runId, saved), { recursive: true });
+  fs.unlinkSync(path.join(repo, 'value.ts'));
+  const sentinel = new Date('2000-01-01T00:00:00.000Z');
+  fs.utimesSync(result.report_json, sentinel, sentinel);
+  fs.utimesSync(result.report_markdown, sentinel, sentinel);
+  const noAgent: ResearchAgent = {
+    async investigate() {
+      throw new Error('completed run must not dispatch');
+    },
+    async audit() {
+      throw new Error('completed run must not dispatch');
+    },
+  };
+  assert.deepEqual(await runResearchWorkflow(runId, inputFile, noAgent), result);
+  assert.equal(fs.statSync(result.report_json).mtimeMs, sentinel.getTime());
+  assert.equal(fs.statSync(result.report_markdown).mtimeMs, sentinel.getTime());
+  fs.unlinkSync(result.report_markdown);
+  assert.deepEqual(await runResearchWorkflow(runId, inputFile, noAgent), result);
+  assert.equal(fs.readFileSync(result.report_markdown, 'utf8'), markdown);
+  assert.equal(fs.readFileSync(result.report_json, 'utf8'), before);
+  assert.equal(fs.statSync(result.report_json).mtimeMs, sentinel.getTime());
+  fs.writeFileSync(inputFile, JSON.stringify({ ...input, question: 'Different question' }));
+  await assert.rejects(runResearchWorkflow(runId, inputFile, noAgent), /exact original input/);
+});
+
+test('successful publication never attempts a second Markdown write', async () => {
+  const { runId, inputFile } = fixture();
+  const root = temporaryDirectory('research-write-once-');
+  const script = path.join(root, 'write-once.ts');
+  const runner = new URL('../../research/runner.ts', import.meta.url).pathname;
+  fs.writeFileSync(
+    script,
+    `
+    import fs from 'node:fs';
+    import path from 'node:path';
+    import { mock } from 'bun:test';
+    const original = fs.renameSync;
+    let writes = 0;
+    fs.renameSync = (...args) => {
+      if (/^research-.*\\.md$/.test(path.basename(String(args[1]))) && ++writes > 1) throw new Error('redundant Markdown write');
+      return original(...args);
+    };
+    mock.module('node:fs', () => ({ ...fs, default: fs }));
+    const { runResearchWorkflow } = await import(${JSON.stringify(runner)});
+    const result = await runResearchWorkflow(${JSON.stringify(runId)}, ${JSON.stringify(inputFile)}, {
+      async investigate() { return ${JSON.stringify(candidate)}; },
+      async audit() { return ${JSON.stringify(passing)}; },
+    });
+    console.log(JSON.stringify({status: result.status, writes}));
+  `,
+  );
+  const child = Bun.spawn([process.execPath, script], {
+    env: { ...process.env },
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  assert.equal(await child.exited, 0, await new Response(child.stderr).text());
+  assert.deepEqual(JSON.parse(await new Response(child.stdout).text()), {
+    status: 'completed',
+    writes: 1,
+  });
 });

@@ -112,6 +112,9 @@ export function persistResearchReport(
   )
     throw new FlowError('Research publication conflicts with an existing report', 'state_error');
   if (!fs.existsSync(paths.json)) atomicWrite(paths.json, report);
-  atomicWriteText(paths.markdown, renderResearchMarkdown(report));
+  const markdown = renderResearchMarkdown(report);
+  if (!fs.existsSync(paths.markdown) || fs.readFileSync(paths.markdown, 'utf8') !== markdown) {
+    atomicWriteText(paths.markdown, markdown);
+  }
   return paths;
 }

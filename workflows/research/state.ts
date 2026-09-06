@@ -23,7 +23,7 @@ import {
 import type { KnowledgeEntry } from './knowledge.ts';
 
 export interface ResearchState {
-  protocol: 'codex-research-state-v1';
+  protocol: 'codex-research-state-v2';
   invocation: string;
   run_id: string;
   input: ResearchInput;
@@ -37,7 +37,7 @@ export interface ResearchState {
   dispatch: string | null;
   reason: string | null;
   correction: string | null;
-  report: ResearchReport | null;
+  generated_at: string | null;
   publication: { json: string; markdown: string } | null;
 }
 
@@ -95,13 +95,13 @@ export function loadResearchState(runId: string): ResearchState | null {
         'dispatch',
         'reason',
         'correction',
-        'report',
+        'generated_at',
         'publication',
       ],
       'research state',
     );
     if (
-      state.protocol !== 'codex-research-state-v1' ||
+      state.protocol !== 'codex-research-state-v2' ||
       state.run_id !== runId ||
       typeof state.invocation !== 'string' ||
       !/^[0-9a-f-]{36}$/u.test(state.invocation) ||
@@ -127,7 +127,13 @@ export function loadResearchState(runId: string): ResearchState | null {
       Number(state.attempts) > 2 ||
       !(state.correction === null || typeof state.correction === 'string') ||
       !(state.dispatch === null || typeof state.dispatch === 'string') ||
-      !(state.reason === null || typeof state.reason === 'string')
+      !(state.reason === null || typeof state.reason === 'string') ||
+      !(
+        state.generated_at === null ||
+        (typeof state.generated_at === 'string' &&
+          Number.isFinite(Date.parse(state.generated_at)) &&
+          new Date(state.generated_at).toISOString() === state.generated_at)
+      )
     )
       throw new Error('unsupported or malformed state');
     if (
@@ -141,7 +147,7 @@ export function loadResearchState(runId: string): ResearchState | null {
       throw new Error('invalid publication identity');
     if (state.candidate !== null) parseResearchDraft(state.candidate);
     if (state.audit !== null) parseResearchAudit(state.audit);
-    if (state.report !== null) parseResearchReport(state.report);
+
     if (
       ['validate', 'audit', 'decide', 'publish', 'completed'].includes(String(state.phase)) &&
       !state.candidate
@@ -152,13 +158,12 @@ export function loadResearchState(runId: string): ResearchState | null {
     if (['publish', 'completed'].includes(String(state.phase))) {
       const typed = state as unknown as ResearchState;
       if (
-        !typed.report ||
+        !typed.generated_at ||
         !typed.publication ||
-        typed.audit!.findings.some((f) => f.severity === 'blocking') ||
-        researchDigest(typed.report) !==
-          researchDigest(reportForCandidate(typed, typed.report.generated_at))
+        typed.audit!.findings.some((f) => f.severity === 'blocking')
       )
         throw new Error('publication has no matching accepted candidate');
+      parseResearchReport(reportForCandidate(typed));
     }
     return state as unknown as ResearchState;
   } catch (error) {
@@ -170,7 +175,10 @@ export function loadResearchState(runId: string): ResearchState | null {
   }
 }
 
-export function reportForCandidate(state: ResearchState, generatedAt: string): ResearchReport {
+export function reportForCandidate(
+  state: ResearchState,
+  generatedAt: string = state.generated_at!,
+): ResearchReport {
   return {
     protocol: 'codex-research-report',
     generated_at: generatedAt,

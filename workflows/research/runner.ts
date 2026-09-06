@@ -81,7 +81,12 @@ export async function runResearchWorkflow(
   agent?: ResearchAgent,
 ): Promise<ResearchCommandResult> {
   const saved = loadResearchState(runId);
-  const scopeRepo = saved && !loadIntent(runId) ? researchSnapshotPath(runId, saved) : undefined;
+  const scopeRepo =
+    saved && !loadIntent(runId)
+      ? saved.phase === 'completed'
+        ? null
+        : researchSnapshotPath(runId, saved)
+      : undefined;
   const request = validateResearchInput(readAbsoluteJson(inputFile, 'research'), scopeRepo);
   const result = await runResearch(request, agent, { runId, inputFile });
   return {

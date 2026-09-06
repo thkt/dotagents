@@ -155,7 +155,7 @@ export async function runResearch(
       fs.cpSync(source, snapshot, { recursive: true, verbatimSymlinks: true });
     });
     state = {
-      protocol: 'codex-research-state-v1',
+      protocol: 'codex-research-state-v2',
       invocation,
       run_id: runId,
       input,
@@ -169,7 +169,7 @@ export async function runResearch(
       dispatch: null,
       reason: null,
       correction: null,
-      report: null,
+      generated_at: null,
       publication: null,
     };
     saveResearchState(runId, state);
@@ -186,8 +186,9 @@ export async function runResearch(
     if (state.phase === 'completed') {
       const paths = researchPublicationPaths(state);
       // Repair a lost Markdown view, but never replace another JSON report.
-      persistResearchReport(input.repo, state.report!, paths);
-      return { report: state.report!, report_json: paths.json, report_markdown: paths.markdown };
+      const report = reportForCandidate(state);
+      persistResearchReport(input.repo, report, paths);
+      return { report, report_json: paths.json, report_markdown: paths.markdown };
     }
     const snapshot = requireSnapshot(runId, state);
     const validationInput = { ...input, repo: snapshot };
@@ -211,7 +212,7 @@ export async function runResearch(
         correct(runId, state, JSON.stringify(blocking));
         continue;
       }
-      state.report = reportForCandidate(state, new Date().toISOString());
+      state.generated_at = new Date().toISOString();
       state.publication = researchPublicationPaths(state);
       state.phase = 'publish';
       saveResearchState(runId, state);
@@ -219,7 +220,7 @@ export async function runResearch(
     }
     if (state.phase === 'publish') {
       validateCandidate(validationInput, state);
-      persistResearchReport(input.repo, state.report!, researchPublicationPaths(state));
+      persistResearchReport(input.repo, reportForCandidate(state), researchPublicationPaths(state));
       state.phase = 'completed';
       saveResearchState(runId, state);
       try {

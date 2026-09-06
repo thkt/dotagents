@@ -231,9 +231,10 @@ export function parseResearchAudit(raw: unknown): ResearchAudit {
   };
 }
 
-function validateScopePath(repo: string, value: string, label: string): string {
+function validateScopePath(repo: string | null, value: string, label: string): string {
   const relative = normalizeRepoPath(value);
   if (!relative) throw new FlowError(`${label} must be a repo-relative path outside .git`);
+  if (repo === null) return relative;
   const absolute = path.resolve(repo, relative);
   const stat = fs.statSync(absolute, { throwIfNoEntry: false });
   if (!stat || (!stat.isFile() && !stat.isDirectory()) || !realpathInside(repo, absolute)) {
@@ -242,15 +243,19 @@ function validateScopePath(repo: string, value: string, label: string): string {
   return relative;
 }
 
-/** Validates the caller-authored research boundary before any agent starts. */
-export function validateResearchInput(raw: unknown, scopeRepo?: string): ResearchRequest {
+/** Validates research input; null scopeRepo checks path syntax only for completed-result retrieval. */
+export function validateResearchInput(raw: unknown, scopeRepo?: string | null): ResearchRequest {
   if (!isObject(raw)) throw new FlowError('research input must be an object');
   const repoPath = requiredString(raw.repo, 'research input.repo');
   const repo = gitRoot(repoPath, 'research input.repo must be a Git worktree');
   const question = requiredString(raw.question, 'research input.question');
   const scopePaths = stringArray(raw.scope_paths ?? [], 'research input.scope_paths').map(
     (value, index) =>
-      validateScopePath(scopeRepo ?? repo, value, `research input.scope_paths[${index}]`),
+      validateScopePath(
+        scopeRepo === undefined ? repo : scopeRepo,
+        value,
+        `research input.scope_paths[${index}]`,
+      ),
   );
   if (raw.allow_external_sources !== undefined && typeof raw.allow_external_sources !== 'boolean') {
     throw new FlowError('research input.allow_external_sources must be boolean');
