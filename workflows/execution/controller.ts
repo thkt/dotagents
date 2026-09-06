@@ -110,8 +110,7 @@ function loadWorkflowState(runId: string): { file: string; state: FlowState } {
           path.isAbsolute(state.handoff.snapshot) &&
           typeof state.handoff.source_digest === 'string' &&
           typeof state.handoff.binding === 'string' &&
-          (state.handoff.proposal === null || typeof state.handoff.proposal === 'string') &&
-          (state.handoff.error === null || typeof state.handoff.error === 'string'))
+          (state.handoff.proposal === null || typeof state.handoff.proposal === 'string'))
       ) ||
       typeof state.actor_dispatched !== 'boolean' ||
       typeof state.review_dispatch_id !== 'string' ||
@@ -399,7 +398,6 @@ export function escalateWorkflow(
         escalationData,
       }),
       proposal: null,
-      error: null,
     };
   }
   state.status = 'blocked';
@@ -1251,7 +1249,6 @@ export function finishStageReturn(
   )
     throw new FlowError('stale Build stage return', 'state_error');
   if (result.error) {
-    state.handoff.error = result.error;
     state.runtime_failure = {
       step_id: state.escalation.step_id,
       stage: 'cross_stage_return',
@@ -1265,7 +1262,6 @@ export function finishStageReturn(
   if (sealRepository(state.manifest.repo).source_digest !== state.handoff.source_digest)
     throw new FlowError('Build source changed during stage return', 'state_error');
   state.runtime_failure = null;
-  state.handoff.error = null;
   if (result.proposal) {
     state.handoff.proposal = result.proposal;
     state.escalation.next_step = 'issue';

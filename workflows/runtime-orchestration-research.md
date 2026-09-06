@@ -116,9 +116,11 @@ Think → Research → Think は採用した証拠で候補を作り直して独
 
 途中状態は Think state v2 / execution revision 2 に更新し、未対応の状態は保持したまま復旧手順を示す。完成 Research / Think Report の形式は維持する。
 
+戻り記録は子の識別・入力・照合情報を保持し、Report と error のコピーは保存しない。再開時は子工程自身の完了処理を通すため、入力改変・競合する JSON を拒否し、失われた JSON / Markdown をモデル再実行なしで復旧する。親 snapshot は子起動前と終了後に検証し、起動前の重複走査を除いた。戻り記録の形式は v2 とし、旧形式は保持して再開を拒否する。
+
 ### P4 の検証記録
 
-`bun run check` は 294 pass / 0 fail（44 files）。Think の子予約前後・子 stage 完了後・親採用前後、Build の子完了後・提案採用後に実プロセスを終了し、同じ子の再利用とモデル・Issue 読み取りの非重複を確認した。未許可の子起動、入力混用、破損した戻り記録、親の変更、ネストした共通予算、明示的 unknowns の引継ぎ、pending Build の置換拒否も検証した。
+`bun run check` は 295 pass / 0 fail（44 files）。Think の子予約前後・子 stage 完了後・親採用前後、Build の子完了後・提案採用後に実プロセスを終了し、同じ子の再利用とモデル・Issue 読み取りの非重複を確認した。未許可の子起動、入力混用、破損した戻り記録、親の変更、ネストした共通予算、明示的 unknowns の引継ぎ、pending Build の置換拒否も検証した。子完了後の入力改変・成果物欠落・JSON 競合についても、親が未検証の結果を採用しないことを確認した。
 
 隔離実測は fixture のみを読み取り、GitHub はローカル stub、外部公開・Ship は禁止した。設計・調査・独立レビューは `gpt-5.6-sol/high`、Build actor は `gpt-5.6-luna/low`。`caffeinate -i` を使用し、usage は共有 wrapper から未取得。
 

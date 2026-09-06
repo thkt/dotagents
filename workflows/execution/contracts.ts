@@ -267,7 +267,6 @@ export interface FlowState {
     source_digest: string;
     binding: string;
     proposal: string | null;
-    error: string | null;
   } | null;
   research_context: import('../research/contracts.ts').ResearchReport[];
   escalation: WorkflowEscalation | null;

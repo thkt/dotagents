@@ -95,7 +95,8 @@ function requireContext(runId: string, state: ThinkState, inputFile: string): st
       'state_error',
     );
   const snapshot = thinkSnapshotPath(runId, state);
-  if (sealRepository(snapshot).source_digest !== state.source_digest)
+  // The Research return validates this snapshot before and after child execution.
+  if (state.phase !== 'research' && sealRepository(snapshot).source_digest !== state.source_digest)
     throw new FlowError(
       'Think snapshot changed; retain this run and start a new task',
       'state_error',

@@ -435,7 +435,7 @@ test('Build restart reconciles completed child and adopted proposal without anot
       `
  import fs from 'node:fs';import {mock} from 'bun:test';
  const rename=fs.renameSync;fs.renameSync=(...args)=>{rename(...args);const file=String(args[1]);
- if(${JSON.stringify(boundary)}==='child-completed'&&file.includes('returns-')&&file.endsWith('.json')){const s=JSON.parse(fs.readFileSync(file,'utf8')).state;if(s.entries[0]?.result)process.exit(73);}
+ if(${JSON.stringify(boundary)}==='child-completed'&&file.endsWith('think-state.json')){const s=JSON.parse(fs.readFileSync(file,'utf8')).state;if(s.phase==='completed')process.exit(73);}
  if(${JSON.stringify(boundary)}==='adopted'&&file.endsWith('/state.json')){const s=JSON.parse(fs.readFileSync(file,'utf8'));if(s.handoff?.proposal)process.exit(73);}
  };
  mock.module('node:fs',()=>({...fs,default:fs}));

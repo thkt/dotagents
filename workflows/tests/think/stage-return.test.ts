@@ -8,6 +8,7 @@ import { runStageReturn } from '../../runtime/stage-return.ts';
 import { armIntent } from '../../runtime/invocation.ts';
 import { runThinkWorkflow } from '../../think/runner.ts';
 import { runResearchWorkflow } from '../../research/runner.ts';
+import { loadResearchState, researchPublicationPaths } from '../../research/state.ts';
 import { loadThinkState, saveThinkState } from '../../think/state.ts';
 import { workflowRunDirectory, workflowInputPath } from '../../runtime/storage.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
@@ -169,7 +170,7 @@ async function interrupt(runId: string, input: string, boundary: string) {
  import fs from 'node:fs'; import {mock} from 'bun:test';
  const rename=fs.renameSync;
  fs.renameSync=(...args)=>{rename(...args);const file=String(args[1]);
- if(file.includes('returns-')&&file.endsWith('.json')){const entries=JSON.parse(fs.readFileSync(file,'utf8')).state.entries;if(${JSON.stringify(boundary)}==='reserved'&&entries.length===1&&!entries[0].result)process.exit(73);if(${JSON.stringify(boundary)}==='child-completed'&&entries[0].result)process.exit(73);}
+ if(file.includes('returns-')&&file.endsWith('.json')){const entries=JSON.parse(fs.readFileSync(file,'utf8')).state.entries;if(${JSON.stringify(boundary)}==='reserved'&&entries.length===1)process.exit(73);}
  if(${JSON.stringify(boundary)}==='child-stage-completed'&&file.endsWith('research-state.json')){const s=JSON.parse(fs.readFileSync(file,'utf8')).state;if(s.phase==='completed')process.exit(73);}
  if(file.endsWith('think-state.json')){const s=JSON.parse(fs.readFileSync(file,'utf8')).state;if(${JSON.stringify(boundary)}==='adopted'&&s.phase==='design'&&s.research.length===1)process.exit(73);}
  };
@@ -188,7 +189,7 @@ async function interrupt(runId: string, input: string, boundary: string) {
 }
 
 test('parent process exits reuse the reserved child before dispatch, before adoption and after adoption', async () => {
-  for (const boundary of ['reserved', 'child-stage-completed', 'child-completed', 'adopted']) {
+  for (const boundary of ['reserved', 'child-stage-completed', 'adopted']) {
     const { runId, input } = fixture();
     await interrupt(runId, input, boundary);
     const id = returns(runId)[0].id;
@@ -247,3 +248,49 @@ test('pending child input and corrupt return records reject before model executi
     if (changed === 'record') assert.equal(fs.readFileSync(record, 'utf8'), '{invalid');
   }
 });
+
+test('completed children revalidate input and repair publications before parent adoption', async () => {
+  for (const changed of ['input', 'missing', 'conflict']) {
+    const { runId, input } = fixture();
+    await interrupt(runId, input, 'child-stage-completed');
+    const id = returns(runId)[0].id;
+    const paths = researchPublicationPaths(loadResearchState(id)!);
+    const original = fs.readFileSync(paths.json, 'utf8');
+    if (changed === 'input') {
+      fs.writeFileSync(
+        workflowInputPath(id, 'research'),
+        JSON.stringify({ request: 'wrong input' }),
+      );
+    } else if (changed === 'missing') {
+      fs.unlinkSync(paths.json);
+      fs.unlinkSync(paths.markdown);
+    } else {
+      fs.writeFileSync(paths.json, '{}');
+    }
+    const noDispatch: ResearchAgent = {
+      async investigate() {
+        throw new Error('completed Research must not redispatch');
+      },
+      async audit() {
+        throw new Error('completed Research must not repeat audit');
+      },
+    };
+    const resumed = runThinkWorkflow(runId, input, thinker, { research: noDispatch });
+    if (changed === 'missing') {
+      assert.equal((await resumed).status, 'ready');
+      assert.equal(fs.readFileSync(paths.json, 'utf8'), original);
+      assert.ok(fs.readFileSync(paths.markdown, 'utf8').length > 0);
+      assert.equal(loadThinkState(runId)!.research.length, 1);
+    } else {
+      await assert.rejects(
+        resumed,
+        changed === 'input' ? /child input changed/ : /publication conflicts/,
+      );
+      assert.equal(loadThinkState(runId)!.phase, 'research');
+      assert.equal(loadThinkState(runId)!.research.length, 0);
+      if (changed === 'conflict') assert.equal(fs.readFileSync(paths.json, 'utf8'), '{}');
+    }
+    assert.equal(returns(runId).length, 1);
+    assert.equal(returns(runId)[0].id, id);
+  }
+}, 15000);

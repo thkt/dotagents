@@ -8,8 +8,6 @@ import { thinkDigest, loadThinkState, thinkSnapshotPath } from '../think/state.t
 import { sealRepository } from '../execution/source-seal.ts';
 import type { ResearchAgent } from '../research/agent.ts';
 import type { ThinkAgent } from '../think/agent.ts';
-import type { ResearchReport } from '../research/contracts.ts';
-import type { ThinkReport } from '../think/contracts.ts';
 
 export interface StageAgents {
   research?: ResearchAgent;
@@ -42,25 +40,19 @@ interface ReturnEntry {
   input: unknown;
   snapshot: string;
   source: string;
-  result: {
-    report: ResearchReport | ThinkReport;
-    report_json: string;
-    report_markdown: string;
-  } | null;
-  error: string | null;
 }
 interface Returns {
-  protocol: 'codex-stage-returns-v1';
+  protocol: 'codex-stage-returns-v2';
   root: string;
   entries: ReturnEntry[];
 }
 function read(file: string, root: string): Returns {
-  if (!fs.existsSync(file)) return { protocol: 'codex-stage-returns-v1', root, entries: [] };
+  if (!fs.existsSync(file)) return { protocol: 'codex-stage-returns-v2', root, entries: [] };
   try {
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (
       raw.digest !== thinkDigest(raw.state) ||
-      raw.state?.protocol !== 'codex-stage-returns-v1' ||
+      raw.state?.protocol !== 'codex-stage-returns-v2' ||
       raw.state.root !== root ||
       !Array.isArray(raw.state.entries) ||
       raw.state.entries.length > 2
@@ -85,16 +77,7 @@ function read(file: string, root: string): Returns {
         !path.isAbsolute(entry.snapshot) ||
         typeof entry.source !== 'string' ||
         !/^[a-f0-9]{64}$/u.test(entry.source) ||
-        !('input' in entry) ||
-        !(entry.error === null || typeof entry.error === 'string') ||
-        !(
-          entry.result === null ||
-          (entry.result &&
-            typeof entry.result.report_json === 'string' &&
-            path.isAbsolute(entry.result.report_json) &&
-            typeof entry.result.report_markdown === 'string' &&
-            path.isAbsolute(entry.result.report_markdown))
-        )
+        !('input' in entry)
       )
         throw new Error('invalid child record');
     }
@@ -125,7 +108,7 @@ export async function runStageReturn(
   let state = read(file, root);
   const key = thinkDigest({ parent: options.parent, binding: options.binding });
   let entry = state.entries.find((item) => item.key === key);
-  const source = sealRepository(options.snapshot).source_digest;
+  const source = options.source;
   if (
     entry &&
     (entry.route !== options.route ||
@@ -147,13 +130,10 @@ export async function runStageReturn(
       input: options.input,
       snapshot: options.snapshot,
       source,
-      result: null,
-      error: null,
     };
     state.entries.push(entry);
     save(file, state);
   }
-  if (entry.result) return structuredClone(entry.result);
   const childInput = workflowInputPath(entry.id, entry.route);
   if (fs.existsSync(childInput)) {
     if (thinkDigest(JSON.parse(fs.readFileSync(childInput, 'utf8'))) !== thinkDigest(entry.input))
@@ -175,21 +155,11 @@ export async function runStageReturn(
     const current = state.entries.find((item) => item.key === key)!;
     if (
       thinkDigest(current) !== pending ||
-      sealRepository(entry.snapshot).source_digest !== entry.source
+      sealRepository(entry.snapshot, options.logical ? { logical: options.logical } : {})
+        .source_digest !== entry.source
     )
       throw new FlowError('stale child result or changed parent snapshot', 'state_error');
-    current.result = result;
-    current.error = null;
-    save(file, state);
-    return structuredClone(result);
-  } catch (error) {
-    state = read(file, root);
-    const current = state.entries.find((item) => item.key === key);
-    if (current && thinkDigest(current) === pending) {
-      current.error = String(error);
-      save(file, state);
-    }
-    throw error;
+    return result;
   } finally {
     granted.delete(childAccess);
   }
@@ -206,10 +176,13 @@ async function parentReturn(parent: string, workflow: 'think' | 'build') {
       state.review.findings.some((f) => f.severity === 'blocking')
     )
       throw new FlowError('a verified parent Think handoff is required', 'authorization_error');
-    if (sealRepository(thinkSnapshotPath(parent, state)).source_digest !== state.source_digest)
+    const source = sealRepository(thinkSnapshotPath(parent, state)).source_digest;
+    if (source !== state.source_digest)
       throw new FlowError('Think caller snapshot changed', 'state_error');
     return {
       parent,
+      source,
+      logical: undefined,
       invocation: state.invocation,
       binding: { candidate: state.candidate, review: state.review, research: state.research },
       route: 'research' as const,
@@ -232,14 +205,15 @@ async function parentReturn(parent: string, workflow: 'think' | 'build') {
     (route !== 'research' && route !== 'think')
   )
     throw new FlowError('a verified parent Build handoff is required', 'authorization_error');
-  if (
-    sealRepository(state.handoff.snapshot, { logical: sealRepository(state.manifest.repo) })
-      .source_digest !== state.handoff.source_digest
-  )
+  const logical = sealRepository(state.manifest.repo);
+  const source = sealRepository(state.handoff.snapshot, { logical }).source_digest;
+  if (source !== state.handoff.source_digest)
     throw new FlowError('Build caller snapshot changed', 'state_error');
   const question = `${state.escalation!.question}\nConfirmed handoff: ${state.escalation!.summary}`;
   return {
     parent,
+    source,
+    logical,
     invocation: state.invocation_id,
     binding: state.handoff.binding,
     route,
