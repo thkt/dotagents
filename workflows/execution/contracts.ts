@@ -313,9 +313,9 @@ export interface BuildPlanContext {
 
 export interface BuildReviewInput {
   dispatch_id: string;
-  issue: number;
-  base_ref: string;
-  plan: BuildPlanContext;
+  base_ref: string | null;
+  source?: Pick<BuildPlanContext, 'repository' | 'issue' | 'title'>;
+  criteria: Pick<BuildPlanContext, 'outcome' | 'test_command' | 'units'>;
   verification: Array<{
     gate_id: string;
     verdict: GateVerdict;

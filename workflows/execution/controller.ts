@@ -76,12 +76,7 @@ import { compileBuildManifest } from '../build/manifest.ts';
 import { describeBuildRunInput, parseBuildRunInput } from '../build/input.ts';
 import { compileCodeManifest, describeCodeInput, parseCodeInput } from '../code/manifest.ts';
 import { parseBuildReviewCandidate } from './agent.ts';
-import {
-  ACTOR_RESULT_PROTOCOL,
-  createActorReceipt,
-  sameActorBinding,
-  validateReceipt,
-} from './actor-receipt.ts';
+import { requireCompletedActor, createActorReceipt, validateReceipt } from './actor-receipt.ts';
 import { sealRepository } from './source-seal.ts';
 
 /** Loads the task-bound state and rejects stale or malformed records. */
@@ -581,14 +576,8 @@ function completeActorOrAction(runId: string, stepId: string, rawResult?: unknow
   const step = requireStep(state, stepId, ['actor', 'action']);
   if (step.kind === 'actor') {
     const result = rawResult as ActorResult;
-    if (
-      result?.protocol !== ACTOR_RESULT_PROTOCOL ||
-      !state.actor_binding ||
-      !sameActorBinding(result.binding, state.actor_binding) ||
-      result.status !== 'completed'
-    ) {
-      throw new FlowError(`${step.id} returned a stale or invalid actor result`, 'execution_error');
-    }
+    if (!state.actor_binding) throw new FlowError('actor binding is missing', 'state_error');
+    requireCompletedActor(result, state.actor_binding);
     const scope = actorScopeChanges(state, step);
     if (scope.controlChanges.length) {
       throw new FlowError(
@@ -880,25 +869,27 @@ function buildReviewInput(state: FlowState): BuildReviewInput {
   const baseRef =
     branch?.kind === 'action' && branch.action === 'branch'
       ? branch.start_point
-      : (gitOptionalText(state.manifest.repo, ['rev-parse', '--verify', 'HEAD']) ??
-        'the initial working tree (no commits)');
+      : gitOptionalText(state.manifest.repo, ['rev-parse', '--verify', 'HEAD']);
   const actor = state.manifest.steps.find((step): step is ActorStep => step.kind === 'actor')!;
-  const plan = state.build_plan ?? {
-    repository: 'local',
-    issue: 0,
-    title: actor.outcome,
-    outcome: actor.outcome,
-    test_command: actorVerification(state, actor).command,
-    units: [
-      {
-        id: 'U-001',
-        goal: actor.outcome,
-        contract: actor.contract,
-        files: actor.files,
-        tests: actor.tests,
-      },
-    ],
-  };
+  const criteria = state.build_plan
+    ? {
+        outcome: state.build_plan.outcome,
+        test_command: state.build_plan.test_command,
+        units: state.build_plan.units,
+      }
+    : {
+        outcome: actor.outcome,
+        test_command: actorVerification(state, actor).command,
+        units: [
+          {
+            id: actor.id,
+            goal: actor.outcome,
+            contract: actor.contract,
+            files: actor.files,
+            tests: actor.tests,
+          },
+        ],
+      };
   const seal = sealRepository(state.manifest.repo, {
     baseRef: state.workflow === 'code' ? null : baseRef,
   });
@@ -914,9 +905,17 @@ function buildReviewInput(state: FlowState): BuildReviewInput {
   }
   return {
     dispatch_id: state.review_dispatch_id,
-    issue: plan.issue,
     base_ref: baseRef,
-    plan,
+    ...(state.build_plan
+      ? {
+          source: {
+            repository: state.build_plan.repository,
+            issue: state.build_plan.issue,
+            title: state.build_plan.title,
+          },
+        }
+      : {}),
+    criteria,
     verification: state.gate_reports.map((report) => ({
       gate_id: report.gate_id,
       verdict: report.verdict,
@@ -1003,7 +1002,7 @@ function completeBuildReview(
     { summary: raw.summary, findings: raw.findings },
     directive,
   );
-  validateReviewScopes(state, candidate);
+  validateReviewScopes(directive.input, candidate);
   const { findings } = candidate;
   const blocking = findings.filter((finding) => finding.severity === 'blocking');
   const reasonCodes = blocking.map((finding) => finding.code).sort();
@@ -1064,10 +1063,8 @@ function validateCommitBindings(state: FlowState): void {
   }
 }
 
-function validateReviewScopes(state: FlowState, candidate: BuildReviewCandidate): void {
-  const units = new Set(
-    state.workflow === 'code' ? ['U-001'] : (state.build_plan?.units ?? []).map((unit) => unit.id),
-  );
+function validateReviewScopes(input: BuildReviewInput, candidate: BuildReviewCandidate): void {
+  const units = new Set(input.criteria.units.map((unit) => unit.id));
   for (const finding of candidate.findings) {
     const named = finding.unit_ids.map((id) => units.has(id));
     if (named.some((unit) => !unit))

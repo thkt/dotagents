@@ -95,6 +95,64 @@ test('redispatch rejects an earlier worker result and preserves state on rejecti
   assert.equal(fs.readFileSync(statePath(runId), 'utf8'), before);
 });
 
+test('controller rejects malformed completion without advancing or changing state', () => {
+  const runId = crypto.randomUUID();
+  startCode(repository(), runId);
+  const directive = currentDirective(runId);
+  assert.equal(directive.kind, 'run-actor');
+  if (directive.kind !== 'run-actor') return;
+  const before = fs.readFileSync(statePath(runId), 'utf8');
+  for (const invalid of [{ summary: ' ' }, { route: 'think' }, { question: 'Change scope?' }]) {
+    assert.throws(
+      () =>
+        completeCurrentDirective(runId, directive.step_id, {
+          protocol: 'codex-flow-actor-result',
+          binding: directive.binding,
+          status: 'completed',
+          summary: 'done',
+          route: null,
+          question: null,
+          ...invalid,
+        }),
+      /stale or invalid/,
+    );
+    assert.equal(fs.readFileSync(statePath(runId), 'utf8'), before);
+  }
+});
+
+test('Code findings bind to direct request criteria without a public Issue', () => {
+  const runId = crypto.randomUUID();
+  startCode(repository(), runId);
+  completeActor(runId, 'implementation');
+  completeCurrentDirective(runId, 'test:implementation');
+  const review = currentDirective(runId);
+  assert.equal(review.kind, 'run-review');
+  if (review.kind !== 'run-review') return;
+  assert.equal(review.input.source, undefined);
+  assert.equal(review.input.criteria.outcome, '値を更新する');
+  const finding = {
+    severity: 'blocking',
+    code: 'value_unchanged',
+    message: 'The requested change is missing.',
+    unit_ids: ['unrelated'],
+    files: ['src/value.ts'],
+    evidence: [{ path: 'src/value.ts', detail: 'The original value remains.' }],
+  };
+  const candidate = {
+    protocol: 'codex-build-review-candidate',
+    step_id: review.step_id,
+    dispatch_id: review.input.dispatch_id,
+    source_digest: review.input.source_digest,
+    actor_receipt_digest: review.input.actor_receipt_digest,
+    summary: 'Correction required.',
+    findings: [finding],
+  };
+  assert.throws(() => completeBuildReview(runId, review.step_id, candidate, 0), /unknown unit/);
+  finding.unit_ids = [review.input.criteria.units[0]!.id];
+  completeBuildReview(runId, review.step_id, candidate, 0);
+  assert.equal(currentDirective(runId).kind, 'run-actor');
+});
+
 test('a redispatched review rejects the earlier response even for the same source', () => {
   const repo = repository();
   const runId = crypto.randomUUID();

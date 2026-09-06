@@ -163,12 +163,9 @@ test('supplies the same script-read project outcome to the independent review', 
     kind: 'run-review',
     step_id: 'review:build',
     input: {
-      issue: 4,
       base_ref: 'base',
-      plan: {
-        repository: 'thkt/dotagents',
-        issue: 4,
-        title: 'Plan',
+      source: { repository: 'thkt/dotagents', issue: 4, title: 'Plan' },
+      criteria: {
         outcome: 'Implement the Plan.',
         test_command: 'bun run check',
         units: [],

@@ -235,19 +235,6 @@ function validateSequence(manifest: FlowManifest, steps: FlowStep[]): void {
   }
   if (manifest.workflow === 'build') {
     validateBuildSequence(manifest, steps);
-  } else {
-    if (steps.some((step) => step.kind === 'action')) {
-      throw new FlowError('code workflow does not accept action steps');
-    }
-    if (
-      steps.some(
-        (step) =>
-          step.kind === 'gate' &&
-          step.gate.authority !== 'shell' &&
-          !(step.id === 'review:build' && step.gate.authority === 'build-review'),
-      )
-    )
-      throw new FlowError('code workflow accepts only test and independent review gates');
   }
 }
 
@@ -458,19 +445,6 @@ export function validateManifest(raw: unknown): FlowManifest {
     };
   });
 
-  // Code's semantic input compiles the worker and test; the shared executor owns review.
-  if (raw.workflow === 'code' && steps.length === 2) {
-    steps.push({
-      id: 'review:build',
-      kind: 'gate',
-      owner: 'implementation',
-      gate: {
-        authority: 'build-review',
-        command: 'sdk-review',
-        failure_route: 'direct:implementation',
-      },
-    });
-  }
   const manifest: FlowManifest = {
     protocol: MANIFEST_PROTOCOL,
     workflow: raw.workflow,

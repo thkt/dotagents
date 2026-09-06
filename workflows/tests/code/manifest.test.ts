@@ -83,3 +83,12 @@ test('a shell command cannot impersonate the independent review gate', () => {
   };
   assert.throws(() => validateManifest(manifest), /independent review/);
 });
+
+test('Code rejects a missing review instead of repairing the manifest', () => {
+  const repo = repository();
+  const manifest = compileCodeManifest(
+    parseCodeInput({ repo, request: 'Update value', scope_paths: ['src'], test_command: 'true' }),
+  );
+  manifest.steps.pop();
+  assert.throws(() => validateManifest(manifest), /independent review/);
+});

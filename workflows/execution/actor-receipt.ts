@@ -100,6 +100,6 @@ export function validateReceipt(receipt: ActorReceipt): void {
   }
 }
 
-export function sameActorBinding(left: ActorBinding, right: ActorBinding): boolean {
+function sameActorBinding(left: ActorBinding, right: ActorBinding): boolean {
   return canonical(left) === canonical(right);
 }
