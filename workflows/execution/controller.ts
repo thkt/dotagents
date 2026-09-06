@@ -76,12 +76,7 @@ import { compileBuildManifest } from '../build/manifest.ts';
 import { describeBuildRunInput, parseBuildRunInput } from '../build/input.ts';
 import { compileCodeManifest, describeCodeInput, parseCodeInput } from '../code/manifest.ts';
 import { parseBuildReviewCandidate } from './agent.ts';
-import {
-  ACTOR_RESULT_PROTOCOL,
-  createActorReceipt,
-  sameActorBinding,
-  validateReceipt,
-} from './actor-receipt.ts';
+import { requireCompletedActor, createActorReceipt, validateReceipt } from './actor-receipt.ts';
 import { sealRepository } from './source-seal.ts';
 
 /** Loads the task-bound state and rejects stale or malformed records. */
@@ -102,6 +97,19 @@ function loadWorkflowState(runId: string): { file: string; state: FlowState } {
       throw new FlowError('workflow state has an invalid run id', 'state_error');
     }
     if (
+      state.execution_revision !== 1 ||
+      typeof state.actor_dispatched !== 'boolean' ||
+      typeof state.review_dispatch_id !== 'string' ||
+      !state.review_dispatch_id ||
+      typeof state.invocation_id !== 'string' ||
+      !state.invocation_id
+    ) {
+      throw new FlowError(
+        'workflow state uses an obsolete execution contract; retain this record and finish or cancel it with its original runtime before starting a new workflow',
+        'state_error',
+      );
+    }
+    if (
       'unit_attempts' in state ||
       'active_receipts' in state ||
       !Number.isInteger(state.actor_attempt) ||
@@ -117,6 +125,7 @@ function loadWorkflowState(runId: string): { file: string; state: FlowState } {
       validateReceipt(state.actor_receipt);
       if (
         state.actor_receipt.binding.run_id !== runId ||
+        state.actor_receipt.binding.invocation_id !== state.invocation_id ||
         state.actor_receipt.binding.workflow !== state.workflow ||
         state.actor_receipt.binding.step_id !== IMPLEMENTATION_ACTOR_ID
       )
@@ -307,6 +316,10 @@ function startWorkflow(runId: string, inputFile: string): PublicState {
   }
   const state: FlowState = {
     protocol: STATE_PROTOCOL,
+    execution_revision: 1,
+    invocation_id: crypto.randomUUID(),
+    actor_dispatched: false,
+    review_dispatch_id: crypto.randomUUID(),
     run_id: runId,
     workflow: manifest.workflow,
     manifest,
@@ -408,6 +421,11 @@ function startOrResumeWorkflow(runId: string, inputFile: string): PublicState {
       requireOriginalInput(existing, inputFile);
       existing.status = 'running';
       existing.runtime_failure = null;
+      if (
+        existing.manifest.steps[existing.cursor]?.kind === 'actor' &&
+        !pendingActorPublicationStep(runId)
+      )
+        existing.actor_attempt += 1;
       prepareCurrentStep(existing);
       return save(loaded.file, existing);
     }
@@ -421,7 +439,8 @@ function startOrResumeWorkflow(runId: string, inputFile: string): PublicState {
         }
         return publicState(existing);
       }
-      return startWorkflow(runId, inputFile);
+      requireOriginalInput(existing, inputFile);
+      return publicState(existing);
     }
     requireOriginalInput(existing, inputFile);
     return publicState(existing);
@@ -488,6 +507,8 @@ function advanceToNextStep(state: FlowState): void {
 /** Captures the entry invariant needed to enforce the next step's postconditions. */
 function prepareCurrentStep(state: FlowState): void {
   const current = state.manifest.steps[state.cursor];
+  state.actor_dispatched = false;
+  state.review_dispatch_id = crypto.randomUUID();
   state.actor_baseline =
     current?.kind === 'actor' ? repositoryInvariant(state.manifest.repo) : null;
   state.actor_binding = current?.kind === 'actor' ? actorBinding(state, current) : null;
@@ -511,6 +532,7 @@ function actorBinding(state: FlowState, step: ActorStep): ActorBinding {
     baseRef: buildBaseRef(state),
   });
   return {
+    invocation_id: state.invocation_id,
     run_id: state.run_id,
     workflow: state.workflow,
     step_id: step.id,
@@ -554,14 +576,8 @@ function completeActorOrAction(runId: string, stepId: string, rawResult?: unknow
   const step = requireStep(state, stepId, ['actor', 'action']);
   if (step.kind === 'actor') {
     const result = rawResult as ActorResult;
-    if (
-      result?.protocol !== ACTOR_RESULT_PROTOCOL ||
-      !state.actor_binding ||
-      !sameActorBinding(result.binding, state.actor_binding) ||
-      result.status !== 'completed'
-    ) {
-      throw new FlowError(`${step.id} returned a stale or invalid actor result`, 'execution_error');
-    }
+    if (!state.actor_binding) throw new FlowError('actor binding is missing', 'state_error');
+    requireCompletedActor(result, state.actor_binding);
     const scope = actorScopeChanges(state, step);
     if (scope.controlChanges.length) {
       throw new FlowError(
@@ -840,21 +856,66 @@ function actorVerification(state: FlowState, step: ActorStep): ActorVerification
 }
 
 function buildReviewInput(state: FlowState): BuildReviewInput {
-  if (!state.build_plan) {
+  if (!state.build_plan && state.workflow !== 'code') {
     throw new FlowError('review:build has no validated Plan context', 'state_error');
   }
   const branch = state.manifest.steps.find(
     (step) => step.kind === 'action' && step.action === 'branch',
   );
-  if (!branch || branch.action !== 'branch') {
+  if (state.workflow === 'build' && (!branch || branch.action !== 'branch')) {
     throw new FlowError('review:build has no branch context', 'state_error');
   }
   if (!state.actor_receipt) throw new FlowError('review:build has no actor receipt', 'state_error');
-  const seal = sealRepository(state.manifest.repo, { baseRef: branch.start_point });
+  const baseRef =
+    branch?.kind === 'action' && branch.action === 'branch'
+      ? branch.start_point
+      : gitOptionalText(state.manifest.repo, ['rev-parse', '--verify', 'HEAD']);
+  const actor = state.manifest.steps.find((step): step is ActorStep => step.kind === 'actor')!;
+  const criteria = state.build_plan
+    ? {
+        outcome: state.build_plan.outcome,
+        test_command: state.build_plan.test_command,
+        units: state.build_plan.units,
+      }
+    : {
+        outcome: actor.outcome,
+        test_command: actorVerification(state, actor).command,
+        units: [
+          {
+            id: actor.id,
+            goal: actor.outcome,
+            contract: actor.contract,
+            files: actor.files,
+            tests: actor.tests,
+          },
+        ],
+      };
+  const seal = sealRepository(state.manifest.repo, {
+    baseRef: state.workflow === 'code' ? null : baseRef,
+  });
+  const receipt = state.actor_receipt;
+  const test = state.gate_reports.findLast((report) => report.gate_id === 'test:implementation');
+  if (
+    receipt.source_after_digest !== seal.source_digest ||
+    test?.verdict !== 'pass' ||
+    test.source_digest !== seal.source_digest ||
+    test.actor_receipt_digest !== receipt.digest
+  ) {
+    throw new FlowError('review requires current passing tests and actor receipt', 'state_error');
+  }
   return {
-    issue: state.build_plan.issue,
-    base_ref: branch.start_point,
-    plan: state.build_plan,
+    dispatch_id: state.review_dispatch_id,
+    base_ref: baseRef,
+    ...(state.build_plan
+      ? {
+          source: {
+            repository: state.build_plan.repository,
+            issue: state.build_plan.issue,
+            title: state.build_plan.title,
+          },
+        }
+      : {}),
+    criteria,
     verification: state.gate_reports.map((report) => ({
       gate_id: report.gate_id,
       verdict: report.verdict,
@@ -931,6 +992,7 @@ function completeBuildReview(
   const raw = rawResult as BuildReviewCandidate;
   if (
     raw?.protocol !== 'codex-build-review-candidate' ||
+    raw.dispatch_id !== directive.input.dispatch_id ||
     raw.step_id !== directive.step_id ||
     raw.source_digest !== directive.input.source_digest ||
     raw.actor_receipt_digest !== directive.input.actor_receipt_digest
@@ -940,7 +1002,7 @@ function completeBuildReview(
     { summary: raw.summary, findings: raw.findings },
     directive,
   );
-  validateReviewScopes(state, candidate);
+  validateReviewScopes(directive.input, candidate);
   const { findings } = candidate;
   const blocking = findings.filter((finding) => finding.severity === 'blocking');
   const reasonCodes = blocking.map((finding) => finding.code).sort();
@@ -1001,10 +1063,10 @@ function validateCommitBindings(state: FlowState): void {
   }
 }
 
-function validateReviewScopes(state: FlowState, candidate: BuildReviewCandidate): void {
-  const units = new Map((state.build_plan?.units ?? []).map((unit) => [unit.id, unit]));
+function validateReviewScopes(input: BuildReviewInput, candidate: BuildReviewCandidate): void {
+  const units = new Set(input.criteria.units.map((unit) => unit.id));
   for (const finding of candidate.findings) {
-    const named = finding.unit_ids.map((id) => units.get(id));
+    const named = finding.unit_ids.map((id) => units.has(id));
     if (named.some((unit) => !unit))
       throw new FlowError('review finding names an unknown unit', 'execution_error');
     const paths = [...finding.files, ...finding.evidence.map((item) => item.path)];
@@ -1032,6 +1094,26 @@ function currentDirective(runId: string): FlowDirective {
     );
   }
   return directiveForState(loaded.state);
+}
+
+/** Persist a fresh dispatch identity before handing work to an asynchronous agent. */
+export function prepareWorkflowDispatch(runId: string): void {
+  const { file, state } = loadWorkflowState(runId);
+  if (state.status !== 'running') return;
+  const step = state.manifest.steps[state.cursor];
+  if (step?.kind === 'actor') {
+    // A durable publication contains the original accepted response: reconcile it first.
+    if (pendingActorPublicationStep(runId)) return;
+    if (state.actor_dispatched) {
+      state.actor_attempt += 1;
+      prepareCurrentStep(state);
+    }
+    state.actor_dispatched = true;
+    save(file, state);
+  } else if (step?.kind === 'gate' && step.gate.authority === 'build-review') {
+    state.review_dispatch_id = crypto.randomUUID();
+    save(file, state);
+  }
 }
 
 /** Completes the current directive without accepting a caller-supplied transition name. */

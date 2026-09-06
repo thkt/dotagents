@@ -217,8 +217,16 @@ function validateSequence(manifest: FlowManifest, steps: FlowStep[]): void {
     gate.gate.authority !== 'shell'
   )
     throw new FlowError('implementation must be followed by its shell test');
-  if (manifest.workflow === 'code' && (steps.length !== 2 || firstActor !== 0))
-    throw new FlowError('Code requires exactly implementation and test');
+  if (
+    manifest.workflow === 'code' &&
+    (steps.length !== 3 ||
+      firstActor !== 0 ||
+      steps[2]?.id !== 'review:build' ||
+      steps[2]?.kind !== 'gate' ||
+      steps[2].gate.authority !== 'build-review' ||
+      steps[2].owner !== IMPLEMENTATION_ACTOR_ID)
+  )
+    throw new FlowError('Code requires implementation, test and independent review');
   if (manifest.workflow === 'build') {
     const opening = steps.slice(0, BUILD_OPENING_IDS.length).map((step) => step.id);
     if (opening.join(',') !== BUILD_OPENING_IDS.join(',')) {
@@ -227,15 +235,6 @@ function validateSequence(manifest: FlowManifest, steps: FlowStep[]): void {
   }
   if (manifest.workflow === 'build') {
     validateBuildSequence(manifest, steps);
-  } else {
-    if (steps.some((step) => step.kind === 'action')) {
-      throw new FlowError('code workflow does not accept action steps');
-    }
-    if (steps.some((step) => step.kind === 'gate' && step.gate.authority !== 'shell')) {
-      throw new FlowError('code workflow accepts only shell gate authority');
-    }
-    if (steps.some((step) => step.kind === 'gate' && step.gate.authority !== 'shell'))
-      throw new FlowError('code workflow accepts only shell gate authority');
   }
 }
 

@@ -89,18 +89,26 @@ export function compileCodeManifest(input: CodeInput): FlowManifest {
     repo: input.repo,
     max_corrections: DEFAULT_MAX_CORRECTIONS,
     shipping_authorized: false,
-    steps: implementationSteps(
-      [
-        {
-          id: 'U-001',
-          outcome: input.request,
-          contract: '',
-          tests: [],
-          scope_paths: input.scope_paths,
-        },
-      ],
-      input.test_command,
-    ),
+    steps: [
+      ...implementationSteps(
+        [
+          {
+            id: 'U-001',
+            outcome: input.request,
+            contract: '',
+            tests: [],
+            scope_paths: input.scope_paths,
+          },
+        ],
+        input.test_command,
+      ),
+      {
+        id: 'review:build',
+        kind: 'gate',
+        owner: 'implementation',
+        gate: { authority: 'build-review' },
+      },
+    ],
   });
 }
 

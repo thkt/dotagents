@@ -9,6 +9,24 @@ import { isObject, rejectUnknownKeys } from '../shared/schema.ts';
 export const ACTOR_RESULT_PROTOCOL = 'codex-flow-actor-result' as const;
 const ACTOR_RECEIPT_PROTOCOL = 'codex-flow-actor-receipt' as const;
 
+/** Validate before publishing sandbox edits, including recovered publication results. */
+export function requireCompletedActor(result: ActorResult, binding: ActorBinding): void {
+  if (
+    result?.protocol !== ACTOR_RESULT_PROTOCOL ||
+    !sameActorBinding(result.binding, binding) ||
+    result.status !== 'completed' ||
+    typeof result.summary !== 'string' ||
+    !result.summary.trim() ||
+    result.route !== null ||
+    result.question !== null
+  ) {
+    throw new FlowError(
+      'stale or invalid actor result cannot be published',
+      'actor_result_invalid',
+    );
+  }
+}
+
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (value && typeof value === 'object') {
@@ -56,7 +74,7 @@ export function validateReceipt(receipt: ActorReceipt): void {
   );
   rejectUnknownKeys(
     receipt.binding,
-    ['run_id', 'workflow', 'step_id', 'attempt', 'input_source_digest'],
+    ['invocation_id', 'run_id', 'workflow', 'step_id', 'attempt', 'input_source_digest'],
     'actor receipt binding',
     'state_error',
   );
@@ -69,6 +87,8 @@ export function validateReceipt(receipt: ActorReceipt): void {
     typeof receipt.summary !== 'string' ||
     !receipt.summary.trim() ||
     typeof receipt.binding.run_id !== 'string' ||
+    typeof receipt.binding.invocation_id !== 'string' ||
+    !receipt.binding.invocation_id ||
     receipt.binding.step_id !== 'implementation' ||
     (receipt.binding.workflow !== 'build' && receipt.binding.workflow !== 'code') ||
     !Number.isInteger(receipt.binding.attempt) ||
@@ -80,6 +100,6 @@ export function validateReceipt(receipt: ActorReceipt): void {
   }
 }
 
-export function sameActorBinding(left: ActorBinding, right: ActorBinding): boolean {
+function sameActorBinding(left: ActorBinding, right: ActorBinding): boolean {
   return canonical(left) === canonical(right);
 }

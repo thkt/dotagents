@@ -27,6 +27,7 @@ const directive: ActorDirective = {
     step_id: 'implementation:direct',
     attempt: 1,
     input_source_digest: 'a'.repeat(64),
+    invocation_id: 'test-invocation',
   },
   outcome: 'Implement the requested behavior.',
   contract: null,
@@ -162,12 +163,9 @@ test('supplies the same script-read project outcome to the independent review', 
     kind: 'run-review',
     step_id: 'review:build',
     input: {
-      issue: 4,
       base_ref: 'base',
-      plan: {
-        repository: 'thkt/dotagents',
-        issue: 4,
-        title: 'Plan',
+      source: { repository: 'thkt/dotagents', issue: 4, title: 'Plan' },
+      criteria: {
         outcome: 'Implement the Plan.',
         test_command: 'bun run check',
         units: [],
@@ -175,6 +173,7 @@ test('supplies the same script-read project outcome to the independent review', 
       verification: [],
       source_digest: 'a'.repeat(64),
       actor_receipt_digest: 'b'.repeat(64),
+      dispatch_id: 'test-dispatch',
     },
   });
 

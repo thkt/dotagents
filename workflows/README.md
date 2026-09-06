@@ -12,6 +12,7 @@ The project outcome is defined in [.codex/OUTCOME.md](../.codex/OUTCOME.md).
 6. Ship pushes and creates a draft pull request only when explicitly authorized.
 
 Code accepts a direct request and uses the same implementation executor as Build without Git actions.
+Both workflows require the shared shell test and an independent semantic review before completion.
 
 ## Contract granularity
 
@@ -45,6 +46,10 @@ Build and Code implement and self-review within the authorized scope using this 
 - Optional PR screenshots are Build delivery input, not public Plan authority.
 - Research reports remain the evidence record. Knowledge is a rebuildable index of original reports; it never derives decisions from Issue artifacts.
 - Build and Code use one implementation actor for the complete requested scope. A failed test or blocking semantic review returns to that actor, followed by tests and review again.
+- The runner owns an exclusive SQLite transaction for the task while starting, executing, resuming, or cancelling it. The lock database stays in the local runtime directory; never delete it while a runner is active. Process death releases ownership without PID-based takeover. Arming a new invocation uses the same ownership boundary.
+- Execution state revision 1 binds worker results to an invocation and attempt, and review results to a fresh dispatch identifier and the tested source. A discarded worker is reconstructed from persisted scope, candidate files and correction evidence; this is not SDK session resumption. Durable pending publications are reconciled before redispatch.
+- Incompatible older execution records are retained and rejected before side effects. Finish or cancel them using their original runtime before starting a new invocation. Re-running an exhausted or completed invocation does not reset its correction budget.
+- Code uses the same internal review gate as Build. Build and Code supply outcome, test command, and scoped review units through the same criteria input; only Build includes public Issue metadata. Code does not fetch or publish an Issue, and supports repositories without commits.
 - Plan units organize goals and acceptance criteria; they do not prescribe actor calls or restrict review evidence. Editing stays within the combined Plan scope.
 - Model responses contain judgments and findings. The runtime binds them to the invocation and source; models do not echo controller identifiers or digests.
 - One invocation record owns task, workflow, repository and external-write authorization. Inputs are workflow-specific within the task directory. The hook supplies host identity; runners validate inputs, own resume policy and report blockers.

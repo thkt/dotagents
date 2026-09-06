@@ -240,6 +240,10 @@ export interface GateOptions {
 
 export interface FlowState {
   protocol: typeof STATE_PROTOCOL;
+  execution_revision: 1;
+  invocation_id: string;
+  actor_dispatched: boolean;
+  review_dispatch_id: string;
   run_id: string;
   workflow: Workflow;
   manifest: FlowManifest;
@@ -264,6 +268,7 @@ export interface FlowState {
 }
 
 export interface ActorBinding {
+  invocation_id: string;
   run_id: string;
   workflow: Workflow;
   step_id: string;
@@ -307,9 +312,10 @@ export interface BuildPlanContext {
 }
 
 export interface BuildReviewInput {
-  issue: number;
-  base_ref: string;
-  plan: BuildPlanContext;
+  dispatch_id: string;
+  base_ref: string | null;
+  source?: Pick<BuildPlanContext, 'repository' | 'issue' | 'title'>;
+  criteria: Pick<BuildPlanContext, 'outcome' | 'test_command' | 'units'>;
   verification: Array<{
     gate_id: string;
     verdict: GateVerdict;
@@ -329,6 +335,7 @@ interface BuildReviewFinding {
 }
 
 export interface BuildReviewCandidate {
+  dispatch_id: string;
   protocol: 'codex-build-review-candidate';
   step_id: 'review:build';
   source_digest: string;
