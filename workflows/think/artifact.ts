@@ -1,5 +1,7 @@
 /** @file Outcome: One reviewed Think result has one compact JSON handoff and readable view. */
 
+import fs from 'node:fs';
+import { FlowError } from '../shared/errors.ts';
 import { renderPlanMarkdown } from '../plan/contracts.ts';
 import {
   artifactPaths,
@@ -36,14 +38,24 @@ function renderThinkMarkdown(report: ThinkReport): string {
 export function persistThinkReport(
   repo: string,
   report: ThinkReport,
+  publicationPaths?: { json: string; markdown: string },
 ): { json: string; markdown: string } {
-  const paths = artifactPaths(
-    thinkArtifactDirectory(repo),
-    report.request,
-    new Date(report.generated_at),
-    'think',
-  );
-  atomicWrite(paths.json, report);
-  atomicWriteText(paths.markdown, renderThinkMarkdown(report));
+  const paths =
+    publicationPaths ??
+    artifactPaths(
+      thinkArtifactDirectory(repo),
+      report.request,
+      new Date(report.generated_at),
+      'think',
+    );
+  if (
+    fs.existsSync(paths.json) &&
+    fs.readFileSync(paths.json, 'utf8') !== `${JSON.stringify(report, null, 2)}\n`
+  )
+    throw new FlowError('Think publication conflicts with an existing report', 'state_error');
+  if (!fs.existsSync(paths.json)) atomicWrite(paths.json, report);
+  const markdown = renderThinkMarkdown(report);
+  if (!fs.existsSync(paths.markdown) || fs.readFileSync(paths.markdown, 'utf8') !== markdown)
+    atomicWriteText(paths.markdown, markdown);
   return paths;
 }

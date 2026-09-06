@@ -30,6 +30,10 @@ export function statePath(runId: string): string {
   return path.join(workflowRunDirectory(runId), 'state.json');
 }
 
+export function thinkStatePath(runId: string): string {
+  return path.join(workflowRunDirectory(runId), 'think-state.json');
+}
+
 export function researchStatePath(runId: string): string {
   return path.join(workflowRunDirectory(runId), 'research-state.json');
 }

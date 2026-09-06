@@ -1,17 +1,11 @@
 #!/usr/bin/env bun
 /** @file Outcome: One explicit command turns a change request into a reviewed decision or a concrete research route. */
 
-import { consumeIntentAfter, requireThinkIntent } from '../runtime/invocation.ts';
-import { parseCommand, requireExactFlags, readAbsoluteJson, runCli } from '../runtime/cli.ts';
+import { parseCommand, requireExactFlags, runCli } from '../runtime/cli.ts';
 import { isMainModule, THINK_COMMAND } from '../runtime/environment.ts';
 import { FlowError } from '../shared/errors.ts';
 
-import {
-  THINK_DESCRIPTION_PROTOCOL,
-  THINK_RESULT_PROTOCOL,
-  thinkNextStep,
-  validateThinkInput,
-} from './contracts.ts';
+import { THINK_DESCRIPTION_PROTOCOL, THINK_RESULT_PROTOCOL, thinkNextStep } from './contracts.ts';
 import type { ThinkAgent } from './agent.ts';
 import { runThink } from './pipeline.ts';
 
@@ -73,10 +67,7 @@ export async function runThinkWorkflow(
   inputFile: string,
   agent?: ThinkAgent,
 ): Promise<ThinkCommandResult> {
-  const request = validateThinkInput(readAbsoluteJson(inputFile, 'think'));
-  requireThinkIntent(runId, request.repo, inputFile);
-  const input = request;
-  const result = await consumeIntentAfter(runId, () => runThink(input, agent));
+  const result = await runThink(runId, inputFile, agent);
   return {
     protocol: THINK_RESULT_PROTOCOL,
     status: result.report.status,

@@ -12,7 +12,8 @@ import {
   THINK_DRAFT_SCHEMA,
   THINK_REVIEW_SCHEMA,
   parseThinkDecision,
-  type ThinkDecision,
+  parseThinkReview,
+  type ThinkReview,
   type ThinkDraft,
   type ThinkInput,
 } from './contracts.ts';
@@ -30,9 +31,9 @@ export interface ThinkResearchContext {
   limitations: string[];
 }
 
-export interface ThinkReviewCorrection {
-  rejected: ThinkDecision;
-  errors: readonly string[];
+export interface ThinkCorrection {
+  candidate: ThinkDraft;
+  reason: string;
 }
 
 /** Reads source only from snapshotRepo; input.repo names the live repository for artifact lookups. */
@@ -43,6 +44,7 @@ export interface ThinkAgent {
     knowledge: ThinkResearchContext[],
     buildContract: unknown,
     snapshotRepo: string,
+    correction?: ThinkCorrection,
   ): Promise<ThinkDraft>;
   review(
     input: ThinkInput,
@@ -50,9 +52,8 @@ export interface ThinkAgent {
     research: ThinkResearchContext[],
     knowledge: ThinkResearchContext[],
     buildContract: unknown,
-    correction: ThinkReviewCorrection | undefined,
     snapshotRepo: string,
-  ): Promise<ThinkDecision>;
+  ): Promise<ThinkReview>;
 }
 
 function commonPrompt(input: ThinkInput, projectOutcome: string): string[] {
@@ -76,16 +77,28 @@ function designPrompt(
   knowledge: ThinkResearchContext[],
   buildContract: unknown,
   projectOutcome: string,
+  correction?: ThinkCorrection,
 ): string {
   return composePrompt(
     [
       'Turn this request into an implementation-ready Plan.',
       ...commonPrompt(input, projectOutcome),
+      ...(correction
+        ? [
+            'Correct the previous candidate using the supplied findings; preserve the authorized scope.',
+          ]
+        : []),
       'Choose the smallest viable approach. Compare alternatives only when that materially improves the Plan.',
       'Return status ready with a complete Plan only when the repository and supplied Research are sufficient. Otherwise return research_required with plan null and concrete research questions.',
       'After the bounded investigation, return only the structured response.',
     ],
     [
+      ...(correction
+        ? ([
+            ['PREVIOUS CANDIDATE', correction.candidate],
+            ['CORRECTION FINDINGS', correction.reason],
+          ] as const)
+        : []),
       ['BUILD PLAN CONTRACT', buildContract],
       ['SELECTED RESEARCH', research],
       ['RELEVANT KNOWLEDGE', knowledge],
@@ -101,29 +114,17 @@ function reviewPrompt(
   knowledge: ThinkResearchContext[],
   buildContract: unknown,
   projectOutcome: string,
-  correction?: ThinkReviewCorrection,
 ): string {
   return composePrompt(
     [
-      'Independently review the proposed Plan and return the final handoff.',
+      'Independently review this exact designer candidate. Return only findings; never rewrite or supply a final Plan.',
       ...commonPrompt(input, projectOutcome),
-      'Within the bounded surface, check for a simpler approach, hidden coupling, unsupported assumptions, and missing integration behavior.',
-      'Reject ready when an acceptance condition does not directly verify its unit goal and contract under test_command.',
-      'Return ready only for one sufficient, internally consistent Plan accepted by the build contract. Otherwise return research_required with plan null and concrete questions.',
-      ...(correction
-        ? [
-            'Correct only the supplied semantic findings. Do not broaden the handoff or invent evidence; the controller owns mechanical validation.',
-          ]
-        : []),
+      'Check simpler approaches, unsupported assumptions, hidden coupling and missing integration behavior. A ready Plan must satisfy the request and its acceptance tests must verify the unit goals under test_command.',
+      'For research_required, verify that each question identifies a confirmed missing fact that materially changes requirements; ordinary implementation choices must return to the designer, not Research.',
+      'Each finding must name the unmet condition, explain the defect and cite concrete evidence from the request, candidate, supplied reports or snapshot source locations. Use blocking only for required corrections and advisory for optional improvements. No findings means this exact candidate is sufficient.',
       'Return only the structured response.',
     ],
     [
-      ...(correction
-        ? ([
-            ['REJECTED HANDOFF', correction.rejected],
-            ['VALIDATION ERRORS', correction.errors],
-          ] as const)
-        : []),
       ['BUILD PLAN CONTRACT', buildContract],
       ['DESIGN PROPOSAL', draft],
       ['SELECTED RESEARCH', research],
@@ -151,20 +152,24 @@ export class CodexThinkAgent implements ThinkAgent {
     knowledge: ThinkResearchContext[],
     buildContract: unknown,
     snapshotRepo: string,
+    correction?: ThinkCorrection,
   ): Promise<ThinkDraft> {
     const projectOutcome = projectOutcomeContext(snapshotRepo);
     const thread = this.client.startThread(readOnlyThreadOptions(snapshotRepo));
     const result = await this.progress.run(
       { workflow: 'think', stage: 'designer_model_call' },
       (stage) =>
-        thread.run(designPrompt(input, research, knowledge, buildContract, projectOutcome), {
-          outputSchema: THINK_DRAFT_SCHEMA,
-          modelRun: {
-            label: 'think designer',
-            idleCode: 'think_designer_idle_timeout',
-            onActivity: (activity) => stage.activity(activity),
+        thread.run(
+          designPrompt(input, research, knowledge, buildContract, projectOutcome, correction),
+          {
+            outputSchema: THINK_DRAFT_SCHEMA,
+            modelRun: {
+              label: 'think designer',
+              idleCode: 'think_designer_idle_timeout',
+              onActivity: (activity) => stage.activity(activity),
+            },
           },
-        }),
+        ),
     );
     return this.progress.runSync(
       { workflow: 'think', stage: 'designer_structured_validation' },
@@ -178,45 +183,31 @@ export class CodexThinkAgent implements ThinkAgent {
     research: ThinkResearchContext[],
     knowledge: ThinkResearchContext[],
     buildContract: unknown,
-    correction: ThinkReviewCorrection | undefined,
     snapshotRepo: string,
-  ): Promise<ThinkDecision> {
+  ): Promise<ThinkReview> {
     const projectOutcome = projectOutcomeContext(snapshotRepo);
     const thread = this.client.startThread(readOnlyThreadOptions(snapshotRepo));
     const result = await this.progress.run(
       {
         workflow: 'think',
         stage: 'reviewer_model_call',
-        ...(correction ? { attempt: 2 } : {}),
       },
       (stage) =>
-        thread.run(
-          reviewPrompt(
-            input,
-            draft,
-            research,
-            knowledge,
-            buildContract,
-            projectOutcome,
-            correction,
-          ),
-          {
-            outputSchema: THINK_REVIEW_SCHEMA,
-            modelRun: {
-              label: 'think reviewer',
-              idleCode: 'think_reviewer_idle_timeout',
-              onActivity: (activity) => stage.activity(activity),
-            },
+        thread.run(reviewPrompt(input, draft, research, knowledge, buildContract, projectOutcome), {
+          outputSchema: THINK_REVIEW_SCHEMA,
+          modelRun: {
+            label: 'think reviewer',
+            idleCode: 'think_reviewer_idle_timeout',
+            onActivity: (activity) => stage.activity(activity),
           },
-        ),
+        }),
     );
     return this.progress.runSync(
       {
         workflow: 'think',
         stage: 'reviewer_structured_validation',
-        ...(correction ? { attempt: 2 } : {}),
       },
-      () => parseThinkDecision(structuredResponseObject(result.finalResponse, 'think reviewer')),
+      () => parseThinkReview(structuredResponseObject(result.finalResponse, 'think reviewer')),
     );
   }
 }
