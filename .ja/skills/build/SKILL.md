@@ -5,6 +5,8 @@ description: 公開 GitHub Issue の Plan 1件を実装・検証し、任意で 
 
 # Build
 
+この段階で確定する内容は、共通の[契約の粒度](../../workflows/README.md)に従う。
+
 準備済みの Build input を`codex-build run --input <task-input-json>`で実行する。controller は選択された公開 Plan からすべての実行 step を導出する。
 
 ## 入力
@@ -26,7 +28,7 @@ description: 公開 GitHub Issue の Plan 1件を実装・検証し、任意で 
 
 ## エスカレーション
 
-契約外の設計不足は `think` に戻し、事実・証拠不足は `research` に戻す。機械的な実装・テスト失敗はローカルで修正する。
+設計質問を `think`、事実不足を `research` に返す前に、共通方針の handoff review を行う。未指定の内部実装の選択は実装担当が決める。
 
 ## 報告
 

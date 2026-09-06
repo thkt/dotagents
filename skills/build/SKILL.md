@@ -5,6 +5,8 @@ description: Implement and verify one public GitHub Issue Plan, optionally pushi
 
 # Build
 
+Follow the common [contract granularity](../../workflows/README.md) when deciding what this stage must establish.
+
 Run the prepared Build input with `codex-build run --input <task-input-json>`. The controller derives every execution step from the selected public Plan.
 
 ## Source
@@ -26,7 +28,7 @@ Run the prepared Build input with `codex-build run --input <task-input-json>`. T
 
 ## Escalation
 
-Contract-external design gaps return to `think`; missing facts or evidence return to `research`. Mechanical implementation or test failures receive local correction.
+Apply the common handoff review policy before returning a design question to `think` or a factual gap to `research`. Unspecified internal implementation choices remain with the implementation owner.
 
 ## Report
 

@@ -5,9 +5,11 @@ description: Implement one direct repository change with an optional scope and t
 
 # Code
 
+Follow the common [contract granularity](../../workflows/README.md) when deciding what this stage must establish.
+
 Inspect the current input with `codex-code describe`, then invoke the first hook-bound command itself with network escalation. Do not request persistent approval for the `codex-code run` prefix because Code can edit arbitrary in-scope repository files. The controller compiles the request through the same implementation executor used by Build.
 
-One actor implements and self-reviews the complete request, followed by the shared test gate. Only failed verification returns to implementation.
+One actor implements and self-reviews the complete request, followed by the shared test gate. Failed verification returns to implementation; a rejected handoff proposal receives the single correction described in the common policy.
 
 ## Decisions
 
@@ -25,7 +27,7 @@ One actor implements and self-reviews the complete request, followed by the shar
 
 ## Escalation
 
-Contract-external design gaps return to `think`; missing facts or evidence return to `research`. Mechanical implementation or test failures receive local correction.
+Apply the common handoff review policy before returning a design question to `think` or a factual gap to `research`. Unspecified internal implementation choices remain with the implementation owner.
 
 ## Report
 

@@ -5,6 +5,8 @@ description: レビュー済みのResearchとThink成果物から、人間が読
 
 # Issue
 
+この段階で確定する内容は、共通の[契約の粒度](../../workflows/README.md)に従う。
+
 `codex-issue describe`で現在の入力形式、プレビュー、公開の契約を確認する。
 
 ## 下書き
@@ -28,7 +30,7 @@ description: レビュー済みのResearchとThink成果物から、人間が読
 
 ## エスカレーション
 
-Plan が不正または不完全な場合は公開せず`think`に戻す。GitHub 失敗は`issue`で停止する。
+必要な動作・範囲・互換性・安全性・受け入れ条件が欠ける Plan は公開せず `think` に戻す。内部実装の選択が未指定なだけなら不完全とは扱わず、レビュー済み契約を変えずに公開する。GitHub 失敗は `issue` で停止する。
 
 ## 報告
 

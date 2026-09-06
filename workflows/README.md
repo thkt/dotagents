@@ -13,6 +13,16 @@ The project outcome is defined in [.codex/OUTCOME.md](../.codex/OUTCOME.md).
 
 Code accepts a direct request and uses the same implementation executor as Build without Git actions.
 
+## Contract granularity
+
+This section is the common policy for Research, Think, Issue, Build, and Code.
+
+A contract fixes observable behavior, permitted edit scope, required external or persisted compatibility, safety conditions, and acceptance evidence. Specify exact names, types, fields, formats, or algorithms only when a stated compatibility or safety requirement depends on them. The implementation owner chooses internal types, functions, file layout within scope, and algorithms otherwise; an Issue does not need to enumerate every TypeScript schema or API name.
+
+Research establishes facts and names unresolved factual claims. An unspecified implementation choice is not missing evidence. Think fixes the external requirements and constraints needed to delegate the work, leaving implementation choices to the owner. Route genuinely unknown facts that can change those requirements to Research. Issue publishes the same reviewed Plan faithfully; publication or translation must not add internal requirements.
+
+Build and Code implement and self-review within the authorized scope using this distinction. Before returning a proposed handoff, an independent read-only review checks whether it identifies a genuine contract-external design decision or missing fact. If the handoff is unnecessary, return the finding to the same implementation actor for one correction; do not add a unit stage or an unconditional review to successful actor calls. Confirmed design decisions return to Think and missing facts to Research. Ordinary implementation choices and test failures remain local work. Preserve the current test, source, review, and publication checks.
+
 ## Ownership
 
 | Directory    | Responsibility                                                                   |

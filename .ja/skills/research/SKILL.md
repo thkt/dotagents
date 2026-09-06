@@ -5,6 +5,8 @@ description: プロジェクトまたは技術上の問い1つを調査し、別
 
 # Research
 
+この段階で確定する内容は、共通の[契約の粒度](../../workflows/README.md)に従う。
+
 `codex-research describe`で現在の入力形式と成果物の契約を確認する。
 最初の束縛された workflow command 自体を network escalation で呼び、その同じ tool call で対応していれば prefix `["codex-research", "run"]` の永続的な許可を要求する。一時的な `model_unavailable` が発生した場合は、intent を保持して同じ command を network escalation で正確に再実行する。
 
@@ -17,7 +19,7 @@ description: プロジェクトまたは技術上の問い1つを調査し、別
 
 ## 境界
 
-- 確認できない主張は推測で埋めず、未確定事項として残す。
+- 確認できない事実は未確定事項として残す。実装担当に委ねた内部実装の選択を、事実上の未確定事項にしない。
 - 関連する Knowledge は手掛かりとして扱い、各 finding を支える現在の repository または外部 source を示す。
 
 ## 報告
