@@ -6,6 +6,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { onTestFinished, test } from 'bun:test';
 
+import { ActorEscalation } from '../../execution/agent.ts';
+import { loadWorkflowState } from '../../execution/controller.ts';
+import { workflowRunDirectory } from '../../runtime/storage.ts';
 import { executeAction } from '../../build/git-actions.ts';
 import { type BuildPlanAuthoring } from '../../plan/contracts.ts';
 import type { FlowDirective } from '../../execution/contracts.ts';
@@ -238,3 +241,333 @@ test('a blocking semantic review corrects the shared actor, then re-verifies and
   assert.match(fs.readFileSync(path.join(repo, 'unit.ts'), 'utf8'), /value = 3/u);
   assert.equal(git(repo, 'rev-list', '--count', `${startPoint}..HEAD`), '1');
 }, 30_000);
+
+const returnPlan: BuildPlanAuthoring = {
+  outcome: 'Export value 2.',
+  test_command: 'git diff --check',
+  units: [
+    {
+      goal: 'Export value 2.',
+      files: ['unit.ts'],
+      contract: 'The value is 2.',
+      tests: ['The change has no whitespace errors.'],
+    },
+  ],
+};
+const returnResearch = {
+  async investigate() {
+    return {
+      answer: 'The current value is 1.',
+      findings: [
+        {
+          statement: 'The current value is 1.',
+          kind: 'fact' as const,
+          confidence: 'high' as const,
+          qualification: null,
+          evidence: [
+            {
+              kind: 'repository' as const,
+              source: 'unit.ts',
+              locator: 'L1',
+              supports: 'The source exports 1.',
+            },
+          ],
+          implication: 'Update to 2.',
+        },
+      ],
+      rejected: [],
+      unknowns: [],
+      limitations: [],
+    };
+  },
+  async audit() {
+    return { summary: 'Supported.', findings: [] };
+  },
+};
+
+test('verified Build Research returns to the same actor under the original public Plan', async () => {
+  const { repo, runId, input, countFile } = buildFixture(returnPlan);
+  let first = true;
+  let suspended = '';
+  const result = await runWorkflow(runId, input, {
+    agent: {
+      async runActor(sandbox, directive) {
+        if (first) {
+          first = false;
+          suspended = directive.step_id;
+          throw new ActorEscalation(
+            'research',
+            'Which value is currently exported?',
+            'Confirmed missing source evidence.',
+          );
+        }
+        assert.equal(directive.step_id, suspended);
+        assert.equal(directive.research?.length, 1);
+        fs.writeFileSync(path.join(sandbox, 'unit.ts'), 'export const value = 2;\n');
+        return {
+          protocol: 'codex-flow-actor-result',
+          binding: directive.binding,
+          status: 'completed',
+          summary: 'done',
+          route: null,
+          question: null,
+        };
+      },
+      async reviewBuild(_repo, directive) {
+        return reviewResult(directive);
+      },
+    },
+    executeAction,
+    children: { research: returnResearch },
+  });
+  assert.equal(result.exitCode, 0, JSON.stringify(result));
+  assert.equal(fs.readFileSync(countFile, 'utf8'), 'x');
+  assert.match(fs.readFileSync(path.join(repo, 'unit.ts'), 'utf8'), /value = 2/);
+}, 15000);
+
+test('Build Think may research once but stops for Issue publication without adopting the proposed Plan', async () => {
+  const { repo, runId, input, countFile } = buildFixture(returnPlan);
+  let designs = 0;
+  let actors = 0;
+  const runtime: WorkflowRuntime = {
+    agent: {
+      async runActor() {
+        actors++;
+        throw new ActorEscalation(
+          'think',
+          'Which public value should be required?',
+          'Confirmed requirement decision beyond the current contract.',
+        );
+      },
+      async reviewBuild() {
+        throw Error('old Build must not review or ship');
+      },
+    },
+    executeAction,
+    children: {
+      research: returnResearch,
+      think: {
+        async design(_i, reports) {
+          designs++;
+          return reports.length
+            ? { status: 'ready', plan: returnPlan, research_questions: [] }
+            : {
+                status: 'research_required',
+                plan: null,
+                research_questions: ['Which value is currently exported?'],
+              };
+        },
+        async review() {
+          return { summary: 'Supported.', findings: [] };
+        },
+      },
+    },
+  };
+  const result = await runWorkflow(runId, input, runtime);
+  assert.equal(result.exitCode, 2);
+  const state = loadWorkflowState(runId).state;
+  assert.equal(state.escalation?.next_step, 'issue');
+  assert.ok(state.handoff?.proposal);
+  assert.equal(actors, 1);
+  assert.equal(designs, 2);
+  assert.equal(fs.readFileSync(countFile, 'utf8'), 'x');
+  assert.match(fs.readFileSync(path.join(repo, 'unit.ts'), 'utf8'), /value = 1/);
+  const returns = JSON.parse(
+    fs.readFileSync(
+      path.join(workflowRunDirectory(runId), `returns-${state.invocation_id}.json`),
+      'utf8',
+    ),
+  ).state.entries;
+  assert.equal(returns.length, 2);
+  await runWorkflow(runId, input, runtime);
+  assert.equal(actors, 1);
+  assert.equal(designs, 2);
+}, 15000);
+
+test('nested Think gaps cannot exceed the Build root budget and retain a diagnostic stop', async () => {
+  const { runId, input, repo } = buildFixture(returnPlan);
+  const result = await runWorkflow(runId, input, {
+    agent: {
+      async runActor() {
+        throw new ActorEscalation(
+          'think',
+          'Missing requirement.',
+          'Confirmed outside-contract choice.',
+        );
+      },
+      async reviewBuild() {
+        throw Error('no review');
+      },
+    },
+    executeAction,
+    children: {
+      research: returnResearch,
+      think: {
+        async design() {
+          return {
+            status: 'research_required',
+            plan: null,
+            research_questions: ['Which required value is correct?'],
+          };
+        },
+        async review() {
+          return { summary: 'Supported gap.', findings: [] };
+        },
+      },
+    },
+  });
+  assert.equal(result.exitCode, 2);
+  const state = loadWorkflowState(runId).state;
+  assert.match(state.runtime_failure!.error, /limit of two/);
+  assert.equal(state.handoff!.proposal, null);
+  assert.throws(
+    () => armIntent({ runId, workflow: 'build', cwd: repo }),
+    /workflow is already active/,
+  );
+}, 15000);
+
+test('Build restart reconciles completed child and adopted proposal without another Issue read or model call', async () => {
+  for (const boundary of ['child-completed', 'adopted']) {
+    const { runId, input, countFile } = buildFixture(returnPlan);
+    const script = path.join(temporaryDirectory('build-return-process-'), 'run.ts');
+    fs.writeFileSync(
+      script,
+      `
+ import fs from 'node:fs';import {mock} from 'bun:test';
+ const rename=fs.renameSync;fs.renameSync=(...args)=>{rename(...args);const file=String(args[1]);
+ if(${JSON.stringify(boundary)}==='child-completed'&&file.includes('returns-')&&file.endsWith('.json')){const s=JSON.parse(fs.readFileSync(file,'utf8')).state;if(s.entries[0]?.result)process.exit(73);}
+ if(${JSON.stringify(boundary)}==='adopted'&&file.endsWith('/state.json')){const s=JSON.parse(fs.readFileSync(file,'utf8'));if(s.handoff?.proposal)process.exit(73);}
+ };
+ mock.module('node:fs',()=>({...fs,default:fs}));
+ const {runWorkflow}=await import(${JSON.stringify(new URL('../../execution/engine.ts', import.meta.url).pathname)});
+ const {ActorEscalation}=await import(${JSON.stringify(new URL('../../execution/agent.ts', import.meta.url).pathname)});
+ const {executeAction}=await import(${JSON.stringify(new URL('../../build/git-actions.ts', import.meta.url).pathname)});
+ await runWorkflow(${JSON.stringify(runId)},${JSON.stringify(input)},{agent:{async runActor(){throw new ActorEscalation('think','Which public value is required?','Confirmed outside-contract decision.');},async reviewBuild(){throw Error('no review');}},executeAction,children:{think:{async design(){return {status:'ready',plan:${JSON.stringify(returnPlan)},research_questions:[]};},async review(){return {summary:'Pass.',findings:[]};}}}});
+ `,
+    );
+    const child = Bun.spawn([process.execPath, script], {
+      env: { ...process.env },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const err = new Response(child.stderr).text();
+    assert.equal(await child.exited, 73, await err);
+    const result = await runWorkflow(runId, input, {
+      agent: {
+        async runActor() {
+          throw Error('no actor redispatch');
+        },
+        async reviewBuild() {
+          throw Error('no review');
+        },
+      },
+      executeAction() {
+        throw Error('no action');
+      },
+      children: {
+        think: {
+          async design() {
+            throw Error('no designer redispatch');
+          },
+          async review() {
+            throw Error('no reviewer redispatch');
+          },
+        },
+      },
+    });
+    assert.equal(result.exitCode, 2);
+    assert.equal(loadWorkflowState(runId).state.escalation?.next_step, 'issue');
+    assert.equal(fs.readFileSync(countFile, 'utf8'), 'x');
+  }
+}, 15000);
+
+test('unknown Research remains explicit actor context and repeated unresolved returns exhaust the root budget', async () => {
+  const { runId, input } = buildFixture(returnPlan);
+  let actors = 0;
+  const result = await runWorkflow(runId, input, {
+    agent: {
+      async runActor(_repo, directive) {
+        if (actors > 0) {
+          assert.equal(directive.research?.length, actors);
+          assert.equal(
+            directive.research?.[0]?.unknowns[0]?.question,
+            'Which deployment value is required?',
+          );
+        }
+        actors++;
+        throw new ActorEscalation(
+          'research',
+          'Which deployment value is required?',
+          'The required external fact remains unavailable.',
+        );
+      },
+      async reviewBuild() {
+        throw Error('unresolved facts cannot pass');
+      },
+    },
+    executeAction,
+    children: {
+      research: {
+        ...returnResearch,
+        async investigate() {
+          return {
+            answer: 'The deployment requirement is not supplied.',
+            findings: [],
+            rejected: [],
+            unknowns: [
+              {
+                question: 'Which deployment value is required?',
+                resolution: 'Obtain the external deployment requirement.',
+              },
+            ],
+            limitations: [],
+          };
+        },
+      },
+    },
+  });
+  assert.equal(result.exitCode, 2);
+  assert.equal(actors, 3);
+  assert.match(loadWorkflowState(runId).state.runtime_failure!.error, /limit of two/);
+}, 15000);
+
+test('a modified Build handoff snapshot cannot dispatch a child', async () => {
+  const { runId, input } = buildFixture(returnPlan);
+  let designs = 0;
+  const result = await runWorkflow(runId, input, {
+    agent: {
+      async runActor() {
+        throw new ActorEscalation(
+          'think',
+          'Which value is required?',
+          'Confirmed outside-contract decision.',
+        );
+      },
+      async reviewBuild() {
+        throw Error('no review');
+      },
+    },
+    executeAction,
+    onDirective(directive) {
+      if (directive.kind === 'blocked') {
+        const state = loadWorkflowState(runId).state;
+        if (state.handoff)
+          fs.writeFileSync(path.join(state.handoff.snapshot, 'unit.ts'), 'tampered source');
+      }
+    },
+    children: {
+      think: {
+        async design() {
+          designs++;
+          return { status: 'ready', plan: returnPlan, research_questions: [] };
+        },
+        async review() {
+          return { summary: 'Pass.', findings: [] };
+        },
+      },
+    },
+  });
+  assert.equal(result.exitCode, 2);
+  assert.equal(designs, 0);
+  assert.match(loadWorkflowState(runId).state.runtime_failure!.error, /caller snapshot changed/);
+}, 15000);

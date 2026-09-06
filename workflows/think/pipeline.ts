@@ -1,5 +1,11 @@
 /** @file Outcome: Think validates and independently reviews designer-owned decisions with durable correction. */
 import crypto from 'node:crypto';
+import {
+  requireStageAccess,
+  runStageReturn,
+  type StageAccess,
+  type StageAgents,
+} from '../runtime/stage-return.ts';
 import * as fs from 'node:fs';
 import path from 'node:path';
 import { validatePlan } from '../plan/validation.ts';
@@ -115,14 +121,17 @@ export async function runThink(
   runId: string,
   inputFile: string,
   agent?: ThinkAgent,
+  access?: StageAccess,
+  children: StageAgents = {},
 ): Promise<ThinkRunResult> {
+  requireStageAccess(runId, access);
   using _ownership = acquireWorkflowOwnership(runId);
   let state = loadThinkState(runId);
   const intent = loadIntent(runId);
   const rawInput = readAbsoluteJson(inputFile, 'think');
   const inputDigest = thinkDigest(rawInput);
   const input = state && !intent ? state.input : validateThinkInput(rawInput);
-  if (!state || intent) requireThinkIntent(runId, input.repo, inputFile);
+  if ((!state || intent) && !access) requireThinkIntent(runId, input.repo, inputFile);
   if (path.resolve(inputFile) !== workflowInputPath(runId, 'think'))
     throw new FlowError(
       'use the think input path supplied by the workflow hook',
@@ -161,9 +170,9 @@ export async function runThink(
 
     const invocation = crypto.randomUUID();
     const snapshot = thinkSnapshotPath(runId, { invocation });
-    createRepositorySnapshot(input.repo, snapshot);
+    createRepositorySnapshot(access?.snapshot ?? input.repo, snapshot);
     state = {
-      protocol: 'codex-think-state-v1',
+      protocol: 'codex-think-state-v2',
       invocation,
       run_id: runId,
       input,
@@ -220,9 +229,55 @@ export async function runThink(
         correct(runId, state, JSON.stringify(blocking));
         continue;
       }
+      if (state.candidate!.status === 'research_required') {
+        state.phase = 'research';
+        saveThinkState(runId, state);
+        continue;
+      }
       state.generated_at = new Date().toISOString();
       state.publication = thinkPublicationPaths(state);
       state.phase = 'publish';
+      saveThinkState(runId, state);
+      continue;
+    }
+    if (state.phase === 'research') {
+      const parentBinding = thinkDigest(state);
+      const child = await runStageReturn(
+        runId,
+        'think',
+        { ...children, ...(agent ? { think: agent } : {}) },
+        access,
+      ).catch((error) => {
+        if (thinkDigest(loadThinkState(runId)) === parentBinding) {
+          state.reason = errorMessage(error);
+          if (
+            ['stage_return_blocked', 'research_blocked', 'think_blocked'].includes(
+              errorCode(error) ?? '',
+            )
+          )
+            state.phase = 'blocked';
+          saveThinkState(runId, state);
+        }
+        throw error;
+      });
+      if (thinkDigest(loadThinkState(runId)) !== parentBinding)
+        throw new FlowError('stale Think parent after child execution', 'state_error');
+      requireContext(runId, state, inputFile);
+      const report = parseResearchReport(child.report);
+      state.research.push({
+        path: path.basename(child.report_json),
+        generated_at: report.generated_at,
+        question: report.question,
+        answer: report.answer,
+        findings: report.findings,
+        unknowns: report.unknowns,
+        limitations: report.limitations,
+      });
+      state.correction =
+        'Reconsider the original request using the newly accepted Research. Preserve explicit unknowns; do not invent missing requirements.';
+      state.review = null;
+      state.phase = 'design';
+      state.attempts = 0;
       saveThinkState(runId, state);
       continue;
     }

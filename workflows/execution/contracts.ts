@@ -17,7 +17,7 @@ export type Workflow = 'code' | 'build';
 export type FlowStatus = 'running' | 'completed' | 'blocked' | 'cancelled';
 export interface WorkflowEscalation {
   step_id: string;
-  next_step: 'think' | 'research';
+  next_step: 'think' | 'research' | 'issue';
   question: string;
   summary: string;
 }
@@ -240,7 +240,7 @@ export interface GateOptions {
 
 export interface FlowState {
   protocol: typeof STATE_PROTOCOL;
-  execution_revision: 1;
+  execution_revision: 2;
   invocation_id: string;
   actor_dispatched: boolean;
   review_dispatch_id: string;
@@ -262,6 +262,14 @@ export interface FlowState {
   actor_baseline: RepositoryInvariant | null;
   actor_binding: ActorBinding | null;
   action_baseline: RepositoryInvariant | null;
+  handoff: {
+    snapshot: string;
+    source_digest: string;
+    binding: string;
+    proposal: string | null;
+    error: string | null;
+  } | null;
+  research_context: import('../research/contracts.ts').ResearchReport[];
   escalation: WorkflowEscalation | null;
   runtime_failure: RuntimeFailure | null;
   ship_authorization_revoked: boolean;
@@ -394,6 +402,7 @@ export type FlowDirective =
       verification: ActorVerification;
       screenshots?: Array<ScreenshotSpec & { path: string }>;
       correction: CorrectionContext | null;
+      research?: import('../research/contracts.ts').ResearchReport[];
     }
   | RunActionDirective
   | {

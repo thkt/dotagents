@@ -105,3 +105,24 @@ P3 では設計者が `ready` / `research_required` の候補を所有し、revi
 - 記録: `/private/tmp/dotagents-p3/measurement.json`、`measure.ts`、`measurement.log`。一時ファイルのため長期の観測記録は本書とする。実測後の入力識別・保存済み context 形式検証の補強は deterministic tests で確認する。
 
 P3 の `bun run check` は 283 pass / 0 fail。静的・意味的失敗の設計者修正、独立した read-only SDK thread、未判定の上限、競合所有、候補受理の前後を含む8つの実プロセス中断境界、修正文脈と予算の再開、入力・snapshot・契約・dispatch の変更拒否を検証した。basename 指定と保存先設定の変更、Research / Knowledge の live 原本削除、完成済み成果物の mtime 維持と欠落 Markdown 復旧も確認した。既存 Issue の Think Report 消費テストを維持した。
+
+## P4 工程間の差し戻し — Issue #40
+
+PR #39 マージ後の `1d00c9b94a32f48745463f5920d7f9b550981559` を確認した。Think の調査要求と Build の独立レビュー済み handoff は次工程を実行せず停止していた。
+
+P4 は保存された親の検証済み状態から、子工程の route・入力・snapshot を導出する。子の run は親と分離し、通常の CLI や新しい intent からは起動できない。親 runner だけが読み取り権限を渡し、root 全体で子 dispatch を最大2回に制限する。子の完了・親への採用は別々に保存し、再開時は同じ子を再利用する。
+
+Think → Research → Think は採用した証拠で候補を作り直して独立レビューする。Build → Research は元の actor へ明示的な unknowns も含む証拠を戻す。Build → Think は修正案を保存して Issue 再公開待ちにし、元の Build は公開 Plan を読み直したり修正案を採用したりしない。Issue 公開・Ship の権限を子には渡さない。
+
+途中状態は Think state v2 / execution revision 2 に更新し、未対応の状態は保持したまま復旧手順を示す。完成 Research / Think Report の形式は維持する。
+
+### P4 の検証記録
+
+`bun run check` は 294 pass / 0 fail（44 files）。Think の子予約前後・子 stage 完了後・親採用前後、Build の子完了後・提案採用後に実プロセスを終了し、同じ子の再利用とモデル・Issue 読み取りの非重複を確認した。未許可の子起動、入力混用、破損した戻り記録、親の変更、ネストした共通予算、明示的 unknowns の引継ぎ、pending Build の置換拒否も検証した。
+
+隔離実測は fixture のみを読み取り、GitHub はローカル stub、外部公開・Ship は禁止した。設計・調査・独立レビューは `gpt-5.6-sol/high`、Build actor は `gpt-5.6-luna/low`。`caffeinate -i` を使用し、usage は共有 wrapper から未取得。
+
+- Think → Research → Think: 独立 Research で現行 export の値を確認してから Plan を作る要求を与えた。実モデルが調査要求を返し、独立レビュー済み Research を受けて再設計・再レビューし `ready` になった。135,824 ms、設計3回・Think review 2回・調査1回・監査1回、工程間の戻り1回。Think の静的修正1回を含む。
+- Build → Think: `value.ts` の変更を要求しながら writable paths を `notes.md` に限定した public Issue fixture を使用した。actor と独立 handoff review が scope 決定の必要を確認し、Think が `value.ts` を許可する提案を作成した。提案の検証コマンドに対する静的・意味的修正を3回行い、最終的に独立レビューが合格した。263,607 ms、actor handoff 1回・設計4回・Think review 2回、工程間の戻り1回。旧 Build は `blocked / next_step: issue`、runtime failure なしで停止した。
+- 最初の Build fixture はモデル起動前の975 msで `gate_mutated_repository` により停止した。同時刻の `.DS_Store` 出現を確認したため、非表示の新規 fixture で測り直した。前者は fixture の状態変化による停止として分離し、成功実測に含めない。
+- 記録は `/private/tmp/dotagents-p4/measurement.json` と `measurement-build.json`、対応する `measure.ts` / `measure-build.ts` とログ。一時ファイルのため長期の観測記録は本書とする。測定は限定した事例であり一般的な成功率ではない。実測後の親からの入力導出の集約・pending handoff 置換防止・unknowns 引継ぎ・保存済み snapshot の同一性照合の整理は deterministic tests で検証した。

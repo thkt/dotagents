@@ -1,5 +1,9 @@
 /** @file Outcome: One internal engine drives an armed workflow through actors, actions, and gates. */
 
+import { runStageReturn, type StageAgents } from '../runtime/stage-return.ts';
+import { parseResearchReport } from '../research/contracts.ts';
+import { thinkDigest } from '../think/state.ts';
+import { parseThinkReport } from '../think/contracts.ts';
 import {
   RESULT_PROTOCOL,
   type CommandResult,
@@ -35,12 +39,14 @@ import {
   escalateWorkflow,
   blockWorkflowOnRuntimeFailure,
   prepareWorkflowDispatch,
+  finishStageReturn,
 } from './controller.ts';
 
 type ActionDirective = Extract<FlowDirective, { kind: 'run-action' }>;
 
 export interface WorkflowRuntime {
   agent: WorkflowAgent;
+  children?: StageAgents;
   executeAction(repo: string, directive: ActionDirective): void;
   onDirective?(directive: FlowDirective): void;
   progress?: ProgressReporter;
@@ -128,6 +134,7 @@ async function driveWorkflow(
         case 'done':
           return { result: workflowStatus(runId), exitCode: 0 };
         case 'blocked':
+          if (await returnToCaller(runId, runtime)) continue;
           return { result: workflowStatus(runId), exitCode: 2 };
         case 'cancelled':
           return { result: workflowStatus(runId), exitCode: 0 };
@@ -201,14 +208,12 @@ async function driveWorkflow(
       }
     } catch (error) {
       if (error instanceof ActorEscalation && failedDirective?.kind === 'run-actor') {
-        return {
-          result: escalateWorkflow(runId, failedDirective.step_id, {
-            next_step: error.route,
-            question: error.question,
-            summary: error.summary,
-          }),
-          exitCode: 2,
-        };
+        escalateWorkflow(runId, failedDirective.step_id, {
+          next_step: error.route,
+          question: error.question,
+          summary: error.summary,
+        });
+        continue;
       }
       return {
         result: blockWorkflowOnRuntimeFailure(
@@ -220,6 +225,43 @@ async function driveWorkflow(
         exitCode: 2,
       };
     }
+  }
+}
+
+async function returnToCaller(runId: string, runtime: WorkflowRuntime): Promise<boolean> {
+  const { state } = loadWorkflowState(runId);
+  const handoff = state.handoff;
+  const route = state.escalation?.next_step;
+  if (
+    state.workflow !== 'build' ||
+    !handoff ||
+    handoff.proposal ||
+    (route !== 'research' && route !== 'think')
+  )
+    return false;
+  try {
+    if (sealRepository(state.manifest.repo).source_digest !== handoff.source_digest)
+      throw new FlowError('Build source changed during stage return', 'state_error');
+    const parentBinding = thinkDigest(state);
+    const result = await runStageReturn(runId, 'build', runtime.children);
+    if (thinkDigest(loadWorkflowState(runId).state) !== parentBinding)
+      throw new FlowError('stale Build parent after child execution', 'state_error');
+    if (route === 'research') {
+      const report = parseResearchReport(result.report);
+      finishStageReturn(runId, handoff.binding, { research: report });
+      return true;
+    }
+    const report = parseThinkReport(result.report);
+    if (report.status !== 'ready')
+      throw new FlowError(
+        'Think still requires facts; resolve them before Issue publication',
+        'stage_return_blocked',
+      );
+    finishStageReturn(runId, handoff.binding, { proposal: result.report_json });
+    return false;
+  } catch (error) {
+    finishStageReturn(runId, handoff.binding, { error: errorMessage(error) });
+    return false;
   }
 }
 

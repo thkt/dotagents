@@ -1,6 +1,7 @@
 /** @file Outcome: Research validates, independently audits, corrects and resumes one immutable snapshot. */
 
 import crypto from 'node:crypto';
+import { requireStageAccess, type StageAccess } from '../runtime/stage-return.ts';
 import path from 'node:path';
 import { errorCode, errorMessage, FlowError } from '../shared/errors.ts';
 import { readRepositoryEvidence } from '../shared/evidence.ts';
@@ -128,7 +129,9 @@ export async function runResearch(
   runId: string,
   inputFile: string,
   agent?: ResearchAgent,
+  access?: StageAccess,
 ): Promise<ResearchRunResult> {
+  requireStageAccess(runId, access);
   using _ownership = acquireWorkflowOwnership(runId);
   let state = loadResearchState(runId);
   const intent = loadIntent(runId);
@@ -137,9 +140,9 @@ export async function runResearch(
       ? state.phase === 'completed'
         ? null
         : researchSnapshotPath(runId, state)
-      : undefined;
+      : access?.snapshot;
   const input = validateResearchInput(readAbsoluteJson(inputFile, 'research'), scopeRepo);
-  if (!state || intent) requireResearchIntent(runId, input.repo, inputFile);
+  if ((!state || intent) && !access) requireResearchIntent(runId, input.repo, inputFile);
   if (path.resolve(inputFile) !== workflowInputPath(runId, 'research'))
     throw new FlowError(
       'use the research input path supplied by the workflow hook',
@@ -155,7 +158,7 @@ export async function runResearch(
   if (!state) {
     const invocation = crypto.randomUUID();
     const snapshot = researchSnapshotPath(runId, { invocation });
-    createRepositorySnapshot(input.repo, snapshot);
+    createRepositorySnapshot(access?.snapshot ?? input.repo, snapshot);
     state = {
       protocol: 'codex-research-state-v2',
       invocation,

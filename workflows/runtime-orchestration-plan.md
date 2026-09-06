@@ -1,6 +1,6 @@
 # runtime が制御する workflow の移行 Plan
 
-状態: 移行全体の設計記録。P0 の事前確認と P1 の実装・検証を実施済み。P1 の実装根拠は公開 [Issue #34](https://github.com/thkt/dotagents/issues/34) の canonical Plan とし、本書は Build の実装根拠ではない。P2 は公開 [Issue #36](https://github.com/thkt/dotagents/issues/36) に基づき実装・検証・マージ済み。P3 は公開 [Issue #38](https://github.com/thkt/dotagents/issues/38) に基づき実装・検証済み（レビュー待ち）。P4 以降は未実装。
+状態: 移行全体の設計記録。P0 の事前確認と P1 の実装・検証を実施済み。P1 の実装根拠は公開 [Issue #34](https://github.com/thkt/dotagents/issues/34) の canonical Plan とし、本書は Build の実装根拠ではない。P2 は公開 [Issue #36](https://github.com/thkt/dotagents/issues/36) に基づき実装・検証・マージ済み。P3 は公開 [Issue #38](https://github.com/thkt/dotagents/issues/38) に基づき実装・検証・マージ済み。P4 は公開 [Issue #40](https://github.com/thkt/dotagents/issues/40) に基づき実装・検証済み（レビュー待ち）。P5 以降は未実装。
 
 調査基準: `6421ea78addb0329935c3a37cbbfd7a7c758a623`。実装開始前に対象 HEAD と公開 Issue を再確認する。
 

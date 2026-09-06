@@ -24,7 +24,7 @@ import type { ThinkResearchContext } from './agent.ts';
 import { parseResearchReport } from '../research/contracts.ts';
 
 export interface ThinkState {
-  protocol: 'codex-think-state-v1';
+  protocol: 'codex-think-state-v2';
   invocation: string;
   run_id: string;
   input: ThinkInput;
@@ -33,7 +33,15 @@ export interface ThinkState {
   contract_digest: string;
   research: ThinkResearchContext[];
   knowledge: ThinkResearchContext[];
-  phase: 'design' | 'validate' | 'review' | 'decide' | 'publish' | 'completed' | 'blocked';
+  phase:
+    | 'design'
+    | 'validate'
+    | 'review'
+    | 'decide'
+    | 'research'
+    | 'publish'
+    | 'completed'
+    | 'blocked';
   candidate: ThinkDraft | null;
   review: ThinkReview | null;
   corrections: number;
@@ -114,7 +122,7 @@ export function loadThinkState(runId: string): ThinkState | null {
       'think state',
     );
     if (
-      s.protocol !== 'codex-think-state-v1' ||
+      s.protocol !== 'codex-think-state-v2' ||
       s.run_id !== runId ||
       typeof s.invocation !== 'string' ||
       !/^[0-9a-f-]{36}$/u.test(s.invocation) ||
@@ -133,9 +141,16 @@ export function loadThinkState(runId: string): ThinkState | null {
       s.input.research_reports.some((p) => typeof p !== 'string' || !path.isAbsolute(p)) ||
       !Array.isArray(s.research) ||
       !Array.isArray(s.knowledge) ||
-      !['design', 'validate', 'review', 'decide', 'publish', 'completed', 'blocked'].includes(
-        String(s.phase),
-      ) ||
+      ![
+        'design',
+        'validate',
+        'review',
+        'decide',
+        'research',
+        'publish',
+        'completed',
+        'blocked',
+      ].includes(String(s.phase)) ||
       !Number.isInteger(s.corrections) ||
       Number(s.corrections) < 0 ||
       Number(s.corrections) > 3 ||
@@ -184,11 +199,13 @@ export function loadThinkState(runId: string): ThinkState | null {
     if (s.candidate !== null) parseThinkDecision(s.candidate);
     if (s.review !== null) parseThinkReview(s.review);
     if (
-      ['validate', 'review', 'decide', 'publish', 'completed'].includes(String(s.phase)) &&
+      ['validate', 'review', 'decide', 'research', 'publish', 'completed'].includes(
+        String(s.phase),
+      ) &&
       !s.candidate
     )
       throw new Error('candidate missing');
-    if (['decide', 'publish', 'completed'].includes(String(s.phase)) && !s.review)
+    if (['decide', 'research', 'publish', 'completed'].includes(String(s.phase)) && !s.review)
       throw new Error('independent review missing');
     const state = s as unknown as ThinkState;
     if (['publish', 'completed'].includes(state.phase)) {

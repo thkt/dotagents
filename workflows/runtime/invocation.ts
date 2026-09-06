@@ -8,6 +8,7 @@ import { errorCode, errorMessage } from '../shared/errors.ts';
 import { gitRoot } from '../shared/repository.ts';
 import { atomicWrite, intentPath, statePath, workflowInputPath } from './storage.ts';
 import { acquireWorkflowOwnership } from './ownership.ts';
+import { CHILD_PREFIX } from './stage-return.ts';
 import { loadThinkState } from '../think/state.ts';
 import { loadResearchState } from '../research/state.ts';
 
@@ -42,9 +43,15 @@ type WorkflowInputName =
 
 function hasRunningFlow(runId: string): boolean {
   try {
-    const value = JSON.parse(fs.readFileSync(statePath(runId), 'utf8')) as { status?: unknown };
+    const value = JSON.parse(fs.readFileSync(statePath(runId), 'utf8')) as {
+      status?: unknown;
+      handoff?: { proposal?: unknown } | null;
+    };
     if (typeof value.status !== 'string') throw new Error('workflow state has an invalid status');
-    return value.status === 'running';
+    return (
+      value.status === 'running' ||
+      Boolean(value.status === 'blocked' && value.handoff && !value.handoff.proposal)
+    );
   } catch (error) {
     if (errorCode(error) === 'ENOENT') return false;
     throw new Error(`workflow state is unreadable: ${errorMessage(error)}`);
@@ -103,6 +110,8 @@ function requireAuthorization(runId: string, repo: string, workflow: 'issue' | '
 
 /** Binds one explicit invocation to its task, workflow, repository, and private paths. */
 function armIntent({ runId, workflow, cwd }: ArmIntentOptions): WorkflowIntent {
+  if (runId.startsWith(CHILD_PREFIX))
+    throw new Error('child invocations require the parent runner');
   using _ownership = acquireWorkflowOwnership(runId);
   const think = loadThinkState(runId);
   if (think && think.phase !== 'completed' && think.phase !== 'blocked')

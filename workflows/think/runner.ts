@@ -6,6 +6,7 @@ import { isMainModule, THINK_COMMAND } from '../runtime/environment.ts';
 import { FlowError } from '../shared/errors.ts';
 
 import { THINK_DESCRIPTION_PROTOCOL, THINK_RESULT_PROTOCOL, thinkNextStep } from './contracts.ts';
+import type { StageAgents } from '../runtime/stage-return.ts';
 import type { ThinkAgent } from './agent.ts';
 import { runThink } from './pipeline.ts';
 
@@ -66,8 +67,9 @@ export async function runThinkWorkflow(
   runId: string,
   inputFile: string,
   agent?: ThinkAgent,
+  children?: StageAgents,
 ): Promise<ThinkCommandResult> {
-  const result = await runThink(runId, inputFile, agent);
+  const result = await runThink(runId, inputFile, agent, undefined, children);
   return {
     protocol: THINK_RESULT_PROTOCOL,
     status: result.report.status,
