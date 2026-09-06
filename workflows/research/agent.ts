@@ -14,6 +14,7 @@ import {
   parseResearchAudit,
   parseResearchDraft,
   type ResearchAudit,
+  type ResearchCorrection,
   type ResearchDraft,
   type ResearchInput,
 } from './contracts.ts';
@@ -31,6 +32,7 @@ export interface ResearchAgent {
     input: ResearchInput,
     knowledge: KnowledgeEntry[],
     snapshotRepo: string,
+    correction?: ResearchCorrection,
   ): Promise<ResearchDraft>;
   audit(
     input: ResearchInput,
@@ -77,6 +79,7 @@ export function investigationPrompt(
   input: ResearchInput,
   knowledge: KnowledgeEntry[],
   projectOutcome: string,
+  correction?: ResearchCorrection,
 ): string {
   return composePrompt(
     [
@@ -84,11 +87,19 @@ export function investigationPrompt(
       ...commonResearchContext(input, projectOutcome),
       'Find the smallest evidence set that answers the question, separating observed facts from inference.',
       'Cite repository evidence by repo-relative path and L<number> or L<number>-L<number>; cite web evidence by HTTPS URL and page section.',
-      'Put unresolved questions in unknowns with the evidence needed to resolve each one.',
+      'Own the complete report candidate: answer, findings with confidence and qualifications, rejected claims, unknowns and limitations. Limit the answer to supported findings and explicit unknowns. Explain which inspected evidence leaves an unknown unresolved and what evidence would resolve it.',
+      ...(correction
+        ? [
+            'Reconstruct the previous assignment from the saved candidate and correction evidence. Correct the unmet conditions within the original scope; do not claim continuity with a previous SDK thread.',
+          ]
+        : []),
       knowledgeInstruction(input, knowledge),
       'Return only the structured response.',
     ],
-    [['RELEVANT KNOWLEDGE', knowledge]],
+    [
+      ['RELEVANT KNOWLEDGE', knowledge],
+      ...(correction ? [['SAVED CORRECTION', correction] as [string, unknown]] : []),
+    ],
   );
 }
 
@@ -101,12 +112,12 @@ export function auditPrompt(
 ): string {
   return composePrompt(
     [
-      'Audit candidate research, then produce the final answer.',
+      'Independently audit the complete candidate without editing or replacing it.',
       ...commonResearchContext(input, projectOutcome),
       'Open every cited repository source and seek contradictory evidence for each candidate.',
       'Cite repository evidence by repo-relative path and L<number> or L<number>-L<number>; cite web evidence by HTTPS URL and a non-empty page section locator.',
-      'Keep only findings supported by a current source. Reject unsupported claims; set qualification only for a surviving material caveat. Knowledge references are leads, not proof.',
-      'Limit the answer to final findings and explicit unknowns.',
+      'Report concrete unmet acceptance conditions with current source evidence. Blocking findings identify unsupported claims, missing requested coverage, or unsupported conclusions. Advisory findings do not prevent completion. Knowledge references are leads, not proof.',
+      'Explicit unknowns may be a valid outcome when the inspected evidence and missing information justify them. Do not demand invented answers. Return summary and findings only; an empty findings array means this exact candidate passes.',
       knowledgeInstruction(input, knowledge),
       'Return only the structured response.',
     ],
@@ -146,6 +157,7 @@ export class CodexResearchAgent implements ResearchAgent {
     input: ResearchInput,
     knowledge: KnowledgeEntry[],
     snapshotRepo: string,
+    correction?: ResearchCorrection,
   ): Promise<ResearchDraft> {
     const projectOutcome = projectOutcomeContext(snapshotRepo);
     const thread = this.client.startThread(threadOptions(input, knowledge, snapshotRepo));
@@ -155,7 +167,7 @@ export class CodexResearchAgent implements ResearchAgent {
       result = await this.progress.run(
         { workflow: 'research', stage: 'investigator_model_call' },
         (stage) =>
-          thread.run(investigationPrompt(input, knowledge, projectOutcome), {
+          thread.run(investigationPrompt(input, knowledge, projectOutcome, correction), {
             outputSchema: RESEARCH_DRAFT_SCHEMA,
             modelRun: {
               label: 'research investigator',

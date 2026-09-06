@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 /** @file Outcome: One explicit command turns a closed research question into verified JSON and Markdown artifacts. */
 
-import { consumeIntentAfter, requireResearchIntent } from '../runtime/invocation.ts';
 import { parseCommand, requireExactFlags, readAbsoluteJson, runCli } from '../runtime/cli.ts';
 import { RESEARCH_COMMAND, isMainModule } from '../runtime/environment.ts';
 import { FlowError } from '../shared/errors.ts';
@@ -12,6 +11,8 @@ import {
   validateResearchInput,
 } from './contracts.ts';
 import { runResearch } from './pipeline.ts';
+import { loadIntent } from '../runtime/invocation.ts';
+import { loadResearchState, researchSnapshotPath } from './state.ts';
 import type { ResearchAgent } from './agent.ts';
 
 interface ResearchDescription {
@@ -79,10 +80,10 @@ export async function runResearchWorkflow(
   inputFile: string,
   agent?: ResearchAgent,
 ): Promise<ResearchCommandResult> {
-  const request = validateResearchInput(readAbsoluteJson(inputFile, 'research'));
-  requireResearchIntent(runId, request.repo, inputFile);
-  const input = request;
-  const result = await consumeIntentAfter(runId, () => runResearch(input, agent));
+  const saved = loadResearchState(runId);
+  const scopeRepo = saved && !loadIntent(runId) ? researchSnapshotPath(runId, saved) : undefined;
+  const request = validateResearchInput(readAbsoluteJson(inputFile, 'research'), scopeRepo);
+  const result = await runResearch(request, agent, { runId, inputFile });
   return {
     protocol: RESEARCH_RESULT_PROTOCOL,
     status: 'completed',

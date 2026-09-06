@@ -9,7 +9,7 @@ import { onTestFinished, test } from 'bun:test';
 
 import { runResearch } from '../../research/pipeline.ts';
 import {
-  parseResearchAudit,
+  parseResearchDraft,
   validateResearchInput,
   type ResearchAudit,
   type ResearchDraft,
@@ -66,20 +66,13 @@ const finding = {
   implication: '値を利用できる。',
 };
 const draft: ResearchDraft = {
-  findings: [
-    {
-      ...finding,
-    },
-  ],
-  unknowns: [],
-};
-const audit: ResearchAudit = {
   answer: 'answer は 42 である。',
   findings: [{ ...finding, confidence: 'high', qualification: null }],
   rejected: [],
   unknowns: [],
   limitations: [],
 };
+const audit: ResearchAudit = { summary: 'Candidate is supported.', findings: [] };
 
 class FakeAgent implements ResearchAgent {
   seen: KnowledgeEntry[][] = [];
@@ -186,7 +179,7 @@ test('investigator and auditor read the same startup snapshot while the shared w
   };
 
   const result = await runResearch(input(repo), agent);
-  assert.equal(result.report.answer, audit.answer);
+  assert.equal(result.report.answer, draft.answer);
 });
 
 test('a concurrent worktree edit does not alter the snapshot-based report', async () => {
@@ -197,7 +190,7 @@ test('a concurrent worktree edit does not alter the snapshot-based report', asyn
     return FakeAgent.prototype.investigate.apply(agent, args);
   };
   const result = await runResearch(input(repo), agent);
-  assert.equal(result.report.answer, audit.answer);
+  assert.equal(result.report.answer, draft.answer);
   assert.match(fs.readFileSync(path.join(repo, 'src/index.ts'), 'utf8'), /answer = 0/u);
 });
 
@@ -223,11 +216,11 @@ test('reuses rebuilt Knowledge and skips malformed Research', async () => {
 
 test('rejects out-of-scope, invalid-line, and web evidence when disabled', async () => {
   const repo = repoFixture();
-  const outside = new FakeAgent(draft, {
-    ...audit,
+  const outside = new FakeAgent({
+    ...draft,
     findings: [
       {
-        ...audit.findings[0]!,
+        ...draft.findings[0]!,
         evidence: [{ ...finding.evidence[0]!, source: 'README.md' }],
       },
     ],
@@ -236,21 +229,21 @@ test('rejects out-of-scope, invalid-line, and web evidence when disabled', async
     runResearch(input(repo, { scope_paths: ['src'] }), outside),
     /outside the research scope/u,
   );
-  const badLine = new FakeAgent(draft, {
-    ...audit,
+  const badLine = new FakeAgent({
+    ...draft,
     findings: [
       {
-        ...audit.findings[0]!,
+        ...draft.findings[0]!,
         evidence: [{ ...finding.evidence[0]!, locator: 'L99' }],
       },
     ],
   });
   await assert.rejects(runResearch(input(repo), badLine), /line|evidence/u);
-  const web = new FakeAgent(draft, {
-    ...audit,
+  const web = new FakeAgent({
+    ...draft,
     findings: [
       {
-        ...audit.findings[0]!,
+        ...draft.findings[0]!,
         evidence: [{ kind: 'web', source: 'http://example.com', locator: 'x', supports: 'x' }],
       },
     ],
@@ -260,34 +253,35 @@ test('rejects out-of-scope, invalid-line, and web evidence when disabled', async
 
 test('rejects an audit with neither findings nor explicit unknown', async () => {
   const repo = repoFixture();
-  const empty: ResearchAudit = { ...audit, answer: 'なし', findings: [], unknowns: [] };
+  const empty: ResearchDraft = { ...draft, answer: 'なし', findings: [], unknowns: [] };
   await assert.rejects(
-    runResearch(input(repo), new FakeAgent(draft, empty)),
+    runResearch(input(repo), new FakeAgent(empty)),
     /finding or an explicit unknown/u,
   );
 });
 
-test('lets the auditor discard an invalid investigator citation', async () => {
+test('invalid investigator evidence returns to its author before independent audit', async () => {
   const repo = repoFixture();
-  const invalidDraft: ResearchDraft = {
-    findings: [
-      {
-        ...finding,
-        evidence: [{ ...finding.evidence[0]!, source: 'missing.ts' }],
-      },
-    ],
-    unknowns: [],
+  let calls = 0;
+  const agent = new FakeAgent();
+  agent.investigate = async () => {
+    calls += 1;
+    return calls === 1
+      ? {
+          ...draft,
+          findings: [
+            {
+              ...draft.findings[0]!,
+              evidence: [{ ...finding.evidence[0]!, source: 'missing.ts' }],
+            },
+          ],
+        }
+      : draft;
   };
-  const audited: ResearchAudit = {
-    answer: '引用を確認できなかった。',
-    findings: [],
-    rejected: [{ statement: finding.statement, reason: '引用元が存在しない。' }],
-    unknowns: [{ question: '正しい根拠は何か？', resolution: 'repositoryを再調査する。' }],
-    limitations: [],
-  };
-  const result = await runResearch(input(repo), new FakeAgent(invalidDraft, audited));
-  assert.deepEqual(result.report.findings, []);
-  assert.equal(result.report.rejected.length, 1);
+  const result = await runResearch(input(repo), agent);
+  assert.equal(calls, 2);
+  assert.equal(result.report.answer, draft.answer);
+  assert.equal(agent.seen.length, 1);
 });
 
 test('ignores a malformed archived report without blocking new research', async () => {
@@ -322,7 +316,7 @@ test('research prompt exposes relevant Knowledge once', () => {
   ];
   const prompts = [
     investigationPrompt(input(repo), knowledge, PROJECT_OUTCOME),
-    auditPrompt(input(repo), { findings: [], unknowns: [] }, knowledge, PROJECT_OUTCOME),
+    auditPrompt(input(repo), draft, knowledge, PROJECT_OUTCOME),
   ] as const;
   for (const prompt of prompts) {
     assert.equal((prompt.match(/Question:/gu) ?? []).length, 1);
@@ -352,12 +346,12 @@ test('research prompts state the repository locator contract for both agents', (
     /L<number> or L<number>-L<number>/u,
   );
   assert.match(
-    auditPrompt(input(repo), { findings: [], unknowns: [] }, [], PROJECT_OUTCOME),
+    auditPrompt(input(repo), draft, [], PROJECT_OUTCOME),
     /L<number> or L<number>-L<number>/u,
   );
 });
 
-test('research audit parser rejects malformed repository locators but preserves web sections', () => {
+test('research candidate parser rejects malformed repository locators but preserves web sections', () => {
   const base = { answer: 'answer', findings: [], rejected: [], unknowns: [], limitations: [] };
   const finding = (evidence: object) => ({
     statement: 'x',
@@ -369,7 +363,7 @@ test('research audit parser rejects malformed repository locators but preserves 
   });
   assert.throws(
     () =>
-      parseResearchAudit({
+      parseResearchDraft({
         ...base,
         findings: [
           finding({ kind: 'repository', source: 'src/index.ts', locator: 'L1-2', supports: 'x' }),
@@ -378,7 +372,7 @@ test('research audit parser rejects malformed repository locators but preserves 
     /locator must use Lx or Lx-Ly/u,
   );
   assert.doesNotThrow(() =>
-    parseResearchAudit({
+    parseResearchDraft({
       ...base,
       findings: [
         finding({
@@ -413,7 +407,7 @@ test('a terminal model failure consumes the armed intent', async () => {
   assert.equal(loadIntent(failedRun), null);
 });
 
-test('model unavailability preserves the armed intent for an exact retry', async () => {
+test('model unavailability consumes intent into a bounded durable run', async () => {
   const repo = repoFixture();
   const runId = `research-model-unavailable-${crypto.randomUUID()}`;
   const pending = armIntent({ runId, workflow: 'research', cwd: repo });
@@ -428,7 +422,7 @@ test('model unavailability preserves the armed intent for an exact retry', async
     },
   };
   await assert.rejects(runResearchWorkflow(runId, pending.input_path, unavailable), /unavailable/u);
-  assert.ok(loadIntent(runId));
+  assert.equal(loadIntent(runId), null);
 });
 
 test('an input validation failure preserves the armed intent', async () => {
