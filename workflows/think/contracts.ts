@@ -9,7 +9,13 @@ import {
 } from '../plan/contracts.ts';
 import { FlowError } from '../shared/errors.ts';
 import { gitRoot } from '../shared/repository.ts';
-import { isObject, rejectUnknownKeys, requiredString, stringArray } from '../shared/schema.ts';
+import {
+  isObject,
+  objectArray,
+  rejectUnknownKeys,
+  requiredString,
+  stringArray,
+} from '../shared/schema.ts';
 import { researchArtifactDirectory } from '../runtime/storage.ts';
 import { NON_BLANK_STRING_SCHEMA } from '../shared/structured-output.ts';
 
@@ -62,7 +68,64 @@ const THINK_DECISION_SCHEMA = {
 } as const;
 
 export const THINK_DRAFT_SCHEMA = THINK_DECISION_SCHEMA;
-export const THINK_REVIEW_SCHEMA = THINK_DECISION_SCHEMA;
+export interface ThinkReview {
+  summary: string;
+  findings: Array<{
+    severity: 'blocking' | 'advisory';
+    condition: string;
+    message: string;
+    evidence: string[];
+  }>;
+}
+
+export const THINK_REVIEW_SCHEMA = {
+  type: 'object',
+  properties: {
+    summary: NON_BLANK_STRING_SCHEMA,
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          severity: { type: 'string', enum: ['blocking', 'advisory'] },
+          condition: NON_BLANK_STRING_SCHEMA,
+          message: NON_BLANK_STRING_SCHEMA,
+          evidence: { type: 'array', minItems: 1, items: NON_BLANK_STRING_SCHEMA },
+        },
+        required: ['severity', 'condition', 'message', 'evidence'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['summary', 'findings'],
+  additionalProperties: false,
+} as const;
+
+export function parseThinkReview(raw: unknown): ThinkReview {
+  if (!isObject(raw)) throw new FlowError('invalid Think review', 'execution_error');
+  rejectUnknownKeys(raw, ['summary', 'findings'], 'think review', 'execution_error');
+  return {
+    summary: requiredString(raw.summary, 'think review.summary', 'execution_error'),
+    findings: objectArray(raw.findings, 'think review.findings').map((item) => {
+      rejectUnknownKeys(
+        item,
+        ['severity', 'condition', 'message', 'evidence'],
+        'think finding',
+        'execution_error',
+      );
+      if (item.severity !== 'blocking' && item.severity !== 'advisory')
+        throw new FlowError('invalid finding severity', 'execution_error');
+      const evidence = stringArray(item.evidence, 'think finding.evidence', 'execution_error');
+      if (!evidence.length) throw new FlowError('review finding needs evidence', 'execution_error');
+      return {
+        severity: item.severity,
+        condition: requiredString(item.condition, 'condition'),
+        message: requiredString(item.message, 'message'),
+        evidence,
+      };
+    }),
+  };
+}
 
 /** Validates only the semantic inputs needed to perform Think. */
 export function validateThinkInput(raw: unknown): ThinkRequest {

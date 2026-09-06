@@ -8,6 +8,7 @@ import { errorCode, errorMessage } from '../shared/errors.ts';
 import { gitRoot } from '../shared/repository.ts';
 import { atomicWrite, intentPath, statePath, workflowInputPath } from './storage.ts';
 import { acquireWorkflowOwnership } from './ownership.ts';
+import { loadThinkState } from '../think/state.ts';
 import { loadResearchState } from '../research/state.ts';
 
 const INTENT_PROTOCOL = 'codex-workflow-intent' as const;
@@ -103,6 +104,9 @@ function requireAuthorization(runId: string, repo: string, workflow: 'issue' | '
 /** Binds one explicit invocation to its task, workflow, repository, and private paths. */
 function armIntent({ runId, workflow, cwd }: ArmIntentOptions): WorkflowIntent {
   using _ownership = acquireWorkflowOwnership(runId);
+  const think = loadThinkState(runId);
+  if (think && think.phase !== 'completed' && think.phase !== 'blocked')
+    throw new Error('Think is active for this task; resume it with the original input');
   const research = loadResearchState(runId);
   if (research && research.phase !== 'completed' && research.phase !== 'blocked')
     throw new Error('Research is active for this task; resume it with the original input');
@@ -244,18 +248,6 @@ function requireIssueIntent(runId: string, repo: string, inputFile: string): Wor
   return requireBoundIntent(runId, 'issue', repo, inputFile, 'issue input');
 }
 
-/** Consumes terminal model intent while preserving an exact retry after transport unavailability. */
-async function consumeIntentAfter<T>(runId: string, run: () => Promise<T>): Promise<T> {
-  try {
-    const result = await run();
-    clearIntent(runId);
-    return result;
-  } catch (error) {
-    if (errorCode(error) !== 'model_unavailable') clearIntent(runId);
-    throw error;
-  }
-}
-
 /** Clears the task-scoped intent and any external-write authority derived from it. */
 function clearIntent(runId: string): void {
   try {
@@ -268,7 +260,6 @@ function clearIntent(runId: string): void {
 export {
   armIntent,
   clearIntent,
-  consumeIntentAfter,
   consumeIssueApproval,
   loadIntent,
   parseBuildIssueNumber,

@@ -6,7 +6,7 @@ import * as fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'bun:test';
 
-import type { ThinkAgent, ThinkResearchContext, ThinkReviewCorrection } from '../../think/agent.ts';
+import type { ThinkAgent, ThinkResearchContext } from '../../think/agent.ts';
 import {
   parseThinkDecision,
   parseThinkReport,
@@ -15,7 +15,8 @@ import {
   type ThinkDraft,
   type ThinkInput,
 } from '../../think/contracts.ts';
-import { runThink } from '../../think/pipeline.ts';
+import { runThinkWorkflow } from '../../think/runner.ts';
+import { armIntent } from '../../runtime/invocation.ts';
 import { persistResearchReport } from '../../research/artifact.ts';
 import { RESEARCH_REPORT_PROTOCOL, type ResearchReport } from '../../research/contracts.ts';
 import { updateKnowledge } from '../../research/knowledge.ts';
@@ -65,37 +66,35 @@ class Agent implements ThinkAgent {
   research: ThinkResearchContext[] = [];
   knowledge: ThinkResearchContext[] = [];
   private readonly draft: ThinkDraft;
-  private readonly decisions: ThinkDecision[];
-
-  constructor(draft: ThinkDraft, decisions: ThinkDecision[]) {
+  constructor(draft: ThinkDraft) {
     this.draft = draft;
-    this.decisions = decisions;
   }
-
   async design(
-    _input: ThinkInput,
+    input: ThinkInput,
     research: ThinkResearchContext[],
     knowledge: ThinkResearchContext[],
-    _buildContract: unknown,
+    _contract: unknown,
     snapshotRepo: string,
-  ): Promise<ThinkDraft> {
-    assert.notEqual(snapshotRepo, _input.repo);
+  ) {
+    assert.notEqual(snapshotRepo, input.repo);
     this.research = research;
     this.knowledge = knowledge;
     return this.draft;
   }
-
-  async review(
-    _input: ThinkInput,
-    _draft: ThinkDraft,
-    _research: ThinkResearchContext[],
-    _knowledge: ThinkResearchContext[],
-    _buildContract: unknown,
-    _correction: ThinkReviewCorrection | undefined,
-    _snapshotRepo: string,
-  ): Promise<ThinkDecision> {
-    return this.decisions[this.reviews++]!;
+  async review() {
+    this.reviews++;
+    return { summary: 'The candidate meets the request.', findings: [] };
   }
+}
+
+async function runRequest(input: ThinkInput, agent: ThinkAgent) {
+  const intent = armIntent({ runId: crypto.randomUUID(), workflow: 'think', cwd: input.repo });
+  fs.writeFileSync(intent.input_path, JSON.stringify(input));
+  const result = await runThinkWorkflow(intent.run_id, intent.input_path, agent);
+  return {
+    ...result,
+    report: parseThinkReport(JSON.parse(fs.readFileSync(result.report_json, 'utf8'))),
+  };
 }
 
 function archivedReport(question: string): ResearchReport {
@@ -141,9 +140,9 @@ test('input contains only repo, request, and optional Research reports', () => {
 
 test('persists the reviewed ready Plan as the Issue handoff', async () => {
   const repo = repository();
-  const result = await runThink(
+  const result = await runRequest(
     { repo, request: '保存を追加する', research_reports: [] },
-    new Agent(ready, [ready]),
+    new Agent(ready),
   );
   assert.equal(result.report.status, 'ready');
   assert.deepEqual(
@@ -158,9 +157,9 @@ test('automatically supplies related Knowledge to Think', async () => {
   persistResearchReport(repo, archivedReport('保存方式を調査する'));
   persistResearchReport(repo, archivedReport('画面配色を調査する'));
   updateKnowledge(repo);
-  const agent = new Agent(ready, [ready]);
+  const agent = new Agent(ready);
 
-  await runThink({ repo, request: '保存方式を変更する', research_reports: [] }, agent);
+  await runRequest({ repo, request: '保存方式を変更する', research_reports: [] }, agent);
 
   assert.deepEqual(agent.research, []);
   assert.deepEqual(
@@ -173,9 +172,9 @@ test('does not duplicate explicitly selected Research through Knowledge', async 
   const repo = repository();
   const selected = persistResearchReport(repo, archivedReport('保存方式を調査する')).json;
   updateKnowledge(repo);
-  const agent = new Agent(ready, [ready]);
+  const agent = new Agent(ready);
 
-  await runThink({ repo, request: '保存方式を変更する', research_reports: [selected] }, agent);
+  await runRequest({ repo, request: '保存方式を変更する', research_reports: [selected] }, agent);
 
   assert.equal(agent.research.length, 1);
   assert.equal(agent.knowledge.length, 0);
@@ -188,9 +187,9 @@ test('returns focused Research questions without a partial Plan', async () => {
     plan: null,
     research_questions: ['現在の永続化方式は何か。'],
   };
-  const result = await runThink(
+  const result = await runRequest(
     { repo, request: '保存を追加する', research_reports: [] },
-    new Agent(researchRequired, [researchRequired]),
+    new Agent(researchRequired),
   );
   assert.deepEqual(result.report.research_questions, ['現在の永続化方式は何か。']);
   assert.equal(result.report.plan, null);
@@ -207,18 +206,6 @@ test('rejects mixed or empty terminal states', () => {
   );
 });
 
-test('gives one mechanically invalid reviewed Plan back for correction', async () => {
-  const repo = repository();
-  const invalid: ThinkDecision = {
-    ...ready,
-    plan: { ...ready.plan!, test_command: 'bun test && echo unsafe' },
-  };
-  const agent = new Agent(ready, [invalid, ready]);
-  const result = await runThink({ repo, request: '保存を追加する', research_reports: [] }, agent);
-  assert.equal(result.report.status, 'ready');
-  assert.equal(agent.reviews, 2);
-});
-
 test('uses original latest evidence without merging contradictory archived findings', async () => {
   const repo = repository();
   const old = archivedReport('storage choice');
@@ -230,8 +217,8 @@ test('uses original latest evidence without merging contradictory archived findi
   current.findings[0]!.statement = 'Current storage evidence';
   const artifact = persistResearchReport(repo, current);
   updateKnowledge(repo);
-  const agent = new Agent(ready, [ready]);
-  const result = await runThink({ repo, request: 'storage choice', research_reports: [] }, agent);
+  const agent = new Agent(ready);
+  const result = await runRequest({ repo, request: 'storage choice', research_reports: [] }, agent);
   assert.deepEqual(result.report.research_reports, [path.basename(artifact.json)]);
   assert.equal(agent.knowledge.length, 1);
   assert.equal(agent.knowledge[0]?.path, path.basename(artifact.json));

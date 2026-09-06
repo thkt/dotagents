@@ -86,3 +86,22 @@ P2 の最終 `bun run check` は 272 pass / 0 fail。実プロセスを調査 di
 PR #37 のレビュー後、完成直後の Markdown 二重書き込みと、完成結果の取得時に snapshot を要求する処理を修正した。正常な成果物は書き直さず、欠落した Markdown は snapshot なしで再生成する。Report の二重保存を除き、候補と固定生成日時から導出する Research state v2 に更新した。v1 は記録を保持して拒否する。2回目の Markdown 書き込みを失敗させる子プロセス検証、snapshot と live scope の削除後の取得、生成日時・JSON・mtime の保持、Markdown の欠落復旧、旧形式の拒否を deterministic tests で確認した。
 
 追加の簡素化では、入力・intent・state の確認を pipeline の所有 lock 内に集約し、テスト専用の任意 context 経路を削除した。snapshot は再開用の保存先へ直接作成し、一時 snapshot からの全体コピーを除いた。重複した正常系・失敗系と固定の prompt 文言テストを、本番 runner 経由の境界検証と独立 SDK thread への入力確認に統合した。保存先の上書き拒否、未追跡・staged ファイルの保持、失敗時の上限・未公開、未対応 state の拒否を含めて deterministic tests で確認した。
+
+## P3 Think — Issue #38
+
+PR #37 マージ後の `63169c975b8dc2ebe76622930ea4c4abafdcab32` を基準に確認した。旧 Think は reviewer が最終 decision を生成し、Build 契約違反も同じ reviewer が修正していた。候補・根拠・途中状態は保持しなかった。
+
+P3 では設計者が `ready` / `research_required` の候補を所有し、reviewer は条件・根拠付きの blocking / advisory findings を返す。静的検証と独立レビューが同じ候補に合格した場合だけ完成とする。静的・意味的な欠陥は最大3回設計者に戻し、応答不正・通信失敗は段階・候補ごとに1回だけ再試行する。保存された文脈を新規 SDK thread に渡す方式で、SDK session の継続は主張しない。
+
+既存の SQLite 所有 lock と durable snapshot 作成を再利用した。Think 専用 state は開始時の入力識別・解決済み Research / Knowledge・snapshot・契約識別・候補・予算・公開先を保持する。再開時に live Research の変更・削除を採用せず、完成後は snapshot なしで同じ成果物を返す。工程間の自動起動は P4 の範囲である。
+
+### 隔離した実モデル実測
+
+調査用 fixture に `value.ts` と `.codex/OUTCOME.md` のみを配置した。model / effort は設計・レビューとも `gpt-5.6-sol/high`、read-only、外部情報なし、`caffeinate -i` 使用。実リポジトリのソースと外部公開操作は測定対象へ渡していない。
+
+- 修正ケース: `1` から `2` への変更 Plan の初回 outcome を harness が `999` に置換した。独立 reviewer が要求との矛盾を指摘し、設計者が `2` へ修正して再レビューに合格した。`ready`、87,605 ms、設計2回・レビュー2回・修正1回。
+- 事実不足ケース: 数値を決める外部 deployment contract が未提供という要求を与えた。設計者は必要な数値を具体的な質問として返し、独立 reviewer が不足の妥当性を確認した。`research_required`、37,868 ms、設計1回・レビュー1回・修正0回。
+- usage: 共有 wrapper が公開していないため未取得。上記は特定 fixture の遷移観測であり、一般的な成功率ではない。
+- 記録: `/private/tmp/dotagents-p3/measurement.json`、`measure.ts`、`measurement.log`。一時ファイルのため長期の観測記録は本書とする。実測後の入力識別・保存済み context 形式検証の補強は deterministic tests で確認する。
+
+P3 の `bun run check` は 283 pass / 0 fail。静的・意味的失敗の設計者修正、独立した read-only SDK thread、未判定の上限、競合所有、候補受理の前後を含む8つの実プロセス中断境界、修正文脈と予算の再開、入力・snapshot・契約・dispatch の変更拒否を検証した。basename 指定と保存先設定の変更、Research / Knowledge の live 原本削除、完成済み成果物の mtime 維持と欠落 Markdown 復旧も確認した。既存 Issue の Think Report 消費テストを維持した。
