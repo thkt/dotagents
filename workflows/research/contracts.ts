@@ -28,6 +28,7 @@ type Confidence = 'high' | 'medium' | 'low';
 export interface ResearchInput {
   repo: string;
   question: string;
+  subquestions?: string[];
   scope_paths: string[];
   allow_external_sources: boolean;
 }
@@ -243,6 +244,18 @@ function validateScopePath(repo: string | null, value: string, label: string): s
   return relative;
 }
 
+/** Optional semantic decomposition, never an investigator-count setting. */
+export function parseSubquestions(raw: unknown): string[] {
+  const values = stringArray(raw, 'research input.subquestions').map((q) =>
+    requiredString(q, 'subquestion'),
+  );
+  if (values.length < 1 || values.length > 2 || new Set(values).size !== values.length)
+    throw new FlowError(
+      'research input.subquestions must contain one or two distinct nonblank questions',
+    );
+  return values;
+}
+
 /** Validates research input; null scopeRepo checks path syntax only for completed-result retrieval. */
 export function validateResearchInput(raw: unknown, scopeRepo?: string | null): ResearchRequest {
   if (!isObject(raw)) throw new FlowError('research input must be an object');
@@ -263,6 +276,9 @@ export function validateResearchInput(raw: unknown, scopeRepo?: string | null): 
   return {
     repo,
     question,
+    ...(raw.subquestions === undefined
+      ? {}
+      : { subquestions: parseSubquestions(raw.subquestions) }),
     scope_paths: [...new Set(scopePaths)],
     allow_external_sources: raw.allow_external_sources === true,
   };

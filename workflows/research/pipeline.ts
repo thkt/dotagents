@@ -7,7 +7,6 @@ import { errorCode, errorMessage, FlowError } from '../shared/errors.ts';
 import { readRepositoryEvidence } from '../shared/evidence.ts';
 import {
   validateResearchInput,
-  parseResearchDraft,
   parseResearchAudit,
   parseResearchReport,
   type ResearchEvidence,
@@ -15,6 +14,7 @@ import {
   type ResearchReport,
 } from './contracts.ts';
 import { CodexResearchAgent, type ResearchAgent } from './agent.ts';
+import { investigateBatch } from './investigation.ts';
 import { persistResearchReport } from './artifact.ts';
 import { searchKnowledge, updateKnowledge } from './knowledge.ts';
 import { createRepositorySnapshot } from '../execution/repository-isolation.ts';
@@ -31,6 +31,7 @@ import {
   researchPublicationPaths,
   reportForCandidate,
   type ResearchState,
+  investigationBatch,
 } from './state.ts';
 
 export interface ResearchRunResult {
@@ -118,6 +119,7 @@ function correct(runId: string, state: ResearchState, reason: string): void {
   else {
     state.corrections += 1;
     state.phase = 'investigate';
+    state.investigations = investigationBatch(state.input);
     state.attempts = 0;
     state.audit = null;
   }
@@ -160,7 +162,8 @@ export async function runResearch(
     const snapshot = researchSnapshotPath(runId, { invocation });
     createRepositorySnapshot(access?.snapshot ?? input.repo, snapshot);
     state = {
-      protocol: 'codex-research-state-v2',
+      protocol: 'codex-research-state-v3',
+      investigations: investigationBatch(input),
       invocation,
       run_id: runId,
       input,
@@ -182,6 +185,15 @@ export async function runResearch(
   // The durable state now carries authorization and exact input; restarting needs no new intent.
   clearIntent(runId);
   const investigator = () => (agent ??= new CodexResearchAgent());
+  const requireContext = () => {
+    const snapshot = requireSnapshot(runId, state!);
+    if (
+      researchDigest(validateResearchInput(readAbsoluteJson(inputFile, 'research'), snapshot)) !==
+      researchDigest(input)
+    )
+      throw new FlowError('Research input changed during execution', 'state_error');
+    return snapshot;
+  };
   while (true) {
     if (state.phase === 'blocked')
       throw new FlowError(
@@ -195,8 +207,12 @@ export async function runResearch(
       persistResearchReport(input.repo, report, paths);
       return { report, report_json: paths.json, report_markdown: paths.markdown };
     }
-    const snapshot = requireSnapshot(runId, state);
+    const snapshot = requireContext();
     const validationInput = { ...input, repo: snapshot };
+    if (state.phase === 'investigate') {
+      await investigateBatch(state, investigator(), requireContext);
+      continue;
+    }
     if (state.phase === 'validate') {
       try {
         validateCandidate(validationInput, state);
@@ -250,22 +266,12 @@ export async function runResearch(
     let result: unknown;
     let failure: unknown;
     try {
-      result =
-        state.phase === 'investigate'
-          ? await investigator().investigate(
-              structuredClone(input),
-              structuredClone(state.knowledge),
-              snapshot,
-              state.candidate && state.correction
-                ? { candidate: structuredClone(state.candidate), reason: state.correction }
-                : undefined,
-            )
-          : await investigator().audit(
-              structuredClone(input),
-              structuredClone(state.candidate!),
-              structuredClone(state.knowledge),
-              snapshot,
-            );
+      result = await investigator().audit(
+        structuredClone(input),
+        structuredClone(state.candidate!),
+        structuredClone(state.knowledge),
+        snapshot,
+      );
     } catch (error) {
       failure = error;
     }
@@ -275,24 +281,18 @@ export async function runResearch(
         'Research dispatch is stale or its candidate/input changed',
         'state_error',
       );
-    requireSnapshot(runId, state);
+    requireContext();
     try {
       if (failure !== undefined) throw failure;
-      if (state.phase === 'investigate') {
-        state.candidate = parseResearchDraft(result);
-        state.phase = 'validate';
-        state.audit = null;
-      } else {
-        const audit = parseResearchAudit(result);
-        for (const [index, finding] of audit.findings.entries())
-          validateEvidence(
-            validationInput,
-            finding.evidence,
-            `research audit.findings[${index}].evidence`,
-          );
-        state.audit = audit;
-        state.phase = 'decide';
-      }
+      const audit = parseResearchAudit(result);
+      for (const [index, finding] of audit.findings.entries())
+        validateEvidence(
+          validationInput,
+          finding.evidence,
+          `research audit.findings[${index}].evidence`,
+        );
+      state.audit = audit;
+      state.phase = 'decide';
       state.dispatch = null;
     } catch (error) {
       // Invalid responses and transport errors are indeterminate, not investigator defects.

@@ -25,6 +25,7 @@ interface ResearchDescription {
   };
   contracts: {
     scope_paths: string;
+    subquestions: string;
     allow_external_sources: string;
     artifacts: string;
   };
@@ -58,6 +59,8 @@ export function describeResearch(): ResearchDescription {
       allow_external_sources: false,
     },
     contracts: {
+      subquestions:
+        'Optional one or two distinct independently answerable parts of question. Both retain the original scope and permissions; omission uses one investigator with no extra planning call.',
       scope_paths:
         'empty means the repository; otherwise every repository citation stays inside these paths',
       allow_external_sources:

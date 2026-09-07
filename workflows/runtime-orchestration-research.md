@@ -148,3 +148,30 @@ P4 の Build → Think → Research → Think が提案した変更を、明示�
 記録は `/private/tmp/dotagents-p5/measurement.json`、`measure.ts`、`model.log`。一時ファイルのため長期の観測記録は本書とする。実モデルで観測したのはこの限定した矛盾修正であり、意味的レビュー全般の正確性や成功率を保証するものではない。
 
 P5 レビュー後に、update の事前 view 後・write 直前へ governing input の検証を配置した。create 番号の保存は当該 pending state との照合だけに分離し、Report の変更を理由に既知番号を失わない。完了済み結果は保存状態の整合性を検証して返し、元入力・Report・snapshot・現在の repository を不要とした。モデル実行と外部操作の境界で検証を保ち、正常系の snapshot 全走査を8回から5回へ削減した。これらの変更は production runner の回帰テストと走査計測で検証した。上記の実モデル記録はこの修正前の測定であり、今回の再開・公開境界の修正後に実モデルを再実行していない。
+
+## P6 上限付き Research 並列調査 — Issue #44
+
+実装根拠は公開 [Issue #44](https://github.com/thkt/dotagents/issues/44) の canonical Plan。P5 のマージ `10340808ffc9b200ceb32193341333b37129414d` を基点とする。
+
+任意の `subquestions` は独立した1〜2問を指定し、省略時は1担当で動く。各担当は元の質問・scope・外部参照権限・Knowledge と同じ immutable snapshot を使う別の read-only SDK thread。担当ごとの pending attempt を呼び出し前に保存し、部分結果は到着ごとに保存する。再開時は未解決分だけを呼び出し、各修正ラウンドで担当ごとに最大2回。全員の終了後に内容を決定的に統合し、従来の静的検証と元の質問全体への独立監査を通す。矛盾や unknowns を統合時に削除しない。
+
+監査の未判定は監査だけを再試行し、確定した不足は最大3回のバッチ修正へ戻す。中断・失敗で残った部分結果を完成Reportとして公開せず、fatalな入力変更などでは兄弟をcancelして終了を待ってから所有を解放する。Research state v3 は旧状態を保持して拒否し、完成Reportの形式は維持する。Thinkの複数質問は全質問を保持した従来の1担当のままとし、質問数だけから独立性を推定しない。P4の戻り記録と予算は変更しない。
+
+### P6 の検証記録
+
+production runner のテストで2担当の実際の重なり、片方の保存後の実プロセス終了と未解決分だけの再開、未判定2回による停止、入力変更時のcancelと兄弟終了待ち、統合内容の保持、監査中の入力変更拒否、監査のみの再試行とバッチ修正、旧状態の保持を確認する。既存の単一担当・公開修復・工程間権限テストを同じ実行経路で維持する。
+
+実モデル計測は `caffeinate -i` 下の隔離Git fixtureで行い、GitHub書き込みはローカルstub、Shipは禁止。調査・監査・Think・Issue review・Build reviewは `gpt-5.6-sol/high`、Build actorは `gpt-5.6-luna/low`。SDK共通境界がusageを返さないためtoken数は未取得。時間はmonotonic clock、各呼び出し開始はISO時刻で保持した。
+
+- 初回の並列計測は171,076 msで修正上限に達して停止。担当外の質問をunknownsやlimitationsに記載し、統合した回答と矛盾した。独立監査はこれを受理しなかった。担当ごとの全項目を担当質問に限定するpromptへ修正した。
+- 修正後の並列計測は61,309 msで完成。調査4回（2担当×2ラウンド）、独立監査1回、静的修正1回。最初の結果の引用を意図的に`L999`へ変えるfault injectionで差し戻しを発生させ、実モデルが修正した。初回の2担当は13,696 / 20,760 ms、修正後は16,534 / 19,315 msで重なり、監査20,621 msを経てReportを保存した。単なるモデル自己申告ではなく保存stateのcorrections=1とReportを確認した。
+
+ローカル証拠: `/private/tmp/dotagents-p6/measurement.json`、`measurement-parallel-fixed.json`、`model.log`、`model-parallel-fixed.log`。修正前のfixtureは `/private/tmp/.dotagents-p6-measure-ksCjAD`、修正後は `/private/tmp/.dotagents-p6-measure-IKCyyG`。各ディレクトリに入力、snapshot、途中state、Reportを保持する。これらはローカル一時ファイルであり公開artifactではない。
+
+Think → Research → Think → 明示許可のIssue → 新規Buildは230,629 msで完成。Think設計2回・review2回、戻り先の調査1回・監査1回、工程間の戻り1回を記録した。Issueは実モデルで原稿をレビューし、公開先だけをstubに差し替えた。Buildは最初のactor実行後に値を故意に999へ変え、`git diff --check`が通る状態で独立semantic reviewがblockingを返すことを確認。actor2回・Build review2回で要求値2へ修正し、fixture内のcommitまで完成した。これは制御した故障注入であり、actorが自然に誤実装したとの主張ではない。実GitHub公開とShipは実行していない。
+
+最終コードの `bun run check` は322 pass / 0 fail。上記の実モデルプロセスは起動時のコードをロードしており、その後に加えた監査中の入力再照合はproduction runnerの回帰テストで検証した。並列prompt修正は修正後の別プロセスで実測した。
+
+初回の独立受入レビュー（`gpt-5.6-sol/high`、344,404 ms）は、Think質問の承認が相互の独立性を保証しない点と、自動分割による既存の戻り入力との不整合をblockingとした。自動分割を削除して従来の入力・保存契約を維持し、複数の相互に関連する質問を1担当へ全件渡す回帰テストへ修正した。公開Planの条件付きのThink並列化は選ばず、明示された独立`subquestions`のみを並列化する。独立性判定の追加モデルや契約は導入しない。
+
+独立再レビュー（`gpt-5.6-sol/high`、135,298 ms）は指摘なしで受入。2つのblocking指摘の解消、`stage-return.ts`が基点と同一であること、関連する複数質問を1担当に保持するproduction回帰テスト、明示した並列経路と実測の有効性を確認した。記録は `/private/tmp/dotagents-p6/acceptance.json` と `acceptance-final.json`。初回レビューが受理した並列・再開・cancel・予算・公開権限の評価と合わせて最終受入とする。
