@@ -12,7 +12,7 @@ import { UsageError, errorMessage, usageError } from '../shared/errors.ts';
 import { withoutGitHubCredentials } from '../shared/github.ts';
 
 const PROTOCOL = GATE_PROTOCOL;
-export const DEFAULT_TIMEOUT_MS = 60_000;
+export const DEFAULT_TIMEOUT_MS = 600_000;
 const DEFAULT_TAIL_BYTES = 12_000;
 const FLAGS = new Set([
   '--gate-id',
@@ -101,6 +101,7 @@ export function runShellVerification(options: GateOptions): {
   const githubConfig = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-shell-no-gh-auth-'));
   const result = (() => {
     try {
+      options.onBeforeShellLaunch?.();
       return spawnSync('/bin/zsh', ['-c', options.command], {
         cwd: options.cwd,
         encoding: null,

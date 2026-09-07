@@ -46,6 +46,7 @@ test('accepts only a success expectation with a bounded timeout', () => {
     '--command',
     'true',
   ]);
+  assert.equal(DEFAULT_TIMEOUT_MS, 600_000);
   assert.equal(options.timeoutMs, DEFAULT_TIMEOUT_MS);
   assert.throws(
     () =>

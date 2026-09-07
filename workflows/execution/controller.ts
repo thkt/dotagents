@@ -11,6 +11,7 @@ import {
   RESULT_PROTOCOL,
   STATE_PROTOCOL,
   type ActorStep,
+  type ImplementationTestRecovery,
   type ActorBinding,
   type ActorResult,
   type BuildReviewCandidate,
@@ -71,7 +72,11 @@ import {
   prepareShipInput,
   validateActionCompletion,
 } from '../build/git-actions.ts';
-import { actorScreenshotAttachments, sealScreenshotAttachments } from '../build/screenshots.ts';
+import {
+  actorScreenshotAttachments,
+  sealScreenshotAttachments,
+  sealedScreenshotAttachments,
+} from '../build/screenshots.ts';
 import {
   buildReviewGateReport,
   runStructuredBuildGate,
@@ -87,6 +92,13 @@ import { workflowRunDirectory } from '../runtime/storage.ts';
 import { thinkDigest } from '../think/state.ts';
 import type { ResearchReport } from '../research/contracts.ts';
 import { sealRepository } from './source-seal.ts';
+
+/** A retry binding rejection must not be converted into a persisted runtime failure. */
+class RetryAuthorityRejected extends FlowError {
+  constructor(message: string) {
+    super(message, 'state_error');
+  }
+}
 
 /** Loads the task-bound state and rejects stale or malformed records. */
 function loadWorkflowState(runId: string): { file: string; state: FlowState } {
@@ -381,6 +393,113 @@ function requireOriginalInput(state: FlowState, inputFile: string): void {
   }
 }
 
+function recoveryDigest(record: ImplementationTestRecovery): string {
+  const { digest: _digest, ...body } = record;
+  return thinkDigest(body);
+}
+
+/** Bind the complete captured execution state without changing actor receipt semantics. */
+function recoveryBinding(
+  state: FlowState,
+  sourceDigest: string,
+  reportCount: number,
+  timeoutMs: number,
+): string {
+  const {
+    status: _status,
+    gate_reports,
+    implementation_test_recovery: _recovery,
+    ...authority
+  } = state;
+  // The screenshot seal is controller-owned evidence separate from FlowState.
+  // Validate both the seal and its bytes, then bind the resulting hashes so a
+  // replacement seal/image pair cannot acquire retry authority.
+  const screenshots = sealedScreenshotAttachments(state);
+  return thinkDigest({
+    authority,
+    source: sourceDigest,
+    report_count: reportCount,
+    reports: gate_reports.slice(0, reportCount),
+    timeout_ms: timeoutMs,
+    screenshots,
+  });
+}
+
+function implementationTest(state: FlowState): GateStep | null {
+  const step = state.manifest.steps[state.cursor];
+  return step?.kind === 'gate' &&
+    step.id === 'test:implementation' &&
+    step.owner === IMPLEMENTATION_ACTOR_ID &&
+    step.gate.authority === 'shell'
+    ? step
+    : null;
+}
+
+/** Both blocked and reopened running states must establish the same saved authority. */
+function requireAvailableRetry(state: FlowState, inputFile: string): void {
+  try {
+    validateAvailableRetry(state, inputFile);
+  } catch (error) {
+    throw new RetryAuthorityRejected(errorMessage(error));
+  }
+}
+
+function validateAvailableRetry(state: FlowState, inputFile: string): void {
+  requireOriginalInput(state, inputFile);
+  const record = state.implementation_test_recovery;
+  const step = implementationTest(state);
+  const report = state.gate_reports.at(-1);
+  if (
+    !record ||
+    !step ||
+    step.gate.authority !== 'shell' ||
+    record.phase !== 'available' ||
+    record.digest !== recoveryDigest(record) ||
+    !Number.isSafeInteger(record.report_count) ||
+    record.report_count < 0 ||
+    state.gate_reports.length !== record.report_count + 1 ||
+    !state.actor_receipt ||
+    !report ||
+    report.gate_id !== step.id ||
+    report.verdict !== 'blocked' ||
+    report.classification !== 'timeout' ||
+    report.evidence.kind !== 'shell' ||
+    !report.evidence.timed_out ||
+    report.actor_receipt_digest !== state.actor_receipt.digest ||
+    record.timeout_report_digest !== thinkDigest(report)
+  )
+    throw new RetryAuthorityRejected('implementation-test retry is unavailable or invalid');
+  const source = sealRepository(state.manifest.repo, {
+    baseRef: buildBaseRef(state),
+  }).source_digest;
+  const timeoutMs = step.gate.timeout_ms ?? DEFAULT_TIMEOUT_MS;
+  if (
+    record.timeout_ms !== timeoutMs ||
+    state.actor_receipt.source_after_digest !== source ||
+    record.binding_digest !== recoveryBinding(state, source, record.report_count, timeoutMs)
+  )
+    throw new RetryAuthorityRejected('implementation-test retry authority changed');
+}
+
+/** A reopen consumes nothing: the gate records consumption immediately before shell dispatch. */
+function resumeImplementationTimeout(state: FlowState, inputFile: string): boolean {
+  if (state.status !== 'blocked' && state.status !== 'running') return false;
+  const report = state.gate_reports.at(-1);
+  const record = state.implementation_test_recovery;
+  const atTest = state.manifest.steps[state.cursor]?.id === 'test:implementation';
+  if (!atTest && report?.gate_id !== 'test:implementation') return false;
+  // A completed retry may already have advanced to review or correction.
+  if (!atTest && report?.classification !== 'timeout') return false;
+  if (!record && report?.classification !== 'timeout') return false;
+  if (record?.phase === 'prepared' && report?.classification !== 'timeout') return false;
+  if (!atTest || !implementationTest(state))
+    throw new FlowError('implementation-test retry position changed', 'state_error');
+  requireAvailableRetry(state, inputFile);
+  const reopened = state.status === 'blocked';
+  state.status = 'running';
+  return reopened;
+}
+
 export function escalateWorkflow(
   runId: string,
   stepId: string,
@@ -423,7 +542,15 @@ export function blockWorkflowOnRuntimeFailure(
   stage: string,
   error: unknown,
 ): PublicState {
+  // Surface pre-dispatch rejection without mutating the still-available retry.
+  if (error instanceof RetryAuthorityRejected) throw error;
   const { file, state } = loadWorkflowState(runId);
+  if (
+    stage === 'gate_verification' &&
+    stepId === 'test:implementation' &&
+    state.implementation_test_recovery?.phase === 'available'
+  )
+    throw error;
   requireRunning(state);
   const current = state.manifest.steps[state.cursor];
   const classification = errorCode(error) || 'execution_error';
@@ -461,6 +588,7 @@ function startOrResumeWorkflow(runId: string, inputFile: string): PublicState {
       return save(loaded.file, existing);
     }
     if (existing.status !== 'running' && loadIntent(runId)) return startWorkflow(runId, inputFile);
+    if (resumeImplementationTimeout(existing, inputFile)) return save(loaded.file, existing);
     if (isRetryableGitHubAccessBlock(existing)) {
       requireOriginalInput(existing, inputFile);
       const branch = existing.manifest.steps.find(
@@ -560,6 +688,7 @@ function advanceToNextStep(state: FlowState): void {
 /** Captures the entry invariant needed to enforce the next step's postconditions. */
 function prepareCurrentStep(state: FlowState): void {
   const current = state.manifest.steps[state.cursor];
+  if (current?.kind === 'actor') delete state.implementation_test_recovery;
   state.actor_dispatched = false;
   state.review_dispatch_id = crypto.randomUUID();
   state.actor_baseline =
@@ -840,22 +969,73 @@ function compilationFailure(report: GateReport, error: unknown): GateReport {
 function runGate(runId: string, stepId: string): { result: PublicState; exitCode: number } {
   const { file, state } = loadWorkflowState(runId);
   const step = requireStep(state, stepId, ['gate']);
+  // Revalidate before gate-specific work, even if saved ownership or authority was edited.
+  if (
+    state.implementation_test_recovery?.phase === 'available' ||
+    (step.id === 'test:implementation' &&
+      (state.implementation_test_recovery ||
+        state.gate_reports.at(-1)?.classification === 'timeout'))
+  )
+    requireAvailableRetry(state, workflowInputPath(runId, state.workflow));
   let report: GateReport;
   if (step.gate.authority === 'shell') {
     const entrySeal = sealRepository(state.manifest.repo, { baseRef: buildBaseRef(state) });
-    report = runIsolatedShellVerification(
-      parseGateArgs(gateArgs(step.id, step.gate, state.manifest.repo)),
-    ).report;
     const receipt = step.owner ? state.actor_receipt : null;
-    if (step.owner && !receipt) {
+    if (step.owner && !receipt)
       throw new FlowError(`${step.id} has no accepted actor receipt`, 'state_error');
-    }
-    report.source_digest = entrySeal.source_digest;
-    if (receipt) {
-      if (receipt.source_after_digest !== entrySeal.source_digest) {
-        throw new FlowError(`${step.id} actor receipt is stale`, 'state_error');
+    if (receipt && receipt.source_after_digest !== entrySeal.source_digest)
+      throw new FlowError(`${step.id} actor receipt is stale`, 'state_error');
+    const options = parseGateArgs(gateArgs(step.id, step.gate, state.manifest.repo));
+    const ownedTest = implementationTest(state);
+    if (ownedTest) {
+      const record = state.implementation_test_recovery;
+      if (record || state.gate_reports.at(-1)?.classification === 'timeout') {
+        options.onBeforeShellLaunch = () => {
+          requireAvailableRetry(state, workflowInputPath(runId, state.workflow));
+          record!.phase = 'consumed';
+          record!.digest = recoveryDigest(record!);
+          // Execution ownership spans this durable consumption and shell launch.
+          save(file, state);
+        };
+      } else {
+        requireOriginalInput(state, workflowInputPath(runId, state.workflow));
+        state.implementation_test_recovery = {
+          digest: '',
+          binding_digest: recoveryBinding(
+            state,
+            entrySeal.source_digest,
+            state.gate_reports.length,
+            options.timeoutMs,
+          ),
+          report_count: state.gate_reports.length,
+          timeout_ms: options.timeoutMs,
+          phase: 'prepared',
+          timeout_report_digest: null,
+        };
       }
-      report.actor_receipt_digest = receipt.digest;
+      state.implementation_test_recovery!.digest = recoveryDigest(
+        state.implementation_test_recovery!,
+      );
+      // Initial authority is durable before preparation; retries are consumed at launch.
+      save(file, state);
+    }
+    report = runIsolatedShellVerification(options).report;
+    if (ownedTest && state.implementation_test_recovery?.phase === 'available')
+      throw new RetryAuthorityRejected(
+        'implementation-test preparation failed before shell launch',
+      );
+    report.source_digest = entrySeal.source_digest;
+    if (receipt) report.actor_receipt_digest = receipt.digest;
+    const record = state.implementation_test_recovery;
+    if (
+      ownedTest &&
+      record?.phase === 'prepared' &&
+      report.classification === 'timeout' &&
+      report.verdict === 'blocked'
+    ) {
+      record.phase = 'available';
+      record.timeout_report_digest = thinkDigest(report);
+      record.digest = recoveryDigest(record);
     }
   } else {
     const before = repositoryInvariant(state.manifest.repo);
