@@ -3,6 +3,7 @@
 import * as fs from 'node:fs';
 import path from 'node:path';
 
+import { assertNoCleanup, ownCleanup } from '../cleanup/state.ts';
 import type { Workflow } from '../execution/contracts.ts';
 import { errorCode, errorMessage } from '../shared/errors.ts';
 import { gitRoot } from '../shared/repository.ts';
@@ -14,7 +15,7 @@ import { loadResearchState } from '../research/state.ts';
 import { loadIssueState } from '../issue/state.ts';
 
 const INTENT_PROTOCOL = 'codex-workflow-intent' as const;
-type WorkflowInvocation = Workflow | 'issue' | 'research' | 'think';
+type WorkflowInvocation = Workflow | 'issue' | 'research' | 'think' | 'cleanup';
 type Authorization = 'publish-one-github-issue' | 'push-and-create-one-draft-pr' | null;
 
 interface StoredWorkflowIntent {
@@ -23,6 +24,7 @@ interface StoredWorkflowIntent {
   workflow: WorkflowInvocation;
   repo: string;
   authorization: Authorization;
+  cleanup?: CleanupInvocation;
 }
 
 interface WorkflowIntent extends StoredWorkflowIntent {
@@ -33,6 +35,7 @@ interface ArmIntentOptions {
   runId: string;
   workflow: WorkflowInvocation;
   cwd: string;
+  cleanup?: CleanupInvocation;
 }
 
 type WorkflowInputName =
@@ -40,7 +43,8 @@ type WorkflowInputName =
   | 'code input'
   | 'issue input'
   | 'research input'
-  | 'think input';
+  | 'think input'
+  | 'cleanup input';
 
 function hasRunningFlow(runId: string): boolean {
   try {
@@ -62,10 +66,12 @@ function hasRunningFlow(runId: string): boolean {
 /** Recognizes only a leading explicit skill invocation, never an incidental mention. */
 function parseExplicitInvocation(prompt: string | undefined): WorkflowInvocation | null {
   const value = prompt ?? '';
-  const raw = /^\s*\$(build|code|issue|research|think)(?=\s|$)/u.exec(value);
+  const raw = /^\s*\$(build|code|issue|research|think|cleanup)(?=\s|$)/u.exec(value);
   if (raw) return raw[1] as WorkflowInvocation;
 
-  const linked = /^\s*\[\$(build|code|issue|research|think)\]\([^)\r\n]+\)(?=\s|$)/u.exec(value);
+  const linked = /^\s*\[\$(build|code|issue|research|think|cleanup)\]\([^)\r\n]+\)(?=\s|$)/u.exec(
+    value,
+  );
   return (linked?.[1] as WorkflowInvocation | undefined) ?? null;
 }
 
@@ -110,7 +116,7 @@ function requireAuthorization(runId: string, repo: string, workflow: 'issue' | '
 }
 
 /** Binds one explicit invocation to its task, workflow, repository, and private paths. */
-function armIntent({ runId, workflow, cwd }: ArmIntentOptions): WorkflowIntent {
+function armIntent({ runId, workflow, cwd, cleanup }: ArmIntentOptions): WorkflowIntent {
   if (runId.startsWith(CHILD_PREFIX))
     throw new Error('child invocations require the parent runner');
   using _ownership = acquireWorkflowOwnership(runId);
@@ -127,12 +133,19 @@ function armIntent({ runId, workflow, cwd }: ArmIntentOptions): WorkflowIntent {
     throw new Error('Research is active for this task; resume it with the original input');
   if (hasRunningFlow(runId)) throw new Error('a workflow is already active for this task');
   const repo = gitRoot(cwd, 'explicit workflow invocation requires a Git worktree');
+  using _repository =
+    workflow === 'cleanup' || workflow === 'build' || workflow === 'code' ? ownCleanup(repo) : null;
+  assertNoCleanup(repo);
+  if ((workflow === 'cleanup') !== (cleanup !== undefined))
+    throw new Error('cleanup invocation must bind its exact command');
+  if (cleanup) cleanup = parseCleanupInput(cleanup);
   const stored: StoredWorkflowIntent = {
     protocol: INTENT_PROTOCOL,
     run_id: runId,
     workflow,
     repo,
     authorization: authorizationFor(workflow),
+    ...(cleanup ? { cleanup } : {}),
   };
   const intent = hydrateIntent(stored);
   fs.mkdirSync(path.dirname(intent.input_path), { recursive: true, mode: 0o700 });
@@ -165,7 +178,14 @@ function loadIntent(runId: string | undefined): WorkflowIntent | null {
     throw new Error('workflow intent has an invalid shape');
   }
   const record = value as Record<string, unknown>;
-  const fields = ['protocol', 'run_id', 'workflow', 'repo', 'authorization'];
+  const fields = [
+    'protocol',
+    'run_id',
+    'workflow',
+    'repo',
+    'authorization',
+    ...(record.workflow === 'cleanup' ? ['cleanup'] : []),
+  ];
   if (
     Object.keys(record).length !== fields.length ||
     fields.some((field) => !Object.hasOwn(record, field)) ||
@@ -175,7 +195,8 @@ function loadIntent(runId: string | undefined): WorkflowIntent | null {
       record.workflow !== 'code' &&
       record.workflow !== 'issue' &&
       record.workflow !== 'research' &&
-      record.workflow !== 'think') ||
+      record.workflow !== 'think' &&
+      record.workflow !== 'cleanup') ||
     record.authorization !== authorizationFor(record.workflow as WorkflowInvocation) ||
     typeof record.repo !== 'string' ||
     !path.isAbsolute(record.repo)
@@ -187,6 +208,7 @@ function loadIntent(runId: string | undefined): WorkflowIntent | null {
     workflow: record.workflow,
     repo: record.repo,
     authorization: record.authorization as Authorization,
+    ...(record.workflow === 'cleanup' ? { cleanup: parseCleanupInput(record.cleanup) } : {}),
   });
 }
 
@@ -289,3 +311,39 @@ export {
   stopPendingIntent,
 };
 export type { WorkflowIntent };
+
+export type CleanupInvocation =
+  | { command: 'prepare'; issue: number }
+  | { command: 'run'; prepared_digest: string };
+function parseCleanupInput(value: unknown): CleanupInvocation {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('invalid cleanup invocation');
+  const v = value as Record<string, unknown>;
+  if (Object.keys(v).length !== 2) throw new Error('invalid cleanup invocation');
+  if (v.command === 'prepare' && Number.isSafeInteger(v.issue) && Number(v.issue) > 0)
+    return { command: 'prepare', issue: Number(v.issue) };
+  if (
+    v.command === 'run' &&
+    typeof v.prepared_digest === 'string' &&
+    /^[0-9a-f]{64}$/u.test(v.prepared_digest)
+  )
+    return { command: 'run', prepared_digest: v.prepared_digest };
+  throw new Error('invalid cleanup invocation');
+}
+export function parseCleanupInvocation(prompt: string | undefined): CleanupInvocation {
+  const args = (prompt ?? '')
+    .replace(/^\s*(?:\$cleanup|\[\$cleanup\]\([^)\r\n]+\))\s*/u, '')
+    .trim();
+  if (/^#?[1-9]\d*$/u.test(args))
+    return parseCleanupInput({ command: 'prepare', issue: Number(args.replace(/^#/u, '')) });
+  const approved = /^approve ([0-9a-f]{64})$/u.exec(args);
+  if (approved) return { command: 'run', prepared_digest: approved[1]! };
+  throw new Error('use $cleanup <issue> or $cleanup approve <prepared digest>');
+}
+export function requireCleanupIntent(
+  runId: string,
+  repo: string,
+  inputFile: string,
+): WorkflowIntent {
+  return requireBoundIntent(runId, 'cleanup', repo, inputFile, 'cleanup input');
+}

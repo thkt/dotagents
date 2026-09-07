@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 const skillsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const agentsRoot = path.resolve(skillsRoot, '..');
 const skillDocuments = [
+  'cleanup/SKILL.md',
   'build/SKILL.md',
   'code/SKILL.md',
   'issue/SKILL.md',
@@ -54,6 +55,8 @@ test('resolves every local Markdown link from the declaring document', () => {
 
 test('requires explicit invocation metadata for both workflow skills and mirrors', () => {
   for (const relative of [
+    'skills/cleanup/agents/openai.yaml',
+    '.ja/skills/cleanup/agents/openai.yaml',
     'skills/build/agents/openai.yaml',
     'skills/code/agents/openai.yaml',
     'skills/issue/agents/openai.yaml',

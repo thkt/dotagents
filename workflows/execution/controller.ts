@@ -1,5 +1,6 @@
 /** @file Outcome: An armed manifest advances only through declared transitions to a verified terminal state. */
 
+import { registerImplementation } from '../cleanup/state.ts';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -71,7 +72,11 @@ import {
   validateActionCompletion,
 } from '../build/git-actions.ts';
 import { actorScreenshotAttachments, sealScreenshotAttachments } from '../build/screenshots.ts';
-import { buildReviewGateReport, runStructuredBuildGate } from '../build/verification.ts';
+import {
+  buildReviewGateReport,
+  runStructuredBuildGate,
+  recordVerifiedShip,
+} from '../build/verification.ts';
 import { compileBuildManifest } from '../build/manifest.ts';
 import { describeBuildRunInput, parseBuildRunInput } from '../build/input.ts';
 import { compileCodeManifest, describeCodeInput, parseCodeInput } from '../code/manifest.ts';
@@ -328,6 +333,7 @@ function startWorkflow(runId: string, inputFile: string): PublicState {
       );
     }
   }
+  registerImplementation(manifest.repo, runId, file);
   const state: FlowState = {
     protocol: STATE_PROTOCOL,
     execution_revision: 2,
@@ -348,7 +354,7 @@ function startWorkflow(runId: string, inputFile: string): PublicState {
     gate_reports: [],
     build_plan: null,
     screenshots: [],
-    workflow_baseline: workflowBaseline,
+    workflow_baseline: repoSnapshot(manifest.repo),
     actor_baseline: null,
     actor_binding: null,
     action_baseline: null,
@@ -441,6 +447,15 @@ function startOrResumeWorkflow(runId: string, inputFile: string): PublicState {
   try {
     const loaded = loadWorkflowState(runId);
     const existing = loaded.state;
+    registerImplementation(existing.manifest.repo, runId, loaded.file);
+    if (
+      existing.status === 'blocked' &&
+      existing.gate_reports.at(-1)?.classification === 'ship_receipt_persistence_failed'
+    ) {
+      requireOriginalInput(existing, inputFile);
+      existing.status = 'running';
+      return save(loaded.file, existing);
+    }
     if (existing.status !== 'running' && loadIntent(runId)) return startWorkflow(runId, inputFile);
     if (isRetryableGitHubAccessBlock(existing)) {
       requireOriginalInput(existing, inputFile);
@@ -859,6 +874,37 @@ function runGate(runId: string, stepId: string): { result: PublicState; exitCode
         classification: 'gate_mutated_repository',
         reason_codes: ['gate_mutated_repository', ...report.reason_codes],
         failure_route: 'blocked',
+      };
+    }
+  }
+  if (report.verdict === 'pass' && step.gate.authority === 'build-ship') {
+    try {
+      recordVerifiedShip(
+        state,
+        report.evidence.kind === 'structured' ? report.evidence.report.url : undefined,
+      );
+    } catch (error) {
+      const classification =
+        errorCode(error) === 'ship_receipt_persistence_failed'
+          ? 'ship_receipt_persistence_failed'
+          : 'ship_verification_failed';
+      report = {
+        ...report,
+        verdict: 'blocked',
+        classification,
+        reason_codes: [classification],
+        failure_route: 'blocked',
+        evidence: {
+          kind: 'structured',
+          report: {
+            protocol: 'codex-build-ship',
+            verdict: 'blocked',
+            classification,
+            reason_codes: [classification],
+            failure_route: 'blocked',
+            error: errorMessage(error),
+          },
+        },
       };
     }
   }

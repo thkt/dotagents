@@ -18,6 +18,8 @@ const ALLOWED_FRONTMATTER_KEYS = new Set([
   'metadata',
 ]);
 const SKILLS = [
+  'skills/cleanup',
+  '.ja/skills/cleanup',
   'skills/build',
   'skills/code',
   'skills/issue',

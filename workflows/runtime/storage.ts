@@ -1,6 +1,7 @@
 /** @file Outcome: Ephemeral task runs and repository-local artifacts have separate stable storage ownership. */
 
 import crypto from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import path from 'node:path';
 import { defaultWorkflowRuntimeDirectory } from './environment.ts';
@@ -44,7 +45,7 @@ export function intentPath(runId: string): string {
 
 export function workflowInputPath(
   runId: string,
-  workflow: 'build' | 'code' | 'issue' | 'research' | 'think',
+  workflow: 'build' | 'code' | 'issue' | 'research' | 'think' | 'cleanup',
 ): string {
   return path.join(workflowRunDirectory(runId), `${workflow}-input.json`);
 }
@@ -139,4 +140,20 @@ export function artifactPaths(
     const markdown = path.join(directory, `${name}.md`);
     if (!fs.existsSync(json) && !fs.existsSync(markdown)) return { json, markdown };
   }
+}
+
+/** Cleanup evidence has a fixed repository-local durability boundary. */
+export function cleanupArtifactDirectory(repo: string): string {
+  return path.join(cleanupRepository(repo), '.codex', 'workflow-artifacts', 'cleanup');
+}
+
+/** Stable repository owner shared by the primary and linked worktrees. */
+export function cleanupRepository(repo: string): string {
+  const result = spawnSync('git', ['-C', repo, 'worktree', 'list', '--porcelain', '-z'], {
+    encoding: 'utf8',
+  });
+  const primary = result.stdout?.split('\0').find((v) => v.startsWith('worktree '));
+  if (result.status !== 0 || !primary)
+    throw new FlowError('cannot resolve cleanup repository owner', 'cleanup_unsupported');
+  return fs.realpathSync(primary.slice(9));
 }

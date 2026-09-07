@@ -91,3 +91,11 @@ A Build → Think proposal can be selected for an explicitly authorized Issue up
 ## Verification
 
 Run `bun run check`. Use `bun run verify:clean` when dependencies must also be reconstructed from `bun.lock` with Bun 1.4.0.
+
+## Post-merge cleanup
+
+`$cleanup <issue>` prepares a non-mutating Git preview from a verified Build Ship receipt. Historical receipts are not inferred. `$cleanup approve <prepared digest>` binds the exact repository, task, inventory and deletion targets. `codex-cleanup describe` lists the closed `prepare`, `run` and `resume` commands; the hook supplies the input path and task identity.
+
+Cleanup saves dirty state in an owned recovery commit, moves to the verified merged base, restores and checks files/index, then deletes the remote topic with an expected-OID lease before topic configuration and atomic local ref deletion. It preserves unrelated refs (including same-OID refs), reflogs, worktrees, configuration, and staged/unstaged/untracked/ignored state. The preview contains paths and target identities, never saved file bytes. Durable canonical records share the primary worktree’s `.codex/workflow-artifacts/cleanup` namespace; approval separately binds the active worktree. Unfinished approved cleanup excludes cooperating workflow writers across linked worktrees. Inventory checks detect external drift but cannot fence arbitrary Git/filesystem writers.
+
+An interrupted approved operation resumes only from its original input. If a remote deletion is pending and its expected OID remains present, the controller retains local/recovery refs and requires manual resolution instead of resending an indistinguishable delete. Verified absence can reconcile that intent. Reports distinguish completed, pending and unattempted steps and identify retained recovery. No Stop hook automatically starts or resumes cleanup. Unsupported index/filesystem states, including intent-to-add, stop before approval. A conflict discovered after fetching a missing base reports `blocked` with the already captured recovery OID/ref and performs no deletion. A newly tracked base path colliding with saved untracked/ignored content is a conflict even when bytes match.

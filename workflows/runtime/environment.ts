@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 export const AGENTS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 export const BUILD_COMMAND = 'codex-build';
+export const CLEANUP_COMMAND = 'codex-cleanup';
 export const CODE_COMMAND = 'codex-code';
 export const ISSUE_COMMAND = 'codex-issue';
 export const RESEARCH_COMMAND = 'codex-research';

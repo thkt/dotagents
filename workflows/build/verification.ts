@@ -1,6 +1,7 @@
 /** @file Outcome: Build verification derives deterministic reports from validated Plan and workflow state. */
 
 import * as fs from 'node:fs';
+import { captureShipReceipt } from '../cleanup/evidence.ts';
 
 import { gitFileList, verifyArtifacts } from './artifact-verification.ts';
 import { inspectDraftPullRequest } from './github.ts';
@@ -83,6 +84,37 @@ function verifyShip(state: FlowState): StructuredGateResult {
       error: errorMessage(error),
     };
   }
+}
+
+/** Persists provenance only after the read-only Ship gate itself passes its mutation check. */
+export function recordVerifiedShip(state: FlowState, url: unknown): void {
+  const ship = state.manifest.steps.find(
+    (s): s is ActionStep => s.kind === 'action' && s.action === 'ship',
+  );
+  const branch = state.manifest.steps.find(
+    (s): s is ActionStep => s.kind === 'action' && s.action === 'branch',
+  );
+  if (
+    !ship ||
+    ship.action !== 'ship' ||
+    !branch ||
+    branch.action !== 'branch' ||
+    typeof url !== 'string' ||
+    state.workflow !== 'build' ||
+    !state.build_plan ||
+    !state.manifest.shipping_authorized ||
+    state.ship_authorization_revoked
+  )
+    throw new FlowError('Ship receipt requires a verified authorized Build', 'authorization_error');
+  captureShipReceipt(
+    state.manifest.repo,
+    state.build_plan.issue,
+    state.run_id,
+    ship.remote,
+    ship.base_branch,
+    branch.branch_name,
+    url,
+  );
 }
 
 function normalizeGate(

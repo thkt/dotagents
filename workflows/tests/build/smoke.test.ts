@@ -141,6 +141,7 @@ test('Build fetches the Issue Plan, implements, verifies, reviews, and commits o
   assert.ok('status' in result.result);
   assert.equal(result.result.status, 'completed');
   assert.equal(fs.readFileSync(countFile, 'utf8'), 'x');
+  assert.equal(fs.existsSync(path.join(repo, '.codex/workflow-artifacts/cleanup/source')), false);
   assert.match(fs.readFileSync(path.join(repo, 'unit.ts'), 'utf8'), /value = 2/u);
   assert.equal(git(repo, 'rev-list', '--count', `${startPoint}..HEAD`), '1');
 }, 30_000);
@@ -677,3 +678,146 @@ test('a modified Build handoff snapshot cannot dispatch a child', async () => {
   assert.equal(designs, 0);
   assert.match(loadWorkflowState(runId).state.runtime_failure!.error, /caller snapshot changed/);
 }, 15000);
+
+test.each([false, true])(
+  'matched Ship retries only receipt persistence; changed evidence blocks (%s)',
+  async (changed) => {
+    const plan: BuildPlanAuthoring = {
+      outcome: 'Update value.',
+      test_command: 'git diff --check',
+      units: [
+        {
+          goal: 'Update value.',
+          files: ['unit.ts'],
+          contract: 'value is 2.',
+          tests: ['No whitespace errors.'],
+        },
+      ],
+    };
+    const { repo, startPoint, runId, input } = buildFixture(plan);
+    fs.writeFileSync(input, JSON.stringify({ repo, issue_number: 1, ship: true }));
+    const bin = `${repo}.bin`;
+    const remoteFile = path.join(bin, 'remote.json');
+    const prFile = path.join(bin, 'pr.json');
+    const realGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
+    fs.writeFileSync(
+      path.join(bin, 'git'),
+      `#!/usr/bin/env bun
+import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
+const args = process.argv.slice(2);
+if (args.includes('ls-remote')) {
+  if (!fs.existsSync(${JSON.stringify(remoteFile)})) process.exit(2);
+  const r = JSON.parse(fs.readFileSync(${JSON.stringify(remoteFile)}, 'utf8'));
+  console.log(r.oid + '\\trefs/heads/' + r.branch); process.exit(0);
+}
+const result = spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' });
+process.exit(result.status ?? 1);
+`,
+      { mode: 0o700 },
+    );
+    fs.writeFileSync(
+      path.join(bin, 'gh'),
+      `#!/usr/bin/env bun
+import fs from 'node:fs';
+const args = process.argv.slice(2);
+if (args[0] === 'issue') { process.stdout.write(fs.readFileSync(${JSON.stringify(`${repo}.issue.json`)}, 'utf8')); }
+else if (args[0] === 'repo') console.log(JSON.stringify({ id: 'R_fixture', nameWithOwner: 'owner/repo' }));
+else if (fs.existsSync(${JSON.stringify(prFile)})) process.stdout.write(fs.readFileSync(${JSON.stringify(prFile)}, 'utf8'));
+else { console.error('no pull requests found'); process.exit(1); }
+`,
+      { mode: 0o700 },
+    );
+    let pushes = 0,
+      prs = 0,
+      actors = 0;
+    const runtime: WorkflowRuntime = {
+      agent: {
+        async runActor(sandboxRepo, directive) {
+          actors++;
+          fs.writeFileSync(path.join(sandboxRepo, 'unit.ts'), 'export const value = 2;\n');
+          return {
+            protocol: 'codex-flow-actor-result',
+            binding: directive.binding,
+            status: 'completed',
+            summary: 'done',
+            route: null,
+            question: null,
+          };
+        },
+        async reviewBuild(_repo, directive) {
+          return reviewResult(directive);
+        },
+      },
+      executeAction(repo, directive) {
+        if (directive.action !== 'ship') {
+          executeAction(repo, directive);
+          return;
+        }
+        executeAction(repo, directive, (invocation) => {
+          if (invocation.executable === 'git') {
+            pushes++;
+            fs.writeFileSync(
+              remoteFile,
+              JSON.stringify({
+                oid: git(repo, 'rev-parse', 'HEAD'),
+                branch: directive.parameters.branch,
+              }),
+            );
+          } else {
+            prs++;
+            fs.writeFileSync(
+              prFile,
+              JSON.stringify({
+                number: 7,
+                url: 'https://github.com/owner/repo/pull/7',
+                state: 'OPEN',
+                mergedAt: null,
+                isDraft: true,
+                title: directive.parameters.title,
+                body: fs.readFileSync(directive.parameters.pr_body_path, 'utf8'),
+                baseRefName: 'main',
+                headRefName: directive.parameters.branch,
+                headRefOid: git(repo, 'rev-parse', 'HEAD'),
+                headRepository: { id: 'R_fixture', nameWithOwner: 'owner/repo' },
+              }),
+            );
+          }
+        });
+      },
+    };
+    const original = fs.linkSync;
+    fs.linkSync = (source, destination) => {
+      if (String(destination).includes('/cleanup/source/'))
+        throw new Error('injected receipt persistence failure');
+      original(source, destination);
+    };
+    try {
+      const blocked = await runWorkflow(runId, input, runtime);
+      assert.equal(blocked.exitCode, 2, JSON.stringify(blocked.result));
+      assert.equal(
+        loadWorkflowState(runId).state.gate_reports.at(-1)?.classification,
+        'ship_receipt_persistence_failed',
+      );
+    } finally {
+      fs.linkSync = original;
+    }
+    if (changed) {
+      const proof = JSON.parse(fs.readFileSync(prFile, 'utf8'));
+      proof.headRefOid = 'a'.repeat(40);
+      fs.writeFileSync(prFile, JSON.stringify(proof));
+    }
+    const done = await runWorkflow(runId, input, runtime);
+    assert.equal(done.exitCode, changed ? 2 : 0, JSON.stringify(done.result));
+    if (changed)
+      assert.equal(
+        loadWorkflowState(runId).state.gate_reports.at(-1)?.classification,
+        'ship_verification_failed',
+      );
+    assert.equal(pushes, 1);
+    assert.equal(prs, 1);
+    assert.equal(actors, 1);
+    assert.equal(git(repo, 'rev-list', '--count', `${startPoint}..HEAD`), '1');
+  },
+  60_000,
+);
