@@ -82,7 +82,6 @@ const steps = [
   'local',
   'recovery',
   'fetch_cleanup',
-  'audit',
 ] as const;
 type Step = (typeof steps)[number];
 interface Journal {
@@ -664,8 +663,6 @@ export function runCleanup(
           break;
         case 'fetch_cleanup':
           if (actual.refs[fetchRef(p)]) git(repo, ['update-ref', '-d', fetchRef(p), p.base_oid]);
-          break;
-        case 'audit':
           break;
       }
       afterEffect?.(step);

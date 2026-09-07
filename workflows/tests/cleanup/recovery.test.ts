@@ -96,3 +96,51 @@ test('an identical untracked path newly tracked by the base is a semantic restor
   assert.throws(() => restoration(repo, before, base), /conflicts with saved path/);
   assert.deepEqual(inventoryRepository(repo), before);
 });
+
+test('restoration preserves unchanged entries and does not rewrite already applied paths on resume', () => {
+  const repo = temporaryDirectory('cleanup-write-delta-');
+  git(repo, ['init', '-q']);
+  probeDurability(repo);
+  fs.mkdirSync(path.join(repo, 'ignored'));
+  fs.writeFileSync(path.join(repo, 'ignored/cache'), 'keep');
+  fs.symlinkSync('cache', path.join(repo, 'ignored/link'));
+  fs.writeFileSync(path.join(repo, 'changed'), 'before');
+  const entries = {
+    ignored: { kind: 'directory' as const, mode: 0o755, bytes: '' },
+    'ignored/cache': {
+      kind: 'file' as const,
+      mode: 0o644,
+      bytes: Buffer.from('keep').toString('base64'),
+    },
+    'ignored/link': {
+      kind: 'symlink' as const,
+      mode: fs.lstatSync(path.join(repo, 'ignored/link')).mode & 0o7777,
+      bytes: Buffer.from('cache').toString('base64'),
+    },
+    changed: {
+      kind: 'file' as const,
+      mode: 0o644,
+      bytes: Buffer.from('before').toString('base64'),
+    },
+  };
+  const stamps = () =>
+    Object.fromEntries(
+      Object.keys(entries).map((key) => {
+        const s = fs.lstatSync(path.join(repo, key));
+        return [key, [s.ino, s.mtimeMs]];
+      }),
+    );
+  const initial = stamps();
+  const after = {
+    ...entries,
+    changed: { ...entries.changed, bytes: Buffer.from('after').toString('base64'), mode: 0o755 },
+  };
+  writeFiles(repo, entries, after);
+  const applied = stamps();
+  for (const key of ['ignored', 'ignored/cache', 'ignored/link'])
+    assert.deepEqual(applied[key], initial[key]);
+  assert.equal(fs.readFileSync(path.join(repo, 'changed'), 'utf8'), 'after');
+  assert.equal(fs.statSync(path.join(repo, 'changed')).mode & 0o777, 0o755);
+  writeFiles(repo, entries, after);
+  assert.deepEqual(stamps(), applied);
+});

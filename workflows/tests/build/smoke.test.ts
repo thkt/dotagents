@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { onTestFinished, test } from 'bun:test';
 
+import { assertNoImplementation } from '../../cleanup/state.ts';
 import { ActorEscalation } from '../../execution/agent.ts';
 import { loadWorkflowState } from '../../execution/controller.ts';
 import { workflowRunDirectory, workflowInputPath } from '../../runtime/storage.ts';
@@ -144,6 +145,8 @@ test('Build fetches the Issue Plan, implements, verifies, reviews, and commits o
   assert.equal(fs.existsSync(path.join(repo, '.codex/workflow-artifacts/cleanup/source')), false);
   assert.match(fs.readFileSync(path.join(repo, 'unit.ts'), 'utf8'), /value = 2/u);
   assert.equal(git(repo, 'rev-list', '--count', `${startPoint}..HEAD`), '1');
+  fs.rmSync(workflowRunDirectory(runId), { recursive: true });
+  assertNoImplementation(repo);
 }, 30_000);
 
 test('a blocking semantic review corrects the shared actor, then re-verifies and commits once', async () => {

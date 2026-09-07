@@ -395,6 +395,35 @@ export function registerImplementation(repo: string, runId: string, stateFile: s
     }) + '\n',
   );
 }
+/** Retire the writer marker only after its bound terminal state is durable. */
+export function retireImplementation(repo: string, runId: string, stateFile: string): void {
+  using _owner = ownCleanup(repo);
+  const file = path.join(
+    cleanupArtifactDirectory(repo),
+    'implementation',
+    `${digest('implementation', runId)}.json`,
+  );
+  if (!fs.existsSync(file)) return;
+  const marker = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  if (
+    canonical(marker) !==
+      canonical({
+        repository: cleanupRepository(repo),
+        worktree: fs.realpathSync(repo),
+        run_id: runId,
+        state_file: stateFile,
+      }) ||
+    state.run_id !== runId ||
+    state.manifest?.repo !== fs.realpathSync(repo) ||
+    !['completed', 'cancelled'].includes(state.status)
+  )
+    throw new FlowError('implementation retirement binding mismatch', 'cleanup_busy');
+  flush(stateFile);
+  flush(path.dirname(stateFile));
+  fs.unlinkSync(file);
+  flush(path.dirname(file));
+}
 function assertWorktreeNoImplementation(repo: string): void {
   const directory = path.join(cleanupArtifactDirectory(repo), 'implementation');
   if (!fs.existsSync(directory)) return;

@@ -1,6 +1,6 @@
 /** @file Outcome: An armed manifest advances only through declared transitions to a verified terminal state. */
 
-import { registerImplementation } from '../cleanup/state.ts';
+import { registerImplementation, retireImplementation } from '../cleanup/state.ts';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -290,6 +290,8 @@ function isRetryableRuntimeFailure(state: FlowState): boolean {
 
 function save(file: string, state: FlowState): PublicState {
   atomicWrite(file, state);
+  if (state.status === 'completed' || state.status === 'cancelled')
+    retireImplementation(state.manifest.repo, state.run_id, file);
   return publicState(state);
 }
 
@@ -447,7 +449,9 @@ function startOrResumeWorkflow(runId: string, inputFile: string): PublicState {
   try {
     const loaded = loadWorkflowState(runId);
     const existing = loaded.state;
-    registerImplementation(existing.manifest.repo, runId, loaded.file);
+    if (existing.status === 'completed' || existing.status === 'cancelled')
+      retireImplementation(existing.manifest.repo, runId, loaded.file);
+    else registerImplementation(existing.manifest.repo, runId, loaded.file);
     if (
       existing.status === 'blocked' &&
       existing.gate_reports.at(-1)?.classification === 'ship_receipt_persistence_failed'

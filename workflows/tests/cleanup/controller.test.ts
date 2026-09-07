@@ -206,7 +206,6 @@ for (const boundary of [
   'local',
   'recovery',
   'fetch_cleanup',
-  'audit',
 ]) {
   test(`interrupted ${boundary} reconciles without replaying remote deletion`, () => {
     const f = fixture();
@@ -280,7 +279,6 @@ for (const boundary of [
   'local',
   'recovery',
   'fetch_cleanup',
-  'audit',
 ]) {
   test(`pending ${boundary} publication interruption preserves the exact intent`, () => {
     const f = fixture();
@@ -326,7 +324,7 @@ test('journal genesis survives consumed approval; a missing final revision canno
   fs.unlinkSync(path.join(root, 'report', `${f.id}.json`));
   for (const file of fs.readdirSync(path.join(root, 'journal'))) {
     const record = JSON.parse(fs.readFileSync(path.join(root, 'journal', file), 'utf8'));
-    if (record.value.step === 'audit' && record.value.phase === 'done')
+    if (record.value.step === 'fetch_cleanup' && record.value.phase === 'done')
       fs.unlinkSync(path.join(root, 'journal', file));
   }
   assert.throws(() => runCleanup(f.repo, 'cleanup-run', f.id, f.gateway), /truncated/);

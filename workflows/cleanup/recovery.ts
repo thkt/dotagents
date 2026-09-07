@@ -234,6 +234,23 @@ export function writeFiles(repo: string, before: Entries, after: Entries): void 
   for (const [key, e] of Object.entries(after).sort(([a], [b]) => a.length - b.length)) {
     const file = path.join(repo, key);
     const current = fs.lstatSync(file, { throwIfNoEntry: false });
+    if (
+      current &&
+      (current.mode & 0o7777) === e.mode &&
+      ((e.kind === 'directory' && current.isDirectory()) ||
+        (e.kind === 'file' &&
+          current.isFile() &&
+          current.nlink === 1 &&
+          fs.readFileSync(file).toString('base64') === e.bytes) ||
+        (e.kind === 'symlink' &&
+          current.isSymbolicLink() &&
+          Buffer.from(fs.readlinkSync(file)).toString('base64') === e.bytes))
+    ) {
+      // A resumed rename may be visible without durable file/directory entries yet.
+      if (e.kind !== 'symlink') flush(file);
+      flush(path.dirname(file));
+      continue;
+    }
     if (e.kind === 'directory') {
       if (current && !current.isDirectory())
         throw new FlowError(`directory conflict: ${key}`, 'cleanup_restore_conflict');

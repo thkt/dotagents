@@ -8,6 +8,7 @@ import {
   canonical,
   assertNoImplementation,
   registerImplementation,
+  retireImplementation,
   closed,
   digest,
   oid,
@@ -169,3 +170,26 @@ test('completed implementation in another removed worktree does not block cleanu
   fs.writeFileSync(stateFile, JSON.stringify(state));
   assert.throws(() => assertNoImplementation(repo), /must finish or be cancelled/);
 });
+
+for (const status of ['completed', 'cancelled']) {
+  test(`${status} writer retirement survives runtime deletion and never retires an active or mismatched run`, () => {
+    const repo = temporaryDirectory('cleanup-retire-');
+    const stateFile = path.join(temporaryDirectory('cleanup-retire-state-'), 'state.json');
+    git(repo, ['init', '-q']);
+    registerImplementation(repo, 'run', stateFile);
+    const state = { run_id: 'run', manifest: { repo }, status: 'running' };
+    fs.writeFileSync(stateFile, JSON.stringify(state));
+    assert.throws(() => retireImplementation(repo, 'run', stateFile), /binding mismatch/);
+    assert.throws(() => assertNoImplementation(repo), /must finish/);
+    state.status = status;
+    state.run_id = 'different';
+    fs.writeFileSync(stateFile, JSON.stringify(state));
+    assert.throws(() => retireImplementation(repo, 'run', stateFile), /binding mismatch/);
+    state.run_id = 'run';
+    fs.writeFileSync(stateFile, JSON.stringify(state));
+    retireImplementation(repo, 'run', stateFile);
+    fs.unlinkSync(stateFile);
+    retireImplementation(repo, 'run', stateFile);
+    assertNoImplementation(repo);
+  });
+}
