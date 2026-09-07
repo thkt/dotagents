@@ -236,6 +236,18 @@ export interface GateOptions {
   command: string;
   timeoutMs: number;
   tailBytes: number;
+  /** Controller-owned transition after preparation, immediately before shell launch. */
+  onBeforeShellLaunch?: () => void;
+}
+
+/** Evidence for one implementation-test retry; actor receipt semantics remain unchanged. */
+export interface ImplementationTestRecovery {
+  digest: string;
+  binding_digest: string;
+  report_count: number;
+  timeout_ms: number;
+  phase: 'prepared' | 'available' | 'consumed';
+  timeout_report_digest: string | null;
 }
 
 export interface FlowState {
@@ -253,6 +265,7 @@ export interface FlowState {
   correction_counts: Record<string, number>;
   actor_attempt: number;
   actor_receipt: ActorReceipt | null;
+  implementation_test_recovery?: ImplementationTestRecovery;
   reviewed_content_digest: string | null;
   reviewed_source_seal: SourceSeal | null;
   gate_reports: GateReport[];

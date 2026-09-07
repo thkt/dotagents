@@ -46,6 +46,7 @@ test('describe exposes semantic inputs for internally compiled execution', () =>
     scope_paths: [],
   });
   for (const description of [build, code]) {
+    assert.equal(description.defaults.gate_timeout_ms, 600_000);
     assert.ok(description.execution);
     assert.ok(description.input_template);
     assert.equal(description.execution.compiled, true);
