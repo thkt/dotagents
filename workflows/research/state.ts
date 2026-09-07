@@ -13,6 +13,7 @@ import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
 import { isObject, rejectUnknownKeys } from '../shared/schema.ts';
 import {
   parseResearchDraft,
+  parseSubquestions,
   parseResearchAudit,
   parseResearchReport,
   type ResearchInput,
@@ -22,14 +23,29 @@ import {
 } from './contracts.ts';
 import type { KnowledgeEntry } from './knowledge.ts';
 
+export interface Investigation {
+  question: string;
+  attempts: number;
+  result: ResearchDraft | null;
+  reason: string | null;
+}
+export function investigationBatch(input: ResearchInput): Investigation[] {
+  return (input.subquestions ?? [input.question]).map((question) => ({
+    question,
+    attempts: 0,
+    result: null,
+    reason: null,
+  }));
+}
 export interface ResearchState {
-  protocol: 'codex-research-state-v2';
+  protocol: 'codex-research-state-v3';
   invocation: string;
   run_id: string;
   input: ResearchInput;
   source_digest: string;
   knowledge: KnowledgeEntry[];
   phase: 'investigate' | 'validate' | 'audit' | 'decide' | 'publish' | 'completed' | 'blocked';
+  investigations: Investigation[] | null;
   candidate: ResearchDraft | null;
   audit: ResearchAudit | null;
   corrections: number;
@@ -89,6 +105,7 @@ export function loadResearchState(runId: string): ResearchState | null {
         'knowledge',
         'phase',
         'candidate',
+        'investigations',
         'audit',
         'corrections',
         'attempts',
@@ -101,7 +118,7 @@ export function loadResearchState(runId: string): ResearchState | null {
       'research state',
     );
     if (
-      state.protocol !== 'codex-research-state-v2' ||
+      state.protocol !== 'codex-research-state-v3' ||
       state.run_id !== runId ||
       typeof state.invocation !== 'string' ||
       !/^[0-9a-f-]{36}$/u.test(state.invocation) ||
@@ -145,6 +162,33 @@ export function loadResearchState(runId: string): ResearchState | null {
         state.publication.markdown !== state.publication.json.replace(/\.json$/u, '.md'))
     )
       throw new Error('invalid publication identity');
+    if (state.input.subquestions !== undefined) parseSubquestions(state.input.subquestions);
+    if (state.investigations !== null) {
+      const questions = state.input.subquestions ?? [state.input.question];
+      if (
+        !Array.isArray(questions) ||
+        !Array.isArray(state.investigations) ||
+        state.investigations.length !== questions.length
+      )
+        throw new Error('invalid investigation batch');
+      state.investigations.forEach((entry, index) => {
+        if (!isObject(entry)) throw new Error('invalid investigation');
+        rejectUnknownKeys(entry, ['question', 'attempts', 'result', 'reason'], 'investigation');
+        if (
+          entry.question !== questions[index] ||
+          !Number.isInteger(entry.attempts) ||
+          Number(entry.attempts) < 0 ||
+          Number(entry.attempts) > 2 ||
+          !(entry.reason === null || typeof entry.reason === 'string')
+        )
+          throw new Error('invalid investigation attempt');
+        if (entry.result !== null) parseResearchDraft(entry.result);
+      });
+    }
+    if (state.phase === 'investigate' && !state.investigations)
+      throw new Error('missing investigation batch');
+    if (!['investigate', 'blocked'].includes(String(state.phase)) && state.investigations !== null)
+      throw new Error('unexpected investigation batch');
     if (state.candidate !== null) parseResearchDraft(state.candidate);
     if (state.audit !== null) parseResearchAudit(state.audit);
 

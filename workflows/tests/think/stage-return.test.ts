@@ -294,3 +294,37 @@ test('completed children revalidate input and repair publications before parent 
     assert.equal(returns(runId)[0].id, id);
   }
 }, 15000);
+
+test('multiple Think questions remain one assignment without verified independence or extra returns', async () => {
+  const { runId, input } = fixture();
+  const questions = [
+    'Which value is exported?',
+    'Which file contains the export?',
+    'Which line declares it?',
+  ];
+  const assignments: string[] = [];
+  const result = await runThinkWorkflow(
+    runId,
+    input,
+    {
+      ...thinker,
+      async design(_i, reports) {
+        return reports.length ? ready : { ...gap, research_questions: questions };
+      },
+    },
+    {
+      research: {
+        ...research,
+        async investigate(i, k, s, c, a) {
+          assert.equal(i.question, questions.join('\n'));
+          assert.equal(i.subquestions, undefined);
+          assignments.push(a!.question);
+          return research.investigate(i, k, s, c, a);
+        },
+      },
+    },
+  );
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(assignments, [questions.join('\n')]);
+  assert.equal(returns(runId).length, 1);
+});

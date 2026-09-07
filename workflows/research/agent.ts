@@ -26,6 +26,11 @@ import { ProgressReporter, workflowProgress } from '../shared/progress.ts';
 import type { KnowledgeEntry } from './knowledge.ts';
 import { projectOutcomeContext } from '../shared/project-outcome.ts';
 
+export interface InvestigationAssignment {
+  question: string;
+  signal: AbortSignal;
+}
+
 /** Reads source only from snapshotRepo; input.repo names the live repository for artifact lookups. */
 export interface ResearchAgent {
   investigate(
@@ -33,6 +38,7 @@ export interface ResearchAgent {
     knowledge: KnowledgeEntry[],
     snapshotRepo: string,
     correction?: ResearchCorrection,
+    assignment?: InvestigationAssignment,
   ): Promise<ResearchDraft>;
   audit(
     input: ResearchInput,
@@ -80,10 +86,16 @@ function investigationPrompt(
   knowledge: KnowledgeEntry[],
   projectOutcome: string,
   correction?: ResearchCorrection,
+  assignment?: string,
 ): string {
   return composePrompt(
     [
       'Investigate the research question.',
+      ...(assignment
+        ? [
+            `Your independent assignment: ${JSON.stringify(assignment)}. Answer this part while retaining the original question and scope. Your answer, findings, rejected claims, unknowns, and limitations must concern this assignment only. Other investigators handle the remaining parts: do not describe those parts as unverified, unknown, rejected, or a limitation merely because they are outside your assignment, and do not claim they are already verified.`,
+          ]
+        : []),
       ...commonResearchContext(input, projectOutcome),
       'Find the smallest evidence set that answers the question, separating observed facts from inference.',
       'Cite repository evidence by repo-relative path and L<number> or L<number>-L<number>; cite web evidence by HTTPS URL and page section.',
@@ -158,6 +170,7 @@ export class CodexResearchAgent implements ResearchAgent {
     knowledge: KnowledgeEntry[],
     snapshotRepo: string,
     correction?: ResearchCorrection,
+    assignment?: InvestigationAssignment,
   ): Promise<ResearchDraft> {
     const projectOutcome = projectOutcomeContext(snapshotRepo);
     const thread = this.client.startThread(threadOptions(input, knowledge, snapshotRepo));
@@ -167,14 +180,24 @@ export class CodexResearchAgent implements ResearchAgent {
       result = await this.progress.run(
         { workflow: 'research', stage: 'investigator_model_call' },
         (stage) =>
-          thread.run(investigationPrompt(input, knowledge, projectOutcome, correction), {
-            outputSchema: RESEARCH_DRAFT_SCHEMA,
-            modelRun: {
-              label: 'research investigator',
-              idleCode: 'research_investigator_idle_timeout',
-              onActivity: (activity) => stage.activity(activity),
+          thread.run(
+            investigationPrompt(
+              input,
+              knowledge,
+              projectOutcome,
+              correction,
+              input.subquestions ? assignment?.question : undefined,
+            ),
+            {
+              outputSchema: RESEARCH_DRAFT_SCHEMA,
+              ...(assignment ? { signal: assignment.signal } : {}),
+              modelRun: {
+                label: 'research investigator',
+                idleCode: 'research_investigator_idle_timeout',
+                onActivity: (activity) => stage.activity(activity),
+              },
             },
-          }),
+          ),
       );
     } catch (error) {
       throw new FlowError(
