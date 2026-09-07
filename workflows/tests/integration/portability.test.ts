@@ -119,6 +119,7 @@ test('publishes stable CLI names for every documented executable', () => {
     'codex-build-artifacts': 'workflows/build/artifact-verification.ts',
     'codex-build-plan': 'workflows/plan/validation.ts',
     'codex-build-pr-body': 'workflows/build/pr-body.ts',
+    'codex-cleanup': 'workflows/cleanup/runner.ts',
     'codex-code': 'workflows/code/runner.ts',
     'codex-issue': 'workflows/issue/runner.ts',
     'codex-research': 'workflows/research/runner.ts',

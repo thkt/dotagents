@@ -29,3 +29,5 @@ affect later files.
 
 Prefer condition-and-result test names. Parameterize independent validation cases, but keep workflow
 state transitions as separate tests so a failure identifies the broken boundary.
+
+Cleanup tests use isolated real Git repositories, native SHA-1/SHA-256 objects, and an explicit GitHub/remote gateway. They verify durable record reconciliation, inventory drift, owned recovery, restoration onto a changed base, each journaled effect's restart, ambiguous remote outcomes, and hook-bound approval through the production CLI/controller. No test deletes a real remote branch. A passing suite is supplemented by feature-specific acceptance review against Issue #29.

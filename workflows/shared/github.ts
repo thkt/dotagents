@@ -211,3 +211,19 @@ export function withoutGitHubCredentials(
   result.GH_PROMPT_DISABLED = 'true';
   return result;
 }
+
+/** Cleanup uses the same read-only registry, with explicit provenance fields. */
+export function githubRepoIdentity(repository: string): GitHubInvocation {
+  return invocation('repo:view', ['repo', 'view', repository, '--json', 'id,nameWithOwner']);
+}
+export function githubPrEvidence(repository: string, selector: string): GitHubInvocation {
+  return invocation('pr:view', [
+    'pr',
+    'view',
+    selector,
+    '--repo',
+    repository,
+    '--json',
+    'number,url,state,mergedAt,headRefOid,headRefName,baseRefName,headRepository',
+  ]);
+}

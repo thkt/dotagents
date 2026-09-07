@@ -6,6 +6,7 @@ import {
   armIntent,
   clearIntent,
   parseBuildIssueNumber,
+  parseCleanupInvocation,
   parseExplicitInvocation,
   type WorkflowIntent,
 } from '../workflows/runtime/invocation.ts';
@@ -13,6 +14,7 @@ import { githubRepositoryForRemote } from '../workflows/issue/github.ts';
 import { SHELL_CONTROL, shellArgument, shellWords } from '../workflows/shared/command.ts';
 import {
   BUILD_COMMAND,
+  CLEANUP_COMMAND,
   CODE_COMMAND,
   ISSUE_COMMAND,
   RESEARCH_COMMAND,
@@ -73,6 +75,12 @@ function deny(reason: string): HookResponse {
 }
 
 const WORKFLOW_RUNTIMES = {
+  cleanup: {
+    executable: CLEANUP_COMMAND,
+    flag: '--input',
+    start: 'prepare',
+    noun: 'cleanup input',
+  },
   build: { executable: BUILD_COMMAND, flag: '--input', start: 'run', noun: 'build input' },
   code: { executable: CODE_COMMAND, flag: '--input', start: 'run', noun: 'code input' },
   issue: { executable: ISSUE_COMMAND, flag: '--input', start: 'draft', noun: 'issue input' },
@@ -131,7 +139,22 @@ function userPromptSubmit(input: HookInput): HookResponse {
     const buildIssue = workflow === 'build' ? parseBuildIssueNumber(input.prompt) : null;
     const buildRepository =
       buildIssue === null ? null : githubRepositoryForRemote(input.cwd, 'origin');
-    const pending = armIntent({ runId: input.session_id, workflow, cwd: input.cwd });
+    const cleanup = workflow === 'cleanup' ? parseCleanupInvocation(input.prompt) : undefined;
+    const pending = armIntent({
+      runId: input.session_id,
+      workflow,
+      cwd: input.cwd,
+      ...(cleanup ? { cleanup } : {}),
+    });
+    if (cleanup) {
+      atomicWrite(pending.input_path, { repo: pending.repo, ...cleanup });
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptSubmit',
+          additionalContext: `Run ${CLEANUP_COMMAND} ${cleanup.command} --input ${shellArgument(pending.input_path)} with network access. Preparation is preview only. Only the explicit approved digest authorizes cleanup. Do not rewrite the supplied input or auto-resume from a Stop hook. Report retained recovery and pending steps if interrupted.`,
+        },
+      };
+    }
     try {
       if (buildIssue !== null && buildRepository !== null) {
         atomicWrite(pending.input_path, {

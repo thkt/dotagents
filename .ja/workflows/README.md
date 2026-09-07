@@ -67,3 +67,11 @@ Build と Code はこの区別に従い、認可された範囲で実装・自�
 ## Verification
 
 `bun run check` を実行する。Bun 1.4.0 と `bun.lock` から依存関係も復元する場合は `bun run verify:clean` を使う。
+
+## マージ後の整理
+
+`$cleanup <issue>` は検証済み Build Ship receipt から Git を変更しない preview を作成する。過去の receipt は推測しない。`$cleanup approve <prepared digest>` が repository、task、inventory、削除対象を拘束する。`codex-cleanup describe` が `prepare`、`run`、`resume` を示し、hook が input と task identity を指定する。
+
+cleanup は dirty state を所有権付き recovery commit に保存し、検証済みのマージ先 base で files/index を復元・照合してから、expected-OID lease による remote topic 削除、topic config、local ref の atomic 削除を行う。同じ OID の無関係な ref、reflog、worktree、config、staged/unstaged/untracked/ignored の状態を保持する。preview にはパスと対象の identity のみを示し、保存内容の bytes は出力しない。永続記録は primary worktree の `.codex/workflow-artifacts/cleanup` に統一し、承認対象の作業 worktree を別に拘束する。未完了の承認済み cleanup は linked worktree を含む協調する workflow writer を排他する。inventory 検査は外部の変更を検出するが、任意の Git/filesystem writer を禁止するものではない。
+
+中断した操作は元の input から再開する。remote 削除が pending で expected OID が残っている場合は削除を再送せず、local/recovery ref を保持して手動解決を求める。不在を検証できれば同じ intent を照合して続行できる。report は完了・pending・未着手の工程と保持した recovery を示す。Stop hook から自動実行しない。intent-to-add など未対応の index/filesystem 状態は承認前に停止する。未取得 base の fetch 後に競合が判明した場合は、先に保存した recovery OID/ref を保持して `blocked` を返し、削除しない。新しい base が保存済みの untracked/ignored パスを追跡する場合は、内容が同じでも競合とする。
