@@ -26,7 +26,6 @@ import type { KnowledgeEntry } from './knowledge.ts';
 export interface Investigation {
   question: string;
   attempts: number;
-  dispatch: string | null;
   result: ResearchDraft | null;
   reason: string | null;
 }
@@ -34,7 +33,6 @@ export function investigationBatch(input: ResearchInput): Investigation[] {
   return (input.subquestions ?? [input.question]).map((question) => ({
     question,
     attempts: 0,
-    dispatch: null,
     result: null,
     reason: null,
   }));
@@ -175,17 +173,12 @@ export function loadResearchState(runId: string): ResearchState | null {
         throw new Error('invalid investigation batch');
       state.investigations.forEach((entry, index) => {
         if (!isObject(entry)) throw new Error('invalid investigation');
-        rejectUnknownKeys(
-          entry,
-          ['question', 'attempts', 'dispatch', 'result', 'reason'],
-          'investigation',
-        );
+        rejectUnknownKeys(entry, ['question', 'attempts', 'result', 'reason'], 'investigation');
         if (
           entry.question !== questions[index] ||
           !Number.isInteger(entry.attempts) ||
           Number(entry.attempts) < 0 ||
           Number(entry.attempts) > 2 ||
-          !(entry.dispatch === null || typeof entry.dispatch === 'string') ||
           !(entry.reason === null || typeof entry.reason === 'string')
         )
           throw new Error('invalid investigation attempt');

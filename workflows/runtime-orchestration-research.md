@@ -175,3 +175,7 @@ Think → Research → Think → 明示許可のIssue → 新規Buildは230,629 
 初回の独立受入レビュー（`gpt-5.6-sol/high`、344,404 ms）は、Think質問の承認が相互の独立性を保証しない点と、自動分割による既存の戻り入力との不整合をblockingとした。自動分割を削除して従来の入力・保存契約を維持し、複数の相互に関連する質問を1担当へ全件渡す回帰テストへ修正した。公開Planの条件付きのThink並列化は選ばず、明示された独立`subquestions`のみを並列化する。独立性判定の追加モデルや契約は導入しない。
 
 独立再レビュー（`gpt-5.6-sol/high`、135,298 ms）は指摘なしで受入。2つのblocking指摘の解消、`stage-return.ts`が基点と同一であること、関連する複数質問を1担当に保持するproduction回帰テスト、明示した並列経路と実測の有効性を確認した。記録は `/private/tmp/dotagents-p6/acceptance.json` と `acceptance-final.json`。初回レビューが受理した並列・再開・cancel・予算・公開権限の評価と合わせて最終受入とする。
+
+PR #45 の冗長性レビュー後、batch入口とjoinで重複していたsnapshot検証を削減した。production runnerの正常系は初期sealを含め1担当10→8回、2担当12→10回。各モデル呼び出し前後、再開後の候補検証、監査・公開前の照合を維持する。担当別dispatch UUIDは削除し、呼び出し前に保存するattemptsと未受理result、保存状態全体のdigest照合で再試行と変更検出を扱う。旧PR版のdispatchを含む部分状態はunknown fieldとして保持・復旧案内付きで拒否する。完成Reportの形式は変わらない。実モデル計測はこの整理前の記録であり、整理後の確認はproduction runnerの回帰テストと走査数の測定による。
+
+整理後の `bun run check` は324 pass / 0 fail。追加したproduction runnerの走査上限テストと保存済みattemptsの改変拒否テストを含む。今回の差分だけを対象とした独立read-onlyレビュー（`gpt-5.6-sol/high`）は指摘なしで受入。記録は `/private/tmp/dotagents-p6/cleanup-review.json`。

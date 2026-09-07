@@ -207,12 +207,12 @@ export async function runResearch(
       persistResearchReport(input.repo, report, paths);
       return { report, report_json: paths.json, report_markdown: paths.markdown };
     }
-    const snapshot = requireContext();
-    const validationInput = { ...input, repo: snapshot };
     if (state.phase === 'investigate') {
       await investigateBatch(state, investigator(), requireContext);
       continue;
     }
+    const snapshot = requireContext();
+    const validationInput = { ...input, repo: snapshot };
     if (state.phase === 'validate') {
       try {
         validateCandidate(validationInput, state);

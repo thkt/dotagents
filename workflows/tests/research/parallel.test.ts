@@ -362,3 +362,53 @@ test('changed subquestions during audit cannot accept or publish the integrated 
   assert.equal(state.audit, null);
   assert.equal(state.publication, null);
 });
+
+test('changed persisted attempts cannot be overwritten by an in-flight investigator', async () => {
+  const f = fixture();
+  await assert.rejects(
+    run(f, {
+      ...agent,
+      async investigate() {
+        const saved = loadResearchState(f.runId)!;
+        saved.investigations![0]!.attempts = 2;
+        saveResearchState(f.runId, saved);
+        return draft();
+      },
+    }),
+    /stale|changed/,
+  );
+  const saved = loadResearchState(f.runId)!;
+  assert.equal(saved.investigations![0]!.attempts, 2);
+  assert.equal(saved.investigations![0]!.result, null);
+  assert.equal(saved.publication, null);
+});
+
+test('batch boundaries avoid two redundant snapshot scans on the production path', async () => {
+  for (const count of [1, 2]) {
+    const f = fixture(questions.slice(0, count));
+    const script = path.join(temporaryDirectory('parallel-scans-'), 'run.ts');
+    fs.writeFileSync(
+      script,
+      `
+      import {mock} from 'bun:test';
+      const source = await import(${JSON.stringify(new URL('../../execution/source-seal.ts', import.meta.url).pathname)});
+      const original = source.sealRepository;
+      let scans = 0;
+      mock.module(${JSON.stringify(new URL('../../execution/source-seal.ts', import.meta.url).pathname)}, () => ({...source, sealRepository(...args) { scans++; return original(...args); }}));
+      const {runResearchWorkflow} = await import(${JSON.stringify(new URL('../../research/runner.ts', import.meta.url).pathname)});
+      await runResearchWorkflow(${JSON.stringify(f.runId)}, ${JSON.stringify(f.input)}, {
+        async investigate() { return ${JSON.stringify(draft())}; },
+        async audit() { return ${JSON.stringify(pass)}; }
+      });
+      if (scans > ${count === 1 ? 8 : 10}) throw new Error('Redundant snapshot scans: ' + scans);
+    `,
+    );
+    const child = Bun.spawn([process.execPath, script], {
+      env: { ...process.env },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const error = new Response(child.stderr).text();
+    assert.equal(await child.exited, 0, await error);
+  }
+});

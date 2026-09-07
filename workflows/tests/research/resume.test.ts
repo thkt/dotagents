@@ -253,7 +253,7 @@ async function interruptAt(runId: string, inputFile: string, boundary: string): 
       if (destination.endsWith('research-state.json')) {
         const state = JSON.parse(fs.readFileSync(destination, 'utf8')).state;
         if (${JSON.stringify(boundary)} === 'correction' && state.phase === 'investigate' && state.corrections === 1) process.exit(73);
-        if (state.phase === ${JSON.stringify(boundary)} && (${JSON.stringify(boundary)} !== 'investigate' || state.investigations?.some(part => part.dispatch))) process.exit(73);
+        if (state.phase === ${JSON.stringify(boundary)} && (${JSON.stringify(boundary)} !== 'investigate' || state.investigations?.some(part => part.attempts > 0 && part.result === null))) process.exit(73);
       }
       if (${JSON.stringify(boundary)} === 'json' && /research-[a-f0-9-]+\\.json$/.test(destination)) process.exit(73);
     };

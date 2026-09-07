@@ -36,7 +36,6 @@ export async function investigateBatch(
         'Research dispatch is stale or its candidate/input changed',
         'state_error',
       );
-    requireContext();
   };
   const save = () => {
     saveResearchState(state.run_id, state);
@@ -48,10 +47,9 @@ export async function investigateBatch(
         while (!part.result && part.attempts < 2) {
           if (controller.signal.aborted) return;
           check();
+          requireContext();
           part.attempts++;
-          part.dispatch = crypto.randomUUID();
           save();
-          const dispatch = part.dispatch;
           let result: unknown;
           let failure: unknown;
           try {
@@ -69,12 +67,10 @@ export async function investigateBatch(
           }
           if (controller.signal.aborted) return;
           check();
-          if (part.dispatch !== dispatch)
-            throw new FlowError('stale investigation result', 'state_error');
+          requireContext();
           try {
             if (failure !== undefined) throw failure;
             part.result = parseResearchDraft(result);
-            part.dispatch = null;
             part.reason = null;
           } catch (error) {
             part.reason = errorMessage(error);
