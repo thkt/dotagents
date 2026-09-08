@@ -10,7 +10,6 @@ import {
   type StageAccess,
   type StageAgents,
 } from '../runtime/stage-return.ts';
-import * as fs from 'node:fs';
 import path from 'node:path';
 import { validatePlan } from '../plan/validation.ts';
 import { createRepositorySnapshot } from '../execution/repository-isolation.ts';
@@ -18,8 +17,8 @@ import { sealRepository } from '../execution/source-seal.ts';
 import { searchKnowledge } from '../research/knowledge.ts';
 import { parseResearchReport } from '../research/contracts.ts';
 import { errorCode, errorMessage, FlowError } from '../shared/errors.ts';
-import { realpathInside } from '../shared/repository.ts';
-import { researchArtifactDirectory, workflowInputPath } from '../runtime/storage.ts';
+import { workflowInputPath } from '../runtime/storage.ts';
+import { corpusDirectory, readCorpusReport } from '../research/corpus.ts';
 import { acquireWorkflowOwnership } from '../runtime/ownership.ts';
 import { clearIntent, loadIntent, requireThinkIntent } from '../runtime/invocation.ts';
 import { readAbsoluteJson } from '../runtime/cli.ts';
@@ -59,30 +58,13 @@ export interface ThinkRunResult {
 
 export type ThinkWaitingResult = WaitingResult;
 
-function reportContext(repo: string, file: string, index: number): ThinkResearchContext {
-  const label = `think input.research_reports[${index}]`;
-  const directory = researchArtifactDirectory(repo);
-  const stat = fs.statSync(file, { throwIfNoEntry: false });
-  if (!stat?.isFile() || !realpathInside(directory, file) || path.extname(file) !== '.json') {
-    throw new FlowError(`${label} must name a readable research JSON artifact for this repository`);
-  }
-  let raw: unknown;
-  try {
-    raw = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
-  } catch {
-    throw new FlowError(`${label} must contain valid JSON`);
-  }
-  const report = parseResearchReport(raw);
-  return {
-    clarification_answers: [],
-    path: path.basename(file),
-    generated_at: report.generated_at,
-    question: report.question,
-    answer: report.answer,
-    findings: report.findings,
-    unknowns: report.unknowns,
-    limitations: report.limitations,
-  };
+function reportContext(
+  repo: string,
+  file: string,
+  provenance: 'selected' | 'related',
+): ThinkResearchContext {
+  const report = readCorpusReport(repo, file);
+  return { ...report, clarification_answers: [], path: path.basename(file), provenance };
 }
 
 /** Accepted child answers are analysis context, never edits to the caller's authority input. */
@@ -219,8 +201,8 @@ export async function runThink(
   else if (input.clarification_answers?.length && !access)
     throw new FlowError('answers require an existing waiting owner', 'state_error');
   if (!state) {
-    const research = [...new Set(input.research_reports)].map((file, index) =>
-      reportContext(input.repo, file, index),
+    const research = [...new Set(input.research_reports)].map((file) =>
+      reportContext(input.repo, file, 'selected'),
     );
     const knowledge = searchKnowledge(
       input.repo,
@@ -232,8 +214,8 @@ export async function runThink(
           return [
             reportContext(
               input.repo,
-              path.join(researchArtifactDirectory(input.repo), source.report),
-              0,
+              path.join(corpusDirectory(input.repo), source.report),
+              'related',
             ),
           ];
         } catch {
@@ -247,7 +229,7 @@ export async function runThink(
     const snapshot = thinkSnapshotPath(runId, { invocation });
     createRepositorySnapshot(access?.snapshot ?? input.repo, snapshot);
     state = {
-      protocol: 'codex-think-state-v6',
+      protocol: 'codex-think-state-v7',
       invocation,
       run_id: runId,
       input,
@@ -407,14 +389,10 @@ export async function runThink(
       if (!('clarification_answers' in child))
         throw new FlowError('accepted Research answer context is missing', 'state_error');
       state.research.push({
+        ...report,
+        provenance: 'runtime-child',
         clarification_answers: structuredClone(child.clarification_answers),
         path: path.basename(child.report_json),
-        generated_at: report.generated_at,
-        question: report.question,
-        answer: report.answer,
-        findings: report.findings,
-        unknowns: report.unknowns,
-        limitations: report.limitations,
       });
       state.correction =
         'Reconsider the original request using the newly accepted Research. Preserve explicit unknowns; do not invent missing requirements.';

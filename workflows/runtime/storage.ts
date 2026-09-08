@@ -24,7 +24,18 @@ function repositoryStateKey(repo: string): string {
 
 /** One hook-created directory owns every ephemeral record for one task. */
 export function workflowRunDirectory(runId: string): string {
-  return path.join(runtimeRoot(), runKey(runId));
+  const directory = path.join(runtimeRoot(), runKey(runId));
+  protectPrivateStorage(runtimeRoot(), 'directory');
+  protectPrivateStorage([directory], 'directory');
+  protectPrivateStorage(
+    [
+      'ownership.sqlite',
+      'ownership.sqlite-journal',
+      'ownership.sqlite-wal',
+      'ownership.sqlite-shm',
+    ].map((name) => path.join(directory, name)),
+  );
+  return directory;
 }
 
 export function statePath(runId: string): string {
@@ -77,9 +88,12 @@ export function actorPublicationPayloadDirectory(runId: string): string {
 /** Repository-local artifacts are durable handoff and audit cache, never Build authority. */
 export function workflowArtifactDirectory(repo: string): string {
   const configured = process.env.CODEX_FLOW_ARTIFACT_DIR?.trim();
-  return configured
+  const directory = configured
     ? path.join(path.resolve(configured), repositoryStateKey(repo))
     : path.join(fs.realpathSync(repo), '.codex', 'workflow-artifacts');
+  protectPrivateStorage(configured ? path.resolve(configured) : directory, 'directory');
+  protectPrivateStorage(directory, 'directory');
+  return directory;
 }
 
 export function researchArtifactDirectory(repo: string): string {
@@ -105,10 +119,11 @@ export function atomicWrite(file: string, value: unknown): void {
 
 /** Replaces one private or generated text artifact atomically. */
 export function atomicWriteText(file: string, value: string): void {
+  const temporary = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  protectPrivateStorage([file, temporary]);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const temporary = `${file}.${process.pid}.tmp`;
   try {
-    fs.writeFileSync(temporary, value, { mode: 0o600 });
+    fs.writeFileSync(temporary, value, { mode: 0o600, flag: 'wx' });
     fs.renameSync(temporary, file);
   } catch (error) {
     fs.rmSync(temporary, { force: true });
@@ -156,4 +171,77 @@ export function cleanupRepository(repo: string): string {
   if (result.status !== 0 || !primary)
     throw new FlowError('cannot resolve cleanup repository owner', 'cleanup_unsupported');
   return fs.realpathSync(primary.slice(9));
+}
+
+/** Resolve existing ancestors before creation, including persisted destinations and symlinks. */
+export function protectPrivateStorage(
+  destination: string | readonly string[],
+  kind: 'file' | 'directory' = 'file',
+): void {
+  const groups = new Map<string, Set<string>>();
+  const destinations = typeof destination === 'string' ? [destination] : destination;
+  for (const entry of destinations) {
+    // Avoid normalizing a symlink/.. path differently from the eventual filesystem write.
+    if (entry.split(path.sep).includes('..'))
+      throw new FlowError('Private storage has an unsafe path', 'state_error');
+    const absolute = path.resolve(entry);
+    // Private records are regular entries; replacement must not clobber a tracked symlink.
+    if (kind === 'file' && fs.lstatSync(absolute, { throwIfNoEntry: false })?.isSymbolicLink())
+      throw new FlowError('Private storage has an unsafe path', 'state_error');
+    let ancestor = absolute;
+    while (!fs.existsSync(ancestor)) {
+      if (fs.lstatSync(ancestor, { throwIfNoEntry: false }))
+        throw new FlowError('Private storage has an unsafe path', 'state_error');
+      ancestor = path.dirname(ancestor);
+    }
+    const resolvedAncestor = fs.realpathSync(ancestor);
+    const resolved = path.resolve(resolvedAncestor, path.relative(ancestor, absolute));
+    let owner = fs.statSync(ancestor).isDirectory()
+      ? resolvedAncestor
+      : path.dirname(resolvedAncestor);
+    while (!fs.existsSync(path.join(owner, '.git'))) {
+      const parent = path.dirname(owner);
+      if (parent === owner) break;
+      owner = parent;
+    }
+    if (!fs.existsSync(path.join(owner, '.git'))) continue;
+    const relative = path.relative(owner, resolved).split(path.sep).join('/');
+    const entries = groups.get(owner) ?? new Set<string>();
+    entries.add(kind === 'directory' ? `${relative}/` : relative);
+    // A file's namespace must be private before recursive mkdir or temporary-file creation.
+    if (kind === 'file') entries.add(`${path.posix.dirname(relative)}/`);
+    groups.set(owner, entries);
+  }
+  const overlaps = (a: string, b: string) =>
+    a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+  for (const [repo, entries] of groups) {
+    const tracked = spawnSync('git', ['-C', repo, 'ls-files', '-z'], { encoding: 'utf8' });
+    const ignored = spawnSync('git', ['-C', repo, 'check-ignore', '--no-index', '--stdin', '-z'], {
+      encoding: 'utf8',
+      input: [...entries].join('\0') + '\0',
+    });
+    const matches = new Set(ignored.stdout?.split('\0'));
+    if (
+      tracked.status !== 0 ||
+      ignored.status !== 0 ||
+      [...entries].some((entry) => {
+        const relative = entry.replace(/\/$/u, '');
+        return (
+          !relative ||
+          relative === '.' ||
+          overlaps(relative, 'research/records') ||
+          overlaps(relative, 'research/reports') ||
+          tracked.stdout
+            .split('\0')
+            .filter(Boolean)
+            .some((file) => overlaps(relative, file)) ||
+          !matches.has(entry)
+        );
+      })
+    )
+      throw new FlowError(
+        'Private storage inside a repository must be Git-ignored and disjoint from tracked files and the Research corpus',
+        'state_error',
+      );
+  }
 }

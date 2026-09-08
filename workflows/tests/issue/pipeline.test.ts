@@ -14,7 +14,11 @@ import { draftIssue, publishIssue } from '../../issue/pipeline.ts';
 import { parsePublicIssueBody, renderPublicIssueBody } from '../../issue/public-contract.ts';
 import { atomicWrite, thinkArtifactDirectory } from '../../runtime/storage.ts';
 import { THINK_REPORT_PROTOCOL, type ThinkReport } from '../../think/contracts.ts';
-import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
+import {
+  ignoreWorkflowStorage,
+  temporaryDirectory,
+  useTemporaryWorkflowStorage,
+} from '../shared/fixtures.ts';
 
 useTemporaryWorkflowStorage('codex-issue-tests-');
 
@@ -40,6 +44,7 @@ const plan: BuildPlanAuthoring = {
 function repository(): string {
   const repo = temporaryDirectory('codex-issue-repo-');
   spawnSync('git', ['init', '-q', '-b', 'main', repo]);
+  ignoreWorkflowStorage(repo);
   spawnSync('git', ['-C', repo, 'remote', 'add', 'origin', 'git@github.com:owner/repo.git']);
   fs.mkdirSync(path.join(repo, 'src'));
   fs.writeFileSync(path.join(repo, 'src/value.ts'), 'export const value = 1;\n');

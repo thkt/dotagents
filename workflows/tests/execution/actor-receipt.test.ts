@@ -11,13 +11,18 @@ import {
   runRecoverableActor,
 } from '../../execution/repository-isolation.ts';
 import { actorPublicationPayloadDirectory } from '../../runtime/storage.ts';
-import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
+import {
+  ignoreWorkflowStorage,
+  temporaryDirectory,
+  useTemporaryWorkflowStorage,
+} from '../shared/fixtures.ts';
 
 useTemporaryWorkflowStorage('codex-publication-tests-');
 
 function repository(): string {
   const repo = temporaryDirectory('codex-publication-repo-');
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+  ignoreWorkflowStorage(repo);
   fs.writeFileSync(path.join(repo, 'one.txt'), 'before one\n');
   fs.writeFileSync(path.join(repo, 'two.txt'), 'before two\n');
   execFileSync('git', ['add', '.'], { cwd: repo });
@@ -73,4 +78,28 @@ test('a changed staged payload or third live value fails closed', async () => {
     })),
     /staged payload changed/u,
   );
+});
+
+test('actor payload staging rechecks private runtime ownership after model work before publishing source', async () => {
+  const repo = repository();
+  const owner = temporaryDirectory('actor-payload-owner-');
+  execFileSync('git', ['init', '-q', owner]);
+  fs.writeFileSync(path.join(owner, '.gitignore'), '/runtime/\n');
+  const configured = process.env.CODEX_FLOW_RUNTIME_DIR;
+  process.env.CODEX_FLOW_RUNTIME_DIR = path.join(owner, 'runtime');
+  try {
+    await assert.rejects(
+      runRecoverableActor(crypto.randomUUID(), 'implementation', repo, ['.'], async (sandbox) => {
+        fs.writeFileSync(path.join(sandbox, 'one.txt'), 'rejected payload');
+        fs.writeFileSync(path.join(owner, '.gitignore'), '');
+        return { accepted: true };
+      }),
+      /Private storage/,
+    );
+    assert.equal(fs.existsSync(path.join(owner, 'runtime')), false);
+    assert.equal(fs.readFileSync(path.join(repo, 'one.txt'), 'utf8'), 'before one\n');
+  } finally {
+    if (configured === undefined) delete process.env.CODEX_FLOW_RUNTIME_DIR;
+    else process.env.CODEX_FLOW_RUNTIME_DIR = configured;
+  }
 });

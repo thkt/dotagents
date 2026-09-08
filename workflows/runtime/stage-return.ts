@@ -13,6 +13,8 @@ import {
 import { saveThinkState, thinkWaitingOwner, thinkContractDigest } from '../think/state.ts';
 import {
   loadResearchState,
+  reportForCandidate,
+  researchDigest,
   researchWaitingOwner,
   researchSnapshotPath,
 } from '../research/state.ts';
@@ -728,4 +730,60 @@ function entryBinding(state: Returns, entry: ReturnEntry): string {
     workflow: state.workflow,
     entry: original,
   });
+}
+
+/** Standalone selection captures completed child evidence; it never grants publication authority. */
+export function captureRetainedResearch(repo: string, selection: string) {
+  const file = path.resolve(selection);
+  const stat = fs.lstatSync(file, { throwIfNoEntry: false });
+  if (!stat?.isFile() || stat.isSymbolicLink())
+    throw new FlowError(
+      'Retained Research must select readable completed child JSON',
+      'state_error',
+    );
+  const root = path.dirname(workflowRunDirectory('retained-research-lookup'));
+  for (const directory of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!directory.isDirectory() || directory.isSymbolicLink()) continue;
+    const record = path.join(root, directory.name, 'research-state.json');
+    if (!fs.existsSync(record)) continue;
+    let raw;
+    try {
+      raw = JSON.parse(fs.readFileSync(record, 'utf8'));
+    } catch {
+      continue;
+    }
+    if (raw.state?.publication?.json !== file) continue;
+    const child = loadResearchState(raw.state.run_id);
+    if (
+      !child ||
+      child.phase !== 'completed' ||
+      !child.stage_binding ||
+      !child.child_owner ||
+      fs.realpathSync(child.input.repo) !== fs.realpathSync(repo)
+    )
+      throw new FlowError('Retained Research has no accepted child ownership', 'state_error');
+    const journal = read(child.child_owner.file, child.child_owner.root);
+    const entry = journal.entries.find(
+      (item) => item.id === child.run_id && item.route === 'research',
+    );
+    if (
+      !entry ||
+      !journal.started.includes(child.run_id) ||
+      entryBinding(journal, entry) !== child.stage_binding ||
+      !sameValue(entryInput(entry), child.raw_input)
+    )
+      throw new FlowError('Retained Research ownership or answers changed', 'state_error');
+    const report = reportForCandidate(child);
+    if (fs.readFileSync(file, 'utf8') !== `${JSON.stringify(report, null, 2)}\n`)
+      throw new FlowError('Retained Research report changed', 'state_error');
+    return {
+      report: structuredClone(report),
+      identity: researchDigest(report),
+      clarification_answers: structuredClone(child.clarification_history),
+    };
+  }
+  throw new FlowError(
+    'Retained Research requires its original completed child state and audit',
+    'state_error',
+  );
 }

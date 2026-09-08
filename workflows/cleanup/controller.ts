@@ -2,7 +2,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
-import { cleanupArtifactDirectory, cleanupRepository } from '../runtime/storage.ts';
+import {
+  protectPrivateStorage,
+  cleanupArtifactDirectory,
+  cleanupRepository,
+} from '../runtime/storage.ts';
 import {
   canonical,
   flush,
@@ -327,6 +331,8 @@ function configAfter(repo: string, p: Prepared): Entries {
   for (const [key, value] of Object.entries(p.inventory.metadata)) {
     if (!/^(?:common|worktree)\/config(?:\.worktree)?$/u.test(key)) continue;
     const file = path.join(cleanupArtifactDirectory(repo), 'config-preview');
+    protectPrivateStorage(file);
+    protectPrivateStorage(`${file}.lock`);
     fs.writeFileSync(file, Buffer.from(value.bytes, 'base64'), { mode: 0o600 });
     try {
       git(repo, [
@@ -648,10 +654,14 @@ export function runCleanup(
         case 'config':
           for (const [key, entry] of Object.entries(configAfter(repo, p))) {
             const root = key.startsWith('common/') ? commonDirectory(repo) : gitDirectory(repo);
-            replaceDurable(
-              path.join(root, key.slice(key.indexOf('/') + 1)),
-              Buffer.from(entry.bytes, 'base64').toString(),
-            );
+            // Stage private config bytes under cleanup ownership, then restore the authorized metadata.
+            const staging = path.join(cleanupArtifactDirectory(repo), 'config-preview');
+            replaceDurable(staging, Buffer.from(entry.bytes, 'base64').toString());
+            fs.chmodSync(staging, entry.mode);
+            flush(staging);
+            fs.renameSync(staging, path.join(root, key.slice(key.indexOf('/') + 1)));
+            flush(path.dirname(staging));
+            flush(root);
           }
           break;
         case 'local':

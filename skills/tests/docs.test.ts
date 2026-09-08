@@ -81,7 +81,15 @@ test('the shared check runs code, test, and Skill validation', () => {
     scripts?: Record<string, string>;
   };
   const check = packageJson.scripts?.check ?? '';
-  for (const command of ['lint', 'format:check', 'typecheck', 'knip', 'test', 'validate:skills']) {
+  for (const command of [
+    'verify:research',
+    'lint',
+    'format:check',
+    'typecheck',
+    'knip',
+    'test',
+    'validate:skills',
+  ]) {
     assert.match(check, new RegExp(`(?:^|&&\\s*)bun run ${command}(?:\\s*&&|$)`, 'u'), command);
   }
 });

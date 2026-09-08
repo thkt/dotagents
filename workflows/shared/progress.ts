@@ -7,6 +7,8 @@ export type ProgressWorkflow = 'think' | 'research' | 'issue' | 'build' | 'code'
 export type ProgressStatus = 'started' | 'still_running' | 'completed' | 'failed';
 type TimingStage<T> = T extends `${infer Stage}_ms` ? Stage : never;
 type WorkflowSpecificStage =
+  | 'safety_model_call'
+  | 'safety_structured_validation'
   | 'issue_draft'
   | 'issue_publish'
   | 'actor_model_call'

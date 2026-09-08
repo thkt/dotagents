@@ -5,6 +5,7 @@ import {
   atomicWriteText,
   researchArtifactDirectory,
   artifactPaths,
+  protectPrivateStorage,
 } from '../runtime/storage.ts';
 
 import fs from 'node:fs';
@@ -106,6 +107,8 @@ export function persistResearchReport(
       new Date(report.generated_at),
       'research',
     );
+  protectPrivateStorage(paths.json);
+  protectPrivateStorage(paths.markdown);
   if (
     fs.existsSync(paths.json) &&
     fs.readFileSync(paths.json, 'utf8') !== `${JSON.stringify(report, null, 2)}\n`
@@ -113,7 +116,9 @@ export function persistResearchReport(
     throw new FlowError('Research publication conflicts with an existing report', 'state_error');
   if (!fs.existsSync(paths.json)) atomicWrite(paths.json, report);
   const markdown = renderResearchMarkdown(report);
-  if (!fs.existsSync(paths.markdown) || fs.readFileSync(paths.markdown, 'utf8') !== markdown) {
+  if (fs.existsSync(paths.markdown) && fs.readFileSync(paths.markdown, 'utf8') !== markdown)
+    throw new FlowError('Research publication conflicts with an existing view', 'state_error');
+  if (!fs.existsSync(paths.markdown)) {
     atomicWriteText(paths.markdown, markdown);
   }
   return paths;

@@ -17,7 +17,24 @@ import { thinkStatePath, thinkArtifactDirectory } from '../../runtime/storage.ts
 import type { ThinkAgent } from '../../think/agent.ts';
 import type { ThinkDraft, ThinkReview } from '../../think/contracts.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
-import { persistResearchReport } from '../../research/artifact.ts';
+import {
+  canonicalReport,
+  canonicalJson,
+  corpusPaths,
+  renderCorpusMarkdown,
+} from '../../research/corpus.ts';
+function persistResearchReport(
+  repo: string,
+  report: import('../../research/contracts.ts').ResearchReport,
+) {
+  const canonical = canonicalReport(report),
+    paths = corpusPaths(repo, canonical.research_id);
+  fs.mkdirSync(path.dirname(paths.json), { recursive: true });
+  fs.mkdirSync(path.dirname(paths.markdown), { recursive: true });
+  fs.writeFileSync(paths.json, canonicalJson(canonical));
+  fs.writeFileSync(paths.markdown, renderCorpusMarkdown(canonical));
+  return paths;
+}
 import { updateKnowledge } from '../../research/knowledge.ts';
 
 useTemporaryWorkflowStorage('think-resume-');
@@ -207,6 +224,10 @@ test('changed dispatch, captured evidence and snapshot reject pending results', 
             if (change === 'evidence')
               state.research = [
                 {
+                  protocol: 'codex-research-report',
+                  provenance: 'selected',
+                  scope_paths: [],
+                  rejected: [],
                   path: 'changed.json',
                   clarification_answers: [],
                   generated_at: '2026-09-01T00:00:00.000Z',

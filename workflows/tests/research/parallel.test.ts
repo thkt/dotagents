@@ -7,6 +7,7 @@ import { test } from 'bun:test';
 import { armIntent } from '../../runtime/invocation.ts';
 import { researchArtifactDirectory, researchStatePath } from '../../runtime/storage.ts';
 import { runResearchWorkflow } from '../../research/runner.ts';
+import { readCorpusReport } from '../../research/corpus.ts';
 import { loadResearchState, saveResearchState, researchDigest } from '../../research/state.ts';
 import { CodexResearchAgent, type ResearchAgent } from '../../research/agent.ts';
 import { RESEARCH_WAITING_SCHEMA, type ResearchDraft } from '../../research/contracts.ts';
@@ -36,6 +37,7 @@ function fixture(subquestions: unknown = questions) {
   execFileSync('git', ['init', '-q', repo]);
   for (const file of ['left.ts', 'right.ts'])
     fs.writeFileSync(path.join(repo, file), 'export const value = 1;\n');
+  execFileSync('git', ['-C', repo, 'add', 'left.ts', 'right.ts']);
   const runId = crypto.randomUUID();
   const input = armIntent({ runId, workflow: 'research', cwd: repo }).input_path;
   fs.writeFileSync(
@@ -50,11 +52,24 @@ function fixture(subquestions: unknown = questions) {
   );
   return { repo, runId, input };
 }
-const run = (f: ReturnType<typeof fixture>, agent: ResearchAgent) =>
-  runResearchWorkflow(f.runId, f.input, agent);
+const run = async (f: ReturnType<typeof fixture>, agent: ResearchAgent) => {
+  const result = await runResearchWorkflow(f.runId, f.input, agent);
+  if (result.status === 'completed') readCorpusReport(f.repo, result.report_json);
+  else
+    for (const directory of ['records', 'reports'])
+      assert.equal(fs.existsSync(path.join(f.repo, 'research', directory)), false);
+  return result;
+};
 const agent: ResearchAgent = {
   async investigate(_i, _k, _s, _c, assignment) {
     return draft(assignment!.question.includes('right') ? 'right.ts' : 'left.ts');
+  },
+  async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+    return {
+      verdict: 'safe' as const,
+      coverage: context.strings.map((item) => item.path),
+      findings: [],
+    };
   },
   async audit() {
     return pass;
@@ -66,7 +81,8 @@ test('two production investigators overlap and all evidence reaches one independ
   let entered = 0,
     active = 0,
     peak = 0,
-    audits = 0;
+    audits = 0,
+    safetyAudits = 0;
   let release!: () => void;
   const gate = new Promise<void>((r) => (release = r));
   const snapshots = new Set<string>();
@@ -87,6 +103,14 @@ test('two production investigators overlap and all evidence reaches one independ
       active--;
       return draft(assignment!.question.includes('right') ? 'right.ts' : 'left.ts');
     },
+    async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+      safetyAudits++;
+      return {
+        verdict: 'safe' as const,
+        coverage: context.strings.map((item) => item.path),
+        findings: [],
+      };
+    },
     async audit(input, candidate) {
       audits++;
       assert.equal(active, 0);
@@ -102,6 +126,7 @@ test('two production investigators overlap and all evidence reaches one independ
   assert.equal(peak, 2);
   assert.equal(snapshots.size, 1);
   assert.equal(audits, 1);
+  assert.equal(safetyAudits, 1);
   assert(result.status === 'completed');
   assert.equal(result.findings, 2);
   assert.equal(loadResearchState(f.runId)!.investigations, null);
@@ -136,6 +161,8 @@ test('failed required work retains accepted siblings and never becomes an unknow
   assert.equal(state.candidate, null);
   assert.equal(state.corrections, 0);
   assert.equal(fs.existsSync(researchArtifactDirectory(f.repo)), false);
+  for (const directory of ['records', 'reports'])
+    assert.equal(fs.existsSync(path.join(f.repo, 'research', directory)), false);
 });
 
 test('whole-question audit correction replaces the batch while audit retries reuse it', async () => {
@@ -147,6 +174,13 @@ test('whole-question audit correction replaces the batch while audit retries reu
       authors++;
       if (authors > 2) assert.match(c!.reason, /coverage/);
       return draft(a!.question.includes('right') ? 'right.ts' : 'left.ts');
+    },
+    async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+      return {
+        verdict: 'safe' as const,
+        coverage: context.strings.map((item) => item.path),
+        findings: [],
+      };
     },
     async audit() {
       audits++;
@@ -193,6 +227,13 @@ test('integration retains contradictory claims, qualifiers and explicit unknowns
         limitations: [a!.question],
       };
     },
+    async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+      return {
+        verdict: 'safe' as const,
+        coverage: context.strings.map((item) => item.path),
+        findings: [],
+      };
+    },
     async audit(_i, c) {
       seen = true;
       assert.equal(c.findings.length, 2);
@@ -217,7 +258,7 @@ test('partial results survive process exit and only the pending sibling is dispa
  fs.renameSync=(...args)=>{rename(...args);if(String(args[1]).endsWith('research-state.json')){const s=JSON.parse(fs.readFileSync(args[1],'utf8')).state;if(s.investigations?.[0]?.result)process.exit(73);}};
  mock.module('node:fs',()=>({...fs,default:fs}));
  const {runResearchWorkflow}=await import(${JSON.stringify(new URL('../../research/runner.ts', import.meta.url).pathname)});
- await runResearchWorkflow(${JSON.stringify(f.runId)},${JSON.stringify(f.input)},{async investigate(_i,_k,_s,_c,a){if(a.question.includes('right'))await new Promise(()=>{});return ${JSON.stringify(draft())};},async audit(){throw new Error('partial work must not audit');}});
+ await runResearchWorkflow(${JSON.stringify(f.runId)},${JSON.stringify(f.input)},{async investigate(_i,_k,_s,_c,a){if(a.question.includes('right'))await new Promise(()=>{});return ${JSON.stringify(draft())};},async auditPublicSafety(_input,context){return {verdict:'safe',coverage:context.strings.map(item=>item.path),findings:[]};},async audit(){throw new Error('partial work must not audit');}});
  `,
   );
   const child = Bun.spawn([process.execPath, script], {
@@ -229,6 +270,8 @@ test('partial results survive process exit and only the pending sibling is dispa
   assert.equal(await child.exited, 73, await err);
   assert.ok(loadResearchState(f.runId)!.investigations![0]!.result);
   assert.equal(fs.existsSync(researchArtifactDirectory(f.repo)), false);
+  for (const directory of ['records', 'reports'])
+    assert.equal(fs.existsSync(path.join(f.repo, 'research', directory)), false);
   const calls: string[] = [];
   await run(f, {
     ...agent,
@@ -276,6 +319,8 @@ test('changed input cancels late siblings and ownership remains until they settl
     true,
   );
   assert.equal(fs.existsSync(researchArtifactDirectory(f.repo)), false);
+  for (const directory of ['records', 'reports'])
+    assert.equal(fs.existsSync(path.join(f.repo, 'research', directory)), false);
 });
 
 test('old state is retained and independent SDK assignments share only the read-only snapshot', async () => {
@@ -350,6 +395,13 @@ test('changed subquestions during audit cannot accept or publish the integrated 
   await assert.rejects(
     run(f, {
       ...agent,
+      async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+        return {
+          verdict: 'safe' as const,
+          coverage: context.strings.map((item) => item.path),
+          findings: [],
+        };
+      },
       async audit() {
         const input = JSON.parse(fs.readFileSync(f.input, 'utf8'));
         input.subquestions.reverse();
@@ -400,9 +452,13 @@ test('batch boundaries avoid two redundant snapshot scans on the production path
       const {runResearchWorkflow} = await import(${JSON.stringify(new URL('../../research/runner.ts', import.meta.url).pathname)});
       await runResearchWorkflow(${JSON.stringify(f.runId)}, ${JSON.stringify(f.input)}, {
         async investigate() { return ${JSON.stringify(draft())}; },
-        async audit() { return ${JSON.stringify(pass)}; }
+        async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+    return { verdict: 'safe' as const, coverage: context.strings.map(item => item.path), findings: [] };
+  },
+  async audit() { return ${JSON.stringify(pass)}; }
       });
-      if (scans > ${count === 1 ? 8 : 10}) throw new Error('Redundant snapshot scans: ' + scans);
+      // Safety adds a pre-dispatch and a post-dispatch snapshot check.
+      if (scans > ${count === 1 ? 10 : 12}) throw new Error('Redundant snapshot scans: ' + scans);
     `,
     );
     const child = Bun.spawn([process.execPath, script], {
@@ -451,6 +507,13 @@ test('parallel waiting joins all investigators and resumes only audited answer d
   const worker: ResearchAgent = {
     investigate(...args) {
       return investigator.investigate(...args);
+    },
+    async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+      return {
+        verdict: 'safe' as const,
+        coverage: context.strings.map((item) => item.path),
+        findings: [],
+      };
     },
     async audit(_i, candidate, _k, _s, pending) {
       assert(siblingSettled);
@@ -528,7 +591,18 @@ function streamedAgent(respond: (prompt: string, schema: unknown) => unknown) {
             {
               async runStreamed(actualPrompt, actualOptions) {
                 assert.equal(actualPrompt, prompt);
-                const response = await respond(prompt, actualOptions?.outputSchema);
+                const safety = prompt.match(
+                  /----- BEGIN PUBLIC SAFETY CONTEXT [^\n]+\n([^\n]+)\n/u,
+                );
+                const response = safety
+                  ? {
+                      verdict: 'safe',
+                      coverage: (
+                        JSON.parse(safety[1]!) as { strings: { path: string }[] }
+                      ).strings.map((item) => item.path),
+                      findings: [],
+                    }
+                  : await respond(prompt, actualOptions?.outputSchema);
                 return {
                   events: (async function* () {
                     yield {
@@ -746,6 +820,13 @@ for (const boundary of ['default', 'injected']) {
                     affected_questions: dependencies(exactQuestions),
                   };
             },
+            async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+              return {
+                verdict: 'safe' as const,
+                coverage: context.strings.map((item) => item.path),
+                findings: [],
+              };
+            },
             async audit() {
               assert.fail('Invalid dependencies must fail before audit');
             },
@@ -759,6 +840,13 @@ for (const boundary of ['default', 'injected']) {
           assert.deepEqual(result.affected_questions, dependencies(exactQuestions));
         }
         return result;
+      },
+      async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+        return {
+          verdict: 'safe' as const,
+          coverage: context.strings.map((item) => item.path),
+          findings: [],
+        };
       },
       async audit() {
         audits++;
@@ -779,6 +867,8 @@ for (const boundary of ['default', 'injected']) {
     assert.equal(saved.investigations![0]!.proposal, null);
     assert.deepEqual(saved.investigations![1]!.result, draft('right.ts'));
     assert.equal(fs.existsSync(researchArtifactDirectory(f.repo)), false);
+    for (const directory of ['records', 'reports'])
+      assert.equal(fs.existsSync(path.join(f.repo, 'research', directory)), false);
     await assert.rejects(run(f, worker), /Research blocked/);
     assert.deepEqual(calls, [2, 1]);
     assert.equal(audits, 0);
@@ -843,6 +933,8 @@ test('default investigator own-only dependencies require independent correction 
   assert.equal(saved.corrections, 1);
   assert.deepEqual(saved.investigations![0]!.affected, exactQuestions);
   assert.equal(fs.existsSync(researchArtifactDirectory(f.repo)), false);
+  for (const directory of ['records', 'reports'])
+    assert.equal(fs.existsSync(path.join(f.repo, 'research', directory)), false);
   assert.deepEqual(await run(f, worker), waiting);
   assert.deepEqual(loadResearchState(f.runId), saved);
   assert.deepEqual(calls, [2, 2]);
@@ -899,7 +991,10 @@ test.each(['uninterrupted', 'correction', 'retry'])(
             if(part.attempts%2===1)throw Error('transient');
             return {status:'waiting',question:{...${JSON.stringify(policyQuestion)},id:a.question}};
           },
-          async audit(){throw Error('Conflicting questions must not reach audit');}
+          async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+    return { verdict: 'safe' as const, coverage: context.strings.map(item => item.path), findings: [] };
+  },
+  async audit(){throw Error('Conflicting questions must not reach audit');}
         });
         `,
       );
@@ -941,6 +1036,13 @@ test.each(['uninterrupted', 'correction', 'retry'])(
           ? { status: 'waiting', question: policyQuestion, affected_questions: [questions[0]!] }
           : draft('right.ts');
       },
+      async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+        return {
+          verdict: 'safe' as const,
+          coverage: context.strings.map((item) => item.path),
+          findings: [],
+        };
+      },
       async audit(input, candidate, _k, _s, pending) {
         audits++;
         if (!input.clarification_answers?.length) {
@@ -973,6 +1075,8 @@ test.each(['uninterrupted', 'correction', 'retry'])(
       );
     }
     assert.equal(fs.existsSync(researchArtifactDirectory(f.repo)), false);
+    for (const directory of ['records', 'reports'])
+      assert.equal(fs.existsSync(path.join(f.repo, 'research', directory)), false);
     assert.deepEqual(await run(f, worker), waiting);
     assert.deepEqual(loadResearchState(f.runId), saved);
     const answer = {
@@ -1017,6 +1121,13 @@ test.each(['conflicts', 'failures'])(
           throw new Error('transient');
         return { status: 'waiting', question: { ...policyQuestion, id: assignment!.question } };
       },
+      async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+        return {
+          verdict: 'safe' as const,
+          coverage: context.strings.map((item) => item.path),
+          findings: [],
+        };
+      },
       async audit() {
         assert.fail('Unreconciled questions and failures must not reach audit');
       },
@@ -1031,8 +1142,32 @@ test.each(['conflicts', 'failures'])(
     );
     assert.equal(saved.dispatch_history.length, calls[0]! + calls[1]!);
     assert.equal(fs.existsSync(researchArtifactDirectory(f.repo)), false);
+    for (const directory of ['records', 'reports'])
+      assert.equal(fs.existsSync(path.join(f.repo, 'research', directory)), false);
     await assert.rejects(run(f, worker), /Research blocked/);
     assert.deepEqual(loadResearchState(f.runId), saved);
     assert.deepEqual(calls, outcome === 'conflicts' ? [8, 8] : [4, 4]);
   },
 );
+
+test('untracked cited evidence and missing public-safety responses reject accepted parallel source audits', async () => {
+  for (const mode of ['untracked', 'missing-safety', 'invalid-safety']) {
+    const f = fixture();
+    if (mode === 'untracked') execFileSync('git', ['-C', f.repo, 'rm', '--cached', 'right.ts']);
+    let sourceAudits = 0;
+    const worker: ResearchAgent = {
+      ...agent,
+      async audit() {
+        sourceAudits++;
+        return pass;
+      },
+    };
+    if (mode === 'missing-safety') delete worker.auditPublicSafety;
+    if (mode === 'invalid-safety')
+      worker.auditPublicSafety = async () => ({ verdict: 'safe', coverage: [], findings: [] });
+    await assert.rejects(run(f, worker), /public-safety/);
+    assert.equal(sourceAudits, 1);
+    assert.equal(fs.existsSync(path.join(f.repo, 'research/records')), false);
+    assert.equal(fs.existsSync(path.join(f.repo, 'research/reports')), false);
+  }
+});

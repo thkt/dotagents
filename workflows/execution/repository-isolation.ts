@@ -24,6 +24,7 @@ import {
   actorPublicationPath,
   actorPublicationPayloadDirectory,
   atomicWrite,
+  protectPrivateStorage,
 } from '../runtime/storage.ts';
 import { sealRepository, type SourceSeal } from './source-seal.ts';
 
@@ -114,6 +115,7 @@ function createRepositorySandbox(
   destination?: string,
 ): RepositorySandbox {
   const sourceBefore = repositoryInvariant(repo);
+  const reserved = destination ?? path.join(os.tmpdir(), `${SANDBOX_PREFIX}${crypto.randomUUID()}`);
   if (destination) {
     const relative = path.relative(repo, path.resolve(destination));
     if (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
@@ -121,10 +123,14 @@ function createRepositorySandbox(
         'snapshot destination must be outside the source repository',
         'state_error',
       );
+  }
+  protectPrivateStorage(reserved, 'directory');
+  if (destination) {
     fs.mkdirSync(path.dirname(destination), { recursive: true, mode: 0o700 });
     fs.mkdirSync(destination, { mode: 0o700 }); // Reserve a new directory; never remove existing work.
   }
-  const root = destination ?? fs.mkdtempSync(path.join(os.tmpdir(), SANDBOX_PREFIX));
+  if (!destination) fs.mkdirSync(reserved, { mode: 0o700 });
+  const root = reserved;
   const directory = destination ?? path.join(root, 'repo');
   try {
     const clone = spawnSync('git', ['clone', '--quiet', '--no-local', repo, directory], {
@@ -351,6 +357,8 @@ export async function runRecoverableActor<T>(
       const bytes = fs.readFileSync(source);
       payloadDigest = crypto.createHash('sha256').update(bytes).digest('hex');
       const payload = stagedPayload(runId, relative);
+      protectPrivateStorage(path.dirname(payload), 'directory');
+      protectPrivateStorage(payload);
       fs.mkdirSync(path.dirname(payload), { recursive: true, mode: 0o700 });
       fs.writeFileSync(payload, bytes, { mode: 0o600 });
     }

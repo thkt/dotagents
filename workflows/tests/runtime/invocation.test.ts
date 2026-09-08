@@ -24,13 +24,18 @@ import {
   thinkStatePath,
   statePath,
 } from '../../runtime/storage.ts';
-import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
+import {
+  ignoreWorkflowStorage,
+  temporaryDirectory,
+  useTemporaryWorkflowStorage,
+} from '../shared/fixtures.ts';
 
 useTemporaryWorkflowStorage('codex-invocation-storage-');
 
 function repoFixture(): string {
   const repo = temporaryDirectory('codex-invocation-');
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+  ignoreWorkflowStorage(repo);
   fs.mkdirSync(path.join(repo, '.codex'));
   fs.writeFileSync(path.join(repo, '.codex/OUTCOME.md'), '# Project outcome\n\nTest.\n');
   return repo;
@@ -150,6 +155,7 @@ test('explicit workflows require network escalation on their first bound command
 test('an explicit workflow asks for project outcome creation before arming', () => {
   const repo = temporaryDirectory('codex-invocation-missing-outcome-');
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+  ignoreWorkflowStorage(repo);
   for (const workflow of ['research', 'think', 'code', 'issue', 'build'] as const) {
     const runId = `missing-project-outcome-${workflow}`;
     const response = handle({

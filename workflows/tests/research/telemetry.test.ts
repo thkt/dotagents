@@ -105,7 +105,13 @@ test('independent read-only threads receive the governing input, candidate and c
   const knowledge = [
     {
       topic: request.question,
-      sources: [{ report: 'prior.json', generated_at: '2026-09-01T00:00:00.000Z' }],
+      sources: [
+        {
+          research_id: 'a'.repeat(64),
+          report: 'prior.json',
+          generated_at: '2026-09-01T00:00:00.000Z',
+        },
+      ],
       updated_at: '2026-09-01T00:00:00.000Z',
     },
   ];
@@ -145,4 +151,54 @@ test('independent read-only threads receive the governing input, candidate and c
     assert.ok(prompt.includes('# Project outcome'));
   }
   assert.ok(prompts[0]!.includes(correction.reason));
+});
+
+test('public-safety model and structured-validation telemetry omit response contents on success and failure', async () => {
+  const { canonicalReport } = await import('../../research/corpus.ts');
+  const { safetyContext } = await import('../../research/public-safety.ts');
+  const context = safetyContext(
+    canonicalReport({
+      protocol: 'codex-research-report',
+      generated_at: '2026-09-01T00:00:00.000Z',
+      question: 'Private question marker',
+      scope_paths: [],
+      answer: 'Private answer marker',
+      findings: [],
+      rejected: [],
+      unknowns: [{ question: 'Missing fact', resolution: 'Inspect evidence' }],
+      limitations: [],
+    }),
+  );
+  for (const mode of ['safe', 'malformed', 'transport']) {
+    const lines: string[] = [];
+    const agent = new CodexResearchAgent(
+      {
+        startThread() {
+          return {
+            async run() {
+              if (mode === 'transport') throw new Error('Private transport marker');
+              return {
+                finalResponse:
+                  mode === 'malformed'
+                    ? 'Private malformed marker'
+                    : JSON.stringify({
+                        verdict: 'safe',
+                        coverage: context.strings.map((item) => item.path),
+                        findings: [],
+                      }),
+              };
+            },
+          };
+        },
+      },
+      new ProgressReporter({ write: (line) => lines.push(line) }),
+    );
+    if (mode === 'safe') await agent.auditPublicSafety(input, context, input.repo);
+    else await assert.rejects(agent.auditPublicSafety(input, context, input.repo), /public-safety/);
+    assert(lines.length <= 4);
+    assert(lines.some((line) => line.includes('safety_model_call')));
+    if (mode !== 'transport')
+      assert(lines.some((line) => line.includes('safety_structured_validation')));
+    assert(!lines.join('').includes('Private'));
+  }
 });

@@ -3,7 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { Database } from 'bun:sqlite';
-import { cleanupArtifactDirectory, cleanupRepository } from '../runtime/storage.ts';
+import {
+  cleanupArtifactDirectory,
+  cleanupRepository,
+  protectPrivateStorage,
+} from '../runtime/storage.ts';
 import { FlowError, errorCode } from '../shared/errors.ts';
 import { isObject, rejectUnknownKeys } from '../shared/schema.ts';
 
@@ -71,6 +75,10 @@ export function flush(file: string): void {
 }
 /** New directories and their parent entries must also reach stable storage. */
 export function durableDirectory(directory: string): void {
+  protectPrivateStorage(directory, 'directory');
+  createDurableDirectory(directory);
+}
+function createDurableDirectory(directory: string): void {
   const found = fs.lstatSync(directory, { throwIfNoEntry: false });
   if (found) {
     if (!found.isDirectory() || found.isSymbolicLink())
@@ -78,7 +86,7 @@ export function durableDirectory(directory: string): void {
     return;
   }
   const parent = path.dirname(directory);
-  durableDirectory(parent);
+  createDurableDirectory(parent);
   try {
     fs.mkdirSync(directory, { mode: 0o700 });
   } catch (error) {
@@ -89,8 +97,9 @@ export function durableDirectory(directory: string): void {
 }
 /** A failed fsync never authorizes a caller to proceed, even if the name is already visible. */
 export function publishBytes(file: string, bytes: string): void {
-  durableDirectory(path.dirname(file));
   const temporary = path.join(path.dirname(file), `.pending-${crypto.randomUUID()}`);
+  protectPrivateStorage([file, temporary]);
+  createDurableDirectory(path.dirname(file));
   try {
     const fd = fs.openSync(temporary, 'wx', 0o600);
     try {
@@ -240,11 +249,12 @@ export function validateCleanupNamespace(repo: string, reapTemporary = false): v
 /** Repository-wide cooperating writer lock; arbitrary external Git writers are detected by inventory. */
 export function ownCleanup(repo: string): Disposable {
   const root = cleanupArtifactDirectory(repo);
-  durableDirectory(root);
   const file = path.join(root, 'ownership.sqlite');
   const found = fs.lstatSync(file, { throwIfNoEntry: false });
   if (found && (!found.isFile() || found.isSymbolicLink()))
     throw new FlowError('unsafe cleanup ownership file', 'cleanup_storage_error');
+  protectPrivateStorage([file, `${file}-journal`, `${file}-wal`, `${file}-shm`]);
+  createDurableDirectory(root);
   const db = new Database(file, { create: true });
   try {
     db.exec('PRAGMA busy_timeout=0; BEGIN EXCLUSIVE');
@@ -285,8 +295,9 @@ export function probeDurability(repo: string): void {
 
 /** Mutable journal watermark; immutable revisions remain the replay authority. */
 export function replaceDurable(file: string, bytes: string): void {
-  durableDirectory(path.dirname(file));
   const temporary = path.join(path.dirname(file), `.pending-${crypto.randomUUID()}`);
+  protectPrivateStorage([file, temporary]);
+  createDurableDirectory(path.dirname(file));
   try {
     const mode = fs.statSync(file, { throwIfNoEntry: false })?.mode ?? 0o600;
     const fd = fs.openSync(temporary, 'wx', mode & 0o777);

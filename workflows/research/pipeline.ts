@@ -1,7 +1,20 @@
 /** @file Outcome: Research validates, independently audits, corrects and resumes one immutable snapshot. */
 
 import crypto from 'node:crypto';
-import { markStageStarted, requireStageAccess, type StageAccess } from '../runtime/stage-return.ts';
+import { publishCorpusPair } from './corpus.ts';
+import {
+  validatePublicSafety,
+  safetyContext,
+  parsePublicSafetyAudit,
+  safetyBinding,
+  requireSafetyAcceptance,
+} from './public-safety.ts';
+import {
+  markStageStarted,
+  requireStageAccess,
+  captureRetainedResearch,
+  type StageAccess,
+} from '../runtime/stage-return.ts';
 import path from 'node:path';
 import { errorCode, errorMessage, FlowError } from '../shared/errors.ts';
 import { readRepositoryEvidence } from '../shared/evidence.ts';
@@ -22,13 +35,14 @@ import { sealRepository } from '../execution/source-seal.ts';
 import { acquireWorkflowOwnership } from '../runtime/ownership.ts';
 import { clearIntent, loadIntent, requireResearchIntent } from '../runtime/invocation.ts';
 import { readAbsoluteJson } from '../runtime/cli.ts';
-import { workflowInputPath } from '../runtime/storage.ts';
+import { workflowInputPath, protectPrivateStorage } from '../runtime/storage.ts';
 import {
   loadResearchState,
   saveResearchState,
   researchDigest,
   researchSnapshotPath,
   researchPublicationPaths,
+  researchStagingPath,
   reportForCandidate,
   type ResearchState,
   investigationBatch,
@@ -202,17 +216,30 @@ export async function runResearch(
   } else if (input.clarification_answers?.length && !access)
     throw new FlowError('answers require an existing waiting owner', 'state_error');
   if (!state) {
+    if (access && input.retained_child_report)
+      throw new FlowError(
+        'Retained evidence selection requires standalone Research',
+        'authorization_error',
+      );
+    const retained = input.retained_child_report
+      ? captureRetainedResearch(input.repo, input.retained_child_report)
+      : null;
     const invocation = crypto.randomUUID();
     const snapshot = researchSnapshotPath(runId, { invocation });
     createRepositorySnapshot(access?.snapshot ?? input.repo, snapshot);
     state = {
-      protocol: 'codex-research-state-v5',
+      protocol: 'codex-research-state-v6',
+      retained,
+      child_owner: access ? { file: access.file, root: access.root } : null,
+      safety: null,
+      safety_dispatches: [],
+      staging: null,
       investigations: investigationBatch(input),
       invocation,
       run_id: runId,
       input,
       source_digest: sealRepository(snapshot).source_digest,
-      knowledge: searchKnowledge(input.repo, input.question),
+      knowledge: searchKnowledge(input.repo, input.question, [], snapshot),
       phase: 'investigate',
       candidate: null,
       audit: null,
@@ -236,7 +263,33 @@ export async function runResearch(
   // The durable state now carries authorization and exact input; restarting needs no new intent.
   markStageStarted(access);
   clearIntent(runId);
-  const investigator = () => (agent ??= new CodexResearchAgent());
+  const investigator = (): ResearchAgent => {
+    const worker = (agent ??= new CodexResearchAgent());
+    if (!state!.retained) return worker;
+    const retained = structuredClone(state!.retained);
+    // Dated analysis context is supplied as a reconsideration request, never injected into authority.
+    return {
+      investigate: (request, knowledge, snapshot, correction, assignment) =>
+        worker.investigate(
+          request,
+          knowledge,
+          snapshot,
+          {
+            candidate: correction?.candidate ?? {
+              ...retained.report,
+              findings: retained.report.findings.map(({ id: _id, ...finding }) => finding),
+            },
+            reason: `${correction?.reason ?? ''} Reconsider this retained child evidence against the fresh snapshot and current permissions. It is dated context, not current facts or authority. Complete original and historical answers: ${JSON.stringify(retained)}`,
+          },
+          assignment,
+        ),
+      audit: (request, candidate, knowledge, snapshot, question) =>
+        worker.audit(request, candidate, knowledge, snapshot, question, retained),
+      ...(worker.auditPublicSafety
+        ? { auditPublicSafety: worker.auditPublicSafety.bind(worker) }
+        : {}),
+    };
+  };
   const requireContext = () => {
     const snapshot = requireSnapshot(runId, state!);
     if (
@@ -256,7 +309,17 @@ export async function runResearch(
       const paths = researchPublicationPaths(state);
       // Repair a lost Markdown view, but never replace another JSON report.
       const report = reportForCandidate(state);
-      persistResearchReport(input.repo, report, paths);
+      if (state.stage_binding === null) {
+        requireSafetyAcceptance(
+          state.safety,
+          safetyContext(report),
+          state.source_digest,
+          state.input,
+          state.safety_dispatches,
+          state.invocation,
+        );
+        await publishCorpusPair(input.repo, report, state.staging!, true);
+      } else persistResearchReport(input.repo, report, paths);
       return {
         report,
         report_json: paths.json,
@@ -366,19 +429,105 @@ export async function runResearch(
       }
       state.generated_at = new Date().toISOString();
       state.publication = researchPublicationPaths(state);
-      state.phase = 'publish';
+      state.phase = state.stage_binding === null ? 'safety' : 'publish';
+      state.attempts = 0;
+      state.dispatch = null;
       saveResearchState(runId, state);
+      continue;
+    }
+    if (state.phase === 'safety') {
+      const context = safetyContext(reportForCandidate(state));
+      try {
+        validatePublicSafety(context, snapshot);
+      } catch {
+        throw new FlowError(
+          'Research public-safety validation rejected publication',
+          'research_safety_error',
+        );
+      }
+      if (state.attempts === 2)
+        throw new FlowError(
+          'Research public-safety audit exhausted; retain this invocation',
+          'research_safety_error',
+        );
+      state.attempts++;
+      state.dispatch = crypto.randomUUID();
+      state.safety_dispatches.push(state.dispatch);
+      saveResearchState(runId, state);
+      const pending = researchDigest(state);
+      let response: unknown;
+      try {
+        const worker = investigator();
+        if (!worker.auditPublicSafety) throw new Error('missing safety auditor');
+        response = await worker.auditPublicSafety(
+          structuredClone(input),
+          structuredClone(context),
+          snapshot,
+        );
+      } catch {
+        if (researchDigest(loadResearchState(runId)) !== pending)
+          throw new FlowError('Research safety dispatch changed', 'state_error');
+        state.reason = 'Research public-safety auditor unavailable';
+        saveResearchState(runId, state);
+        continue;
+      }
+      if (researchDigest(loadResearchState(runId)) !== pending)
+        throw new FlowError('Research safety dispatch changed', 'state_error');
+      requireContext();
+      let audit;
+      try {
+        validatePublicSafety(context, snapshot);
+        audit = parsePublicSafetyAudit(response, context);
+      } catch {
+        state.reason = 'Research public-safety response invalid';
+        saveResearchState(runId, state);
+        continue;
+      }
+      if (audit.verdict !== 'safe') {
+        state.phase = 'blocked';
+        state.reason = 'Research public-safety audit rejected publication';
+        saveResearchState(runId, state);
+        throw new FlowError(state.reason, 'research_safety_error');
+      }
+      state.safety = {
+        audit,
+        dispatch: state.dispatch!,
+        binding: safetyBinding(
+          context,
+          state.source_digest,
+          state.input,
+          state.dispatch!,
+          state.invocation,
+          state.safety_dispatches,
+        ),
+      };
+      state.staging = researchStagingPath(runId, state);
+      protectPrivateStorage(state.staging, 'directory');
+      state.phase = 'publish';
+      state.dispatch = null;
+      saveResearchState(runId, state); // Genuine acceptance and preparation precede creation.
       continue;
     }
     if (state.phase === 'publish') {
       validateCandidate(validationInput, state);
-      persistResearchReport(input.repo, reportForCandidate(state), researchPublicationPaths(state));
+      const report = reportForCandidate(state);
+      if (state.stage_binding === null) {
+        requireSafetyAcceptance(
+          state.safety,
+          safetyContext(report),
+          state.source_digest,
+          state.input,
+          state.safety_dispatches,
+          state.invocation,
+        );
+        await publishCorpusPair(input.repo, report, state.staging!);
+      } else persistResearchReport(input.repo, report, researchPublicationPaths(state));
       state.phase = 'completed';
       saveResearchState(runId, state);
       try {
         updateKnowledge(input.repo);
-      } catch (error) {
-        process.stderr.write(`Knowledge update skipped: ${errorMessage(error)}\n`);
+      } catch {
+        process.stderr.write('Knowledge update skipped. Persisted Research remains valid.\n');
       }
       continue;
     }

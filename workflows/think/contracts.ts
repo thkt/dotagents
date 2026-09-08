@@ -16,7 +16,7 @@ import {
   requiredString,
   stringArray,
 } from '../shared/schema.ts';
-import { researchArtifactDirectory } from '../runtime/storage.ts';
+import { corpusDirectory } from '../research/corpus.ts';
 import { NON_BLANK_STRING_SCHEMA } from '../shared/structured-output.ts';
 import {
   PENDING_QUESTION_SCHEMA,
@@ -150,8 +150,7 @@ export function validateThinkInput(raw: unknown): ThinkRequest {
     'think input.repo must be a Git worktree',
   );
   const reports = stringArray(raw.research_reports ?? [], 'think input.research_reports').map(
-    (file) =>
-      path.resolve(path.isAbsolute(file) ? file : path.join(researchArtifactDirectory(repo), file)),
+    (file) => path.resolve(path.isAbsolute(file) ? file : path.join(corpusDirectory(repo), file)),
   );
   return {
     repo,

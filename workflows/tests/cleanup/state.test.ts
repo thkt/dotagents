@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'bun:test';
-import { temporaryDirectory } from '../shared/fixtures.ts';
+import { ignoreWorkflowStorage, temporaryDirectory } from '../shared/fixtures.ts';
 import {
   canonical,
   assertNoImplementation,
@@ -24,6 +24,7 @@ import { cleanupArtifactDirectory } from '../../runtime/storage.ts';
 test('canonical records preserve exact identity and reject corruption and unknown fields', () => {
   const repo = temporaryDirectory('cleanup-record-');
   git(repo, ['init', '-q']);
+  ignoreWorkflowStorage(repo);
   const id = digest('test', { a: 1, b: 2 });
   assert.equal(id, digest('test', { b: 2, a: 1 }));
   assert.equal(canonical({ a: 1, b: 2 }), canonical({ b: 2, a: 1 }));
@@ -77,6 +78,7 @@ test('fsync failure leaves no claimed success and revalidates visible records on
 test('repository owner excludes another cleanup across run identities', () => {
   const repo = temporaryDirectory('cleanup-owner-');
   git(repo, ['init', '-q']);
+  ignoreWorkflowStorage(repo);
   probeDurability(repo);
   using owner = ownCleanup(repo);
   assert.throws(() => ownCleanup(repo), /active cleanup owner/);
@@ -114,6 +116,7 @@ test('writer exclusion spans linked worktrees and unrecognized cleanup files are
   const repo = temporaryDirectory('cleanup-linked-owner-');
   const linked = temporaryDirectory('cleanup-linked-worktree-');
   git(repo, ['init', '-q', '-b', 'main']);
+  ignoreWorkflowStorage(repo);
   git(repo, [
     '-c',
     'user.name=Fixture',
@@ -143,6 +146,7 @@ test('completed implementation in another removed worktree does not block cleanu
   const linked = temporaryDirectory('cleanup-implementation-linked-');
   const stateFile = path.join(temporaryDirectory('cleanup-implementation-state-'), 'state.json');
   git(repo, ['init', '-q', '-b', 'main']);
+  ignoreWorkflowStorage(repo);
   git(repo, [
     '-c',
     'user.name=Fixture',
@@ -176,6 +180,7 @@ for (const status of ['completed', 'cancelled']) {
     const repo = temporaryDirectory('cleanup-retire-');
     const stateFile = path.join(temporaryDirectory('cleanup-retire-state-'), 'state.json');
     git(repo, ['init', '-q']);
+    ignoreWorkflowStorage(repo);
     registerImplementation(repo, 'run', stateFile);
     const state = { run_id: 'run', manifest: { repo }, status: 'running' };
     fs.writeFileSync(stateFile, JSON.stringify(state));
@@ -193,3 +198,41 @@ for (const status of ['completed', 'cancelled']) {
     assertNoImplementation(repo);
   });
 }
+
+test('direct private cleanup writers reject unsafe or newly unignored storage before creating entries', async () => {
+  const { replaceDurable, durableDirectory } = await import('../../cleanup/state.ts');
+  const repo = temporaryDirectory('cleanup-unsafe-');
+  git(repo, ['init', '-q']);
+  const root = cleanupArtifactDirectory(repo);
+  const file = path.join(root, 'record.json');
+  const writers = [
+    () => publishBytes(file, 'private'),
+    () => replaceDurable(file, 'private'),
+    () => durableDirectory(root),
+    () => ownCleanup(repo),
+    () => probeDurability(repo),
+    () => registerImplementation(repo, 'run', '/external/state.json'),
+  ];
+  for (const write of writers) {
+    assert.throws(write, /Private storage/);
+    assert.equal(fs.existsSync(path.join(repo, '.codex')), false);
+  }
+  ignoreWorkflowStorage(repo);
+  publishBytes(file, 'original');
+  const before = fs.readdirSync(root);
+  fs.writeFileSync(path.join(repo, '.git/info/exclude'), '');
+  fs.writeFileSync(path.join(repo, '.gitignore'), '');
+  for (const write of writers) {
+    assert.throws(write, /Private storage/);
+    assert.deepEqual(fs.readdirSync(root), before);
+    assert.equal(fs.readFileSync(file, 'utf8'), 'original');
+  }
+  const tracked = path.join(repo, 'tracked');
+  fs.writeFileSync(tracked, 'tracked original');
+  git(repo, ['add', 'tracked']);
+  for (const target of [tracked, path.join(repo, 'research/records/private.json')]) {
+    assert.throws(() => publishBytes(target, 'private'), /Private storage/);
+    assert.throws(() => replaceDurable(target, 'private'), /Private storage/);
+  }
+  assert.equal(fs.readFileSync(tracked, 'utf8'), 'tracked original');
+});
