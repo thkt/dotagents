@@ -368,7 +368,7 @@ test('production Research independently rejects an unnecessary question and audi
   );
   const pending = armIntent({ runId: crypto.randomUUID(), workflow: 'research', cwd: repo });
   const original = input(repo, {
-    question: 'Investigate the repository implications of the selected access policy.',
+    question: 'Investigate the "公開" access policy.\nPreserve C:\\policy\\rules and literal \\n.',
   });
   fs.writeFileSync(pending.input_path, JSON.stringify(original));
   const question = {
@@ -398,7 +398,7 @@ test('production Research independently rejects an unnecessary question and audi
                     id: 'gratuitous',
                     prompt: 'Which internal variable name should be used?',
                   },
-                  affected_questions: null,
+                  affected_questions: ['A1'],
                 }
               : index === 1
                 ? {
@@ -432,11 +432,45 @@ test('production Research independently rejects an unnecessary question and audi
                 prompt.includes('original request delegates'),
             );
           if (index >= 4) assert(prompt.includes('Complete clarification history'));
-          // Exercise the actual production schema validator and stream adapter, not just a fake run().
+          // Inspect the emitted schema through the stream adapter; this is not an external API probe.
           const finalResponse = JSON.stringify(index % 2 === 0 ? { result: response } : response);
           return runStreamedCodexTurn(
             {
-              async runStreamed() {
+              async runStreamed(actualPrompt, actualOptions) {
+                assert.equal(actualPrompt, prompt);
+                if (index % 2 === 0) {
+                  const schema = actualOptions?.outputSchema as {
+                    properties: {
+                      result: { anyOf: [unknown, { properties: { affected_questions: unknown } }] };
+                    };
+                  };
+                  assert.deepEqual(
+                    schema.properties.result.anyOf[1].properties.affected_questions,
+                    {
+                      anyOf: [
+                        { type: 'array', minItems: 1, items: { type: 'string', enum: ['A1'] } },
+                        { type: 'null' },
+                      ],
+                    },
+                  );
+                  assert(
+                    prompt.includes(
+                      `Complete assignment ID mapping: ${JSON.stringify([{ id: 'A1', question: original.question }])}`,
+                    ),
+                  );
+                  assert(
+                    prompt.includes(
+                      `Your assignment and ID: ${JSON.stringify({ id: 'A1', question: original.question })}`,
+                    ),
+                  );
+                } else if (index < 4) {
+                  const saved = loadResearchState(pending.run_id)!;
+                  assert.deepEqual(saved.investigations![0]!.affected, [original.question]);
+                  assert(prompt.includes(JSON.stringify(original.question)));
+                  assert.deepEqual(JSON.parse(saved.candidate!.answer).investigations[0].affected, [
+                    original.question,
+                  ]);
+                }
                 return {
                   events: (async function* () {
                     yield {
@@ -470,7 +504,10 @@ test('production Research independently rejects an unnecessary question and audi
   assert.equal(threads, 4);
   assert.equal(fs.existsSync(researchArtifactDirectory(repo)), false);
   assert.equal(loadResearchState(pending.run_id)!.corrections, 1);
+  const savedWaiting = loadResearchState(pending.run_id)!;
+  assert.deepEqual(savedWaiting.investigations![0]!.affected, [original.question]);
   assert.deepEqual(await runResearchWorkflow(pending.run_id, pending.input_path, worker), waiting);
+  assert.deepEqual(loadResearchState(pending.run_id), savedWaiting);
   assert.equal(threads, 4);
   fs.writeFileSync(
     pending.input_path,

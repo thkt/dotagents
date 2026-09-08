@@ -9,13 +9,23 @@ import { armIntent, loadIntent } from '../../runtime/invocation.ts';
 import { handle } from '../../../hooks/workflow-enforcer.ts';
 import { runThinkWorkflow } from '../../think/runner.ts';
 import { runResearchWorkflow } from '../../research/runner.ts';
-import { loadResearchState, researchPublicationPaths } from '../../research/state.ts';
-import { loadThinkState, saveThinkState, thinkDigest } from '../../think/state.ts';
+import {
+  loadResearchState,
+  researchPublicationPaths,
+  researchSnapshotPath,
+} from '../../research/state.ts';
+import {
+  loadThinkState,
+  saveThinkState,
+  thinkDigest,
+  thinkPublicationPaths,
+} from '../../think/state.ts';
 import { workflowRunDirectory, workflowInputPath } from '../../runtime/storage.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 import type { ThinkAgent } from '../../think/agent.ts';
 import type { ThinkDraft } from '../../think/contracts.ts';
-import type { ResearchAgent } from '../../research/agent.ts';
+import { CodexResearchAgent, type ResearchAgent } from '../../research/agent.ts';
+import { runStreamedCodexTurn } from '../../shared/codex.ts';
 useTemporaryWorkflowStorage('think-stage-return-');
 const gap: ThinkDraft = {
   status: 'research_required',
@@ -427,8 +437,34 @@ test('multiple Think questions remain one assignment without verified independen
 });
 
 test('Think to Research waiting accepts only the original root append and retains its leaf identity', async () => {
-  const { runId, input } = fixture();
+  const { repo, runId, input } = fixture();
+  fs.mkdirSync(path.join(repo, '.codex'));
+  fs.writeFileSync(
+    path.join(repo, '.codex/OUTCOME.md'),
+    '# Outcome\nInvestigate the access policy.',
+  );
   let calls = 0;
+  let audits = 0;
+  let designs = 0;
+  let reviews = 0;
+  const questions = [
+    'Which "公開" policy applies?\nPreserve literal \\n.',
+    'How does C:\\policy\\rules affect "café"?',
+  ];
+  const combined = questions.join('\n');
+  const snapshots = new Set<string>();
+  const reviewed: ThinkDraft[] = [];
+  const parent: ThinkAgent = {
+    async design(_i, reports) {
+      designs++;
+      return reports.length ? ready : { ...gap, research_questions: questions };
+    },
+    async review(_i, candidate) {
+      reviews++;
+      reviewed.push(candidate);
+      return { summary: 'The complete candidate is supported.', findings: [] };
+    },
+  };
   const question = {
     id: 'policy',
     prompt: 'Which deployment policy should this investigation cover?',
@@ -438,18 +474,143 @@ test('Think to Research waiting accepts only the original root append and retain
     ],
     recommendation: null,
   };
-  const worker: ResearchAgent = {
-    ...research,
-    async investigate(i) {
-      calls++;
-      return i.clarification_answers?.length ? researchDraft : { status: 'waiting', question };
+  const worker = new CodexResearchAgent({
+    startThread(options) {
+      assert.equal(options!.sandboxMode, 'read-only');
+      snapshots.add(options!.workingDirectory!);
+      assert.equal(
+        fs.readFileSync(path.join(options!.workingDirectory!, 'value.ts'), 'utf8'),
+        'export const value = 1;\n',
+      );
+      return {
+        async run(prompt, turnOptions) {
+          return runStreamedCodexTurn(
+            {
+              async runStreamed(actualPrompt, actualOptions) {
+                assert.equal(actualPrompt, prompt);
+                const investigating = prompt.startsWith('Investigate the research question.');
+                const leaf = loadResearchState(returns(runId)[0].id)!;
+                assert.equal(leaf.input.question, combined);
+                assert.equal(leaf.input.subquestions, undefined);
+                if (leaf.investigations)
+                  assert.deepEqual(
+                    leaf.investigations.map((entry) => entry.question),
+                    [combined],
+                  );
+                else assert.equal(investigating, false);
+                assert(prompt.includes(JSON.stringify(combined)));
+                if (investigating) {
+                  calls++;
+                  const schema = actualOptions?.outputSchema as {
+                    properties: {
+                      result: { anyOf: [unknown, { properties: { affected_questions: unknown } }] };
+                    };
+                  };
+                  assert.deepEqual(
+                    schema.properties.result.anyOf[1].properties.affected_questions,
+                    {
+                      anyOf: [
+                        { type: 'array', minItems: 1, items: { type: 'string', enum: ['A1'] } },
+                        { type: 'null' },
+                      ],
+                    },
+                  );
+                  assert(
+                    prompt.includes(
+                      `Complete assignment ID mapping: ${JSON.stringify([{ id: 'A1', question: combined }])}`,
+                    ),
+                  );
+                  assert(
+                    prompt.includes(
+                      `Your assignment and ID: ${JSON.stringify({ id: 'A1', question: combined })}`,
+                    ),
+                  );
+                } else {
+                  audits++;
+                  if (audits === 1) {
+                    assert.deepEqual(leaf.investigations![0]!.affected, [combined]);
+                    assert.deepEqual(
+                      JSON.parse(leaf.candidate!.answer).investigations[0].affected,
+                      [combined],
+                    );
+                    assert(prompt.includes(JSON.stringify([combined])));
+                    assert.deepEqual(leaf.pending_question, question);
+                  }
+                }
+                if (calls === 2) {
+                  assert.equal(leaf.clarification_history.length, 1);
+                  assert(
+                    prompt.includes(
+                      `Complete clarification history (preserve the displayed context and explicit answer): ${JSON.stringify(leaf.clarification_history)}`,
+                    ),
+                  );
+                }
+                const response = investigating
+                  ? {
+                      result:
+                        calls === 1
+                          ? { status: 'waiting', question, affected_questions: ['A1'] }
+                          : researchDraft,
+                    }
+                  : { summary: 'Supported.', findings: [] };
+                return {
+                  events: (async function* () {
+                    yield {
+                      type: 'item.completed' as const,
+                      item: {
+                        id: 'response',
+                        type: 'agent_message' as const,
+                        text: JSON.stringify(response),
+                      },
+                    };
+                    yield {
+                      type: 'turn.completed' as const,
+                      usage: {
+                        input_tokens: 1,
+                        output_tokens: 1,
+                        cached_input_tokens: 0,
+                        cache_write_input_tokens: 0,
+                        reasoning_output_tokens: 0,
+                      },
+                    };
+                  })(),
+                };
+              },
+            },
+            prompt,
+            turnOptions,
+          );
+        },
+      };
     },
-  };
-  const waiting = await runThinkWorkflow(runId, input, thinker, { research: worker });
+  });
+  const originalText = fs.readFileSync(input, 'utf8');
+  const waiting = await runThinkWorkflow(runId, input, parent, { research: worker });
   assert(waiting.status === 'waiting');
   assert.equal(waiting.owner.task, runId);
-  assert.deepEqual(await runThinkWorkflow(runId, input, thinker, { research: worker }), waiting);
+  assert.deepEqual(waiting.question, question);
+  const savedParent = loadThinkState(runId)!;
+  const savedLeaf = loadResearchState(waiting.owner.leaf)!;
+  const childInput = workflowInputPath(waiting.owner.leaf, 'research');
+  const savedChildInput = fs.readFileSync(childInput, 'utf8');
+  const savedReturns = returns(runId);
+  assert.equal(waiting.owner.root, savedParent.invocation);
+  assert.deepEqual(savedLeaf.pending_owner, waiting.owner);
+  assert.deepEqual(savedLeaf.investigations![0]!.affected, [combined]);
+  const snapshot = researchSnapshotPath(waiting.owner.leaf, savedLeaf);
+  assert.deepEqual([...snapshots], [snapshot]);
+  for (const paths of [researchPublicationPaths(savedLeaf), thinkPublicationPaths(savedParent)]) {
+    assert.equal(fs.existsSync(paths.json), false);
+    assert.equal(fs.existsSync(paths.markdown), false);
+  }
+  assert.deepEqual(await runThinkWorkflow(runId, input, parent, { research: worker }), waiting);
   assert.equal(calls, 1);
+  assert.deepEqual([audits, designs, reviews], [1, 1, 1]);
+  assert.deepEqual(loadThinkState(runId), savedParent);
+  assert.deepEqual(loadResearchState(waiting.owner.leaf), savedLeaf);
+  assert.deepEqual(returns(runId), savedReturns);
+  assert.equal(fs.readFileSync(input, 'utf8'), originalText);
+  assert.equal(fs.readFileSync(childInput, 'utf8'), savedChildInput);
   const original = JSON.parse(fs.readFileSync(input, 'utf8'));
   const answer = {
     owner: waiting.owner,
@@ -461,13 +622,24 @@ test('Think to Research waiting accepts only the original root append and retain
     answer: null,
   };
   fs.writeFileSync(input, JSON.stringify({ ...original, clarification_answers: [answer] }));
-  const result = await runThinkWorkflow(runId, input, thinker, { research: worker });
+  const result = await runThinkWorkflow(runId, input, parent, { research: worker });
   assert.equal(result.status, 'ready');
   assert.equal(calls, 2);
   assert.equal(returns(runId).length, 1);
   assert.equal(returns(runId)[0].id, waiting.owner.leaf);
   assert.deepEqual(loadResearchState(waiting.owner.leaf)!.clarification_history, [answer]);
-  assert.deepEqual(await runThinkWorkflow(runId, input, thinker, { research: worker }), result);
+  assert.deepEqual([audits, designs, reviews], [2, 2, 2]);
+  assert.deepEqual(reviewed, [{ ...gap, research_questions: questions }, ready]);
+  const completedLeaf = loadResearchState(waiting.owner.leaf)!;
+  assert.equal(completedLeaf.invocation, savedLeaf.invocation);
+  assert.equal(completedLeaf.source_digest, savedLeaf.source_digest);
+  assert.equal(researchSnapshotPath(waiting.owner.leaf, completedLeaf), snapshot);
+  assert.deepEqual([...snapshots], [snapshot]);
+  assert.equal(loadThinkState(runId)!.invocation, savedParent.invocation);
+  assert.equal(loadThinkState(runId)!.source_digest, savedParent.source_digest);
+  assert.equal(fs.readFileSync(path.join(repo, 'value.ts'), 'utf8'), 'export const value = 1;\n');
+  assert.deepEqual(await runThinkWorkflow(runId, input, parent, { research: worker }), result);
+  assert.deepEqual([calls, audits, designs, reviews], [2, 2, 2, 2]);
 });
 
 test('answered Research publication failures and interrupted parent diagnostics remain resumable', async () => {
