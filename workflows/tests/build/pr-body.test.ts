@@ -36,35 +36,80 @@ test('renders the Plan outcome and unit goals before verification', () => {
   assert.doesNotMatch(body, /<details>/);
 });
 
-test('prepares Summary content from the loaded Issue Plan', () => {
+test('prepares deterministic Issue and scope facts without treating historical Plan prose as current Build facts', () => {
   const runId = `pr-body-${crypto.randomUUID()}`;
-  prepareShipInput({
+  const state = {
     run_id: runId,
     build_plan: {
       repository: 'owner/repo',
       issue: 42,
       title: 'Save values',
-      outcome: 'Users can save and retrieve a value.',
+      outcome: 'Planning complete. A new Build required. Tests not run during planning.',
       test_command: 'bun test',
       units: [
         {
           id: 'U-001',
-          goal: 'Persist the value.',
-          contract: 'The saved value can be retrieved.',
+          goal: '古い計画の公開履歴。Tests not run during planning.',
+          contract: 'The saved value can be retrieved. Ship requires explicit authorization.',
           files: ['src/value.ts'],
           tests: [{ id: 'T-001', name: 'returns the saved value' }],
         },
       ],
     },
-    gate_reports: [],
-    screenshots: [],
-  } as unknown as FlowState);
-  const prepared = JSON.parse(fs.readFileSync(prInputPath(runId), 'utf8')) as Record<
-    string,
-    unknown
-  >;
-  assert.equal(prepared.outcome, 'Users can save and retrieve a value.');
-  assert.deepEqual(prepared.unit_goals, ['Persist the value.']);
+    gate_reports: [
+      { gate_id: 'test:implementation', verdict: 'blocked', evidence: { kind: 'shell' } },
+      { gate_id: 'test:implementation', verdict: 'pass', evidence: { kind: 'shell' } },
+      {
+        gate_id: 'review:build',
+        verdict: 'pass',
+        evidence: {
+          kind: 'structured',
+          report: {
+            findings: [
+              {
+                severity: 'advisory',
+                code: 'simplify',
+                message: 'Consider a helper.',
+                files: ['src/value.ts'],
+              },
+            ],
+            scope_deviations: [],
+          },
+        },
+      },
+    ],
+    screenshots: [{ name: 'value.png', alt: 'Saved value' }],
+  } as unknown as FlowState;
+  const originalPlan = JSON.stringify(state.build_plan);
+  prepareShipInput(state);
+  const prepared = JSON.parse(fs.readFileSync(prInputPath(runId), 'utf8'));
+  assert.equal(prepared.outcome, 'Build for Issue #42.');
+  assert.deepEqual(prepared.unit_goals, ['U-001 — declared scope: src/value.ts.']);
+  assert.equal(
+    JSON.stringify(state.build_plan),
+    originalPlan,
+    'the original Plan remains authoritative and unchanged',
+  );
+  const body = render(prepared);
+  assert.match(body, /verify tests=pass gates=pass/);
+  assert.match(body, /simplify: Consider a helper/);
+  assert.match(body, /!\[Saved value\]\(\.\/value.png\)/);
+  assert.match(body, /Closes #42/);
+  assert.doesNotMatch(
+    body,
+    /new Build required|Tests not run|Planning complete|古い計画|Ship requires/,
+  );
+
+  state.gate_reports.push({
+    gate_id: 'test:implementation',
+    verdict: 'blocked',
+    evidence: { kind: 'shell' },
+  } as FlowState['gate_reports'][number]);
+  prepareShipInput(state);
+  assert.match(
+    render(JSON.parse(fs.readFileSync(prInputPath(runId), 'utf8'))),
+    /verify tests=FAIL gates=FAIL/,
+  );
 });
 
 test('self-describes a payload accepted by the same renderer', () => {

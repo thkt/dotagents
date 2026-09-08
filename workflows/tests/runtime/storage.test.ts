@@ -1,11 +1,98 @@
 /** @file Outcome: Shared artifact paths remain deterministic and collision-safe. */
 
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { onTestFinished, test } from 'bun:test';
-import { artifactPaths } from '../../runtime/storage.ts';
+import { onTestFinished, spyOn, test } from 'bun:test';
+import { artifactPaths, protectPrivateStorage } from '../../runtime/storage.ts';
+
+/** Create a real entry after the negative existence check, before ancestor inspection. */
+function inspectDuringCreation(
+  destination: string,
+  ancestor: string,
+  create: () => void,
+  kind: 'file' | 'directory' = 'file',
+): void {
+  const exists = fs.existsSync;
+  let created = false;
+  const inspection = spyOn(fs, 'existsSync').mockImplementation((entry) => {
+    const present = exists(entry);
+    if (entry === ancestor && !present && !created) {
+      created = true;
+      create();
+    }
+    return present;
+  });
+  try {
+    protectPrivateStorage(destination, kind);
+  } finally {
+    inspection.mockRestore();
+    assert(created, 'the production guard must encounter the creation interleaving');
+  }
+}
+
+test('private storage accepts concurrently created directories and still validates their repository owner', () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'private-creation-'));
+  onTestFinished(() => fs.rmSync(repo, { recursive: true, force: true }));
+  execFileSync('git', ['init', '-q', repo]);
+  fs.writeFileSync(path.join(repo, '.gitignore'), '/private/\n');
+  const tracked = path.join(repo, 'private/tracked');
+  fs.mkdirSync(tracked, { recursive: true });
+  fs.writeFileSync(path.join(tracked, 'kept'), 'tracked');
+  execFileSync('git', ['-C', repo, 'add', '-f', 'private/tracked/kept']);
+  fs.rmSync(tracked, { recursive: true });
+
+  for (const kind of ['file', 'directory'] as const) {
+    const directory = path.join(repo, 'private', kind);
+    const destination = kind === 'file' ? path.join(directory, 'nested/state.json') : directory;
+    inspectDuringCreation(destination, directory, () => fs.mkdirSync(directory), kind);
+    assert.deepEqual(fs.readdirSync(directory), []);
+  }
+  for (const relative of ['unignored', 'private/tracked', 'private/nested-repo']) {
+    const directory = path.join(repo, relative);
+    assert.throws(
+      () =>
+        inspectDuringCreation(path.join(directory, 'state.json'), directory, () => {
+          fs.mkdirSync(directory);
+          if (relative === 'private/nested-repo') execFileSync('git', ['init', '-q', directory]);
+        }),
+      /must be Git-ignored and disjoint/,
+    );
+    assert.equal(fs.existsSync(path.join(directory, 'state.json')), false);
+  }
+});
+
+test('concurrent non-directory entries and dangling storage symlinks remain unsafe', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'private-unsafe-creation-'));
+  onTestFinished(() => fs.rmSync(root, { recursive: true, force: true }));
+  const target = path.join(root, 'target');
+  fs.mkdirSync(target);
+  for (const kind of ['file', 'symlink', 'dangling-symlink']) {
+    const ancestor = path.join(root, kind);
+    assert.throws(
+      () =>
+        inspectDuringCreation(path.join(ancestor, 'state.json'), ancestor, () => {
+          if (kind === 'file') fs.writeFileSync(ancestor, 'preserved');
+          else fs.symlinkSync(kind === 'symlink' ? target : `${target}/absent`, ancestor);
+        }),
+      /Private storage has an unsafe path/,
+    );
+  }
+  const dangling = path.join(root, 'dangling-symlink');
+  assert.throws(() => protectPrivateStorage(dangling), /Private storage has an unsafe path/);
+  assert.throws(
+    () => protectPrivateStorage(dangling, 'directory'),
+    /Private storage has an unsafe path/,
+  );
+  assert.throws(
+    () => protectPrivateStorage(path.join(dangling, 'state.json')),
+    /Private storage has an unsafe path/,
+  );
+  assert.equal(fs.readFileSync(path.join(root, 'file'), 'utf8'), 'preserved');
+  assert.deepEqual(fs.readdirSync(target), []);
+});
 
 test('generates paired paths and skips existing collisions', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'artifact-'));

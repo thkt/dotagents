@@ -61,15 +61,44 @@ test('streaming turn returns the final agent response and exposes safe activity 
   );
 
   assert.equal(result.finalResponse, '{"ok":true}');
+  assert.deepEqual(result.usage, usage);
   assert.deepEqual(activities, [
     { event_type: 'thread.started', event_count: 1 },
     { event_type: 'turn.started', event_count: 2 },
     { event_type: 'item.started', item_type: 'reasoning', event_count: 3 },
     { event_type: 'item.completed', item_type: 'agent_message', event_count: 4 },
-    { event_type: 'turn.completed', event_count: 5 },
+    { event_type: 'turn.completed', event_count: 5, usage },
   ]);
   assert.equal(JSON.stringify(activities).includes('private reasoning'), false);
   assert.equal(JSON.stringify(activities).includes('{"ok"'), false);
+});
+
+test('usage retains only supplied numeric SDK counters and never invents missing counts', async () => {
+  for (const [supplied, expected] of [
+    [undefined, undefined],
+    [{}, undefined],
+    [
+      { input_tokens: 7, cached_input_tokens: 0, output_tokens: 2, private_text: 'secret' },
+      { input_tokens: 7, cached_input_tokens: 0, output_tokens: 2 },
+    ],
+    [{ input_tokens: -1, cached_input_tokens: null, output_tokens: '2' }, undefined],
+  ]) {
+    const activities: ModelActivity[] = [];
+    const result = await runStreamedCodexTurn(
+      streamed({ type: 'turn.completed', usage: supplied } as ThreadEvent),
+      'private input',
+      {
+        modelRun: {
+          label: 'usage',
+          idleCode: 'usage_idle',
+          onActivity: (activity) => activities.push(activity),
+        },
+      },
+    );
+    assert.deepEqual(result.usage, expected);
+    assert.deepEqual(activities[0]?.usage, expected);
+    assert.doesNotMatch(JSON.stringify(activities), /private input|private_text|secret/);
+  }
 });
 
 test('streaming turn allows a reconnect error before successful completion', async () => {

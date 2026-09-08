@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { test } from 'bun:test';
 
 import { FlowError } from '../../shared/errors.ts';
+import type { ModelActivity } from '../../shared/codex.ts';
 import { ProgressReporter, type ProgressEvent } from '../../shared/progress.ts';
 
 function events(lines: string[]): ProgressEvent[] {
@@ -82,10 +83,80 @@ test('annotates the heartbeat with the latest SDK activity', () => {
     [
       ['started', undefined, undefined, undefined],
       ['still_running', 'item.updated', 'reasoning', 2],
-      ['completed', undefined, undefined, undefined],
+      ['completed', 'item.updated', 'reasoning', 2],
     ],
   );
 });
+
+for (const status of ['completed', 'failed'] as const) {
+  for (const ticks of [0, 2]) {
+    for (const turns of [1, 2]) {
+      test(`records ${turns} completed turn(s) once with ${ticks} heartbeats per turn before ${status}`, () => {
+        const lines: string[] = [];
+        let heartbeat = (): void => assert.fail('heartbeat was not scheduled');
+        let cleared = 0;
+        const progress = new ProgressReporter({
+          write: (line) => lines.push(line),
+          now: () => 0,
+          setInterval: (callback) => {
+            heartbeat = callback;
+            return {};
+          },
+          clearInterval: () => {
+            cleared += 1;
+          },
+        });
+        const context = { workflow: 'code', stage: 'actor_model_call' } as const;
+        const metadata = {
+          event_count: 3,
+          model: 'gpt-6-astra',
+          model_reasoning_effort: 'high',
+        } as const;
+        const usage = Object.freeze({ input_tokens: 12, output_tokens: 3, cached_input_tokens: 0 });
+        const completion: ModelActivity = Object.freeze({
+          ...metadata,
+          event_type: 'turn.completed',
+          usage,
+        });
+        const stage = progress.start(context);
+        const expected: ProgressEvent[] = [{ ...context, status: 'started', elapsed_ms: 0 }];
+        for (let turn = 0; turn < turns; turn += 1) {
+          // Distinct turns may supply the same event count and usage, even the same object.
+          stage.activity(completion);
+          expected.push({ ...context, status: 'still_running', elapsed_ms: 0, ...completion });
+          assert.deepEqual(events(lines), expected, 'completion is emitted immediately');
+          for (let tick = 0; tick < ticks; tick += 1) {
+            heartbeat();
+            expected.push({ ...context, status: 'still_running', elapsed_ms: 0, ...metadata });
+          }
+        }
+        if (status === 'completed') stage.complete();
+        else stage.fail(new FlowError('private failure detail', 'evidence_error'));
+        expected.push({
+          ...context,
+          status,
+          elapsed_ms: 0,
+          ...metadata,
+          ...(status === 'failed' ? { classification: 'evidence_error' } : {}),
+        });
+        heartbeat();
+        stage.activity(completion);
+        stage.complete();
+        stage.fail(new Error('already finished'));
+
+        const recorded = events(lines);
+        assert.equal(recorded.filter((event) => event.usage !== undefined).length, turns);
+        assert.equal(
+          recorded.filter((event) => event.event_type === 'turn.completed').length,
+          turns,
+        );
+        assert.deepEqual(recorded, expected);
+        assert.equal(cleared, 1);
+        assert.equal(completion.usage, usage, 'the caller-owned completion is not changed');
+      });
+    }
+  }
+}
 
 test('failure emits only a classification and always clears the heartbeat', () => {
   const lines: string[] = [];
@@ -134,6 +205,40 @@ test('telemetry writer and cleanup failures cannot change the operation result',
     42,
   );
 });
+
+for (const fails of [false, true]) {
+  test(`completion telemetry failure preserves the ${fails ? 'failed' : 'successful'} operation verdict`, async () => {
+    let heartbeat = (): void => assert.fail('heartbeat was not scheduled');
+    let usageWrites = 0;
+    const progress = new ProgressReporter({
+      write: (line) => {
+        if ((JSON.parse(line) as ProgressEvent).usage !== undefined) {
+          usageWrites += 1;
+          throw new Error('stderr unavailable');
+        }
+      },
+      setInterval: (callback) => {
+        heartbeat = callback;
+        return {};
+      },
+      clearInterval: () => {
+        throw new Error('timer unavailable');
+      },
+    });
+    const failure = new Error('operation failed');
+    const result = progress.run({ workflow: 'code', stage: 'actor_model_call' }, async (stage) => {
+      stage.activity({ event_type: 'turn.completed', event_count: 1, usage: { output_tokens: 0 } });
+      heartbeat();
+      heartbeat();
+      if (fails) throw failure;
+      return 42;
+    });
+    if (fails) await assert.rejects(result, (error) => error === failure);
+    else assert.equal(await result, 42);
+    heartbeat();
+    assert.equal(usageWrites, 1, 'failed telemetry is not replayed by heartbeats or finish');
+  });
+}
 
 test('CLI result JSON stays isolated on stdout while progress is NDJSON on stderr', () => {
   const progressUrl = new URL('../../shared/progress.ts', import.meta.url).href;

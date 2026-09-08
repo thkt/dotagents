@@ -199,16 +199,13 @@ function validateSequence(manifest: FlowManifest, steps: FlowStep[]): void {
     }
   }
 
-  const firstActor = steps.findIndex((step) => step.kind === 'actor');
-  if (firstActor < 0) throw new FlowError('workflow requires an implementation actor');
-
   const actors = steps.filter(
     (step): step is Extract<FlowStep, { kind: 'actor' }> => step.kind === 'actor',
   );
-  if (!actors.length) throw new FlowError('workflow requires an implementation actor');
   if (actors.length !== 1 || actors[0]?.id !== IMPLEMENTATION_ACTOR_ID)
     throw new FlowError('workflow requires one implementation actor');
   const actor = actors[0];
+  const firstActor = steps.indexOf(actor);
   const gate = steps[firstActor + 1];
   if (
     gate?.kind !== 'gate' ||

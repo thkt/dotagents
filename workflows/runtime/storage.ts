@@ -190,8 +190,10 @@ export function protectPrivateStorage(
       throw new FlowError('Private storage has an unsafe path', 'state_error');
     let ancestor = absolute;
     while (!fs.existsSync(ancestor)) {
-      if (fs.lstatSync(ancestor, { throwIfNoEntry: false }))
-        throw new FlowError('Private storage has an unsafe path', 'state_error');
+      const entry = fs.lstatSync(ancestor, { throwIfNoEntry: false });
+      // Another process may have created this directory after the existence check.
+      if (entry?.isDirectory()) break;
+      if (entry) throw new FlowError('Private storage has an unsafe path', 'state_error');
       ancestor = path.dirname(ancestor);
     }
     const resolvedAncestor = fs.realpathSync(ancestor);
