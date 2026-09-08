@@ -9,7 +9,8 @@ import { researchArtifactDirectory, researchStatePath } from '../../runtime/stor
 import { runResearchWorkflow } from '../../research/runner.ts';
 import { loadResearchState, saveResearchState, researchDigest } from '../../research/state.ts';
 import { CodexResearchAgent, type ResearchAgent } from '../../research/agent.ts';
-import type { ResearchDraft } from '../../research/contracts.ts';
+import { RESEARCH_WAITING_SCHEMA, type ResearchDraft } from '../../research/contracts.ts';
+import { runStreamedCodexTurn } from '../../shared/codex.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 useTemporaryWorkflowStorage('research-parallel-');
 const questions = ['What does left.ts export?', 'What does right.ts export?'];
@@ -415,7 +416,7 @@ test('batch boundaries avoid two redundant snapshot scans on the production path
 });
 
 test('parallel waiting joins all investigators and resumes only audited answer dependencies with retry totals intact', async () => {
-  const f = fixture();
+  const f = modelFixture(exactQuestions);
   const question = {
     id: 'policy',
     prompt: 'Which policy governs the left module investigation?',
@@ -427,24 +428,35 @@ test('parallel waiting joins all investigators and resumes only audited answer d
   };
   const calls = [0, 0];
   let siblingSettled = false;
-  const worker: ResearchAgent = {
-    async investigate(input, _k, _s, _c, assignment) {
-      const index = assignment!.question === questions[0] ? 0 : 1;
-      calls[index]!++;
-      if (index === 1) {
-        if (calls[index] === 1) throw new Error('one transient failure');
-        await new Promise((resolve) => setTimeout(resolve, 30));
-        siblingSettled = true;
-        return draft('right.ts');
-      }
-      return input.clarification_answers?.length
+  const investigator = streamedAgent(async (prompt, schema) => {
+    const index = prompt.includes(
+      `Your independent assignment: ${JSON.stringify(exactQuestions[0])}`,
+    )
+      ? 0
+      : 1;
+    const ids = assignmentIds(prompt, schema, exactQuestions, exactQuestions[index]!);
+    calls[index]!++;
+    if (index === 1) {
+      if (calls[index] === 1) throw new Error('one transient failure');
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      siblingSettled = true;
+      return { result: draft('right.ts') };
+    }
+    return {
+      result: prompt.includes('Complete clarification history')
         ? draft('left.ts')
-        : { status: 'waiting', question, affected_questions: [questions[0]!] };
+        : { status: 'waiting', question, affected_questions: [ids[0]] },
+    };
+  });
+  const worker: ResearchAgent = {
+    investigate(...args) {
+      return investigator.investigate(...args);
     },
     async audit(_i, candidate, _k, _s, pending) {
       assert(siblingSettled);
       if (pending) {
         assert.deepEqual(pending.question, question);
+        assert.deepEqual(pending.investigations[0]!.affected, [exactQuestions[0]]);
         assert.equal(pending.investigations[1]!.attempts, 2);
         assert.deepEqual(candidate.findings, draft('right.ts').findings);
       } else assert.equal(candidate.findings.length, 2);
@@ -455,7 +467,10 @@ test('parallel waiting joins all investigators and resumes only audited answer d
   assert(waiting.status === 'waiting');
   assert.deepEqual(calls, [1, 2]);
   const before = loadResearchState(f.runId)!;
+  assert.deepEqual(before.investigations![0]!.affected, [exactQuestions[0]]);
   assert.deepEqual(await run(f, worker), waiting);
+  assert.deepEqual(calls, [1, 2]);
+  assert.deepEqual(loadResearchState(f.runId), before);
   const input = JSON.parse(fs.readFileSync(f.input, 'utf8'));
   fs.writeFileSync(
     f.input,
@@ -492,6 +507,369 @@ const policyQuestion = {
   ],
   recommendation: null,
 };
+
+function modelFixture(subquestions: string[] = questions) {
+  const f = fixture(subquestions);
+  fs.mkdirSync(path.join(f.repo, '.codex'));
+  fs.writeFileSync(
+    path.join(f.repo, '.codex/OUTCOME.md'),
+    '# Outcome\nInvestigate the access policy.',
+  );
+  return f;
+}
+
+// Controlled SDK events exercise the production adapter, without claiming external API acceptance.
+function streamedAgent(respond: (prompt: string, schema: unknown) => unknown) {
+  return new CodexResearchAgent({
+    startThread() {
+      return {
+        async run(prompt, options) {
+          return runStreamedCodexTurn(
+            {
+              async runStreamed(actualPrompt, actualOptions) {
+                assert.equal(actualPrompt, prompt);
+                const response = await respond(prompt, actualOptions?.outputSchema);
+                return {
+                  events: (async function* () {
+                    yield {
+                      type: 'item.completed' as const,
+                      item: {
+                        id: 'response',
+                        type: 'agent_message' as const,
+                        text: JSON.stringify(response),
+                      },
+                    };
+                    yield {
+                      type: 'turn.completed' as const,
+                      usage: {
+                        input_tokens: 1,
+                        output_tokens: 1,
+                        cached_input_tokens: 0,
+                        cache_write_input_tokens: 0,
+                        reasoning_output_tokens: 0,
+                      },
+                    };
+                  })(),
+                };
+              },
+            },
+            prompt,
+            options,
+          );
+        },
+      };
+    },
+  });
+}
+
+function assignmentIds(prompt: string, schema: unknown, vocabulary: string[], own: string) {
+  const emitted = schema as {
+    properties: { result: { anyOf: [unknown, { properties: { affected_questions: unknown } }] } };
+  };
+  const mapping = JSON.parse(prompt.match(/^Complete assignment ID mapping: (.+)$/m)![1]!) as {
+    id: string;
+    question: string;
+  }[];
+  assert.deepEqual(
+    mapping.map((entry) => entry.question),
+    vocabulary,
+  );
+  const ids = mapping.map((entry) => entry.id);
+  assert.equal(new Set(ids).size, vocabulary.length);
+  for (const id of ids) assert.match(id, /^[A-Za-z0-9]{1,16}$/);
+  assert.deepEqual(emitted.properties.result.anyOf[1].properties.affected_questions, {
+    anyOf: [{ type: 'array', minItems: 1, items: { type: 'string', enum: ids } }, { type: 'null' }],
+  });
+  assert.deepEqual(
+    JSON.parse(prompt.match(/^Your assignment and ID: (.+)$/m)![1]!),
+    mapping.find((entry) => entry.question === own),
+  );
+  assert(prompt.includes('including your own assignment ID'));
+  assert(prompt.includes('meaning all assignments'));
+  return ids;
+}
+
+const exactQuestions = [
+  'Which "公開" policy applies?\nPreserve the literal \\n in left.ts.',
+  'Which "café" policy applies?\nPreserve C:\\right\\policy.',
+];
+
+test('default investigator decodes waiting IDs against concurrent and later call-local vocabularies', async () => {
+  const f = modelFixture();
+  const sharedSchema = JSON.stringify(RESEARCH_WAITING_SCHEMA);
+  const vocabularies = [
+    exactQuestions,
+    ['Different "雪" question\nwith \\paths', 'Sibling β'],
+    ['Single "日本語"\nwith \\literal'],
+  ];
+  let entered = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const seen: string[][] = [];
+  const worker = streamedAgent(async (prompt, schema) => {
+    const index = entered++;
+    const vocabulary = vocabularies[index]!;
+    const ids = assignmentIds(prompt, schema, vocabulary, vocabulary.at(-1)!);
+    seen.push(ids);
+    if (index < 2) {
+      if (entered === 2) release();
+      await gate;
+    }
+    return {
+      result: {
+        status: 'waiting',
+        question: policyQuestion,
+        affected_questions: [...ids].reverse(),
+      },
+    };
+  });
+  const investigate = (vocabulary: string[]) =>
+    worker.investigate(
+      {
+        repo: f.repo,
+        question: vocabulary.length === 1 ? vocabulary[0]! : 'Original question',
+        scope_paths: [],
+        allow_external_sources: false,
+        ...(vocabulary.length > 1 ? { subquestions: vocabulary } : {}),
+      },
+      [],
+      f.repo,
+      undefined,
+      { question: vocabulary.at(-1)!, signal: new AbortController().signal },
+    );
+  const results = await Promise.all(vocabularies.slice(0, 2).map(investigate));
+  results.push(await investigate(vocabularies[2]!));
+  for (const [index, result] of results.entries()) {
+    assert.deepEqual(result, {
+      status: 'waiting',
+      question: policyQuestion,
+      affected_questions: [...vocabularies[index]!].reverse(),
+    });
+  }
+  assert.deepEqual(seen[0], seen[1]);
+  assert.equal(seen[2]![0], seen[0]![0]);
+  assert.equal(JSON.stringify(RESEARCH_WAITING_SCHEMA), sharedSchema);
+});
+
+test.each(['unknown', 'padded', 'lowercase', 'raw prose'])(
+  'default investigator rejects %s IDs even when the SDK skips response validation',
+  async (variant) => {
+    const f = modelFixture();
+    const worker = streamedAgent((prompt, schema) => {
+      const [id] = assignmentIds(prompt, schema, exactQuestions, exactQuestions[0]!);
+      const invalid =
+        variant === 'unknown'
+          ? 'Z999'
+          : variant === 'padded'
+            ? ` ${id} `
+            : variant === 'lowercase'
+              ? id!.toLowerCase()
+              : exactQuestions[0];
+      return {
+        result: { status: 'waiting', question: policyQuestion, affected_questions: [invalid] },
+      };
+    });
+    await assert.rejects(
+      worker.investigate(
+        {
+          repo: f.repo,
+          question: 'Original',
+          subquestions: exactQuestions,
+          scope_paths: [],
+          allow_external_sources: false,
+        },
+        [],
+        f.repo,
+        undefined,
+        { question: exactQuestions[0]!, signal: new AbortController().signal },
+      ),
+      /unknown answer-affected assignment ID/,
+    );
+  },
+);
+
+for (const boundary of ['default', 'injected']) {
+  test.each(
+    boundary === 'default'
+      ? ['unknown', 'duplicate', 'sibling-only']
+      : ['unknown', 'normalized', 'escaped', 'paraphrased', 'duplicate', 'sibling-only'],
+  )(`${boundary} investigator rejects invalid dependencies before audit (%s)`, async (variant) => {
+    const f = modelFixture(exactQuestions);
+    const calls = [0, 0];
+    const dependencies = (vocabulary: string[]) => {
+      switch (variant) {
+        case 'duplicate':
+          return [vocabulary[0]!, vocabulary[0]!];
+        case 'sibling-only':
+          return [vocabulary[1]!];
+        case 'normalized':
+          return [vocabulary[0]!.replace(/\s+/g, ' ')];
+        case 'escaped':
+          return [JSON.stringify(vocabulary[0]!).slice(1, -1)];
+        case 'paraphrased':
+          return ['What policy governs left.ts?'];
+        default:
+          return ['Unknown'];
+      }
+    };
+    const investigator: ResearchAgent =
+      boundary === 'default'
+        ? streamedAgent((prompt, schema) => {
+            assert(prompt.startsWith('Investigate the research question.'));
+            const index = prompt.includes(
+              `Your independent assignment: ${JSON.stringify(exactQuestions[0])}`,
+            )
+              ? 0
+              : 1;
+            calls[index]!++;
+            const ids = assignmentIds(prompt, schema, exactQuestions, exactQuestions[index]!);
+            return {
+              result:
+                index === 1
+                  ? draft('right.ts')
+                  : {
+                      status: 'waiting',
+                      question: policyQuestion,
+                      affected_questions: dependencies(ids),
+                    },
+            };
+          })
+        : {
+            async investigate(_i, _k, _s, _c, assignment) {
+              const index = exactQuestions.indexOf(assignment!.question);
+              calls[index]!++;
+              return index === 1
+                ? draft('right.ts')
+                : {
+                    status: 'waiting',
+                    question: policyQuestion,
+                    affected_questions: dependencies(exactQuestions),
+                  };
+            },
+            async audit() {
+              assert.fail('Invalid dependencies must fail before audit');
+            },
+          };
+    let audits = 0;
+    const worker: ResearchAgent = {
+      async investigate(...args) {
+        const result = await investigator.investigate(...args);
+        if (boundary === 'default' && 'status' in result) {
+          // Valid IDs retain duplicates and sibling-only dependencies for pipeline enforcement.
+          assert.deepEqual(result.affected_questions, dependencies(exactQuestions));
+        }
+        return result;
+      },
+      async audit() {
+        audits++;
+        assert.fail('Invalid dependencies must fail before audit');
+      },
+    };
+    await assert.rejects(run(f, worker), /Research blocked/);
+    assert.deepEqual(calls, [2, 1]);
+    assert.equal(audits, 0);
+    const saved = loadResearchState(f.runId)!;
+    assert.equal(saved.corrections, 0);
+    assert.match(
+      saved.investigations![0]!.reason!,
+      boundary === 'default' && variant === 'unknown'
+        ? /unknown answer-affected assignment ID/
+        : /invalid answer-affected assignments/,
+    );
+    assert.equal(saved.investigations![0]!.proposal, null);
+    assert.deepEqual(saved.investigations![1]!.result, draft('right.ts'));
+    assert.equal(fs.existsSync(researchArtifactDirectory(f.repo)), false);
+    await assert.rejects(run(f, worker), /Research blocked/);
+    assert.deepEqual(calls, [2, 1]);
+    assert.equal(audits, 0);
+    assert.deepEqual(loadResearchState(f.runId), saved);
+  });
+}
+
+test('default investigator own-only dependencies require independent correction and null retains all assignments', async () => {
+  const f = modelFixture(exactQuestions);
+  const calls = [0, 0];
+  let audits = 0;
+  let answered = false;
+  const worker = streamedAgent((prompt, schema) => {
+    if (prompt.startsWith('Investigate the research question.')) {
+      const index = prompt.includes(
+        `Your independent assignment: ${JSON.stringify(exactQuestions[0])}`,
+      )
+        ? 0
+        : 1;
+      calls[index]!++;
+      const ids = assignmentIds(prompt, schema, exactQuestions, exactQuestions[index]!);
+      if (answered) assert(prompt.includes('Complete clarification history'));
+      if (index === 1 || answered) return { result: draft(index === 1 ? 'right.ts' : 'left.ts') };
+      if (calls[0]! > 1) assert(prompt.includes('Include the dependent sibling'));
+      return {
+        result: {
+          status: 'waiting',
+          question: policyQuestion,
+          affected_questions: calls[0] === 1 ? [ids[0]] : null,
+        },
+      };
+    }
+    audits++;
+    const saved = loadResearchState(f.runId)!;
+    if (!answered) {
+      const expected = audits === 1 ? [exactQuestions[0]] : exactQuestions;
+      assert.deepEqual(saved.investigations![0]!.affected, expected);
+      assert.deepEqual(JSON.parse(saved.candidate!.answer).investigations[0].affected, expected);
+      assert(prompt.includes(JSON.stringify(expected)));
+      assert(prompt.includes('Reject incomplete answer dependencies'));
+    }
+    return audits === 1
+      ? {
+          summary: 'The answer changes both assignments.',
+          findings: [
+            {
+              severity: 'blocking',
+              condition: 'Complete answer dependencies.',
+              message: 'Include the dependent sibling in affected_questions.',
+              evidence: [],
+            },
+          ],
+        }
+      : pass;
+  });
+  const waiting = await run(f, worker);
+  assert(waiting.status === 'waiting');
+  assert.deepEqual(waiting.question, policyQuestion);
+  assert.equal(audits, 2);
+  assert.deepEqual(calls, [2, 2]);
+  const saved = loadResearchState(f.runId)!;
+  assert.equal(saved.corrections, 1);
+  assert.deepEqual(saved.investigations![0]!.affected, exactQuestions);
+  assert.equal(fs.existsSync(researchArtifactDirectory(f.repo)), false);
+  assert.deepEqual(await run(f, worker), waiting);
+  assert.deepEqual(loadResearchState(f.runId), saved);
+  assert.deepEqual(calls, [2, 2]);
+  assert.equal(audits, 2);
+  const original = JSON.parse(fs.readFileSync(f.input, 'utf8'));
+  const answer = {
+    owner: waiting.owner,
+    question_id: policyQuestion.id,
+    prompt: policyQuestion.prompt,
+    choices: policyQuestion.choices,
+    recommendation: null,
+    selection: 'Private',
+    answer: null,
+  };
+  fs.writeFileSync(f.input, JSON.stringify({ ...original, clarification_answers: [answer] }));
+  answered = true;
+  assert.equal((await run(f, worker)).status, 'completed');
+  assert.deepEqual(calls, [3, 3]);
+  assert.equal(audits, 3);
+  const completed = loadResearchState(f.runId)!;
+  assert.equal(completed.corrections, 1);
+  assert.deepEqual(
+    completed.dispatch_history.slice(0, saved.dispatch_history.length),
+    saved.dispatch_history,
+  );
+  assert.deepEqual(completed.clarification_history, [answer]);
+});
 
 test.each(['uninterrupted', 'correction', 'retry'])(
   'conflicting parallel questions receive a correction-round retry and preserve history (%s)',

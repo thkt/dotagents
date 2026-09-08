@@ -99,13 +99,16 @@ function investigationPrompt(
   input: ResearchInput,
   knowledge: KnowledgeEntry[],
   projectOutcome: string,
+  assignments: { id: string; question: string }[],
   correction?: ResearchCorrection,
   assignment?: string,
 ): string {
   return composePrompt(
     [
       'Investigate the research question.',
-      'You may author exactly one waiting question only when a necessary, materially outcome-changing preference, scope, or policy decision requires user authority. Explain the material decision in its prompt and two or three described choices. Optional recommendation must name a choice. Factual uncertainty is an audited unknown, never a user preference. Delegate internal implementation choices. For a waiting proposal, list every original assignment affected by the answer in affected_questions; use null if uncertain, meaning all assignments. Include your own assignment. Never repeat an answered identity; use the complete answer history.',
+      'You may author exactly one waiting question only when a necessary, materially outcome-changing preference, scope, or policy decision requires user authority. Explain the material decision in its prompt and two or three described choices. Optional recommendation must name a choice. Factual uncertainty is an audited unknown, never a user preference. Delegate internal implementation choices. For a waiting proposal, affected_questions must contain the IDs of every assignment whose answer depends on the decision, including your own assignment ID; use null if uncertain, meaning all assignments. Return exact IDs from the mapping, never assignment prose. Never repeat an answered identity; use the complete answer history.',
+      `Complete assignment ID mapping: ${JSON.stringify(assignments)}`,
+      `Your assignment and ID: ${JSON.stringify(assignments.find((item) => item.question === (assignment ?? input.question)))}`,
       ...(assignment
         ? [
             `Your independent assignment: ${JSON.stringify(assignment)}. Answer this part while retaining the original question and scope. Your answer, findings, rejected claims, unknowns, and limitations must concern this assignment only. Other investigators handle the remaining parts: do not describe those parts as unverified, unknown, rejected, or a limitation merely because they are outside your assignment, and do not claim they are already verified.`,
@@ -189,6 +192,11 @@ export class CodexResearchAgent implements ResearchAgent {
     correction?: ResearchCorrection,
     assignment?: InvestigationAssignment,
   ): Promise<ResearchInvestigationResult> {
+    const assignments = (input.subquestions ?? [input.question]).map((question, index) => ({
+      id: `A${index + 1}`,
+      question,
+    }));
+    const questionsById = new Map(assignments.map(({ id, question }) => [id, question]));
     const projectOutcome = projectOutcomeContext(snapshotRepo);
     const thread = this.client.startThread(threadOptions(input, knowledge, snapshotRepo));
     const started = performance.now();
@@ -202,6 +210,7 @@ export class CodexResearchAgent implements ResearchAgent {
               input,
               knowledge,
               projectOutcome,
+              assignments,
               correction,
               input.subquestions ? assignment?.question : undefined,
             ),
@@ -209,7 +218,27 @@ export class CodexResearchAgent implements ResearchAgent {
               outputSchema: {
                 type: 'object',
                 properties: {
-                  result: { anyOf: [RESEARCH_DRAFT_SCHEMA, RESEARCH_WAITING_SCHEMA] },
+                  result: {
+                    anyOf: [
+                      RESEARCH_DRAFT_SCHEMA,
+                      {
+                        ...RESEARCH_WAITING_SCHEMA,
+                        properties: {
+                          ...RESEARCH_WAITING_SCHEMA.properties,
+                          affected_questions: {
+                            anyOf: [
+                              {
+                                type: 'array',
+                                minItems: 1,
+                                items: { type: 'string', enum: assignments.map(({ id }) => id) },
+                              },
+                              { type: 'null' },
+                            ],
+                          },
+                        },
+                      },
+                    ],
+                  },
                 },
                 required: ['result'],
                 additionalProperties: false,
@@ -236,7 +265,16 @@ export class CodexResearchAgent implements ResearchAgent {
         () => {
           const response = structuredResponseObject(result.finalResponse, 'research investigator');
           rejectUnknownKeys(response, ['result'], 'research investigator response');
-          return parseResearchInvestigationResult(response.result);
+          const parsed = parseResearchInvestigationResult(response.result);
+          if ('status' in parsed && parsed.affected_questions) {
+            parsed.affected_questions = parsed.affected_questions.map((id) => {
+              const question = questionsById.get(id);
+              if (question === undefined)
+                throw new FlowError('unknown answer-affected assignment ID');
+              return question;
+            });
+          }
+          return parsed;
         },
       );
     } catch (error) {
