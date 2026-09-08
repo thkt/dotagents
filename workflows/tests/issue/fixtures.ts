@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { temporaryDirectory } from '../shared/fixtures.ts';
+import { ignoreWorkflowStorage, temporaryDirectory } from '../shared/fixtures.ts';
 import { armIntent } from '../../runtime/invocation.ts';
 import { atomicWrite, thinkArtifactDirectory } from '../../runtime/storage.ts';
 import type { IssueAgent, IssueCandidate } from '../../issue/agent.ts';
@@ -77,6 +77,7 @@ export class Gateway implements IssueGateway {
 export function fixture(mode: 'create' | 'update' = 'create') {
   const repo = temporaryDirectory('issue-lifecycle-repo-');
   execFileSync('git', ['init', '-q', '-b', 'main', repo]);
+  ignoreWorkflowStorage(repo);
   execFileSync('git', ['-C', repo, 'remote', 'add', 'origin', 'git@github.com:owner/repo.git']);
   fs.writeFileSync(path.join(repo, 'value.ts'), 'export const value = 1;\n');
   const runId = crypto.randomUUID();

@@ -11,11 +11,12 @@ import {
   withRepositorySnapshot,
   createRepositorySnapshot,
 } from '../../execution/repository-isolation.ts';
-import { temporaryDirectory } from '../shared/fixtures.ts';
+import { ignoreWorkflowStorage, temporaryDirectory } from '../shared/fixtures.ts';
 
 function commitlessRepo(): string {
   const repo = temporaryDirectory('codex-isolation-');
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+  ignoreWorkflowStorage(repo);
   fs.writeFileSync(path.join(repo, 'staged.txt'), 'staged\n');
   execFileSync('git', ['add', 'staged.txt'], { cwd: repo });
   fs.writeFileSync(path.join(repo, 'untracked.txt'), 'untracked\n');
@@ -66,7 +67,10 @@ test('a nested .git entry such as a submodule pointer is not copied into the sna
 
 test('a snapshot omits ignored files and directories while keeping the ignore rules', async () => {
   const repo = commitlessRepo();
-  fs.writeFileSync(path.join(repo, '.gitignore'), 'ignored.txt\nnode_modules/\n');
+  fs.writeFileSync(
+    path.join(repo, '.gitignore'),
+    'ignored.txt\nnode_modules/\n/.codex/workflow-artifacts/\n',
+  );
   fs.writeFileSync(path.join(repo, 'ignored.txt'), 'x\n');
   fs.mkdirSync(path.join(repo, 'node_modules', 'dep'), { recursive: true });
   fs.writeFileSync(path.join(repo, 'node_modules', 'dep', 'index.js'), 'x\n');
@@ -163,7 +167,7 @@ test('entering a snapshot removes sandbox roots older than a day and keeps young
 
 test('a durable snapshot retains staged and untracked source without replacing existing destinations', () => {
   const repo = commitlessRepo();
-  fs.writeFileSync(path.join(repo, '.gitignore'), 'ignored.txt\n');
+  fs.writeFileSync(path.join(repo, '.gitignore'), 'ignored.txt\n/.codex/workflow-artifacts/\n');
   fs.writeFileSync(path.join(repo, 'ignored.txt'), 'not evidence');
   const destination = path.join(temporaryDirectory('durable-snapshot-'), 'snapshot');
   createRepositorySnapshot(repo, destination);
@@ -189,4 +193,36 @@ test('a durable snapshot retains staged and untracked source without replacing e
   );
   assert.equal(fs.existsSync(path.join(repo, 'nested')), false);
   assert.equal(fs.readFileSync(path.join(repo, 'untracked.txt'), 'utf8'), 'untracked\n');
+});
+
+test('snapshot storage uses the actual destination owner before reservation and preserves copied source contents', () => {
+  const repo = commitlessRepo();
+  fs.writeFileSync(path.join(repo, 'source.txt'), 'source stays visible');
+  execFileSync('git', ['add', 'source.txt'], { cwd: repo });
+  const owner = temporaryDirectory('snapshot-private-owner-');
+  execFileSync('git', ['init', '-q', owner]);
+  const destination = path.join(owner, 'private/snapshot');
+  assert.throws(() => createRepositorySnapshot(repo, destination), /Private storage/);
+  assert.equal(fs.existsSync(path.join(owner, 'private')), false);
+  fs.writeFileSync(path.join(owner, '.gitignore'), '/private/\n/snapshot/\n/research/\n');
+  createRepositorySnapshot(repo, destination);
+  createRepositorySnapshot(repo, path.join(owner, 'snapshot'));
+  assert.equal(
+    fs.readFileSync(path.join(destination, 'source.txt'), 'utf8'),
+    'source stays visible',
+  );
+  assert.throws(() => createRepositorySnapshot(repo, destination));
+  const target = path.join(owner, 'unignored');
+  fs.mkdirSync(target);
+  fs.symlinkSync(target, path.join(owner, 'private/alias'));
+  assert.throws(
+    () => createRepositorySnapshot(repo, path.join(owner, 'private/alias/snapshot')),
+    /Private storage/,
+  );
+  assert.deepEqual(fs.readdirSync(target), []);
+  assert.throws(
+    () => createRepositorySnapshot(repo, path.join(owner, 'research/records/snapshot')),
+    /Private storage/,
+  );
+  assert.equal(fs.existsSync(path.join(owner, 'research')), false);
 });

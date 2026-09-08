@@ -1279,3 +1279,88 @@ test('Think initialization publishes ownership before root state and retains dir
     assert.deepEqual(returns(runId), []);
   }
 }, 15000);
+
+test('standalone retained-child selection reconsiders dated evidence with fresh audits and leaves the private original untouched', async () => {
+  const f = fixture();
+  await runThinkWorkflow(f.runId, f.input, thinker, { research });
+  assert.equal(fs.existsSync(path.join(f.repo, 'research')), false);
+  const entry = returns(f.runId)[0];
+  const child = loadResearchState(entry.id)!;
+  const selected = child.publication!.json;
+  const original = fs.readFileSync(selected, 'utf8');
+  assert.equal(child.safety, null);
+  fs.writeFileSync(path.join(f.repo, 'value.ts'), 'export const value = 3;\n');
+  execFileSync('git', ['-C', f.repo, 'add', 'value.ts']);
+  const runId = crypto.randomUUID(),
+    input = armIntent({ runId, workflow: 'research', cwd: f.repo }).input_path;
+  fs.writeFileSync(
+    input,
+    JSON.stringify({
+      repo: f.repo,
+      question: 'What value is currently exported?',
+      scope_paths: [],
+      allow_external_sources: false,
+      retained_child_report: selected,
+    }),
+  );
+  const calls: string[] = [];
+  const current = {
+    ...researchDraft,
+    answer: 'The value is now 3.',
+    findings: [
+      {
+        ...researchDraft.findings[0]!,
+        statement: 'The value is 3.',
+        evidence: [
+          { ...researchDraft.findings[0]!.evidence[0]!, supports: 'The current source exports 3.' },
+        ],
+      },
+    ],
+  };
+  const result = await runResearchWorkflow(runId, input, {
+    async investigate(_input, _knowledge, snapshot, correction) {
+      calls.push('investigate');
+      assert.match(fs.readFileSync(path.join(snapshot, 'value.ts'), 'utf8'), /value = 3/);
+      assert.equal(correction!.candidate.answer, researchDraft.answer);
+      assert(correction!.reason.includes('dated context'));
+      // Startup capture remains authoritative even if the live selection disappears.
+      fs.unlinkSync(selected);
+      return current;
+    },
+    async audit(_input, draft) {
+      calls.push('source');
+      assert.equal(draft.answer, current.answer);
+      return { summary: 'Current source verified.', findings: [] };
+    },
+    async auditPublicSafety(_input, context) {
+      calls.push('safety');
+      return { verdict: 'safe', coverage: context.strings.map((item) => item.path), findings: [] };
+    },
+  });
+  assert(result.status === 'completed');
+  assert.deepEqual(calls, ['investigate', 'source', 'safety']);
+  assert.equal(loadResearchState(runId)!.retained!.report.answer, researchDraft.answer);
+  fs.writeFileSync(selected, original);
+  assert.equal(fs.readFileSync(selected, 'utf8'), original);
+  assert.equal(loadResearchState(entry.id)!.candidate!.answer, researchDraft.answer);
+  assert.equal(JSON.parse(fs.readFileSync(result.report_json, 'utf8')).answer, current.answer);
+  for (const mode of ['tampered', 'missing', 'foreign']) {
+    const other = fixture();
+    const requestRepo = mode === 'foreign' ? other.repo : f.repo;
+    const attempt = crypto.randomUUID(),
+      request = armIntent({ runId: attempt, workflow: 'research', cwd: requestRepo }).input_path;
+    fs.writeFileSync(
+      request,
+      JSON.stringify({
+        repo: requestRepo,
+        question: 'Share retained findings.',
+        scope_paths: [],
+        allow_external_sources: false,
+        retained_child_report: mode === 'missing' ? `${selected}.missing` : selected,
+      }),
+    );
+    if (mode === 'tampered') fs.writeFileSync(selected, '{}');
+    await assert.rejects(runResearchWorkflow(attempt, request, research), /Retained Research/);
+    fs.writeFileSync(selected, original);
+  }
+});

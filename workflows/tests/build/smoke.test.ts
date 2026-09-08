@@ -18,7 +18,11 @@ import type { FlowDirective } from '../../execution/contracts.ts';
 import { runWorkflow, type WorkflowRuntime } from '../../execution/engine.ts';
 import { armIntent } from '../../runtime/invocation.ts';
 import { renderPublicIssueBody } from '../../issue/public-contract.ts';
-import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
+import {
+  ignoreWorkflowStorage,
+  temporaryDirectory,
+  useTemporaryWorkflowStorage,
+} from '../shared/fixtures.ts';
 
 useTemporaryWorkflowStorage('codex-build-smoke-storage-');
 
@@ -59,12 +63,13 @@ function git(repo: string, ...args: string[]) {
 function buildFixture(plan: BuildPlanAuthoring) {
   const repo = temporaryDirectory('codex-build-smoke-');
   git(repo, 'init', '-q', '-b', 'main');
+  ignoreWorkflowStorage(repo);
   git(repo, 'config', 'user.email', 'smoke@example.test');
   git(repo, 'config', 'user.name', 'Smoke');
   git(repo, 'remote', 'add', 'origin', 'https://github.com/owner/repo.git');
   fs.writeFileSync(path.join(repo, 'unit.ts'), 'export const value = 1;\n');
   fs.writeFileSync(path.join(repo, 'other.ts'), 'export const other = 1;\n');
-  fs.writeFileSync(path.join(repo, '.gitignore'), '.DS_Store\n');
+  fs.writeFileSync(path.join(repo, '.gitignore'), '.DS_Store\n/.codex/workflow-artifacts/\n');
   git(repo, 'add', 'unit.ts', 'other.ts');
   git(repo, 'commit', '-qm', 'init');
   const startPoint = git(repo, 'rev-parse', 'HEAD');
@@ -1684,6 +1689,10 @@ for (const boundary of [
       const changed = structuredClone(interruptedParent);
       if (field === 'knowledge' || field === 'research')
         changed[field].push({
+          protocol: 'codex-research-report',
+          provenance: 'selected',
+          scope_paths: [],
+          rejected: [],
           path: 'edited-context.json',
           generated_at: '2026-01-01T00:00:00.000Z',
           question: 'Injected evidence selection',

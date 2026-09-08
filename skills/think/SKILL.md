@@ -15,7 +15,7 @@ Invoke the first bound workflow command itself with network escalation, requesti
 ## Decisions
 
 - State one change and the observable state that should exist when it is done.
-- Explicitly select Research reports that directly determine the Plan; the Knowledge index adds at most three related original reports as dated leads.
+- Select canonical JSON originals that directly determine the Plan, using filenames relative to `research/records` or absolute paths to those same files. Private paths and generated Markdown are not selectors. Knowledge adds at most three related latest originals as dated leads, without older fallback. The runtime captures complete reports and distinct selected, related and private runtime-child provenance; resume retains captured evidence.
 - Read [decision writing](references/decision-writing.md) when wording the outcome and Plan.
 
 ## Boundaries

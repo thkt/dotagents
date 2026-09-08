@@ -11,3 +11,7 @@ node_modules/
 !workflows/build/**
 !workflows/tests/build/
 !workflows/tests/build/**
+
+# Shared canonical Research is available for human review and commit.
+!research/
+!research/**

@@ -22,13 +22,18 @@ import {
 import { runRecoverableActor } from '../../execution/repository-isolation.ts';
 import { statePath } from '../../runtime/storage.ts';
 import { armIntent } from '../../runtime/invocation.ts';
-import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
+import {
+  ignoreWorkflowStorage,
+  temporaryDirectory,
+  useTemporaryWorkflowStorage,
+} from '../shared/fixtures.ts';
 
 useTemporaryWorkflowStorage('codex-controller-tests-');
 
 function repository(): string {
   const repo = temporaryDirectory('codex-controller-repo-');
   spawnSync('git', ['init', '-q', '-b', 'main', repo]);
+  ignoreWorkflowStorage(repo);
   fs.mkdirSync(path.join(repo, 'src'));
   fs.writeFileSync(path.join(repo, 'src/value.ts'), 'export const value = 1;\n');
   spawnSync('git', ['-C', repo, 'add', '.']);

@@ -1,6 +1,7 @@
 /** @file Outcome: Tests allocate isolated temporary state and always restore process state. */
 
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, onTestFinished } from 'bun:test';
@@ -32,4 +33,17 @@ export function useTemporaryWorkflowStorage(prefix: string): {
     fs.rmSync(root, { recursive: true, force: true });
   });
   return { runtime, artifacts };
+}
+
+/** Set fixture policy before inventory capture; shared Git excludes survive worktree/branch changes. */
+export function ignoreWorkflowStorage(repo: string): void {
+  const common = execFileSync('git', ['-C', repo, 'rev-parse', '--git-common-dir'], {
+    encoding: 'utf8',
+  }).trim();
+  const info = path.resolve(repo, common, 'info');
+  fs.mkdirSync(info, { recursive: true });
+  const rule = '\n/.codex/workflow-artifacts/\n';
+  fs.appendFileSync(path.join(info, 'exclude'), rule);
+  // Snapshots copy worktree files, so carry the same policy into their source seals.
+  fs.appendFileSync(path.join(repo, '.gitignore'), rule);
 }

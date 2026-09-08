@@ -7,7 +7,7 @@ import {
   structuredResponseObject,
   type CodexClientLike,
 } from '../shared/codex.ts';
-import type { ResearchReportFinding, ResearchUnknown } from '../research/contracts.ts';
+import type { ResearchReport } from '../research/contracts.ts';
 import {
   THINK_DRAFT_SCHEMA,
   THINK_REVIEW_SCHEMA,
@@ -21,15 +21,10 @@ import { composePrompt } from '../shared/prompt.ts';
 import { ProgressReporter, workflowProgress } from '../shared/progress.ts';
 import { projectOutcomeContext } from '../shared/project-outcome.ts';
 
-export interface ThinkResearchContext {
+export interface ThinkResearchContext extends ResearchReport {
   clarification_answers: import('../runtime/clarification.ts').ClarificationAnswer[];
   path: string;
-  generated_at: string;
-  question: string;
-  answer: string;
-  findings: ResearchReportFinding[];
-  unknowns: ResearchUnknown[];
-  limitations: string[];
+  provenance: 'selected' | 'related' | 'runtime-child';
 }
 
 export interface ThinkCorrection {

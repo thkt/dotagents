@@ -1,10 +1,12 @@
 /** @file Outcome: Nested Codex processes receive one private writable home without sharing host operational state. */
 
+import crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 import { defaultWorkflowRuntimeDirectory, resolveCodexHome } from '../runtime/environment.ts';
+import { protectPrivateStorage } from '../runtime/storage.ts';
 import { FlowError } from './errors.ts';
 
 const SDK_HOME_PREFIX = 'sdk-home-';
@@ -44,6 +46,7 @@ function registerTemporaryCodexHome(directory: string): void {
 
 function prepareRuntimeRoot(temporaryDirectory: string, now: number): string {
   const runtimeRoot = defaultWorkflowRuntimeDirectory(temporaryDirectory);
+  protectPrivateStorage(runtimeRoot, 'directory');
   fs.mkdirSync(runtimeRoot, { recursive: true, mode: 0o700 });
   const root = fs.lstatSync(runtimeRoot);
   if (!root.isDirectory() || root.isSymbolicLink()) {
@@ -76,8 +79,12 @@ export function sandboxCodexEnvironment(
   now: number = Date.now(),
 ): Record<string, string> {
   const auth = readSignedInAuth(env);
-  const runtimeRoot = prepareRuntimeRoot(temporaryDirectory, now);
-  const sandboxHome = fs.mkdtempSync(path.join(runtimeRoot, SDK_HOME_PREFIX));
+  const runtimeRoot = defaultWorkflowRuntimeDirectory(temporaryDirectory);
+  const sandboxHome = path.join(runtimeRoot, `${SDK_HOME_PREFIX}${crypto.randomUUID()}`);
+  protectPrivateStorage(sandboxHome, 'directory');
+  protectPrivateStorage(path.join(sandboxHome, 'auth.json'));
+  prepareRuntimeRoot(temporaryDirectory, now);
+  fs.mkdirSync(sandboxHome, { mode: 0o700 });
   try {
     fs.chmodSync(sandboxHome, 0o700);
     fs.writeFileSync(path.join(sandboxHome, 'auth.json'), auth, { flag: 'wx', mode: 0o600 });

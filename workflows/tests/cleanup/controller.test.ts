@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test, onTestFinished } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { temporaryDirectory } from '../shared/fixtures.ts';
+import { ignoreWorkflowStorage, temporaryDirectory } from '../shared/fixtures.ts';
 import { git, gitText, inventoryRepository } from '../../cleanup/inventory.ts';
 import {
   captureShipReceipt,
@@ -32,11 +32,12 @@ function fixture({
 } = {}) {
   let repo = temporaryDirectory('cleanup-controller-');
   git(repo, ['init', '-q', '-b', 'topic']);
+  ignoreWorkflowStorage(repo);
   git(repo, ['config', 'user.name', 'Fixture']);
   git(repo, ['config', 'user.email', 'fixture@example.test']);
   fs.writeFileSync(path.join(repo, 'dirty'), 'original\n');
   fs.writeFileSync(path.join(repo, 'untouched'), 'old\n');
-  fs.writeFileSync(path.join(repo, '.gitignore'), 'ignored\n');
+  fs.writeFileSync(path.join(repo, '.gitignore'), 'ignored\n/.codex/workflow-artifacts/\n');
   git(repo, ['add', '.']);
   git(repo, ['commit', '-qm', 'source']);
   git(repo, ['branch', 'main']);
@@ -155,7 +156,7 @@ process.exit(result.status ?? 1);
   fs.writeFileSync(path.join(repo, 'dirty'), 'unstaged\n');
   fs.chmodSync(path.join(repo, 'dirty'), 0o755);
   fs.writeFileSync(path.join(repo, 'untracked'), 'untracked\n');
-  fs.writeFileSync(path.join(repo, 'ignored'), 'ignored\n');
+  fs.writeFileSync(path.join(repo, 'ignored'), 'ignored\n/.codex/workflow-artifacts/\n');
   const before = inventoryRepository(repo);
   const { prepared_digest: id } = prepareCleanup(
     repo,

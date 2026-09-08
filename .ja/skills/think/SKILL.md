@@ -14,7 +14,7 @@ description: 変更依頼1件を、検証済み ready Plan または独立レビ
 
 - [.codex/OUTCOME.md](../../.codex/OUTCOME.md)と関連する[workflow contracts](../../workflows/README.md)を読み、scope の判断に使う。OUTCOME.md が存在しない場合は、Think を実行する前にプロジェクトの outcome と検証可能な完了条件を記載して作成するようユーザーへ依頼する。必要な動作と根拠のある制約を対象 unit の contract と acceptance tests に記載し、repository guidance は複製しない。
 - 変更を 1 つに絞り、完了時に観測できる状態を定める。
-- Plan を直接決める Research report を明示的に選ぶ。Knowledge 索引から関連する原典 report を最大 3 件、作成日時付きの手掛かりとして追加する。
+- Plan を直接決める canonical JSON 原典を、`research/records` からの相対ファイル名または同じファイルの絶対パスで選ぶ。private path と生成 Markdown は selector にしない。Knowledge は最大 3 topic の最新原典を日時付きの手掛かりとして追加し、古い原典へ戻らない。runtime は原典の全項目と selected・related・private runtime-child の出自を保存し、再開時もその context を保持する。
 - 完了状態と Plan の文言を決めるときは、[設計判断の文章](references/decision-writing.md)を読む。
 
 ## 境界

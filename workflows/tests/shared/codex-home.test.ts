@@ -144,3 +144,67 @@ test('rejects a symlinked runtime root before writing credentials', () => {
   );
   assert.deepEqual(fs.readdirSync(target), []);
 });
+
+test('repository-local SDK storage validates resolved ownership before runtime or credential creation', () => {
+  const { root, home } = fixture('codex-sdk-private-policy-');
+  fs.writeFileSync(path.join(home, '.codex/auth.json'), '{"tokens":"private"}');
+  const repo = path.join(root, 'repo');
+  fs.mkdirSync(repo);
+  assert.equal(spawnSync('git', ['init', '-q', repo]).status, 0);
+  const temp = path.join(repo, 'private');
+  const runtime = defaultWorkflowRuntimeDirectory(temp);
+  assert.throws(() => sandboxCodexEnvironment({ HOME: home }, temp), /Private storage/);
+  assert.equal(fs.existsSync(temp), false);
+  fs.writeFileSync(path.join(repo, '.gitignore'), '/private/\n/research/\n');
+  const first = sandboxCodexEnvironment({ HOME: home }, temp);
+  const second = sandboxCodexEnvironment({ HOME: home }, temp);
+  assert.notEqual(first.CODEX_HOME, second.CODEX_HOME);
+  assert.equal(fs.statSync(path.join(first.CODEX_HOME!, 'auth.json')).mode & 0o777, 0o600);
+  const before = fs.readdirSync(runtime);
+  fs.writeFileSync(path.join(repo, '.gitignore'), '');
+  assert.throws(() => sandboxCodexEnvironment({ HOME: home }, temp), /Private storage/);
+  assert.deepEqual(fs.readdirSync(runtime), before);
+  fs.writeFileSync(path.join(repo, '.gitignore'), '/private/\n/research/\n');
+  assert.throws(
+    () => sandboxCodexEnvironment({ HOME: home }, path.join(repo, 'research/records')),
+    /Private storage/,
+  );
+  assert.equal(fs.existsSync(path.join(repo, 'research')), false);
+  const tracked = path.join(runtime, 'tracked');
+  fs.writeFileSync(tracked, 'preserved');
+  assert.equal(spawnSync('git', ['-C', repo, 'add', '-f', tracked]).status, 0);
+  assert.throws(() => sandboxCodexEnvironment({ HOME: home }, temp), /Private storage/);
+  assert.equal(fs.readFileSync(tracked, 'utf8'), 'preserved');
+  const alias = path.join(repo, 'private/alias');
+  const unignored = path.join(repo, 'unignored');
+  fs.mkdirSync(unignored);
+  fs.symlinkSync(unignored, alias);
+  assert.throws(() => sandboxCodexEnvironment({ HOME: home }, alias), /Private storage/);
+  assert.deepEqual(fs.readdirSync(unignored), []);
+});
+
+test('external workflow runtime does not exempt repository-local TMPDIR credential homes', () => {
+  const { root, home } = fixture('codex-sdk-tmpdir-policy-');
+  fs.writeFileSync(path.join(home, '.codex/auth.json'), '{}');
+  const repo = path.join(root, 'repo');
+  fs.mkdirSync(repo);
+  assert.equal(spawnSync('git', ['init', '-q', repo]).status, 0);
+  const temporaryDirectory = path.join(repo, 'scratch');
+  const moduleUrl = pathToFileURL(path.resolve('workflows/shared/codex-home.ts')).href;
+  const source = `
+    import assert from 'node:assert/strict';
+    import { sandboxCodexEnvironment } from ${JSON.stringify(moduleUrl)};
+    assert.throws(() => sandboxCodexEnvironment({ HOME: ${JSON.stringify(home)} }), /Private storage/);
+  `;
+  const child = spawnSync(process.execPath, ['--eval', source], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      TMPDIR: temporaryDirectory,
+      CODEX_FLOW_RUNTIME_DIR: path.join(root, 'external-runtime'),
+    },
+  });
+  assert.equal(child.status, 0, child.stderr);
+  assert.equal(fs.existsSync(temporaryDirectory), false);
+  assert.equal(fs.readFileSync(path.join(home, '.codex/auth.json'), 'utf8'), '{}');
+});

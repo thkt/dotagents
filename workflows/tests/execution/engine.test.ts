@@ -12,7 +12,11 @@ import { runWorkflow, workflowMain, type WorkflowRuntime } from '../../execution
 import { statePath } from '../../runtime/storage.ts';
 import { armIntent } from '../../runtime/invocation.ts';
 import { FlowError } from '../../shared/errors.ts';
-import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
+import {
+  ignoreWorkflowStorage,
+  temporaryDirectory,
+  useTemporaryWorkflowStorage,
+} from '../shared/fixtures.ts';
 
 useTemporaryWorkflowStorage('codex-runner-tests-');
 
@@ -31,6 +35,7 @@ function reviewResult(input: BuildReviewInput) {
 function repository(): string {
   const repo = temporaryDirectory('codex-runner-repo-');
   spawnSync('git', ['init', '-q', '-b', 'main', repo]);
+  ignoreWorkflowStorage(repo);
   fs.mkdirSync(path.join(repo, 'src'));
   fs.writeFileSync(path.join(repo, 'src/value.ts'), 'export const value = 1;\n');
   spawnSync('git', ['-C', repo, 'add', '.']);
@@ -339,6 +344,7 @@ test('a malformed completed response never publishes candidate edits', async () 
 test('Code reviews a repository without commits and never performs Git actions', async () => {
   const repo = temporaryDirectory('code-empty-');
   spawnSync('git', ['init', '-q', repo]);
+  ignoreWorkflowStorage(repo);
   const runId = crypto.randomUUID();
   const pending = codeInput(repo, runId);
   let reviewed = false;

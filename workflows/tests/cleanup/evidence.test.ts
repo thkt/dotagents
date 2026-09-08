@@ -1,7 +1,7 @@
 /** @file Outcome: Only exact Ship provenance can justify cleanup preparation. */
 import assert from 'node:assert/strict';
 import { test } from 'bun:test';
-import { temporaryDirectory } from '../shared/fixtures.ts';
+import { ignoreWorkflowStorage, temporaryDirectory } from '../shared/fixtures.ts';
 import { git, gitText } from '../../cleanup/inventory.ts';
 import {
   captureShipReceipt,
@@ -16,6 +16,7 @@ import {
 function fixture() {
   const repo = temporaryDirectory('cleanup-evidence-');
   git(repo, ['init', '-q', '-b', 'topic']);
+  ignoreWorkflowStorage(repo);
   git(repo, [
     '-c',
     'user.name=Fixture',

@@ -1,7 +1,7 @@
 /** @file Outcome: Saved dirty state has one immutable recovery commit and is restored before deletion. */
 import fs from 'node:fs';
 import path from 'node:path';
-import { cleanupArtifactDirectory } from '../runtime/storage.ts';
+import { protectPrivateStorage, cleanupArtifactDirectory } from '../runtime/storage.ts';
 import { FlowError } from '../shared/errors.ts';
 import {
   canonical,
@@ -226,6 +226,7 @@ export function requireFileTransition(actual: Entries, before: Entries, after: E
 }
 /** Writes only an approved before/after transition; no Git reset or stash mutation is used. */
 export function writeFiles(repo: string, before: Entries, after: Entries): void {
+  protectPrivateStorage(cleanupArtifactDirectory(repo), 'directory');
   for (const key of Object.keys(before).sort((a, b) => b.length - a.length)) {
     if (after[key] || before[key]!.kind === 'directory') continue;
     fs.rmSync(path.join(repo, key), { force: true });
@@ -263,7 +264,10 @@ export function writeFiles(repo: string, before: Entries, after: Entries): void 
       throw new FlowError(`file conflict: ${key}`, 'cleanup_restore_conflict');
     // Stage inside the excluded owned namespace, then atomically replace the destination.
     const temporary = path.join(cleanupArtifactDirectory(repo), 'restore-file');
+    protectPrivateStorage(path.dirname(temporary), 'directory');
+    // A retained restore symlink is removed, never followed by the writer.
     fs.rmSync(temporary, { force: true });
+    protectPrivateStorage(temporary);
     if (e.kind === 'symlink') {
       fs.symlinkSync(Buffer.from(e.bytes, 'base64').toString(), temporary);
     } else {
@@ -278,8 +282,9 @@ export function writeFiles(repo: string, before: Entries, after: Entries): void 
 }
 export function writeIndex(repo: string, entries: Record<string, IndexEntry>): void {
   const root = cleanupArtifactDirectory(repo);
-  durableDirectory(root);
   const temporary = path.join(root, 'restore-index');
+  protectPrivateStorage([temporary, `${temporary}.lock`]);
+  durableDirectory(root);
   fs.rmSync(temporary, { force: true });
   const env = { GIT_INDEX_FILE: temporary };
   git(repo, ['read-tree', '--empty'], undefined, env);

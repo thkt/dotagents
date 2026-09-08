@@ -1,6 +1,8 @@
 /** @file Outcome: Research restarts retain one checked candidate, snapshot, budget and publication identity. */
 
 import crypto from 'node:crypto';
+import { canonicalReport, corpusPaths } from './corpus.ts';
+import { requireSafetyAcceptance, safetyContext, type SafetyAcceptance } from './public-safety.ts';
 import {
   parseClarificationOwner,
   sameValue,
@@ -13,6 +15,7 @@ import {
   researchStatePath,
   workflowRunDirectory,
   researchArtifactDirectory,
+  protectPrivateStorage,
 } from '../runtime/storage.ts';
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
 import { isObject, rejectUnknownKeys } from '../shared/schema.ts';
@@ -51,7 +54,7 @@ export function investigationBatch(input: ResearchInput): Investigation[] {
   }));
 }
 export interface ResearchState {
-  protocol: 'codex-research-state-v5';
+  protocol: 'codex-research-state-v6';
   invocation: string;
   run_id: string;
   input: ResearchInput;
@@ -62,6 +65,7 @@ export interface ResearchState {
     | 'validate'
     | 'audit'
     | 'decide'
+    | 'safety'
     | 'publish'
     | 'completed'
     | 'blocked'
@@ -83,6 +87,15 @@ export interface ResearchState {
   pending_owner: ClarificationOwner | null;
   dispatch_history: string[];
   accepted_questions: unknown[];
+  safety: SafetyAcceptance | null;
+  safety_dispatches: string[];
+  staging: string | null;
+  child_owner: { file: string; root: string } | null;
+  retained: {
+    report: ResearchReport;
+    identity: string;
+    clarification_answers: ClarificationAnswer[];
+  } | null;
 }
 
 export function researchDigest(value: unknown): string {
@@ -103,11 +116,24 @@ export function researchSnapshotPath(
 
 export function researchPublicationPaths(state: ResearchState): { json: string; markdown: string } {
   if (state.publication) return state.publication;
+  if (state.stage_binding === null)
+    return corpusPaths(state.input.repo, canonicalReport(reportForCandidate(state)).research_id);
   const base = path.join(
     researchArtifactDirectory(state.input.repo),
     `research-${state.invocation}`,
   );
   return { json: `${base}.json`, markdown: `${base}.md` };
+}
+
+/** Atomic creation needs an owned inode on the corpus filesystem, even with external runtime storage. */
+export function researchStagingPath(runId: string, state: ResearchState): string {
+  const runtime = workflowRunDirectory(runId);
+  const base =
+    fs.statSync(runtime).dev === fs.statSync(state.input.repo).dev
+      ? runtime
+      : path.join(state.input.repo, '.codex', 'workflow-artifacts');
+  protectPrivateStorage(base, 'directory');
+  return path.join(base, 'research', state.invocation, 'publication');
 }
 
 export function saveResearchState(runId: string, state: ResearchState): void {
@@ -125,6 +151,11 @@ export function loadResearchState(runId: string): ResearchState | null {
     rejectUnknownKeys(
       state,
       [
+        'safety',
+        'safety_dispatches',
+        'staging',
+        'child_owner',
+        'retained',
         'protocol',
         'invocation',
         'run_id',
@@ -153,7 +184,7 @@ export function loadResearchState(runId: string): ResearchState | null {
       'research state',
     );
     if (
-      state.protocol !== 'codex-research-state-v5' ||
+      state.protocol !== 'codex-research-state-v6' ||
       state.run_id !== runId ||
       typeof state.invocation !== 'string' ||
       !/^[0-9a-f-]{36}$/u.test(state.invocation) ||
@@ -173,6 +204,7 @@ export function loadResearchState(runId: string): ResearchState | null {
         'validate',
         'audit',
         'decide',
+        'safety',
         'publish',
         'completed',
         'blocked',
@@ -195,15 +227,80 @@ export function loadResearchState(runId: string): ResearchState | null {
       )
     )
       throw new Error('unsupported or malformed state');
-    if (
-      state.publication !== null &&
-      (!isObject(state.publication) ||
+    if (state.publication !== null) {
+      const typed = state as unknown as ResearchState;
+      if (
+        !isObject(state.publication) ||
         typeof state.publication.json !== 'string' ||
         !path.isAbsolute(state.publication.json) ||
+        typeof state.publication.markdown !== 'string'
+      )
+        throw new Error('invalid publication identity');
+      if (state.stage_binding === null) {
+        if (
+          !sameValue(
+            state.publication,
+            corpusPaths(typed.input.repo, canonicalReport(reportForCandidate(typed)).research_id),
+          )
+        )
+          throw new Error('invalid corpus destinations');
+      } else if (
         path.basename(state.publication.json) !== `research-${state.invocation}.json` ||
-        state.publication.markdown !== state.publication.json.replace(/\.json$/u, '.md'))
+        state.publication.markdown !== state.publication.json.replace(/\.json$/u, '.md')
+      )
+        throw new Error('invalid private destinations');
+    }
+    if (
+      !Array.isArray(state.safety_dispatches) ||
+      state.safety_dispatches.length > 2 ||
+      new Set(state.safety_dispatches).size !== state.safety_dispatches.length ||
+      state.safety_dispatches.some(
+        (id) => typeof id !== 'string' || !/^[a-f0-9-]{36}$/u.test(id),
+      ) ||
+      !(
+        state.staging === null ||
+        (typeof state.staging === 'string' && path.isAbsolute(state.staging))
+      ) ||
+      !('safety' in state) ||
+      !('retained' in state) ||
+      !('child_owner' in state)
     )
-      throw new Error('invalid publication identity');
+      throw new Error('incompatible publication state');
+    if (
+      state.stage_binding !== null &&
+      (state.phase === 'safety' ||
+        state.safety !== null ||
+        state.staging !== null ||
+        state.safety_dispatches.length)
+    )
+      throw new Error('child cannot own shared publication');
+    if (state.phase === 'safety' && (state.safety !== null || state.staging !== null))
+      throw new Error('safety acceptance has already advanced');
+    if (
+      typeof state.staging === 'string' &&
+      (path.basename(state.staging) !== 'publication' ||
+        path.basename(path.dirname(state.staging)) !== state.invocation)
+    )
+      throw new Error('invalid publication preparation');
+    if (
+      state.stage_binding === null
+        ? state.child_owner !== null
+        : !isObject(state.child_owner) ||
+          typeof state.child_owner.file !== 'string' ||
+          !path.isAbsolute(state.child_owner.file) ||
+          typeof state.child_owner.root !== 'string'
+    )
+      throw new Error('invalid child owner');
+    if (state.retained !== null) {
+      if (
+        !isObject(state.retained) ||
+        state.retained.identity !== researchDigest(state.retained.report) ||
+        !Array.isArray(state.retained.clarification_answers)
+      )
+        throw new Error('invalid retained evidence');
+      parseResearchReport(state.retained.report);
+      state.retained.clarification_answers.forEach(parseClarificationAnswer);
+    }
     if (state.input.subquestions !== undefined) parseSubquestions(state.input.subquestions);
     if (state.pending_question !== null) parsePendingQuestion(state.pending_question);
 
@@ -297,14 +394,16 @@ export function loadResearchState(runId: string): ResearchState | null {
     if (state.audit !== null) parseResearchAudit(state.audit, Boolean(state.pending_question));
 
     if (
-      ['validate', 'audit', 'decide', 'publish', 'completed'].includes(String(state.phase)) &&
+      ['validate', 'audit', 'decide', 'safety', 'publish', 'completed'].includes(
+        String(state.phase),
+      ) &&
       !state.candidate &&
       !state.pending_question
     )
       throw new Error('candidate is missing');
-    if (['decide', 'publish', 'completed'].includes(String(state.phase)) && !state.audit)
+    if (['decide', 'safety', 'publish', 'completed'].includes(String(state.phase)) && !state.audit)
       throw new Error('independent audit is missing');
-    if (['publish', 'completed'].includes(String(state.phase))) {
+    if (['safety', 'publish', 'completed'].includes(String(state.phase))) {
       const typed = state as unknown as ResearchState;
       if (
         !typed.generated_at ||
@@ -313,6 +412,20 @@ export function loadResearchState(runId: string): ResearchState | null {
       )
         throw new Error('publication has no matching accepted candidate');
       parseResearchReport(reportForCandidate(typed));
+      if (typed.stage_binding === null && typed.phase !== 'safety') {
+        if (typed.dispatch !== null || typed.attempts !== typed.safety_dispatches.length)
+          throw new Error('publication dispatch changed');
+        requireSafetyAcceptance(
+          typed.safety,
+          safetyContext(reportForCandidate(typed)),
+          typed.source_digest,
+          typed.input,
+          typed.safety_dispatches,
+          typed.invocation,
+        );
+        if (!typed.staging) throw new Error('publication preparation missing');
+      } else if (typed.stage_binding !== null && (typed.safety !== null || typed.staging !== null))
+        throw new Error('child cannot own shared publication');
     }
     return state as unknown as ResearchState;
   } catch (error) {
@@ -328,7 +441,7 @@ export function reportForCandidate(
   state: ResearchState,
   generatedAt: string = state.generated_at!,
 ): ResearchReport {
-  return {
+  const report: ResearchReport = {
     protocol: 'codex-research-report',
     generated_at: generatedAt,
     question: state.input.question,
@@ -339,6 +452,9 @@ export function reportForCandidate(
       id: `F-${String(index + 1).padStart(3, '0')}`,
     })),
   };
+  return state.stage_binding === null && state.generated_at !== null
+    ? canonicalReport(report)
+    : report;
 }
 
 export function researchWaitingOwner(

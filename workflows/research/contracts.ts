@@ -37,6 +37,7 @@ export interface ResearchInput {
   scope_paths: string[];
   allow_external_sources: boolean;
   clarification_answers?: unknown[];
+  retained_child_report?: string;
 }
 
 export type ResearchRequest = ResearchInput;
@@ -57,7 +58,7 @@ interface ResearchDraftFinding {
   implication: string;
 }
 
-export interface ResearchUnknown {
+interface ResearchUnknown {
   question: string;
   resolution: string;
 }
@@ -67,7 +68,7 @@ interface AuditedFinding extends ResearchDraftFinding {
   qualification: string | null;
 }
 
-export interface ResearchReportFinding extends Omit<AuditedFinding, 'evidence'> {
+interface ResearchReportFinding extends Omit<AuditedFinding, 'evidence'> {
   id: string;
   evidence: ResearchReportEvidence[];
 }
@@ -97,6 +98,7 @@ export type ResearchInvestigationResult = ResearchDraft | ResearchWaiting;
 export interface ResearchReport extends Omit<ResearchDraft, 'findings'> {
   protocol: typeof RESEARCH_REPORT_PROTOCOL;
   generated_at: string;
+  research_id?: string;
   question: string;
   scope_paths: string[];
   findings: ResearchReportFinding[];
@@ -321,6 +323,7 @@ export function validateResearchInput(raw: unknown, scopeRepo?: string | null): 
       'scope_paths',
       'allow_external_sources',
       'clarification_answers',
+      'retained_child_report',
     ],
     'research input',
   );
@@ -343,6 +346,14 @@ export function validateResearchInput(raw: unknown, scopeRepo?: string | null): 
   return {
     repo,
     question,
+    ...(raw.retained_child_report === undefined
+      ? {}
+      : {
+          retained_child_report: requiredString(
+            raw.retained_child_report,
+            'research input.retained_child_report',
+          ),
+        }),
     ...(raw.subquestions === undefined
       ? {}
       : { subquestions: parseSubquestions(raw.subquestions) }),
@@ -518,6 +529,7 @@ export function parseResearchReport(raw: unknown): ResearchReport {
     [
       'protocol',
       'generated_at',
+      'research_id',
       'question',
       'scope_paths',
       'answer',
@@ -529,6 +541,11 @@ export function parseResearchReport(raw: unknown): ResearchReport {
     'research report',
     'execution_error',
   );
+  if (
+    raw.research_id !== undefined &&
+    (typeof raw.research_id !== 'string' || !/^[a-f0-9]{64}$/u.test(raw.research_id))
+  )
+    throw new FlowError('invalid research_id', 'execution_error');
   const generatedAt = requiredString(
     raw.generated_at,
     'research report.generated_at',
@@ -580,6 +597,7 @@ export function parseResearchReport(raw: unknown): ResearchReport {
   return {
     protocol: RESEARCH_REPORT_PROTOCOL,
     generated_at: generatedAt,
+    ...(raw.research_id === undefined ? {} : { research_id: raw.research_id as string }),
     question: requiredString(raw.question, 'research report.question', 'execution_error'),
     scope_paths: scopePaths,
     answer: requiredString(raw.answer, 'research report.answer', 'execution_error'),

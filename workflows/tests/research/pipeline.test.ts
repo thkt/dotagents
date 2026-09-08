@@ -16,7 +16,7 @@ import {
 } from '../../research/contracts.ts';
 import { type ResearchAgent } from '../../research/agent.ts';
 import { runStreamedCodexTurn } from '../../shared/codex.ts';
-import type { KnowledgeEntry } from '../../research/knowledge.ts';
+import { searchKnowledge, type KnowledgeEntry } from '../../research/knowledge.ts';
 
 import { knowledgeArtifactDirectory, researchArtifactDirectory } from '../../runtime/storage.ts';
 import { runResearchWorkflow } from '../../research/runner.ts';
@@ -94,6 +94,13 @@ class FakeAgent implements ResearchAgent {
     this.seen.push(knowledge);
     return this.d;
   }
+  async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+    return {
+      verdict: 'safe' as const,
+      coverage: context.strings.map((item) => item.path),
+      findings: [],
+    };
+  }
   async audit(
     _input: ResearchInput,
     _draft: ResearchDraft,
@@ -141,6 +148,13 @@ test('investigator and auditor read the same startup snapshot while the shared w
       );
       return draft;
     },
+    async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+      return {
+        verdict: 'safe' as const,
+        coverage: context.strings.map((item) => item.path),
+        findings: [],
+      };
+    },
     async audit(_input, _draft, _prior, snapshotRepo) {
       assert.equal(snapshotRepo, firstSnapshot);
       assert.equal(
@@ -161,6 +175,7 @@ test('a repository without commits is investigated from its snapshot', async () 
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
   fs.mkdirSync(path.join(repo, 'src'));
   fs.writeFileSync(path.join(repo, 'src', 'index.ts'), 'export const answer = 42;\n');
+  execFileSync('git', ['-C', repo, 'add', 'src/index.ts']);
   const result = await runRequest(input(repo), new FakeAgent());
   assert.equal(result.report.findings[0]?.evidence[0]?.kind, 'repository');
 });
@@ -261,6 +276,33 @@ test('keeps persisted Research successful when Knowledge cannot be updated', asy
 
   assert.ok(fs.existsSync(result.report_json!));
   assert.equal(result.report.findings.length, 1);
+});
+
+test('unrelated Research publication cannot revive older Knowledge after the newest view is lost', async () => {
+  const repo = repoFixture();
+  const request = input(repo, { question: 'Exported value' });
+  const older = await runRequest(request, new FakeAgent());
+  const newest = await runRequest(request, new FakeAgent());
+  assert.notEqual(older.report.research_id, newest.report.research_id);
+  assert.equal(
+    searchKnowledge(repo, 'Exported value')[0]?.sources[0]?.research_id,
+    newest.report.research_id,
+  );
+  const index = path.join(knowledgeArtifactDirectory(repo), 'index.json');
+  const bytes = fs.readFileSync(index);
+  fs.unlinkSync(newest.report_markdown!);
+  assert.deepEqual(searchKnowledge(repo, 'Exported value'), []);
+
+  const agent = new FakeAgent();
+  const result = await runRequest(input(repo, { question: 'Module consumers' }), agent);
+
+  assert.equal(result.status, 'completed');
+  assert.ok(fs.existsSync(result.report_json!));
+  assert.ok(fs.existsSync(result.report_markdown!));
+  assert.equal(result.report.findings.length, 1);
+  assert.deepEqual(agent.seen, [[], []]);
+  assert.deepEqual(fs.readFileSync(index), bytes);
+  assert.deepEqual(searchKnowledge(repo, 'Exported value'), []);
 });
 
 test('research candidate parser rejects malformed repository locators but preserves web sections', () => {
@@ -433,12 +475,25 @@ test('production Research independently rejects an unnecessary question and audi
             );
           if (index >= 4) assert(prompt.includes('Complete clarification history'));
           // Inspect the emitted schema through the stream adapter; this is not an external API probe.
-          const finalResponse = JSON.stringify(index % 2 === 0 ? { result: response } : response);
+          const safety = prompt.match(/----- BEGIN PUBLIC SAFETY CONTEXT [^\n]+\n([^\n]+)\n/u);
+          const finalResponse = JSON.stringify(
+            safety
+              ? {
+                  verdict: 'safe',
+                  coverage: (JSON.parse(safety[1]!) as { strings: { path: string }[] }).strings.map(
+                    (item) => item.path,
+                  ),
+                  findings: [],
+                }
+              : index % 2 === 0
+                ? { result: response }
+                : response,
+          );
           return runStreamedCodexTurn(
             {
               async runStreamed(actualPrompt, actualOptions) {
                 assert.equal(actualPrompt, prompt);
-                if (index % 2 === 0) {
+                if (index % 2 === 0 && !safety) {
                   const schema = actualOptions?.outputSchema as {
                     properties: {
                       result: { anyOf: [unknown, { properties: { affected_questions: unknown } }] };
@@ -530,7 +585,7 @@ test('production Research independently rejects an unnecessary question and audi
     (await runResearchWorkflow(pending.run_id, pending.input_path, worker)).status,
     'completed',
   );
-  assert.equal(threads, 6);
+  assert.equal(threads, 7);
   assert(prompts[3]!.includes(question.prompt));
   assert.equal(loadResearchState(pending.run_id)!.corrections, 1);
 });

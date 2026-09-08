@@ -8,13 +8,18 @@ import { test } from 'bun:test';
 import { main } from '../../build/runner.ts';
 import { main as codeMain } from '../../code/runner.ts';
 import { armIntent } from '../../runtime/invocation.ts';
-import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
+import {
+  ignoreWorkflowStorage,
+  temporaryDirectory,
+  useTemporaryWorkflowStorage,
+} from '../shared/fixtures.ts';
 
 useTemporaryWorkflowStorage('codex-build-runner-tests-');
 
 function repository(prefix: string): string {
   const repo = temporaryDirectory(prefix);
   const initialized = Bun.spawnSync(['git', 'init', '-q', '-b', 'main'], { cwd: repo });
+  ignoreWorkflowStorage(repo);
   assert.equal(initialized.exitCode, 0, initialized.stderr.toString());
   return repo;
 }

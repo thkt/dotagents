@@ -87,3 +87,17 @@ Think の `research_required` は内部の判断に留め、自動で Research �
 cleanup は dirty state を所有権付き recovery commit に保存し、検証済みのマージ先 base で files/index を復元・照合してから、expected-OID lease による remote topic 削除、topic config、local ref の atomic 削除を行う。同じ OID の無関係な ref、reflog、worktree、config、staged/unstaged/untracked/ignored の状態を保持する。preview にはパスと対象の identity のみを示し、保存内容の bytes は出力しない。永続記録は primary worktree の `.codex/workflow-artifacts/cleanup` に統一し、承認対象の作業 worktree を別に拘束する。未完了の承認済み cleanup は linked worktree を含む協調する workflow writer を排他する。inventory 検査は外部の変更を検出するが、任意の Git/filesystem writer を禁止するものではない。
 
 中断した操作は元の input から再開する。remote 削除が pending で expected OID が残っている場合は削除を再送せず、local/recovery ref を保持して手動解決を求める。不在を検証できれば同じ intent を照合して続行できる。report は完了・pending・未着手の工程と保持した recovery を示す。Stop hook から自動実行しない。intent-to-add など未対応の index/filesystem 状態は承認前に停止する。未取得 base の fetch 後に競合が判明した場合は、先に保存した recovery OID/ref を保持して `blocked` を返し、削除しない。新しい base が保存済みの untracked/ignored パスを追跡する場合は、内容が同じでも競合とする。
+
+## 共有 Research corpus
+
+単独の Research だけが、変更不能な `research/records/<research_id>.json` と生成 view の `research/reports/<research_id>.md` を公開する。`CODEX_FLOW_ARTIFACT_DIR` はこの保存先を変更しない。両ファイルは Git の ignore 対象外で、人がレビューして commit する。Research は staging・commit・branch・reset・push・Issue 公開を行わない。正規化・検証・復旧の詳細は英語の [corpus 契約](../../research/README.md) を参照する。`bun run check` は `verify:research` を含む。
+
+canonical JSON は object key を UTF-16 code-unit 順に並べ、配列順と文字列値を保持し、compact JSON と末尾 LF を UTF-8 にする。`research_id` を除いた完全な report の SHA-256 を小文字 ID とし、同じ ID を JSON 内と両ファイル名に使う。Markdown は canonical JSON だけから、設定言語に依存せず値を保って生成する。view を直接編集しない。
+
+source validation と独立 source audit の後に、別の read-only auditor が report の全文字列と生成 view の公開安全性を確認する。repository citation は起動時 snapshot の tracked file に限る。秘密情報・個人情報・private endpoint・意図しない埋め込み・source の転載、判定不能や不完全な検証は、値を書き換えず公開を拒否する。受理済み bytes・identity・所有権を作成前に保存する。同一の完全 pair は書き直さず再利用し、中断した所有 pair は元の invocation で復旧する。未完成 pair は利用できず、所有されていない片側・相違・受理記録の欠落は拒否する。完了済みの欠落 Markdown は一致する JSON と真正な受理記録がある場合だけ修復する。互換性のない state は保持し、元の runtime で復旧するか新しい明示的 task を開始する。
+
+Think・Build の自動 Research は private な独立 audit 済み evidence だけを返す。後で共有するには、新たに承認された単独 Research の `retained_child_report` で元の private JSON を選ぶ。完了済み child state・所有権 journal・独立 audit が必要で、起動時に原典と過去の回答を private に保存する。新しい snapshot で再考し、source audit と公開安全性 audit を改めて通す。元の report は変更せず、コピーだけの昇格や自動移行は行わない。回答は公開や Ship の承認にならない。
+
+Knowledge は canonical JSON と対応 view を検証し、`research_id` と `generated_at` で原典を参照する private な topic 索引である。要約の蓄積や private・legacy artifact の採用はしない。commit 済み pair があれば fresh checkout でも再構築できる。corpus の検証失敗や索引内の最新原典の欠落があれば、再構築は既存索引を変更しない。検索では利用不能な原典を引き続き省く。既存参照は古い原典への後退を防ぐためだけに使い、report 内容の供給元にはしない。Think の明示 selector は `research/records` 内の canonical JSON に限る。選択原典の全項目を先に保存し、選択済み ID を除外して、最大 3 topic の最新原典を追加する。最新が選択済み・不正・利用不能でも古い原典へ戻らない。明示選択の不正は design を止め、任意の関連 context の不正は省く。selected・related・runtime-child の出自を区別する。再開は保存済み原典と元の snapshot を使い、新 invocation は新 snapshot で過去の主張を検証して事実不足を Research に戻す。
+
+state・audit・回答履歴・索引・一時ファイルは private に保つ。repository 内の private 保存先は、再開時の保存済み宛先も含め、Git-ignored かつ tracked file と corpus に重ならないことを作成前に検証する。cleanup evidence・復元 staging・private snapshot・actor payload・repository 内の SDK runtime root と credential home も対象となる。directory 専用の ignore rule は作成前から有効であり、production writer が ignore 設定を追加することはない。symlink 解決後の保存先で所有 repository を判定する。cleanup の primary-worktree 所有権と、snapshot の内容・承認済み repository 復元の境界は維持する。外部保存先の repository 別 scope は維持する。永続化後の Knowledge 再構築は best-effort とし、失敗しても Research を無効にせず、診断へ内容を出さない。

@@ -28,6 +28,7 @@ interface ResearchDescription {
     subquestions: string;
     allow_external_sources: string;
     artifacts: string;
+    retained_child_report: string;
   };
 }
 
@@ -73,8 +74,10 @@ export function describeResearch(): ResearchDescription {
         'empty means the repository; otherwise every repository citation stays inside these paths',
       allow_external_sources:
         'false keeps research repository-only; true permits external evidence with primary sources preferred',
+      retained_child_report:
+        'Optional explicit original private child JSON path. Requires readable completed same-repository child state, ownership and independent audit. Captured as dated context at startup; fresh standalone investigation and both audits are mandatory before sharing.',
       artifacts:
-        'repository-local ignored cache holds the JSON handoff, paired Markdown, and automatically rebuilt Knowledge; none is Build authority',
+        'Standalone Research returns unignored research/records/<research_id>.json and research/reports/<research_id>.md for human review and commit, independent of CODEX_FLOW_ARTIFACT_DIR. Automatic children return private audited evidence only. Canonical originals supply the best-effort private Knowledge index. Resume reconciles owned interrupted pairs; incompatible state requires its original runtime or a new task. Research never stages, commits, pushes or publishes Issues; none is Build authority',
     },
   };
 }

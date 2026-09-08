@@ -61,6 +61,13 @@ const agent: ResearchAgent = {
   async investigate() {
     return candidate;
   },
+  async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+    return {
+      verdict: 'safe' as const,
+      coverage: context.strings.map((item) => item.path),
+      findings: [],
+    };
+  },
   async audit() {
     return passing;
   },
@@ -70,6 +77,7 @@ function fixture() {
   const repo = temporaryDirectory('research-resume-repo-');
   execFileSync('git', ['init', '-q', repo]);
   fs.writeFileSync(path.join(repo, 'value.ts'), 'export const value = 42;\n');
+  execFileSync('git', ['-C', repo, 'add', 'value.ts']);
   const runId = crypto.randomUUID();
   const intent = armIntent({ runId, workflow: 'research', cwd: repo });
   fs.writeFileSync(
@@ -97,6 +105,13 @@ test('blocking review returns saved candidate and evidence to its author, then r
       }
       assert.equal(correction, undefined);
       return { ...candidate, answer: 'The value is 1.' };
+    },
+    async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+      return {
+        verdict: 'safe' as const,
+        coverage: context.strings.map((item) => item.path),
+        findings: [],
+      };
     },
     async audit(_input, draft) {
       auditors += 1;
@@ -126,6 +141,13 @@ test('explicit unknowns and advisory findings can complete without reviewer rewr
     async investigate() {
       return unknown;
     },
+    async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+      return {
+        verdict: 'safe' as const,
+        coverage: context.strings.map((item) => item.path),
+        findings: [],
+      };
+    },
     async audit(_input, draft) {
       draft.answer = 'Reviewer attempted rewrite.';
       return {
@@ -143,6 +165,13 @@ test('three corrections remain exhausted across retries without new intent', asy
   let calls = 0;
   const failing: ResearchAgent = {
     ...agent,
+    async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+      return {
+        verdict: 'safe' as const,
+        coverage: context.strings.map((item) => item.path),
+        findings: [],
+      };
+    },
     async audit() {
       calls++;
       return blocking;
@@ -216,6 +245,13 @@ test('changed pending identity or snapshot rejects the response without publishi
     await assert.rejects(
       runResearchWorkflow(runId, inputFile, {
         ...agent,
+        async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+          return {
+            verdict: 'safe' as const,
+            coverage: context.strings.map((item) => item.path),
+            findings: [],
+          };
+        },
         async audit() {
           const state = loadResearchState(runId)!;
           if (changed === 'dispatch') {
@@ -257,11 +293,16 @@ async function interruptAt(runId: string, inputFile: string, boundary: string): 
       }
       if (${JSON.stringify(boundary)} === 'json' && /research-[a-f0-9-]+\\.json$/.test(destination)) process.exit(73);
     };
+    const originalLink = fs.linkSync;
+    fs.linkSync = (...args) => { originalLink(...args); if ((${JSON.stringify(boundary)} === 'json' && String(args[1]).endsWith('.json')) || (${JSON.stringify(boundary)} === 'pair' && String(args[1]).endsWith('.md'))) process.exit(73); };
     mock.module('node:fs', () => ({ ...fs, default: fs }));
     const { runResearchWorkflow } = await import(${JSON.stringify(runner)});
     await runResearchWorkflow(${JSON.stringify(runId)}, ${JSON.stringify(inputFile)}, {
       async investigate() { return ${JSON.stringify(candidate)}; },
-      async audit() { return ${JSON.stringify(boundary === 'correction' ? blocking : passing)}; },
+      async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+    return { verdict: 'safe' as const, coverage: context.strings.map(item => item.path), findings: [] };
+  },
+  async audit() { return ${JSON.stringify(boundary === 'correction' ? blocking : passing)}; },
     });
   `,
   );
@@ -277,19 +318,37 @@ async function interruptAt(runId: string, inputFile: string, boundary: string): 
 }
 
 test('real process exits resume saved candidates, audits and paired publication exactly once', async () => {
-  for (const boundary of ['investigate', 'validate', 'audit', 'decide', 'publish', 'json']) {
+  for (const boundary of [
+    'investigate',
+    'validate',
+    'audit',
+    'decide',
+    'safety',
+    'publish',
+    'json',
+    'pair',
+  ]) {
     const { runId, inputFile, repo } = fixture();
     await interruptAt(runId, inputFile, boundary);
     const saved = loadResearchState(runId)!;
     assert.equal(loadIntent(runId), null);
     fs.writeFileSync(path.join(repo, 'value.ts'), 'export const value = 0;\n');
     let authors = 0,
-      audits = 0;
+      audits = 0,
+      safetyAudits = 0;
     const resumed: ResearchAgent = {
       async investigate(_input, _knowledge, snapshot) {
         authors++;
         assert.match(fs.readFileSync(path.join(snapshot, 'value.ts'), 'utf8'), /42/);
         return candidate;
+      },
+      async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+        safetyAudits++;
+        return {
+          verdict: 'safe' as const,
+          coverage: context.strings.map((item) => item.path),
+          findings: [],
+        };
       },
       async audit(_input, draft, _knowledge, snapshot) {
         audits++;
@@ -301,17 +360,25 @@ test('real process exits resume saved candidates, audits and paired publication 
     const result = await runResearchWorkflow(runId, inputFile, resumed);
     assert.equal(authors, boundary === 'investigate' ? 1 : 0);
     assert.equal(audits, ['investigate', 'validate', 'audit'].includes(boundary) ? 1 : 0);
-    assert.equal(result.report_json!, researchPublicationPaths(saved).json);
+    assert.equal(
+      safetyAudits,
+      ['investigate', 'validate', 'audit', 'decide', 'safety'].includes(boundary) ? 1 : 0,
+    );
+    if (saved.publication) assert.equal(result.report_json!, researchPublicationPaths(saved).json);
     const again = await runResearchWorkflow(runId, inputFile, {
       async investigate() {
         throw new Error('no redispatch');
+      },
+      async auditPublicSafety() {
+        throw new Error('completed Research must not repeat safety audit');
       },
       async audit() {
         throw new Error('no redispatch');
       },
     });
     assert.deepEqual(again, result);
-    assert.equal(fs.readdirSync(researchArtifactDirectory(repo)).length, 2);
+    assert.equal(fs.readdirSync(path.join(repo, 'research/records')).length, 1);
+    assert.equal(fs.readdirSync(path.join(repo, 'research/reports')).length, 1);
   }
 }, 15000);
 
@@ -415,6 +482,13 @@ test('report-incompatible citation syntax is corrected before the independent au
         ],
       };
     },
+    async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+      return {
+        verdict: 'safe' as const,
+        coverage: context.strings.map((item) => item.path),
+        findings: [],
+      };
+    },
     async audit() {
       auditors++;
       return passing;
@@ -447,6 +521,13 @@ test('completed retrieval needs no snapshot or writes and repairs only missing v
     async investigate() {
       throw new Error('completed run must not dispatch');
     },
+    async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+      return {
+        verdict: 'safe' as const,
+        coverage: context.strings.map((item) => item.path),
+        findings: [],
+      };
+    },
     async audit() {
       throw new Error('completed run must not dispatch');
     },
@@ -474,17 +555,20 @@ test('successful publication never attempts a second Markdown write', async () =
     import fs from 'node:fs';
     import path from 'node:path';
     import { mock } from 'bun:test';
-    const original = fs.renameSync;
+    const original = fs.linkSync;
     let writes = 0;
-    fs.renameSync = (...args) => {
-      if (/^research-.*\\.md$/.test(path.basename(String(args[1]))) && ++writes > 1) throw new Error('redundant Markdown write');
+    fs.linkSync = (...args) => {
+      if (/^[a-f0-9]{64}\\.md$/.test(path.basename(String(args[1]))) && ++writes > 1) throw new Error('redundant Markdown write');
       return original(...args);
     };
     mock.module('node:fs', () => ({ ...fs, default: fs }));
     const { runResearchWorkflow } = await import(${JSON.stringify(runner)});
     const result = await runResearchWorkflow(${JSON.stringify(runId)}, ${JSON.stringify(inputFile)}, {
       async investigate() { return ${JSON.stringify(candidate)}; },
-      async audit() { return ${JSON.stringify(passing)}; },
+      async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+    return { verdict: 'safe' as const, coverage: context.strings.map(item => item.path), findings: [] };
+  },
+  async audit() { return ${JSON.stringify(passing)}; },
     });
     console.log(JSON.stringify({status: result.status, writes}));
   `,
@@ -522,6 +606,13 @@ test('a retried investigator can enter waiting without losing its failure or inv
       return input.clarification_answers?.length
         ? candidate
         : { status: 'waiting', question: decisionQuestion };
+    },
+    async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+      return {
+        verdict: 'safe' as const,
+        coverage: context.strings.map((item) => item.path),
+        findings: [],
+      };
     },
     async audit() {
       audits++;
@@ -576,6 +667,13 @@ test('Research waiting is audited, stable, owner-bound and resumes with full his
         return input.clarification_answers?.length
           ? candidate
           : { status: 'waiting', question: decisionQuestion };
+      },
+      async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+        return {
+          verdict: 'safe' as const,
+          coverage: context.strings.map((item) => item.path),
+          findings: [],
+        };
       },
       async audit(input, _draft, _k, _snapshot, question) {
         audits++;
@@ -647,6 +745,13 @@ test('rejected Research questions return to their investigator for correction an
       if (authors > 1) assert.match(correction!.reason, /42/);
       return { status: 'waiting', question: { ...decisionQuestion, id: `scope-${authors}` } };
     },
+    async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+      return {
+        verdict: 'safe' as const,
+        coverage: context.strings.map((item) => item.path),
+        findings: [],
+      };
+    },
     async audit(_i, _d, _k, _s, question) {
       audits++;
       assert.equal(question!.question.id, `scope-${audits}`);
@@ -691,6 +796,13 @@ for (const parallel of [false, true]) {
         return {
           status: 'waiting',
           question: { ...decisionQuestion, id: `rejected-${proposals}` },
+        };
+      },
+      async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+        return {
+          verdict: 'safe' as const,
+          coverage: context.strings.map((item) => item.path),
+          findings: [],
         };
       },
       async audit(_i, _d, _k, _s, context) {
@@ -746,6 +858,13 @@ test('persisted Research waiting requires its independently accepted candidate a
     async investigate() {
       calls++;
       return { status: 'waiting', question: decisionQuestion };
+    },
+    async auditPublicSafety(_input: unknown, context: { strings: { path: string }[] }) {
+      return {
+        verdict: 'safe' as const,
+        coverage: context.strings.map((item) => item.path),
+        findings: [],
+      };
     },
     async audit() {
       return passing;

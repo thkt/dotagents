@@ -17,7 +17,7 @@
   },
   "type": "module",
   "scripts": {
-    "check": "bun run lint && bun run format:check && bun run typecheck && bun run knip && bun run test && bun run validate:skills",
+    "check": "bun run verify:research && bun run lint && bun run format:check && bun run typecheck && bun run knip && bun run test && bun run validate:skills",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "fix:text": "textlint --fix '.ja/**/*.md'",
@@ -27,6 +27,7 @@
     "knip": "knip",
     "test": "bun test --timeout=15000 --parallel=4 --no-isolate workflows/tests skills/tests",
     "typecheck": "tsc -p tsconfig.json",
+    "verify:research": "bun workflows/research/verify.ts",
     "verify:clean": "bun install --frozen-lockfile --ignore-scripts && bun run check",
     "validate:skills": "bun skills/validate.ts"
   },

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'bun:test';
-import { temporaryDirectory } from '../shared/fixtures.ts';
+import { ignoreWorkflowStorage, temporaryDirectory } from '../shared/fixtures.ts';
 import { git, gitText, inventoryRepository } from '../../cleanup/inventory.ts';
 import {
   captureRecovery,
@@ -20,6 +20,7 @@ for (const format of ['sha1', 'sha256'] as const) {
   test(`${format} recovery keeps dirty index/files while untouched files follow the new base`, () => {
     const repo = temporaryDirectory('cleanup-recovery-');
     git(repo, ['init', '-q', '-b', 'main', `--object-format=${format}`]);
+    ignoreWorkflowStorage(repo);
     git(repo, ['config', 'user.name', 'Fixture']);
     git(repo, ['config', 'user.email', 'fixture@example.test']);
     fs.writeFileSync(path.join(repo, 'dirty'), 'original');
@@ -82,6 +83,7 @@ for (const format of ['sha1', 'sha256'] as const) {
 test('an identical untracked path newly tracked by the base is a semantic restore conflict', () => {
   const repo = temporaryDirectory('cleanup-untracked-collision-');
   git(repo, ['init', '-q', '-b', 'main']);
+  ignoreWorkflowStorage(repo);
   git(repo, ['config', 'user.name', 'Fixture']);
   git(repo, ['config', 'user.email', 'fixture@example.test']);
   git(repo, ['commit', '--allow-empty', '-qm', 'initial']);
@@ -100,6 +102,7 @@ test('an identical untracked path newly tracked by the base is a semantic restor
 test('restoration preserves unchanged entries and does not rewrite already applied paths on resume', () => {
   const repo = temporaryDirectory('cleanup-write-delta-');
   git(repo, ['init', '-q']);
+  ignoreWorkflowStorage(repo);
   probeDurability(repo);
   fs.mkdirSync(path.join(repo, 'ignored'));
   fs.writeFileSync(path.join(repo, 'ignored/cache'), 'keep');
@@ -143,4 +146,25 @@ test('restoration preserves unchanged entries and does not rewrite already appli
   assert.equal(fs.statSync(path.join(repo, 'changed')).mode & 0o777, 0o755);
   writeFiles(repo, entries, after);
   assert.deepEqual(stamps(), applied);
+});
+
+test('unsafe restoration staging is rejected before source deletion, index replacement or private creation', () => {
+  const repo = temporaryDirectory('cleanup-unsafe-restore-');
+  git(repo, ['init', '-q']);
+  fs.writeFileSync(path.join(repo, 'source'), 'preserve');
+  git(repo, ['add', 'source']);
+  const index = fs.readFileSync(path.join(repo, '.git/index'));
+  const before = {
+    source: {
+      kind: 'file' as const,
+      mode: 0o644,
+      bytes: Buffer.from('preserve').toString('base64'),
+    },
+  };
+  for (const write of [() => writeFiles(repo, before, {}), () => writeIndex(repo, {})]) {
+    assert.throws(write, /Private storage/);
+    assert.equal(fs.readFileSync(path.join(repo, 'source'), 'utf8'), 'preserve');
+    assert.deepEqual(fs.readFileSync(path.join(repo, '.git/index')), index);
+    assert.equal(fs.existsSync(path.join(repo, '.codex')), false);
+  }
 });

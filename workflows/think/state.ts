@@ -30,7 +30,7 @@ import { parseResearchReport } from '../research/contracts.ts';
 import { parseClarificationAnswer, type ClarificationAnswer } from '../runtime/clarification.ts';
 
 export interface ThinkState {
-  protocol: 'codex-think-state-v6';
+  protocol: 'codex-think-state-v7';
   invocation: string;
   run_id: string;
   input: ThinkInput;
@@ -143,7 +143,7 @@ export function loadThinkState(runId: string): ThinkState | null {
       'think state',
     );
     if (
-      s.protocol !== 'codex-think-state-v6' ||
+      s.protocol !== 'codex-think-state-v7' ||
       s.run_id !== runId ||
       typeof s.invocation !== 'string' ||
       !/^[0-9a-f-]{36}$/u.test(s.invocation) ||
@@ -201,6 +201,11 @@ export function loadThinkState(runId: string): ThinkState | null {
         context,
         [
           'path',
+          'provenance',
+          'protocol',
+          'scope_paths',
+          'rejected',
+          'research_id',
           'generated_at',
           'question',
           'answer',
@@ -214,13 +219,15 @@ export function loadThinkState(runId: string): ThinkState | null {
       if (!Array.isArray(context.clarification_answers))
         throw new Error('incompatible captured Research answer context');
       context.clarification_answers.forEach(parseClarificationAnswer);
-      const { path: _path, clarification_answers: _answers, ...report } = context;
-      parseResearchReport({
-        protocol: 'codex-research-report',
-        scope_paths: [],
-        rejected: [],
-        ...report,
-      });
+      if (!['selected', 'related', 'runtime-child'].includes(String(context.provenance)))
+        throw new Error('invalid Research provenance');
+      const {
+        path: _path,
+        clarification_answers: _answers,
+        provenance: _provenance,
+        ...report
+      } = context;
+      parseResearchReport(report);
     }
     if (
       s.publication !== null &&

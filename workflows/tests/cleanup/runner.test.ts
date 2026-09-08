@@ -2,7 +2,11 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { test } from 'bun:test';
-import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
+import {
+  ignoreWorkflowStorage,
+  temporaryDirectory,
+  useTemporaryWorkflowStorage,
+} from '../shared/fixtures.ts';
 import { handle } from '../../../hooks/workflow-enforcer.ts';
 import { armIntent, loadIntent, parseCleanupInvocation } from '../../runtime/invocation.ts';
 import { workflowInputPath } from '../../runtime/storage.ts';
@@ -23,9 +27,10 @@ test('closed CLI and leading invocation reject broad approvals and unknown flags
 test('hook preview and exact approval reach production runner; changed input and rearming are denied', () => {
   const repo = temporaryDirectory('cleanup-runner-repo-');
   git(repo, ['init', '-q', '-b', 'topic']);
+  ignoreWorkflowStorage(repo);
   fs.mkdirSync(`${repo}/.codex`, { recursive: true });
   fs.writeFileSync(`${repo}/.codex/OUTCOME.md`, '# Outcome\nPreserve local state.\n');
-  fs.writeFileSync(`${repo}/.gitignore`, 'secret\n');
+  fs.writeFileSync(`${repo}/.gitignore`, 'secret\n/.codex/workflow-artifacts/\n');
   fs.writeFileSync(`${repo}/secret`, 'fixture-private-value');
   git(repo, ['config', 'user.name', 'Fixture']);
   git(repo, ['config', 'user.email', 'fixture@example.test']);
@@ -93,4 +98,6 @@ test('hook preview and exact approval reach production runner; changed input and
   assert.equal(result.status, 'cleaned');
   assert.equal(deletes, 0);
   assert.throws(() => cleanupCommand('resume', 'different-task', input, gateway), /hook-supplied/);
-});
+  // This production-entrypoint case runs preview, approval, interruption and recovery,
+  // including fresh Git-backed storage checks at every durable publication.
+}, 30_000);
