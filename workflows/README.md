@@ -14,6 +14,10 @@ The project outcome is defined in [.codex/OUTCOME.md](../.codex/OUTCOME.md).
 Code accepts a direct request and uses the same implementation executor as Build without Git actions.
 Both workflows require the shared shell test and an independent semantic review before completion.
 
+All normal implementation and read-only model calls use `gpt-6-astra` with `high` reasoning through the shared client setup. The SDK launches the installed `codex` on `PATH`; `CODEX_CLI_PATH` can explicitly select another installed executable. There is no SDK-bundled fallback. Injected clients and existing sandbox, approval, network, and web-source restrictions remain unchanged. Best-effort progress records retain the actual requested model/effort and supplied SDK input, output, and cache token counts at turn completion, including calls shorter than a heartbeat. Missing counts remain unavailable; telemetry contains no prices, model text, tool arguments, or credentials.
+
+Actors run focused regressions for changed behavior and self-review correctness, simplicity, and acceptance coverage. The controller owns the final full check against current source after implementation and corrections. Corrections rerun affected checks and do not repeat unrelated broad suites without a new reason.
+
 ## Contract granularity
 
 This section is the common policy for Research, Think, Issue, Build, and Code.
@@ -21,6 +25,8 @@ This section is the common policy for Research, Think, Issue, Build, and Code.
 A contract fixes observable behavior, permitted edit scope, required external or persisted compatibility, safety conditions, and acceptance evidence. Specify exact names, types, fields, formats, or algorithms only when a stated compatibility or safety requirement depends on them. The implementation owner chooses internal types, functions, file layout within scope, and algorithms otherwise; an Issue does not need to enumerate every TypeScript schema or API name.
 
 Research establishes facts and names unresolved factual claims. An unspecified implementation choice is not missing evidence. Think fixes the external requirements and constraints needed to delegate the work, leaving implementation choices to the owner. Route genuinely unknown facts that can change those requirements to Research. Issue publishes the same reviewed Plan faithfully; publication or translation must not add internal requirements.
+
+New Think Plans describe completed observable requirements and retain necessary current safety and authorization conditions. They omit superseded planning and publication history. Generated PR summaries deterministically reference the selected Issue and declared unit scope; arbitrary historical Plan prose is not presented as current implementation or verification facts. The captured Plan remains unchanged and authoritative. Verification still comes from current gate reports, with advisories and screenshots preserved.
 
 Build and Code implement and self-review within the authorized scope using this distinction. Before returning a proposed handoff, an independent read-only review checks whether it identifies a genuine contract-external design decision or missing fact. If the handoff is unnecessary, return the finding to the same implementation actor for one correction; do not add a unit stage or an unconditional review to successful actor calls. Confirmed design decisions return to Think and missing facts to Research. Ordinary implementation choices and test failures remain local work. Preserve the current test, source, review, and publication checks.
 

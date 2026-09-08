@@ -35,6 +35,9 @@ export interface ProgressEvent extends ProgressContext {
   event_type?: ModelActivity['event_type'];
   item_type?: ModelActivity['item_type'];
   event_count?: number;
+  model?: ModelActivity['model'];
+  model_reasoning_effort?: ModelActivity['model_reasoning_effort'];
+  usage?: ModelActivity['usage'];
 }
 
 interface IntervalHandle {
@@ -88,11 +91,11 @@ export class ProgressReporter {
     }
     let finished = false;
     let timer: IntervalHandle | undefined;
-    let latestActivity: ModelActivity | undefined;
+    let latestActivity: Partial<ModelActivity> | undefined;
     const emit = (
       status: ProgressStatus,
       classification?: string,
-      activity?: ModelActivity,
+      activity?: Partial<ModelActivity>,
     ): void => {
       try {
         const elapsed = Math.max(0, Math.round(this.now() - startedAt));
@@ -118,10 +121,19 @@ export class ProgressReporter {
           // Cleanup failure is telemetry-only.
         }
       }
-      emit(status, status === 'failed' ? failureClassification(error) : undefined);
+      emit(status, status === 'failed' ? failureClassification(error) : undefined, latestActivity);
     };
     const activity = (event: ModelActivity): void => {
-      if (!finished) latestActivity = event;
+      if (finished) return;
+      if (event.event_type === 'turn.completed') {
+        // Retain heartbeat metadata without replaying the completion or its usage.
+        const { event_type: _eventType, usage: _usage, ...metadata } = event;
+        latestActivity = metadata;
+        // Persist every completed turn, including fast calls and multi-turn corrections.
+        emit('still_running', undefined, event);
+      } else {
+        latestActivity = event;
+      }
     };
 
     emit('started');

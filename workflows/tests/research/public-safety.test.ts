@@ -7,44 +7,18 @@ import { test } from 'bun:test';
 import { armIntent } from '../../runtime/invocation.ts';
 import { runResearchWorkflow } from '../../research/runner.ts';
 import { CodexResearchAgent, type ResearchAgent } from '../../research/agent.ts';
-import type { ResearchDraft } from '../../research/contracts.ts';
-import { safetyContext, type PublicSafetyAudit } from '../../research/public-safety.ts';
+import { validatePublicSafety, type PublicSafetyAudit } from '../../research/public-safety.ts';
+import { draft, reproduced, sourceFixture, reportContext } from './public-safety-fixtures.ts';
 import {
   loadResearchState,
   saveResearchState,
   researchSnapshotPath,
 } from '../../research/state.ts';
-import { readCorpusReport, canonicalReport } from '../../research/corpus.ts';
+import { readCorpusReport } from '../../research/corpus.ts';
 import { temporaryDirectory, useTemporaryWorkflowStorage } from '../shared/fixtures.ts';
 useTemporaryWorkflowStorage('public-safety-');
-const draft: ResearchDraft = {
-  answer: 'The module exports a value.',
-  findings: [
-    {
-      statement: 'A value is exported.',
-      kind: 'fact',
-      confidence: 'high',
-      qualification: 'Only this module was inspected.',
-      evidence: [
-        {
-          kind: 'repository',
-          source: 'value.ts',
-          locator: 'L1',
-          supports: 'The export declaration.',
-        },
-      ],
-      implication: 'Consumers can import the value.',
-    },
-  ],
-  rejected: [{ statement: 'It is configurable.', reason: 'No configuration evidence.' }],
-  unknowns: [{ question: 'Is it used?', resolution: 'Inspect consumers.' }],
-  limitations: ['Consumers were not evaluated.'],
-};
 function fixture(tracked = true) {
-  const repo = temporaryDirectory('safety-repo-');
-  execFileSync('git', ['init', '-q', repo]);
-  fs.writeFileSync(path.join(repo, 'value.ts'), 'export const value = 1;\n');
-  if (tracked) execFileSync('git', ['-C', repo, 'add', 'value.ts']);
+  const repo = sourceFixture(tracked);
   const runId = crypto.randomUUID(),
     input = armIntent({ runId, workflow: 'research', cwd: repo }).input_path;
   fs.writeFileSync(
@@ -104,7 +78,7 @@ test('source and safety audits are distinct and preserve all meaning-bearing val
   assert.equal(execFileSync('git', ['-C', f.repo, 'ls-files', '--stage']).toString(), before);
   assert.equal(execFileSync('git', ['-C', f.repo, 'for-each-ref']).toString(), refs);
 });
-for (const [index, hazard] of [
+const hazards = [
   'password=do-not-publish',
   '{"password": "do-not-publish"}',
   '{"refresh_token": "do-not-publish"}',
@@ -225,11 +199,45 @@ for (const [index, hazard] of [
   '+1 555 234 5678',
   'untracked',
   'reproduction',
-].entries())
-  test(`deterministic hazard ${index} rejects before safety dispatch or corpus creation`, async () => {
+];
+
+test('every hazard format is rejected by the production validator against controlled sources', () => {
+  const tracked = sourceFixture();
+  const untracked = sourceFixture(false);
+  const copied = sourceFixture(true, `${reproduced}\n`);
+  // Prove each source supports a safe control, apart from the deliberately untracked citation.
+  assert.doesNotThrow(() => validatePublicSafety(reportContext(), tracked));
+  assert.doesNotThrow(() => validatePublicSafety(reportContext(), copied));
+  for (const hazard of hazards) {
+    const snapshot =
+      hazard === 'untracked' ? untracked : hazard === 'reproduction' ? copied : tracked;
+    const answer =
+      hazard === 'reproduction' ? reproduced : hazard === 'untracked' ? draft.answer : hazard;
+    assert.throws(
+      () => validatePublicSafety(reportContext({ answer }), snapshot),
+      /public-safety/,
+      hazard,
+    );
+  }
+  assert.doesNotThrow(() => validatePublicSafety(reportContext(), tracked));
+});
+
+// Distinct rejection paths still cross the real Research entrypoint and publication boundary.
+for (const hazard of [
+  'password=do-not-publish',
+  '090-1234-5678',
+  'alice@company.org',
+  '/Users/alice/private',
+  'service.home.arpa',
+  'https://127.0.0.1/admin',
+  '<img src=x>',
+  '![embed](https://openai.com)',
+  'data:text/plain,secret',
+  'untracked',
+  'reproduction',
+])
+  test(`hazard path ${hazard} rejects before safety dispatch or corpus creation`, async () => {
     const f = fixture(hazard !== 'untracked');
-    const reproduced =
-      'The documented component retains all original values through every verified invocation before publishing evidence.';
     if (hazard === 'reproduction')
       fs.writeFileSync(path.join(f.repo, 'value.ts'), `${reproduced}\n`);
     let calls = 0;
@@ -395,16 +403,7 @@ test('completed retrieval rejects divergent output and missing genuine acceptanc
 });
 test('production semantic adapter creates a fresh read-only thread with exact full context and inherited web permissions', async () => {
   const f = fixture();
-  const context = safetyContext(
-    canonicalReport({
-      protocol: 'codex-research-report',
-      generated_at: '2026-09-01T00:00:00.000Z',
-      question: 'What is exported?',
-      scope_paths: [],
-      ...draft,
-      findings: draft.findings.map((finding) => ({ ...finding, id: 'F-001' })),
-    }),
-  );
+  const context = reportContext();
   let threads = 0;
   const agent = new CodexResearchAgent({
     startThread(options) {

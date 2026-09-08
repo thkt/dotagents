@@ -12,6 +12,11 @@
 6. Ship は明示的な承認がある場合だけ push と下書き PR 作成を行う。
 
 Code は直接の変更依頼を受け、Build と共通の executor を Git action なしで使う。
+両 workflow は完了前に共通の shell test と独立した semantic review を必要とする。
+
+通常の実装と read-only の model 呼び出しは、共通の client 設定を通じて `gpt-6-astra` と reasoning effort `high` を使う。SDK は `PATH` 上のインストール済み `codex` を起動する。別の実行ファイルを明示的に選ぶ場合は `CODEX_CLI_PATH` を使う。SDK 同梱 binary への fallback は行わない。注入された client と既存の sandbox・approval・network・web source の制約は維持する。best-effort の進捗記録には、実際に指定した model と effort、および SDK が返した input・output・cache の token 数を turn 完了時に残す。heartbeat より短い呼び出しも対象とする。欠けた値は利用不能のままとし、価格の推測、model 本文、tool 引数、credential は記録しない。
+
+actor は変更した動作の focused regression を実行し、正確性・単純さ・受け入れ条件の網羅性を自己レビューする。実装と修正後の現在の source に対する最終 full check は controller が実行する。修正時は影響する check を再実行し、新たな理由なしに無関係な broad suite を繰り返さない。
 
 ## 契約の粒度
 
@@ -20,6 +25,8 @@ Code は直接の変更依頼を受け、Build と共通の executor を Git act
 契約には、観測可能な動作、許可する編集範囲、必要な外部互換性・永続データの互換性、安全条件、受け入れを確認する証拠を定める。正確な名前・型・field・format・algorithm は、明示した互換性または安全性の要件に必要な場合だけ指定する。それ以外の内部の型・関数・範囲内のファイル構成・algorithm は実装担当が選ぶ。Issue に全 TypeScript schema や API 名を列挙する必要はない。
 
 Research は事実を確認し、未解決の事実上の主張を示す。未指定の実装上の選択は証拠不足ではない。Think は委譲に必要な外部要件と制約を確定し、実装上の選択を担当へ残す。その要件を変え得る、本当に未確定の事実は Research へ戻す。Issue はレビュー済みの同じ Plan を忠実に公開し、公開や翻訳で内部要件を追加しない。
+
+新しい Think Plan は、完了後に観測できる要件を記述し、現在必要な安全条件と承認条件を保つ。過去の計画・公開の経緯は含めない。生成する PR の要約は、選択済み Issue と各 unit の宣言済み scope を決定的に示す。過去の任意の Plan 本文を、現在の実装や検証の事実として扱わない。captured Plan は変更せず、実装の authority として維持する。検証は現在の gate report に基づき、advisory と screenshot も保持する。
 
 Build と Code はこの区別に従い、認可された範囲で実装・自己レビューする。handoff を提案した場合だけ、返却前に独立した read-only review が、本当に契約外の設計判断または事実不足かを確認する。handoff が不要なら、その指摘を同じ実装 actor に返し、1回だけ修正する。unit stage や、成功した actor 呼び出しへの無条件の review は追加しない。確認された設計判断は Think、事実不足は Research に戻す。通常の実装上の選択と test failure はローカルの作業として扱う。現在の test・source・review・公開時の検証は維持する。
 

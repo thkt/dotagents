@@ -7,6 +7,7 @@ import {
   type ThreadItem,
   type ThreadOptions,
   type TurnOptions,
+  type Usage,
 } from '@openai/codex-sdk';
 
 import { sandboxCodexEnvironment } from './codex-home.ts';
@@ -14,16 +15,16 @@ import { FlowError } from './errors.ts';
 import { isObject, rejectUnknownKeys, type JsonObject } from './schema.ts';
 import { assertStructuredOutputSchema } from './structured-output.ts';
 
-/** Read-only investigation and decision threads always use the strongest reasoning profile. */
-const THINKING_THREAD_OPTIONS = {
-  model: 'gpt-5.6-sol',
+/** All normal workflow threads use the user-selected model and reasoning effort. */
+const WORKFLOW_THREAD_OPTIONS = {
+  model: 'gpt-6-astra',
   modelReasoningEffort: 'high',
 } as const satisfies ThreadOptions;
 
 /** Read-only investigation and decision threads work inside one repository snapshot and never call out. */
 export function readOnlyThreadOptions(workingDirectory: string): ThreadOptions {
   return {
-    ...THINKING_THREAD_OPTIONS,
+    ...WORKFLOW_THREAD_OPTIONS,
     workingDirectory,
     sandboxMode: 'read-only',
     approvalPolicy: 'never',
@@ -32,14 +33,12 @@ export function readOnlyThreadOptions(workingDirectory: string): ThreadOptions {
   };
 }
 
-/** Repository-editing actors always use the lightweight implementation profile. */
-export const IMPLEMENTATION_THREAD_OPTIONS = {
-  model: 'gpt-5.6-luna',
-  modelReasoningEffort: 'low',
-} as const satisfies ThreadOptions;
+/** Kept for callers constructing repository-editing thread options. */
+export const IMPLEMENTATION_THREAD_OPTIONS = WORKFLOW_THREAD_OPTIONS;
 
 interface ThreadResult {
   finalResponse: string;
+  usage?: Partial<Usage>;
 }
 
 const DEFAULT_MODEL_IDLE_TIMEOUT_MS = 10 * 60_000;
@@ -57,6 +56,9 @@ export interface ModelActivity {
   event_type: ThreadEvent['type'];
   item_type?: ThreadItem['type'];
   event_count: number;
+  model?: string;
+  model_reasoning_effort?: ThreadOptions['modelReasoningEffort'];
+  usage?: Partial<Usage>;
 }
 
 export type ModelActivitySink = (activity: ModelActivity) => void;
@@ -92,8 +94,30 @@ const idleTimer: IdleTimer = (callback, milliseconds) => {
   return () => clearTimeout(timer);
 };
 
+/** Keep only supplied numeric SDK counters; absent counters remain unavailable. */
+function suppliedUsage(value: unknown): Partial<Usage> | undefined {
+  if (!isObject(value)) return undefined;
+  const counts = Object.fromEntries(
+    [
+      'input_tokens',
+      'output_tokens',
+      'cached_input_tokens',
+      'cache_write_input_tokens',
+      'reasoning_output_tokens',
+    ].flatMap((key) => {
+      const count = value[key];
+      return typeof count === 'number' && Number.isFinite(count) && count >= 0
+        ? [[key, count]]
+        : [];
+    }),
+  );
+  return Object.keys(counts).length ? counts : undefined;
+}
+
 function modelActivity(event: ThreadEvent, eventCount: number): ModelActivity {
+  const usage = event.type === 'turn.completed' ? suppliedUsage(event.usage) : undefined;
   return {
+    ...(usage ? { usage } : {}),
     event_type: event.type,
     ...('item' in event ? { item_type: event.item.type } : {}),
     event_count: eventCount,
@@ -126,6 +150,7 @@ export async function runStreamedCodexTurn(
   let eventCount = 0;
   let lastActivity = 'request_started';
   let finalResponse = '';
+  let usage: Partial<Usage> | undefined;
   let completed = false;
   let terminalFailed = false;
   let streamError: Error | undefined;
@@ -162,6 +187,7 @@ export async function runStreamedCodexTurn(
       if (event.type === 'item.completed' && event.item.type === 'agent_message') {
         finalResponse = event.item.text;
       } else if (event.type === 'turn.completed') {
+        usage = activity.usage;
         completed = true;
       } else if (event.type === 'turn.failed') {
         terminalFailed = true;
@@ -184,7 +210,7 @@ export async function runStreamedCodexTurn(
         'execution_error',
       );
     }
-    return { finalResponse };
+    return { finalResponse, ...(usage ? { usage } : {}) };
   } catch (error) {
     if (idleFailure) {
       if (streamError) {
@@ -209,9 +235,22 @@ class StreamingCodexClient implements CodexClientLike {
   }
 
   startThread(options?: ThreadOptions): CodexThreadLike {
-    const thread: Thread = this.client.startThread(options);
+    const configured = { ...WORKFLOW_THREAD_OPTIONS, ...options };
+    const thread: Thread = this.client.startThread(configured);
     return {
-      run: (input, turnOptions) => runStreamedCodexTurn(thread, input, turnOptions),
+      run: (input, turnOptions) =>
+        runStreamedCodexTurn(thread, input, {
+          ...turnOptions,
+          modelRun: {
+            ...turnOptions.modelRun,
+            onActivity: (activity) =>
+              turnOptions.modelRun.onActivity?.({
+                ...activity,
+                model: configured.model,
+                model_reasoning_effort: configured.modelReasoningEffort,
+              }),
+          },
+        }),
     };
   }
 }
@@ -270,7 +309,20 @@ export function elapsedMs(startedAt: number): number {
 }
 
 export function createSignedInCodexClient(env: NodeJS.ProcessEnv = process.env): CodexClientLike {
-  return new StreamingCodexClient(new Codex({ env: sandboxCodexEnvironment(env) }));
+  const executable = env.CODEX_CLI_PATH?.trim() || 'codex';
+  const codexPath = Bun.which(executable, { PATH: env.PATH ?? process.env.PATH ?? '' });
+  if (!codexPath) {
+    throw new FlowError(
+      'Installed Codex CLI not found; configure PATH or CODEX_CLI_PATH',
+      'execution_error',
+    );
+  }
+  return new StreamingCodexClient(
+    new Codex({
+      codexPathOverride: codexPath,
+      env: sandboxCodexEnvironment(env),
+    }),
+  );
 }
 
 /** Normalizes malformed SDK output before workflow-specific parsing. */

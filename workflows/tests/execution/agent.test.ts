@@ -51,19 +51,24 @@ test('supplies script-read project outcome and distinguishes writable paths', as
   const repo = repository('# Project outcome\n\nKeep the workflow deterministic.\n');
   let prompt = '';
   const client: CodexClientLike = {
-    startThread: () => ({
-      run: async (input) => {
-        prompt = input;
-        return {
-          finalResponse: JSON.stringify({
-            status: 'completed',
-            summary: 'done',
-            route: null,
-            question: null,
-          }),
-        };
-      },
-    }),
+    startThread: (options) => {
+      assert.equal(options?.model, 'gpt-6-astra');
+      assert.equal(options?.modelReasoningEffort, 'high');
+      assert.equal(options?.sandboxMode, 'workspace-write');
+      return {
+        run: async (input) => {
+          prompt = input;
+          return {
+            finalResponse: JSON.stringify({
+              status: 'completed',
+              summary: 'done',
+              route: null,
+              question: null,
+            }),
+          };
+        },
+      };
+    },
   };
 
   await new CodexWorkflowAgent(client).runActor(repo, directive);
@@ -72,6 +77,12 @@ test('supplies script-read project outcome and distinguishes writable paths', as
   assert.match(prompt, /Writable repository paths:\n- src\/value\.ts/u);
   assert.match(prompt, /inspect the repository read-only as needed/u);
   assert.doesNotMatch(prompt, /Allowed repository paths/u);
+  assert.match(
+    prompt,
+    /Controller-owned final full verification: bun run check must pass against the current source/,
+  );
+  assert.match(prompt, /Run focused regressions for changed behavior/);
+  assert.match(prompt, /do not repeat unrelated broad suites without a new reason/);
 });
 
 test('attaches the controller binding to a semantic-only model response', async () => {
@@ -253,6 +264,8 @@ for (const question of observedHandoffs) {
               };
             }
             assert.ok(prompt.includes('Define the new record locally'));
+            assert.match(prompt, /controller owns the final full verification/);
+            assert.match(prompt, /do not repeat unrelated broad suites without a new reason/);
             assert.equal(fs.readFileSync(file, 'utf8'), 'partial');
             fs.writeFileSync(file, 'complete');
             return { finalResponse: JSON.stringify(completed) };

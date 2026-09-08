@@ -131,7 +131,8 @@ function actorPrompt(directive: ActorDirective, projectOutcome: string): string 
     ...tests,
     'Implement the complete outcome and self-review correctness, simplicity, and acceptance coverage before returning.',
     `Writable repository paths:\n${directive.files.map((file) => `- ${file}`).join('\n')}`,
-    `Verification: ${directive.verification.command} must ${directive.verification.expect}.`,
+    `Controller-owned final full verification: ${directive.verification.command} must ${directive.verification.expect} against the current source after implementation and corrections.`,
+    'Run focused regressions for changed behavior and self-review correctness, simplicity, and acceptance coverage. The controller runs the final full check; do not run the broad suite yourself. On corrections, rerun affected checks; do not repeat unrelated broad suites without a new reason.',
     'You may inspect the repository read-only as needed. Change only within the writable paths.',
     ...(directive.research?.length
       ? [
@@ -331,7 +332,7 @@ export class CodexWorkflowAgent implements WorkflowAgent {
       prompt = [
         'The handoff review found this work can proceed within the original contract.',
         `Review feedback: ${JSON.stringify(review.reason)}`,
-        'Continue in this same thread and sandbox, preserving your existing edits. Complete the original outcome, implement its acceptance coverage, and run the specified verification.',
+        'Continue in this same thread and sandbox, preserving your existing edits. Complete the original outcome, implement its acceptance coverage, and run focused regressions for the changed behavior. The controller owns the final full verification; do not repeat unrelated broad suites without a new reason.',
         'The review grants no additional scope or authority. Keep the original writable paths and safety constraints. Do not return a handoff merely to request more implementation time or confirmation of internal APIs.',
         'Return completed only after implementation and self-review. If a new genuine blocker requires handoff, state its concrete conflicting requirement or unavailable evidence.',
       ].join('\n\n');

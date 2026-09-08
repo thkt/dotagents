@@ -32,6 +32,8 @@ test('separate read-only SDK threads receive the candidate and designer correcti
       assert.ok(options);
       assert.equal(options.workingDirectory, repo);
       assert.equal(options.sandboxMode, 'read-only');
+      assert.equal(options.model, 'gpt-6-astra');
+      assert.equal(options.modelReasoningEffort, 'high');
       assert.equal(options.webSearchMode, 'disabled');
       const author = threads++ === 0;
       return {
@@ -58,6 +60,9 @@ test('separate read-only SDK threads receive the candidate and designer correcti
     assert.ok(prompt.includes(input.request));
     assert.ok(prompt.includes(candidate.research_questions[0]!));
     assert.ok(prompt.includes('# Project outcome'));
+    assert.match(prompt, /completed observable requirements/);
+    assert.match(prompt, /Omit superseded planning or publication history/);
+    assert.match(prompt, /Keep necessary current safety and authorization conditions/);
   }
   assert.ok(prompts[0]!.includes(correction.reason));
   assert.throws(() => parseThinkReview(candidate), /unknown key/);

@@ -1133,9 +1133,7 @@ function workflowStatus(runId: string): PublicState {
 function actorVerification(state: FlowState, step: ActorStep): ActorVerification {
   const gate = state.manifest.steps.find(
     (candidate): candidate is GateStep =>
-      candidate.kind === 'gate' &&
-      candidate.id === 'test:implementation' &&
-      candidate.gate.authority === 'shell',
+      candidate.kind === 'gate' && candidate.id === 'test:implementation',
   );
   if (!gate) throw new FlowError(`${step.id} has no shared test gate`, 'state_error');
   if (gate.gate.authority !== 'shell') {
