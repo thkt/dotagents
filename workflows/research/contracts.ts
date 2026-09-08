@@ -16,6 +16,11 @@ import {
   type JsonObject,
 } from '../shared/schema.ts';
 import { NON_BLANK_STRING_SCHEMA } from '../shared/structured-output.ts';
+import {
+  PENDING_QUESTION_SCHEMA,
+  parsePendingQuestion,
+  type PendingQuestion,
+} from '../runtime/clarification.ts';
 
 export const RESEARCH_REPORT_PROTOCOL = 'codex-research-report' as const;
 export const RESEARCH_RESULT_PROTOCOL = 'codex-research-result' as const;
@@ -31,6 +36,7 @@ export interface ResearchInput {
   subquestions?: string[];
   scope_paths: string[];
   allow_external_sources: boolean;
+  clarification_answers?: unknown[];
 }
 
 export type ResearchRequest = ResearchInput;
@@ -78,6 +84,15 @@ export interface ResearchDraft {
   unknowns: ResearchUnknown[];
   limitations: string[];
 }
+
+/** A transient investigator result; it is never a report or publishable evidence. */
+interface ResearchWaiting {
+  affected_questions?: string[];
+  status: 'waiting';
+  question: PendingQuestion;
+}
+
+export type ResearchInvestigationResult = ResearchDraft | ResearchWaiting;
 
 export interface ResearchReport extends Omit<ResearchDraft, 'findings'> {
   protocol: typeof RESEARCH_REPORT_PROTOCOL;
@@ -160,6 +175,44 @@ export const RESEARCH_DRAFT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+export const RESEARCH_WAITING_SCHEMA = {
+  type: 'object',
+  properties: {
+    status: { type: 'string', enum: ['waiting'] },
+    question: PENDING_QUESTION_SCHEMA,
+    affected_questions: {
+      anyOf: [{ type: 'array', minItems: 1, items: NON_BLANK_STRING_SCHEMA }, { type: 'null' }],
+    },
+  },
+  required: ['status', 'question', 'affected_questions'],
+  additionalProperties: false,
+} as const;
+
+function parseResearchWaiting(raw: unknown): ResearchWaiting {
+  if (!isObject(raw))
+    throw new FlowError('research waiting result must be an object', 'execution_error');
+  rejectUnknownKeys(
+    raw,
+    ['status', 'question', 'affected_questions'],
+    'research waiting result',
+    'execution_error',
+  );
+  if (raw.status !== 'waiting')
+    throw new FlowError('research result is not waiting', 'execution_error');
+  return {
+    status: 'waiting',
+    question: parsePendingQuestion(raw.question),
+    ...(raw.affected_questions == null
+      ? {}
+      : { affected_questions: stringArray(raw.affected_questions, 'answer-affected assignments') }),
+  };
+}
+
+export function parseResearchInvestigationResult(raw: unknown): ResearchInvestigationResult {
+  if (isObject(raw) && raw.status === 'waiting') return parseResearchWaiting(raw);
+  return parseResearchDraft(raw);
+}
+
 export interface ResearchAudit {
   summary: string;
   findings: Array<{
@@ -199,7 +252,7 @@ export const RESEARCH_AUDIT_SCHEMA = {
 } as const;
 
 /** An auditor can report defects but cannot replace the investigator's candidate. */
-export function parseResearchAudit(raw: unknown): ResearchAudit {
+export function parseResearchAudit(raw: unknown, pendingQuestion = false): ResearchAudit {
   if (!isObject(raw)) throw new FlowError('research audit must be an object', 'execution_error');
   rejectUnknownKeys(raw, ['summary', 'findings'], 'research audit', 'execution_error');
   return {
@@ -215,7 +268,7 @@ export function parseResearchAudit(raw: unknown): ResearchAudit {
       const evidence = objectArray(item.evidence, `${label}.evidence`).map((value, i) =>
         parseEvidence(value, `${label}.evidence[${i}]`),
       );
-      if (!evidence.length)
+      if (!evidence.length && !pendingQuestion)
         throw new FlowError(`${label}.evidence must not be empty`, 'execution_error');
       return {
         severity: enumValue(
@@ -259,6 +312,20 @@ export function parseSubquestions(raw: unknown): string[] {
 /** Validates research input; null scopeRepo checks path syntax only for completed-result retrieval. */
 export function validateResearchInput(raw: unknown, scopeRepo?: string | null): ResearchRequest {
   if (!isObject(raw)) throw new FlowError('research input must be an object');
+  rejectUnknownKeys(
+    raw,
+    [
+      'repo',
+      'question',
+      'subquestions',
+      'scope_paths',
+      'allow_external_sources',
+      'clarification_answers',
+    ],
+    'research input',
+  );
+  if (raw.clarification_answers !== undefined && !Array.isArray(raw.clarification_answers))
+    throw new FlowError('clarification_answers must be an array');
   const repoPath = requiredString(raw.repo, 'research input.repo');
   const repo = gitRoot(repoPath, 'research input.repo must be a Git worktree');
   const question = requiredString(raw.question, 'research input.question');
@@ -281,6 +348,15 @@ export function validateResearchInput(raw: unknown, scopeRepo?: string | null): 
       : { subquestions: parseSubquestions(raw.subquestions) }),
     scope_paths: [...new Set(scopePaths)],
     allow_external_sources: raw.allow_external_sources === true,
+    ...(raw.clarification_answers === undefined
+      ? {}
+      : {
+          clarification_answers: Array.isArray(raw.clarification_answers)
+            ? raw.clarification_answers
+            : (() => {
+                throw new FlowError('research input.clarification_answers must be an array');
+              })(),
+        }),
   };
 }
 
@@ -513,5 +589,26 @@ export function parseResearchReport(raw: unknown): ResearchReport {
     ),
     unknowns,
     limitations: stringArray(raw.limitations, 'research report.limitations', 'execution_error'),
+  };
+}
+
+/** Question-only defects can cite the displayed context in their condition and message. */
+export function researchAuditSchema(pendingQuestion: boolean) {
+  const findings = RESEARCH_AUDIT_SCHEMA.properties.findings;
+  return {
+    ...RESEARCH_AUDIT_SCHEMA,
+    properties: {
+      ...RESEARCH_AUDIT_SCHEMA.properties,
+      findings: {
+        ...findings,
+        items: {
+          ...findings.items,
+          properties: {
+            ...findings.items.properties,
+            evidence: { ...findings.items.properties.evidence, minItems: pendingQuestion ? 0 : 1 },
+          },
+        },
+      },
+    },
   };
 }

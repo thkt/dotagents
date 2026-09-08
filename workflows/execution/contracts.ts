@@ -252,7 +252,7 @@ export interface ImplementationTestRecovery {
 
 export interface FlowState {
   protocol: typeof STATE_PROTOCOL;
-  execution_revision: 2;
+  execution_revision: 4;
   invocation_id: string;
   actor_dispatched: boolean;
   review_dispatch_id: string;
@@ -428,7 +428,10 @@ export type FlowDirective =
     };
 
 export interface CommandResult {
-  result: PublicState | FlowDescription;
+  result:
+    | PublicState
+    | FlowDescription
+    | (import('../runtime/clarification.ts').WaitingResult & { protocol: typeof RESULT_PROTOCOL });
   exitCode: number;
 }
 

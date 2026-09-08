@@ -26,21 +26,28 @@ interface ThinkDescription {
   };
 }
 
-export interface ThinkCommandResult {
+interface ThinkCompletedResult {
   protocol: typeof THINK_RESULT_PROTOCOL;
-  status: 'ready' | 'research_required';
+  status: 'ready';
   report_json: string;
   report_markdown: string;
   units: number;
-  next_step: 'issue' | 'research';
+  next_step: 'issue' | 'research' | 'waiting';
 }
+
+export type ThinkCommandResult =
+  | ThinkCompletedResult
+  | (import('../runtime/clarification.ts').WaitingResult & {
+      protocol: typeof THINK_RESULT_PROTOCOL;
+      report_json?: never;
+      report_markdown?: never;
+    });
 
 /** Exposes the authoring boundary without starting a model or workflow. */
 export function describeThink(): ThinkDescription {
   return {
     protocol: THINK_DESCRIPTION_PROTOCOL,
-    outcome:
-      'A source-backed decision is either issue-ready or routed to one concrete research gap.',
+    outcome: 'A verified ready Plan, or one independently accepted pending user-owned decision.',
     cli: {
       describe: `${THINK_COMMAND} describe`,
       run: `${THINK_COMMAND} run --input <absolute-json>`,
@@ -55,7 +62,7 @@ export function describeThink(): ThinkDescription {
       research_reports:
         'optional selected Research artifact paths or basenames; related Knowledge is supplied automatically',
       result:
-        'ready hands off a build-contract-compatible plan to issue; research_required returns no plan',
+        'ready hands off a verified Plan to Issue; waiting returns only the accepted question and its owner. Reviewed factual gaps run Research internally, then return to design and review.',
       artifacts:
         'repository-local ignored cache holds the JSON handoff and paired Markdown; it is not Build authority',
     },
@@ -70,13 +77,15 @@ export async function runThinkWorkflow(
   children?: StageAgents,
 ): Promise<ThinkCommandResult> {
   const result = await runThink(runId, inputFile, agent, undefined, children);
+  if ('status' in result) return { protocol: THINK_RESULT_PROTOCOL, ...result };
+  if (!('report' in result)) throw new FlowError('Think returned an invalid result');
   return {
     protocol: THINK_RESULT_PROTOCOL,
-    status: result.report.status,
+    status: 'ready',
     report_json: result.report_json,
     report_markdown: result.report_markdown,
     units: result.report.plan?.units.length ?? 0,
-    next_step: thinkNextStep(result.report.status),
+    next_step: thinkNextStep(result.report.status) as 'issue' | 'research',
   };
 }
 

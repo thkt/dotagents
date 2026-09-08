@@ -256,7 +256,7 @@ test('an older execution revision is retained with recovery instructions before 
   const pending = startCode(repo, runId);
   const file = statePath(runId);
   const old = JSON.parse(fs.readFileSync(file, 'utf8'));
-  delete old.execution_revision;
+  old.execution_revision = 3;
   fs.writeFileSync(file, JSON.stringify(old));
   const before = fs.readFileSync(file, 'utf8');
   assert.throws(() => startOrResumeWorkflow(runId, pending.input_path), /original runtime/);

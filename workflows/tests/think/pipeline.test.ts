@@ -93,7 +93,7 @@ async function runRequest(input: ThinkInput, agent: ThinkAgent) {
   const result = await runThinkWorkflow(intent.run_id, intent.input_path, agent);
   return {
     ...result,
-    report: parseThinkReport(JSON.parse(fs.readFileSync(result.report_json, 'utf8'))),
+    report: parseThinkReport(JSON.parse(fs.readFileSync(result.report_json!, 'utf8'))),
   };
 }
 
@@ -146,10 +146,10 @@ test('persists the reviewed ready Plan as the Issue handoff', async () => {
   );
   assert.equal(result.report.status, 'ready');
   assert.deepEqual(
-    parseThinkReport(JSON.parse(fs.readFileSync(result.report_json, 'utf8'))),
+    parseThinkReport(JSON.parse(fs.readFileSync(result.report_json!, 'utf8'))),
     result.report,
   );
-  assert.match(fs.readFileSync(result.report_markdown, 'utf8'), /## Plan/u);
+  assert.match(fs.readFileSync(result.report_markdown!, 'utf8'), /## Plan/u);
 });
 
 test('automatically supplies related Knowledge to Think', async () => {

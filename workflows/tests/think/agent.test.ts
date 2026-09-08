@@ -72,3 +72,56 @@ test('separate read-only SDK threads receive the candidate and designer correcti
     /needs evidence/,
   );
 });
+
+test('production Think prompts and structured schema distinguish authoring from independent question acceptance', async () => {
+  const repo = temporaryDirectory('think-question-agent-');
+  fs.mkdirSync(path.join(repo, '.codex'));
+  fs.writeFileSync(
+    path.join(repo, '.codex/OUTCOME.md'),
+    '# Project outcome\n\nChoose an access policy.\n',
+  );
+  const question = {
+    id: 'access',
+    prompt: 'Which access policy is required?',
+    choices: [
+      { label: 'Public', description: 'Public access.' },
+      { label: 'Private', description: 'Private access.' },
+    ],
+    recommendation: null,
+  };
+  const prompts: string[] = [];
+  const draft: ThinkDraft = { status: 'waiting', plan: null, research_questions: [], question };
+  const client: CodexClientLike = {
+    startThread() {
+      return {
+        async run(prompt, options) {
+          prompts.push(prompt);
+          if (prompts.length === 1) {
+            assert.match(JSON.stringify(options?.outputSchema), /description/);
+            return { finalResponse: JSON.stringify(draft) };
+          }
+          return {
+            finalResponse: JSON.stringify({
+              summary: 'A necessary user-owned policy.',
+              findings: [],
+            }),
+          };
+        },
+      };
+    },
+  };
+  const agent = new CodexThinkAgent(client);
+  const input = { repo, request: 'Plan deployment access.', research_reports: [] };
+  const authored = await agent.design(input, [], [], {}, repo);
+  await agent.review(input, authored, [], [], {}, repo);
+  assert.match(prompts[0]!, /may author one waiting question/);
+  assert.doesNotMatch(prompts[0]!, /Never author or replace a question/);
+  assert.match(prompts[1]!, /Never author or replace a question/);
+  for (const prohibited of [
+    'gratuitous preferences',
+    'factual questions',
+    'internal implementation choices',
+    'materially unnecessary',
+  ])
+    assert(prompts[1]!.includes(prohibited));
+});

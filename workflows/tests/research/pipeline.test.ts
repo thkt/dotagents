@@ -15,6 +15,7 @@ import {
   type ResearchInput,
 } from '../../research/contracts.ts';
 import { type ResearchAgent } from '../../research/agent.ts';
+import { runStreamedCodexTurn } from '../../shared/codex.ts';
 import type { KnowledgeEntry } from '../../research/knowledge.ts';
 
 import { knowledgeArtifactDirectory, researchArtifactDirectory } from '../../runtime/storage.ts';
@@ -60,7 +61,7 @@ async function runRequest(request: ResearchInput, agent: ResearchAgent) {
   assert.equal(loadIntent(pending.run_id), null);
   return {
     ...result,
-    report: parseResearchReport(JSON.parse(fs.readFileSync(result.report_json, 'utf8'))),
+    report: parseResearchReport(JSON.parse(fs.readFileSync(result.report_json!, 'utf8'))),
   };
 }
 
@@ -114,8 +115,8 @@ test('runs read-only research and writes paired artifacts', async () => {
   assert.equal(result.next_step, 'think');
   assert.equal(result.findings, result.report.findings.length);
   assert.equal(result.report.findings[0]?.evidence[0]?.kind, 'repository');
-  assert.ok(fs.existsSync(result.report_json));
-  assert.ok(fs.existsSync(result.report_markdown));
+  assert.ok(fs.existsSync(result.report_json!));
+  assert.ok(fs.existsSync(result.report_markdown!));
   assert.equal(fs.readFileSync(path.join(repo, 'src/index.ts'), 'utf8'), before);
   assert.deepEqual(agent.seen[0], []);
 });
@@ -175,7 +176,7 @@ test('reuses rebuilt Knowledge and skips malformed Research', async () => {
   await runRequest(input(repo), agent);
   assert.deepEqual(
     agent.seen[0]!.flatMap((item) => item.sources.map((source) => source.report)),
-    [path.basename(previous.report_json)],
+    [path.basename(previous.report_json!)],
   );
 });
 
@@ -258,7 +259,7 @@ test('keeps persisted Research successful when Knowledge cannot be updated', asy
 
   const result = await runRequest(input(repo), new FakeAgent());
 
-  assert.ok(fs.existsSync(result.report_json));
+  assert.ok(fs.existsSync(result.report_json!));
   assert.equal(result.report.findings.length, 1);
 });
 
@@ -354,4 +355,145 @@ test('an intent bound to another run, worktree, or input path rejects startup an
     assert.ok(loadIntent(runId), bound.name);
   }
   assert.equal(agent.seen.length, 0);
+});
+
+test('production Research independently rejects an unnecessary question and audits its author correction and explicit answer', async () => {
+  const { CodexResearchAgent } = await import('../../research/agent.ts');
+  const { loadResearchState } = await import('../../research/state.ts');
+  const repo = repoFixture();
+  fs.mkdirSync(path.join(repo, '.codex'));
+  fs.writeFileSync(
+    path.join(repo, '.codex/OUTCOME.md'),
+    '# Project outcome\n\nInvestigate an access policy.\n',
+  );
+  const pending = armIntent({ runId: crypto.randomUUID(), workflow: 'research', cwd: repo });
+  const original = input(repo, {
+    question: 'Investigate the repository implications of the selected access policy.',
+  });
+  fs.writeFileSync(pending.input_path, JSON.stringify(original));
+  const question = {
+    id: 'policy',
+    prompt: 'Which access policy must this investigation evaluate?',
+    choices: [
+      { label: 'Public', description: 'Evaluate unauthenticated access.' },
+      { label: 'Private', description: 'Evaluate authenticated access.' },
+    ],
+    recommendation: null,
+  };
+  const prompts: string[] = [];
+  let threads = 0;
+  const worker = new CodexResearchAgent({
+    startThread(options) {
+      assert.equal(options!.sandboxMode, 'read-only');
+      const index = threads++;
+      return {
+        async run(prompt, turnOptions) {
+          prompts.push(prompt);
+          const response =
+            index === 0
+              ? {
+                  status: 'waiting',
+                  question: {
+                    ...question,
+                    id: 'gratuitous',
+                    prompt: 'Which internal variable name should be used?',
+                  },
+                  affected_questions: null,
+                }
+              : index === 1
+                ? {
+                    summary: 'Delegated implementation choice.',
+                    findings: [
+                      {
+                        severity: 'blocking',
+                        condition: 'A necessary material user-owned decision is required.',
+                        message:
+                          'The candidate asks for an internal implementation choice; the original request delegates this.',
+                        evidence: [],
+                      },
+                    ],
+                  }
+                : index === 2
+                  ? { status: 'waiting', question, affected_questions: null }
+                  : index === 4
+                    ? draft
+                    : audit;
+          if (index === 1)
+            for (const criterion of [
+              'gratuitous preferences',
+              'factual questions',
+              'internal implementation choices',
+              'materially unnecessary',
+            ])
+              assert(prompt.includes(criterion));
+          if (index === 2)
+            assert(
+              prompt.includes('Delegated implementation choice') ||
+                prompt.includes('original request delegates'),
+            );
+          if (index >= 4) assert(prompt.includes('Complete clarification history'));
+          // Exercise the actual production schema validator and stream adapter, not just a fake run().
+          const finalResponse = JSON.stringify(index % 2 === 0 ? { result: response } : response);
+          return runStreamedCodexTurn(
+            {
+              async runStreamed() {
+                return {
+                  events: (async function* () {
+                    yield {
+                      type: 'item.completed' as const,
+                      item: { id: 'response', type: 'agent_message' as const, text: finalResponse },
+                    };
+                    yield {
+                      type: 'turn.completed' as const,
+                      usage: {
+                        input_tokens: 1,
+                        output_tokens: 1,
+                        cached_input_tokens: 0,
+                        cache_write_input_tokens: 0,
+                        reasoning_output_tokens: 0,
+                      },
+                    };
+                  })(),
+                };
+              },
+            },
+            prompt,
+            turnOptions,
+          );
+        },
+      };
+    },
+  });
+  const waiting = await runResearchWorkflow(pending.run_id, pending.input_path, worker);
+  assert(waiting.status === 'waiting');
+  assert.equal(waiting.question.id, 'policy');
+  assert.equal(threads, 4);
+  assert.equal(fs.existsSync(researchArtifactDirectory(repo)), false);
+  assert.equal(loadResearchState(pending.run_id)!.corrections, 1);
+  assert.deepEqual(await runResearchWorkflow(pending.run_id, pending.input_path, worker), waiting);
+  assert.equal(threads, 4);
+  fs.writeFileSync(
+    pending.input_path,
+    JSON.stringify({
+      ...original,
+      clarification_answers: [
+        {
+          owner: waiting.owner,
+          question_id: question.id,
+          prompt: question.prompt,
+          choices: question.choices,
+          recommendation: null,
+          selection: 'Private',
+          answer: null,
+        },
+      ],
+    }),
+  );
+  assert.equal(
+    (await runResearchWorkflow(pending.run_id, pending.input_path, worker)).status,
+    'completed',
+  );
+  assert.equal(threads, 6);
+  assert(prompts[3]!.includes(question.prompt));
+  assert.equal(loadResearchState(pending.run_id)!.corrections, 1);
 });

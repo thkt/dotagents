@@ -212,7 +212,7 @@ test('Issue refuses a Think result that still requires Research', () => {
     title: '保存',
     prose: '## 背景\n\n保存機能が必要。',
   });
-  assert.throws(() => draftIssue(input, gateway), /must be issue-ready/u);
+  assert.throws(() => draftIssue(input, gateway), /only verified ready Think reports/u);
 });
 
 test('round-trips visible Plan Markdown and collapsed canonical JSON', () => {

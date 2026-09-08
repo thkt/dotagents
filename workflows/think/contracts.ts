@@ -18,6 +18,11 @@ import {
 } from '../shared/schema.ts';
 import { researchArtifactDirectory } from '../runtime/storage.ts';
 import { NON_BLANK_STRING_SCHEMA } from '../shared/structured-output.ts';
+import {
+  PENDING_QUESTION_SCHEMA,
+  parsePendingQuestion,
+  type PendingQuestion,
+} from '../runtime/clarification.ts';
 
 export type ThinkPlan = BuildPlanAuthoring;
 
@@ -25,16 +30,17 @@ export const THINK_REPORT_PROTOCOL = 'codex-think-report' as const;
 export const THINK_RESULT_PROTOCOL = 'codex-think-result' as const;
 export const THINK_DESCRIPTION_PROTOCOL = 'codex-think-description' as const;
 
-export type ThinkStatus = 'ready' | 'research_required';
+export type ThinkStatus = 'ready' | 'research_required' | 'waiting';
 
-export function thinkNextStep(status: ThinkStatus): 'issue' | 'research' {
-  return status === 'ready' ? 'issue' : 'research';
+export function thinkNextStep(status: ThinkStatus): 'issue' | 'research' | 'waiting' {
+  return status === 'ready' ? 'issue' : status === 'waiting' ? 'waiting' : 'research';
 }
 
 export interface ThinkInput {
   repo: string;
   request: string;
   research_reports: string[];
+  clarification_answers?: unknown[];
 }
 
 export type ThinkRequest = ThinkInput;
@@ -43,6 +49,7 @@ export interface ThinkDecision {
   status: ThinkStatus;
   plan: ThinkPlan | null;
   research_questions: string[];
+  question?: PendingQuestion;
 }
 
 export type ThinkDraft = ThinkDecision;
@@ -59,11 +66,12 @@ export const THINK_PLAN_SCHEMA = BUILD_PLAN_AUTHORING_SCHEMA;
 const THINK_DECISION_SCHEMA = {
   type: 'object',
   properties: {
-    status: { type: 'string', enum: ['ready', 'research_required'] },
+    status: { type: 'string', enum: ['ready', 'research_required', 'waiting'] },
     plan: { anyOf: [THINK_PLAN_SCHEMA, { type: 'null' }] },
     research_questions: { type: 'array', items: NON_BLANK_STRING_SCHEMA },
+    question: { anyOf: [PENDING_QUESTION_SCHEMA, { type: 'null' }] },
   },
-  required: ['status', 'plan', 'research_questions'],
+  required: ['status', 'plan', 'research_questions', 'question'],
   additionalProperties: false,
 } as const;
 
@@ -130,6 +138,13 @@ export function parseThinkReview(raw: unknown): ThinkReview {
 /** Validates only the semantic inputs needed to perform Think. */
 export function validateThinkInput(raw: unknown): ThinkRequest {
   if (!isObject(raw)) throw new FlowError('think input must be an object');
+  rejectUnknownKeys(
+    raw,
+    ['repo', 'request', 'research_reports', 'clarification_answers'],
+    'think input',
+  );
+  if (raw.clarification_answers !== undefined && !Array.isArray(raw.clarification_answers))
+    throw new FlowError('clarification_answers must be an array');
   const repo = gitRoot(
     requiredString(raw.repo, 'think input.repo'),
     'think input.repo must be a Git worktree',
@@ -142,6 +157,9 @@ export function validateThinkInput(raw: unknown): ThinkRequest {
     repo,
     request: requiredString(raw.request, 'think input.request'),
     research_reports: [...new Set(reports)],
+    ...(Array.isArray(raw.clarification_answers)
+      ? { clarification_answers: raw.clarification_answers }
+      : {}),
   };
 }
 
@@ -150,11 +168,11 @@ export function parseThinkDecision(raw: unknown): ThinkDecision {
   if (!isObject(raw)) throw new FlowError('think returned an invalid object', 'execution_error');
   rejectUnknownKeys(
     raw,
-    ['status', 'plan', 'research_questions'],
+    ['status', 'plan', 'research_questions', 'question'],
     'think decision',
     'execution_error',
   );
-  if (raw.status !== 'ready' && raw.status !== 'research_required') {
+  if (raw.status !== 'ready' && raw.status !== 'research_required' && raw.status !== 'waiting') {
     throw new FlowError(
       'think decision.status must be ready or research_required',
       'execution_error',
@@ -166,6 +184,20 @@ export function parseThinkDecision(raw: unknown): ThinkDecision {
     'think decision.research_questions',
     'execution_error',
   );
+  const question =
+    raw.question === undefined || raw.question === null
+      ? undefined
+      : parsePendingQuestion(raw.question);
+  if (raw.status === 'waiting') {
+    if (plan !== null || researchQuestions.length || !question)
+      throw new FlowError(
+        'waiting decision must contain only one pending question',
+        'decision_error',
+      );
+    return { status: 'waiting', plan: null, research_questions: [], question };
+  }
+  if (question)
+    throw new FlowError('non-waiting decision cannot contain a question', 'decision_error');
   if (raw.status === 'ready') {
     if (plan === null) throw new FlowError('ready decision must contain a plan', 'decision_error');
     if (researchQuestions.length) {
@@ -206,6 +238,8 @@ export function parseThinkReport(raw: unknown): ThinkReport {
     ],
     'think report',
   );
+  if (raw.status !== 'ready')
+    throw new FlowError('only verified ready Think reports are completed evidence');
   const generatedAt = requiredString(raw.generated_at, 'think report.generated_at');
   const generatedTime = Date.parse(generatedAt);
   if (!Number.isFinite(generatedTime) || new Date(generatedTime).toISOString() !== generatedAt) {

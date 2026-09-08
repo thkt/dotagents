@@ -1,7 +1,7 @@
 /** @file Outcome: Research validates, independently audits, corrects and resumes one immutable snapshot. */
 
 import crypto from 'node:crypto';
-import { requireStageAccess, type StageAccess } from '../runtime/stage-return.ts';
+import { markStageStarted, requireStageAccess, type StageAccess } from '../runtime/stage-return.ts';
 import path from 'node:path';
 import { errorCode, errorMessage, FlowError } from '../shared/errors.ts';
 import { readRepositoryEvidence } from '../shared/evidence.ts';
@@ -32,13 +32,24 @@ import {
   reportForCandidate,
   type ResearchState,
   investigationBatch,
+  researchWaitingOwner,
 } from './state.ts';
+import {
+  parseClarificationAnswer,
+  inputAnswerDelta,
+  sameValue,
+  type WaitingResult,
+  type ClarificationAnswer,
+} from '../runtime/clarification.ts';
 
 export interface ResearchRunResult {
+  clarification_answers: ClarificationAnswer[];
   report: ResearchReport;
   report_json: string;
   report_markdown: string;
 }
+
+export type ResearchWaitingResult = WaitingResult;
 
 function inScope(source: string, scopePaths: readonly string[]): boolean {
   if (!scopePaths.length) return true;
@@ -84,6 +95,13 @@ function validateEvidence(input: ResearchInput, evidence: ResearchEvidence[], la
 
 function validateCandidate(input: ResearchInput, state: ResearchState): void {
   const candidate = state.candidate!;
+  if (state.pending_question) {
+    for (const part of state.investigations!)
+      if (part.result)
+        validateCandidate(input, { ...state, candidate: part.result, pending_question: null });
+    return;
+  }
+
   for (const [index, finding] of candidate.findings.entries())
     validateEvidence(input, finding.evidence, `research candidate.findings[${index}].evidence`);
   if (!candidate.findings.length && !candidate.unknowns.length)
@@ -115,12 +133,23 @@ function correct(runId: string, state: ResearchState, reason: string): void {
   state.reason = reason;
   state.correction = reason;
   state.dispatch = null;
+  state.pending_owner = null;
   if (state.corrections === 3) state.phase = 'blocked';
   else {
     state.corrections += 1;
     state.phase = 'investigate';
-    state.investigations = investigationBatch(state.input);
+    if (state.investigations) {
+      for (const part of state.investigations) {
+        part.result = null;
+        part.proposal = null;
+        // A corrected candidate has its own retry allowance; total dispatch history is retained.
+        part.settled = part.attempts;
+      }
+    } else state.investigations = investigationBatch(state.input);
     state.attempts = 0;
+    // Retain the exhausted candidate's question with its audit; question findings may
+    // legitimately have no factual evidence and still need their context on reload.
+    state.pending_question = null;
     state.audit = null;
   }
   saveResearchState(runId, state);
@@ -132,10 +161,12 @@ export async function runResearch(
   inputFile: string,
   agent?: ResearchAgent,
   access?: StageAccess,
-): Promise<ResearchRunResult> {
+): Promise<ResearchRunResult | ResearchWaitingResult> {
   requireStageAccess(runId, access);
   using _ownership = acquireWorkflowOwnership(runId);
   let state = loadResearchState(runId);
+  if (state && state.stage_binding !== (access?.binding ?? null))
+    throw new FlowError('Research parent dispatch ownership changed', 'state_error');
   const intent = loadIntent(runId);
   const scopeRepo =
     state && !intent
@@ -152,17 +183,30 @@ export async function runResearch(
     );
   // A new explicit invocation can replace only a terminal run, never active work.
   if (state && ['completed', 'blocked'].includes(state.phase) && intent) state = null;
-  if (state && researchDigest(state.input) !== researchDigest(input))
-    throw new FlowError(
-      'Research resume requires the exact original input; use a new task for a different question',
-      'state_error',
-    );
+  const rawInput = readAbsoluteJson(inputFile, 'research');
+  if (state) {
+    if (
+      !sameValue(state.input, validateResearchInput(state.raw_input, scopeRepo)) ||
+      !sameValue(state.input.clarification_answers ?? [], state.clarification_history)
+    )
+      throw new FlowError('Research stored input or answer history changed', 'state_error');
+    const pending =
+      state.phase === 'waiting' && state.pending_question && state.pending_owner
+        ? {
+            status: 'waiting' as const,
+            question: state.pending_question,
+            owner: state.pending_owner,
+          }
+        : undefined;
+    inputAnswerDelta(state.raw_input, rawInput, pending);
+  } else if (input.clarification_answers?.length && !access)
+    throw new FlowError('answers require an existing waiting owner', 'state_error');
   if (!state) {
     const invocation = crypto.randomUUID();
     const snapshot = researchSnapshotPath(runId, { invocation });
     createRepositorySnapshot(access?.snapshot ?? input.repo, snapshot);
     state = {
-      protocol: 'codex-research-state-v3',
+      protocol: 'codex-research-state-v5',
       investigations: investigationBatch(input),
       invocation,
       run_id: runId,
@@ -179,10 +223,18 @@ export async function runResearch(
       correction: null,
       generated_at: null,
       publication: null,
+      pending_question: null,
+      clarification_history: (input.clarification_answers ?? []).map(parseClarificationAnswer),
+      raw_input: rawInput,
+      stage_binding: access?.binding ?? null,
+      pending_owner: null,
+      dispatch_history: [],
+      accepted_questions: [],
     };
     saveResearchState(runId, state);
   }
   // The durable state now carries authorization and exact input; restarting needs no new intent.
+  markStageStarted(access);
   clearIntent(runId);
   const investigator = () => (agent ??= new CodexResearchAgent());
   const requireContext = () => {
@@ -205,7 +257,53 @@ export async function runResearch(
       // Repair a lost Markdown view, but never replace another JSON report.
       const report = reportForCandidate(state);
       persistResearchReport(input.repo, report, paths);
-      return { report, report_json: paths.json, report_markdown: paths.markdown };
+      return {
+        report,
+        report_json: paths.json,
+        report_markdown: paths.markdown,
+        clarification_answers: structuredClone(state.clarification_history),
+      };
+    }
+    if (state.phase === 'waiting') {
+      requireContext();
+      if (
+        !state.pending_question ||
+        !state.pending_owner ||
+        !sameValue(
+          state.pending_owner,
+          researchWaitingOwner(state, access?.root ?? state.invocation, access?.task ?? runId),
+        )
+      )
+        throw new FlowError('Research waiting owner or acceptance changed', 'state_error');
+      const waiting: WaitingResult = {
+        status: 'waiting',
+        question: state.pending_question,
+        owner: state.pending_owner,
+      };
+      const answer = inputAnswerDelta(state.raw_input, rawInput, waiting);
+      if (!answer) return waiting;
+      state.accepted_questions.push({ waiting, candidate: state.candidate, review: state.audit });
+      state.clarification_history.push(answer);
+      state.raw_input = rawInput;
+      state.input = input;
+      const affected = new Set(
+        state.investigations!.filter((part) => part.proposal).flatMap((part) => part.affected),
+      );
+      for (const part of state.investigations!)
+        if (affected.has(part.question)) {
+          part.result = null;
+          part.proposal = null;
+          part.affected = [];
+        }
+      state.pending_question = null;
+      state.pending_owner = null;
+      state.candidate = null;
+      state.audit = null;
+      state.phase = 'investigate';
+      state.attempts = 0;
+      state.dispatch = null;
+      saveResearchState(runId, state);
+      continue;
     }
     if (state.phase === 'investigate') {
       await investigateBatch(state, investigator(), requireContext);
@@ -213,6 +311,15 @@ export async function runResearch(
     }
     const snapshot = requireContext();
     const validationInput = { ...input, repo: snapshot };
+    if (state.phase === 'audit' && state.pending_question) {
+      try {
+        validateCandidate(validationInput, state);
+      } catch (error) {
+        if (errorCode(error) !== 'evidence_error') throw error;
+        correct(runId, state, errorMessage(error));
+        continue;
+      }
+    }
     if (state.phase === 'validate') {
       try {
         validateCandidate(validationInput, state);
@@ -227,10 +334,34 @@ export async function runResearch(
       saveResearchState(runId, state);
       continue;
     }
+    if (
+      state.phase === 'audit' &&
+      state.pending_question &&
+      state.clarification_history.some(
+        (answer) => answer.question_id === state.pending_question!.id,
+      )
+    ) {
+      correct(
+        runId,
+        state,
+        'This question identity was already answered; reason from the complete history.',
+      );
+      continue;
+    }
     if (state.phase === 'decide') {
       const blocking = state.audit!.findings.filter((finding) => finding.severity === 'blocking');
       if (blocking.length) {
         correct(runId, state, JSON.stringify(blocking));
+        continue;
+      }
+      if (state.pending_question) {
+        state.phase = 'waiting';
+        state.pending_owner = researchWaitingOwner(
+          state,
+          access?.root ?? state.invocation,
+          access?.task ?? runId,
+        );
+        saveResearchState(runId, state);
         continue;
       }
       state.generated_at = new Date().toISOString();
@@ -261,6 +392,7 @@ export async function runResearch(
     }
     state.attempts += 1;
     state.dispatch = crypto.randomUUID();
+    state.dispatch_history.push(state.dispatch);
     saveResearchState(runId, state);
     const pendingDigest = researchDigest(state);
     let result: unknown;
@@ -271,6 +403,12 @@ export async function runResearch(
         structuredClone(state.candidate!),
         structuredClone(state.knowledge),
         snapshot,
+        state.pending_question
+          ? {
+              question: structuredClone(state.pending_question),
+              investigations: structuredClone(state.investigations!),
+            }
+          : undefined,
       );
     } catch (error) {
       failure = error;
@@ -284,7 +422,7 @@ export async function runResearch(
     requireContext();
     try {
       if (failure !== undefined) throw failure;
-      const audit = parseResearchAudit(result);
+      const audit = parseResearchAudit(result, Boolean(state.pending_question));
       for (const [index, finding] of audit.findings.entries())
         validateEvidence(
           validationInput,

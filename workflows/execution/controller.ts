@@ -2,6 +2,11 @@
 
 import { registerImplementation, retireImplementation } from '../cleanup/state.ts';
 import crypto from 'node:crypto';
+import {
+  initializeStageReturns,
+  requireRoutedBuildInput,
+  saveStageReturnTransition,
+} from '../runtime/stage-return.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -118,7 +123,7 @@ function loadWorkflowState(runId: string): { file: string; state: FlowState } {
       throw new FlowError('workflow state has an invalid run id', 'state_error');
     }
     if (
-      state.execution_revision !== 2 ||
+      state.execution_revision !== 4 ||
       !Array.isArray(state.research_context) ||
       !(
         state.handoff === null ||
@@ -350,7 +355,7 @@ function startWorkflow(runId: string, inputFile: string): PublicState {
   registerImplementation(manifest.repo, runId, file);
   const state: FlowState = {
     protocol: STATE_PROTOCOL,
-    execution_revision: 2,
+    execution_revision: 4,
     invocation_id: crypto.randomUUID(),
     actor_dispatched: false,
     review_dispatch_id: crypto.randomUUID(),
@@ -379,6 +384,13 @@ function startWorkflow(runId: string, inputFile: string): PublicState {
     ship_authorization_revoked: false,
   };
   prepareCurrentStep(state);
+  if (state.workflow === 'build')
+    initializeStageReturns(
+      runId,
+      'build',
+      state.invocation_id,
+      readAbsoluteJson(inputFile, 'build'),
+    );
   const result = save(file, state);
   clearIntent(runId);
   return result;
@@ -388,7 +400,17 @@ function requireOriginalInput(state: FlowState, inputFile: string): void {
   if (path.resolve(inputFile) !== workflowInputPath(state.run_id, state.workflow)) {
     throw new FlowError('resume requires the hook-supplied input path', 'state_error');
   }
-  if (inputHash(inputFile) !== state.input_sha256) {
+  if (
+    inputHash(inputFile) !== state.input_sha256 &&
+    !(
+      state.workflow === 'build' &&
+      requireRoutedBuildInput(
+        state.run_id,
+        state.invocation_id,
+        JSON.parse(fs.readFileSync(inputFile, 'utf8')),
+      )
+    )
+  ) {
     throw new FlowError('resume requires the original workflow input', 'state_error');
   }
 }
@@ -624,6 +646,12 @@ function startOrResumeWorkflow(runId: string, inputFile: string): PublicState {
       return publicState(existing);
     }
     requireOriginalInput(existing, inputFile);
+    // Root persistence may have completed just before startup intent consumption.
+    // Consume that original authorization before dispatch can reach a waiting stop.
+    if (loadIntent(runId)) {
+      requireIntent(runId, existing.workflow, existing.manifest.repo, inputFile);
+      clearIntent(runId);
+    }
     return publicState(existing);
   } catch (error) {
     if (errorCode(error) === 'no_flow') return startWorkflow(runId, inputFile);
@@ -1479,6 +1507,7 @@ export function finishStageReturn(
   )
     throw new FlowError('stale Build stage return', 'state_error');
   if (result.error) {
+    const before = thinkDigest(state);
     state.runtime_failure = {
       step_id: state.escalation.step_id,
       stage: 'cross_stage_return',
@@ -1486,7 +1515,9 @@ export function finishStageReturn(
       error: result.error,
       retryable: false,
     };
-    return save(file, state);
+    return saveStageReturnTransition(runId, 'build', before, thinkDigest(state), () =>
+      save(file, state),
+    );
   }
   requireOriginalInput(state, workflowInputPath(runId, state.workflow));
   if (sealRepository(state.manifest.repo).source_digest !== state.handoff.source_digest)

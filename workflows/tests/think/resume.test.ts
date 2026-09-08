@@ -208,6 +208,7 @@ test('changed dispatch, captured evidence and snapshot reject pending results', 
               state.research = [
                 {
                   path: 'changed.json',
+                  clarification_answers: [],
                   generated_at: '2026-09-01T00:00:00.000Z',
                   question: 'Changed context',
                   answer: 'Missing fact',
@@ -361,7 +362,7 @@ test('changed inputs and incompatible state retain the record and reject before 
   changed.digest = thinkDigest(changed.state);
   fs.writeFileSync(thinkStatePath(runId), JSON.stringify(changed));
   await assert.rejects(runThinkWorkflow(runId, inputFile, agent), /governing contract changed/);
-  changed.state.protocol = 'unsupported';
+  changed.state.protocol = 'codex-think-state-v5';
   changed.digest = thinkDigest(changed.state);
   for (const invalid of ['{}', JSON.stringify(changed)]) {
     fs.writeFileSync(thinkStatePath(runId), invalid);
@@ -453,4 +454,129 @@ test('partial publication retains its fixed paths when artifact configuration ch
     if (configured === undefined) delete process.env.CODEX_FLOW_ARTIFACT_DIR;
     else process.env.CODEX_FLOW_ARTIFACT_DIR = configured;
   }
+});
+
+const decisionQuestion = {
+  id: 'deployment-policy',
+  prompt: 'Which deployment policy must the Plan preserve?',
+  choices: [
+    { label: 'Public', description: 'Preserve public access.' },
+    { label: 'Private', description: 'Require private access.' },
+  ],
+  recommendation: 'Private',
+};
+test('Think waiting repeats without artifacts, then an explicit bound answer requires new design and review', async () => {
+  for (const freeText of [false, true]) {
+    const { repo, runId, inputFile } = fixture();
+    let designs = 0,
+      reviews = 0;
+    const worker: ThinkAgent = {
+      async design(input) {
+        designs++;
+        return input.clarification_answers?.length
+          ? candidate
+          : { status: 'waiting', plan: null, research_questions: [], question: decisionQuestion };
+      },
+      async review(input, draft) {
+        reviews++;
+        assert.equal(draft.status, input.clarification_answers?.length ? 'ready' : 'waiting');
+        return passing;
+      },
+    };
+    const waiting = await runThinkWorkflow(runId, inputFile, worker);
+    assert(waiting.status === 'waiting');
+    assert.equal('report_json' in waiting, false);
+    assert.equal(fs.existsSync(thinkArtifactDirectory(repo)), false);
+    const before = loadThinkState(runId)!;
+    assert.deepEqual(await runThinkWorkflow(runId, inputFile, worker), waiting);
+    assert.equal(designs, 1);
+    assert.equal(reviews, 1);
+    const original = JSON.parse(fs.readFileSync(inputFile, 'utf8'));
+    const answer = {
+      owner: waiting.owner,
+      question_id: waiting.question.id,
+      prompt: waiting.question.prompt,
+      choices: waiting.question.choices,
+      recommendation: waiting.question.recommendation,
+      selection: freeText ? null : 'Private',
+      answer: freeText ? '  Preserve both, verbatim.  ' : null,
+    };
+    for (const answers of [
+      [{ ...answer, owner: { ...answer.owner, root: 'other' } }],
+      [answer, answer],
+    ]) {
+      fs.writeFileSync(inputFile, JSON.stringify({ ...original, clarification_answers: answers }));
+      await assert.rejects(runThinkWorkflow(runId, inputFile, worker), /owner|one new/);
+      assert.equal(designs, 1);
+    }
+    fs.writeFileSync(inputFile, JSON.stringify({ ...original, clarification_answers: [answer] }));
+    assert.equal((await runThinkWorkflow(runId, inputFile, worker)).status, 'ready');
+    const after = loadThinkState(runId)!;
+    assert.equal(after.invocation, before.invocation);
+    assert.equal(after.source_digest, before.source_digest);
+    assert.deepEqual(after.clarification_history, [answer]);
+    assert.equal(designs, 2);
+    assert.equal(reviews, 2);
+  }
+}, 15000);
+
+test('persisted Think waiting rejects a removed review, rewritten question, and edited dispatch or evidence', async () => {
+  const { runId, inputFile } = fixture();
+  let calls = 0;
+  const worker: ThinkAgent = {
+    async design() {
+      calls++;
+      return { status: 'waiting', plan: null, research_questions: [], question: decisionQuestion };
+    },
+    async review() {
+      return passing;
+    },
+  };
+  const waiting = await runThinkWorkflow(runId, inputFile, worker);
+  assert(waiting.status === 'waiting');
+  const original = fs.readFileSync(thinkStatePath(runId), 'utf8');
+  const mutations = [
+    ...(['root', 'task'] as const).map(
+      (field) => (s: NonNullable<ReturnType<typeof loadThinkState>>) => {
+        s.pending_owner![field] = 'another-owner';
+        s.pending_owner!.handoff = thinkDigest({
+          root: s.pending_owner!.root,
+          task: s.pending_owner!.task,
+          invocation: s.invocation,
+        });
+      },
+    ),
+    (s: NonNullable<ReturnType<typeof loadThinkState>>) => {
+      s.review = null;
+    },
+    (s: NonNullable<ReturnType<typeof loadThinkState>>) => {
+      s.review = blocking;
+    },
+    (s: NonNullable<ReturnType<typeof loadThinkState>>) => {
+      s.candidate!.question!.prompt = 'edited';
+    },
+    (s: NonNullable<ReturnType<typeof loadThinkState>>) => {
+      s.dispatch = 'edited';
+    },
+    (s: NonNullable<ReturnType<typeof loadThinkState>>) => {
+      s.corrections++;
+    },
+    (s: NonNullable<ReturnType<typeof loadThinkState>>) => {
+      s.input.research_reports.push('/edited/report.json');
+    },
+  ];
+  for (const mutate of mutations) {
+    const state = JSON.parse(original).state;
+    mutate(state);
+    saveThinkState(runId, state);
+    const bytes = fs.readFileSync(thinkStatePath(runId), 'utf8');
+    await assert.rejects(
+      runThinkWorkflow(runId, inputFile, worker),
+      /acceptance|owner|input|state cannot resume/,
+    );
+    assert.equal(fs.readFileSync(thinkStatePath(runId), 'utf8'), bytes);
+    assert.equal(calls, 1);
+  }
+  fs.writeFileSync(thinkStatePath(runId), original);
+  assert.deepEqual(await runThinkWorkflow(runId, inputFile, worker), waiting);
 });

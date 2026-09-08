@@ -1,8 +1,12 @@
 /** @file Outcome: Think validates and independently reviews designer-owned decisions with durable correction. */
 import crypto from 'node:crypto';
 import {
+  initializeStageReturns,
   requireStageAccess,
+  markStageStarted,
   runStageReturn,
+  resumeRootWaiting,
+  saveStageReturnTransition,
   type StageAccess,
   type StageAgents,
 } from '../runtime/stage-return.ts';
@@ -37,14 +41,23 @@ import {
   thinkSnapshotPath,
   thinkPublicationPaths,
   thinkReport,
+  thinkWaitingOwner,
   type ThinkState,
 } from './state.ts';
+import {
+  parseClarificationAnswer,
+  inputAnswerDelta,
+  sameValue,
+  type WaitingResult,
+} from '../runtime/clarification.ts';
 
 export interface ThinkRunResult {
   report: ThinkReport;
   report_json: string;
   report_markdown: string;
 }
+
+export type ThinkWaitingResult = WaitingResult;
 
 function reportContext(repo: string, file: string, index: number): ThinkResearchContext {
   const label = `think input.research_reports[${index}]`;
@@ -61,6 +74,7 @@ function reportContext(repo: string, file: string, index: number): ThinkResearch
   }
   const report = parseResearchReport(raw);
   return {
+    clarification_answers: [],
     path: path.basename(file),
     generated_at: report.generated_at,
     question: report.question,
@@ -71,8 +85,25 @@ function reportContext(repo: string, file: string, index: number): ThinkResearch
   };
 }
 
+/** Accepted child answers are analysis context, never edits to the caller's authority input. */
+function reasoningInput(state: ThinkState) {
+  const history = new Map<string, import('../runtime/clarification.ts').ClarificationAnswer>();
+  for (const answer of [
+    ...state.research.flatMap((report) => report.clarification_answers),
+    ...state.clarification_history,
+  ]) {
+    const prior = history.get(answer.question_id);
+    if (prior && !sameValue(prior, answer))
+      throw new FlowError('conflicting accepted clarification history', 'state_error');
+    history.set(answer.question_id, answer);
+  }
+  return history.size
+    ? { ...state.input, clarification_answers: [...history.values()] }
+    : state.input;
+}
+
 function validateDecision(decision: ThinkDecision): void {
-  if (decision.status === 'research_required') return;
+  if (decision.status === 'research_required' || decision.status === 'waiting') return;
   if (!decision.plan) throw new FlowError('ready decision must contain a plan', 'decision_error');
   const report = validatePlan(decision.plan);
   if (report.verdict !== 'pass') {
@@ -104,7 +135,7 @@ function requireContext(runId: string, state: ThinkState, inputFile: string): st
   return snapshot;
 }
 
-function correct(runId: string, state: ThinkState, reason: string): void {
+function correct(state: ThinkState, reason: string, persist: (state: ThinkState) => void): void {
   state.reason = reason;
   state.correction = reason;
   state.dispatch = null;
@@ -115,7 +146,7 @@ function correct(runId: string, state: ThinkState, reason: string): void {
     state.attempts = 0;
     state.review = null;
   }
-  saveThinkState(runId, state);
+  persist(state);
 }
 
 export async function runThink(
@@ -124,26 +155,69 @@ export async function runThink(
   agent?: ThinkAgent,
   access?: StageAccess,
   children: StageAgents = {},
-): Promise<ThinkRunResult> {
+): Promise<ThinkRunResult | ThinkWaitingResult> {
   requireStageAccess(runId, access);
   using _ownership = acquireWorkflowOwnership(runId);
   let state = loadThinkState(runId);
+  if (state && state.stage_binding !== (access?.binding ?? null))
+    throw new FlowError('Think parent dispatch ownership changed', 'state_error');
   const intent = loadIntent(runId);
+  // Only a terminal root may start afresh. Validate its new authorization below
+  // before any writes; an active invocation must still pass its old waiting journal.
+  if (!access && state && ['completed', 'blocked'].includes(state.phase) && intent) state = null;
+  else if (!access) {
+    const waiting = await resumeRootWaiting(runId, 'think', inputFile);
+    if (waiting) return waiting;
+    state = loadThinkState(runId); // Root answer adoption may have updated this record.
+  }
+  let persistedDigest = state ? thinkDigest(state) : null;
+  const persist = (next: ThinkState): void => {
+    if (persistedDigest === null) saveThinkState(runId, next);
+    else
+      saveStageReturnTransition(
+        runId,
+        'think',
+        persistedDigest,
+        thinkDigest(next),
+        () => saveThinkState(runId, next),
+        access,
+      );
+    persistedDigest = thinkDigest(next);
+  };
   const rawInput = readAbsoluteJson(inputFile, 'think');
   const inputDigest = thinkDigest(rawInput);
-  const input = state && !intent ? state.input : validateThinkInput(rawInput);
+  const parsedInput = validateThinkInput(rawInput);
+  const input = state
+    ? {
+        ...state.input,
+        ...(parsedInput.clarification_answers === undefined
+          ? {}
+          : { clarification_answers: parsedInput.clarification_answers }),
+      }
+    : parsedInput;
   if ((!state || intent) && !access) requireThinkIntent(runId, input.repo, inputFile);
   if (path.resolve(inputFile) !== workflowInputPath(runId, 'think'))
     throw new FlowError(
       'use the think input path supplied by the workflow hook',
       'authorization_error',
     );
-  if (state && ['completed', 'blocked'].includes(state.phase) && intent) state = null;
-  if (state && state.input_digest !== inputDigest)
-    throw new FlowError(
-      'Think resume requires the exact original input; use a new task for a different request',
-      'state_error',
+  if (
+    state &&
+    (thinkDigest({ ...state.input, clarification_answers: undefined }) !== state.input_authority ||
+      thinkDigest(state.raw_input) !== state.input_digest ||
+      !sameValue(state.input.clarification_answers ?? [], state.clarification_history))
+  )
+    throw new FlowError('Think stored input or answer history changed', 'state_error');
+  if (state)
+    inputAnswerDelta(
+      state.raw_input,
+      rawInput,
+      state.phase === 'waiting' && state.candidate?.question && state.pending_owner
+        ? { status: 'waiting', question: state.candidate.question, owner: state.pending_owner }
+        : undefined,
     );
+  else if (input.clarification_answers?.length && !access)
+    throw new FlowError('answers require an existing waiting owner', 'state_error');
   if (!state) {
     const research = [...new Set(input.research_reports)].map((file, index) =>
       reportContext(input.repo, file, index),
@@ -173,11 +247,12 @@ export async function runThink(
     const snapshot = thinkSnapshotPath(runId, { invocation });
     createRepositorySnapshot(access?.snapshot ?? input.repo, snapshot);
     state = {
-      protocol: 'codex-think-state-v2',
+      protocol: 'codex-think-state-v6',
       invocation,
       run_id: runId,
       input,
       input_digest: inputDigest,
+      input_authority: thinkDigest({ ...input, clarification_answers: undefined }),
       source_digest: sealRepository(snapshot).source_digest,
       contract_digest: thinkContractDigest(),
       research,
@@ -192,9 +267,17 @@ export async function runThink(
       correction: null,
       generated_at: null,
       publication: null,
+      clarification_history: (input.clarification_answers ?? []).map(parseClarificationAnswer),
+      raw_input: rawInput,
+      stage_binding: access?.binding ?? null,
+      pending_owner: null,
+      dispatch_history: [],
+      accepted_questions: [],
     };
-    saveThinkState(runId, state);
+    if (!access) initializeStageReturns(runId, 'think', invocation, rawInput);
+    persist(state);
   }
+  markStageStarted(access);
   clearIntent(runId);
   const worker = () => (agent ??= new CodexThinkAgent());
   while (true) {
@@ -209,36 +292,91 @@ export async function runThink(
       persistThinkReport(input.repo, report, paths);
       return { report, report_json: paths.json, report_markdown: paths.markdown };
     }
+    if (state.phase === 'waiting') {
+      // The only permitted input change is checked before the snapshot/contract check.
+      requireContext(runId, { ...state, input_digest: thinkDigest(rawInput) }, inputFile);
+      if (
+        state.candidate?.status !== 'waiting' ||
+        !state.candidate.question ||
+        !state.pending_owner ||
+        !sameValue(
+          state.pending_owner,
+          thinkWaitingOwner(state, access?.root ?? state.invocation, access?.task ?? runId),
+        )
+      )
+        throw new FlowError('Think waiting owner or acceptance changed', 'state_error');
+      const waiting: WaitingResult = {
+        status: 'waiting',
+        question: state.candidate.question,
+        owner: state.pending_owner,
+      };
+      const answer = inputAnswerDelta(state.raw_input, rawInput, waiting);
+      if (!answer) return waiting;
+      state.accepted_questions.push({ waiting, candidate: state.candidate, review: state.review });
+      state.clarification_history.push(answer);
+      state.raw_input = rawInput;
+      state.input = input;
+      state.input_digest = thinkDigest(rawInput);
+      state.pending_owner = null;
+      state.candidate = null;
+      state.review = null;
+      state.phase = 'design';
+      state.attempts = 0;
+      state.dispatch = null;
+      persist(state);
+      continue;
+    }
     const snapshot = requireContext(runId, state, inputFile);
     if (state.phase === 'validate') {
       try {
+        if (
+          state.candidate?.question &&
+          reasoningInput(state).clarification_answers?.some(
+            (answer) =>
+              parseClarificationAnswer(answer).question_id === state.candidate!.question!.id,
+          )
+        )
+          throw new FlowError(
+            'Question identity was already answered; reason from the complete history',
+            'decision_error',
+          );
         validateDecision(state.candidate!);
       } catch (error) {
         if (errorCode(error) !== 'decision_error') throw error;
-        correct(runId, state, errorMessage(error));
+        correct(state, errorMessage(error), persist);
         continue;
       }
       state.phase = 'review';
       state.attempts = 0;
       state.reason = null;
-      saveThinkState(runId, state);
+      persist(state);
       continue;
     }
     if (state.phase === 'decide') {
       const blocking = state.review!.findings.filter((f) => f.severity === 'blocking');
       if (blocking.length) {
-        correct(runId, state, JSON.stringify(blocking));
+        correct(state, JSON.stringify(blocking), persist);
         continue;
       }
       if (state.candidate!.status === 'research_required') {
         state.phase = 'research';
-        saveThinkState(runId, state);
+        persist(state);
+        continue;
+      }
+      if (state.candidate!.status === 'waiting') {
+        state.phase = 'waiting';
+        state.pending_owner = thinkWaitingOwner(
+          state,
+          access?.root ?? state.invocation,
+          access?.task ?? runId,
+        );
+        persist(state);
         continue;
       }
       state.generated_at = new Date().toISOString();
       state.publication = thinkPublicationPaths(state);
       state.phase = 'publish';
-      saveThinkState(runId, state);
+      persist(state);
       continue;
     }
     if (state.phase === 'research') {
@@ -257,15 +395,19 @@ export async function runThink(
             )
           )
             state.phase = 'blocked';
-          saveThinkState(runId, state);
+          persist(state);
         }
         throw error;
       });
       if (thinkDigest(loadThinkState(runId)) !== parentBinding)
         throw new FlowError('stale Think parent after child execution', 'state_error');
       requireContext(runId, state, inputFile);
+      if (!('report' in child)) return child as ThinkWaitingResult;
       const report = parseResearchReport(child.report);
+      if (!('clarification_answers' in child))
+        throw new FlowError('accepted Research answer context is missing', 'state_error');
       state.research.push({
+        clarification_answers: structuredClone(child.clarification_answers),
         path: path.basename(child.report_json),
         generated_at: report.generated_at,
         question: report.question,
@@ -279,25 +421,26 @@ export async function runThink(
       state.review = null;
       state.phase = 'design';
       state.attempts = 0;
-      saveThinkState(runId, state);
+      persist(state);
       continue;
     }
     if (state.phase === 'publish') {
       validateDecision(state.candidate!);
       persistThinkReport(input.repo, thinkReport(state), thinkPublicationPaths(state));
       state.phase = 'completed';
-      saveThinkState(runId, state);
+      persist(state);
       continue;
     }
     if (state.attempts === 2) {
       state.phase = 'blocked';
       state.reason ??= 'Both permitted model dispatches were interrupted before acceptance';
-      saveThinkState(runId, state);
+      persist(state);
       continue;
     }
     state.attempts++;
     state.dispatch = crypto.randomUUID();
-    saveThinkState(runId, state);
+    state.dispatch_history.push(state.dispatch);
+    persist(state);
     const pending = thinkDigest(state);
     let result: unknown;
     let failure: unknown;
@@ -306,7 +449,7 @@ export async function runThink(
       result =
         state.phase === 'design'
           ? await worker().design(
-              structuredClone(input),
+              structuredClone(reasoningInput(state)),
               structuredClone(state.research),
               structuredClone(state.knowledge),
               contract,
@@ -316,7 +459,7 @@ export async function runThink(
                 : undefined,
             )
           : await worker().review(
-              structuredClone(input),
+              structuredClone(reasoningInput(state)),
               structuredClone(state.candidate!),
               structuredClone(state.research),
               structuredClone(state.knowledge),
@@ -343,6 +486,6 @@ export async function runThink(
     } catch (error) {
       state.reason = errorMessage(error);
     }
-    saveThinkState(runId, state);
+    persist(state);
   }
 }
