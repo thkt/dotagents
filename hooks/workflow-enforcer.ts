@@ -4,6 +4,7 @@
 import * as fs from 'node:fs';
 import {
   armIntent,
+  waitingInvocation,
   clearIntent,
   parseBuildIssueNumber,
   parseCleanupInvocation,
@@ -129,6 +130,20 @@ function networkExecutionInstruction(workflow: WorkflowIntent['workflow']): stri
 }
 
 function userPromptSubmit(input: HookInput): HookResponse {
+  if (input.session_id && input.cwd) {
+    try {
+      const waiting = waitingInvocation(input.session_id, input.cwd);
+      if (waiting)
+        return {
+          hookSpecificOutput: {
+            hookEventName: 'UserPromptSubmit',
+            additionalContext: `The original $${waiting.workflow} invocation is waiting. Display this exact complete question using an available permitted question UI, otherwise as text: ${JSON.stringify(waiting.question)}. Preserve its owner binding: ${JSON.stringify(waiting.owner)}. Only an explicit answer to this displayed question permits appending one full-context answer record with that owner to ${waiting.input_path} and rerunning the exact original root command under this task. Do not re-arm, edit child inputs, infer answers from concurrent prose, or treat silence, cancellation, timeout, or labels alone as answers or approvals.`,
+          },
+        };
+    } catch (error) {
+      return { decision: 'block', reason: errorMessage(error) };
+    }
+  }
   const workflow = parseExplicitInvocation(input.prompt);
   if (!workflow) return {};
   if (!input.session_id || !input.cwd) {

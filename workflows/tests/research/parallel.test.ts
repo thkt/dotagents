@@ -101,6 +101,7 @@ test('two production investigators overlap and all evidence reaches one independ
   assert.equal(peak, 2);
   assert.equal(snapshots.size, 1);
   assert.equal(audits, 1);
+  assert(result.status === 'completed');
   assert.equal(result.findings, 2);
   assert.equal(loadResearchState(f.runId)!.investigations, null);
 });
@@ -310,7 +311,7 @@ test('old state is retained and independent SDK assignments share only the read-
         async run(prompt, options) {
           prompts.push(prompt);
           assert.equal(options?.signal, controller.signal);
-          return { finalResponse: JSON.stringify(draft()) };
+          return { finalResponse: JSON.stringify({ result: draft() }) };
         },
       };
     },
@@ -412,3 +413,248 @@ test('batch boundaries avoid two redundant snapshot scans on the production path
     assert.equal(await child.exited, 0, await error);
   }
 });
+
+test('parallel waiting joins all investigators and resumes only audited answer dependencies with retry totals intact', async () => {
+  const f = fixture();
+  const question = {
+    id: 'policy',
+    prompt: 'Which policy governs the left module investigation?',
+    choices: [
+      { label: 'Public', description: 'Public use.' },
+      { label: 'Private', description: 'Private use.' },
+    ],
+    recommendation: null,
+  };
+  const calls = [0, 0];
+  let siblingSettled = false;
+  const worker: ResearchAgent = {
+    async investigate(input, _k, _s, _c, assignment) {
+      const index = assignment!.question === questions[0] ? 0 : 1;
+      calls[index]!++;
+      if (index === 1) {
+        if (calls[index] === 1) throw new Error('one transient failure');
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        siblingSettled = true;
+        return draft('right.ts');
+      }
+      return input.clarification_answers?.length
+        ? draft('left.ts')
+        : { status: 'waiting', question, affected_questions: [questions[0]!] };
+    },
+    async audit(_i, candidate, _k, _s, pending) {
+      assert(siblingSettled);
+      if (pending) {
+        assert.deepEqual(pending.question, question);
+        assert.equal(pending.investigations[1]!.attempts, 2);
+        assert.deepEqual(candidate.findings, draft('right.ts').findings);
+      } else assert.equal(candidate.findings.length, 2);
+      return pass;
+    },
+  };
+  const waiting = await run(f, worker);
+  assert(waiting.status === 'waiting');
+  assert.deepEqual(calls, [1, 2]);
+  const before = loadResearchState(f.runId)!;
+  assert.deepEqual(await run(f, worker), waiting);
+  const input = JSON.parse(fs.readFileSync(f.input, 'utf8'));
+  fs.writeFileSync(
+    f.input,
+    JSON.stringify({
+      ...input,
+      clarification_answers: [
+        {
+          owner: waiting.owner,
+          question_id: question.id,
+          prompt: question.prompt,
+          choices: question.choices,
+          recommendation: null,
+          selection: 'Private',
+          answer: null,
+        },
+      ],
+    }),
+  );
+  assert.equal((await run(f, worker)).status, 'completed');
+  assert.deepEqual(calls, [2, 2]);
+  assert.equal(loadResearchState(f.runId)!.corrections, before.corrections);
+  assert.deepEqual(
+    loadResearchState(f.runId)!.dispatch_history.slice(0, before.dispatch_history.length),
+    before.dispatch_history,
+  );
+});
+
+const policyQuestion = {
+  id: 'parallel-policy',
+  prompt: 'Which audience governs this investigation?',
+  choices: [
+    { label: 'Public', description: 'Investigate public use.' },
+    { label: 'Private', description: 'Investigate private use.' },
+  ],
+  recommendation: null,
+};
+
+test.each(['uninterrupted', 'correction', 'retry'])(
+  'conflicting parallel questions receive a correction-round retry and preserve history (%s)',
+  async (boundary) => {
+    const f = fixture();
+    if (boundary !== 'uninterrupted') {
+      const script = path.join(temporaryDirectory('parallel-correction-'), 'run.ts');
+      fs.writeFileSync(
+        script,
+        `
+        import fs from 'node:fs';import {mock} from 'bun:test';
+        const rename=fs.renameSync;
+        fs.renameSync=(...args)=>{
+          rename(...args);
+          if(String(args[1]).endsWith('research-state.json')){
+            const s=JSON.parse(fs.readFileSync(args[1],'utf8')).state;
+            if(s.corrections===1 && (${JSON.stringify(boundary)}==='correction' || s.investigations.some(p=>p.attempts===3 && p.reason==='transient')))process.exit(73);
+          }
+        };
+        mock.module('node:fs',()=>({...fs,default:fs}));
+        const {runResearchWorkflow}=await import(${JSON.stringify(new URL('../../research/runner.ts', import.meta.url).pathname)});
+        const {loadResearchState}=await import(${JSON.stringify(new URL('../../research/state.ts', import.meta.url).pathname)});
+        await runResearchWorkflow(${JSON.stringify(f.runId)},${JSON.stringify(f.input)},{
+          async investigate(_i,_k,_s,_c,a){
+            const s=loadResearchState(${JSON.stringify(f.runId)});
+            const part=s.investigations.find(p=>p.question===a.question);
+            if(part.attempts%2===1)throw Error('transient');
+            return {status:'waiting',question:{...${JSON.stringify(policyQuestion)},id:a.question}};
+          },
+          async audit(){throw Error('Conflicting questions must not reach audit');}
+        });
+        `,
+      );
+      const child = Bun.spawn([process.execPath, script], {
+        env: { ...process.env },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      const stderr = new Response(child.stderr).text();
+      assert.equal(await child.exited, 73, await stderr);
+    }
+    const interrupted = loadResearchState(f.runId);
+    let audits = 0;
+    const worker: ResearchAgent = {
+      async investigate(input, _k, _s, correction, assignment) {
+        const state = loadResearchState(f.runId)!;
+        const part = state.investigations!.find((p) => p.question === assignment!.question)!;
+        const index = questions.indexOf(part.question);
+        if (input.clarification_answers?.length) {
+          assert.equal(index, 0);
+          return draft();
+        }
+        if (state.corrections) {
+          assert.match(correction!.reason, /reconcile/);
+          const previous = JSON.parse(correction!.candidate.answer);
+          assert.deepEqual(
+            previous.map((p: { attempts: number }) => p.attempts),
+            [2, 2],
+          );
+          assert.deepEqual(
+            previous.map((p: { proposal: { id: string } }) => p.proposal.id),
+            questions,
+          );
+        }
+        if (part.attempts % 2 === 1) throw new Error('transient');
+        if (!state.corrections)
+          return { status: 'waiting', question: { ...policyQuestion, id: part.question } };
+        return index === 0
+          ? { status: 'waiting', question: policyQuestion, affected_questions: [questions[0]!] }
+          : draft('right.ts');
+      },
+      async audit(input, candidate, _k, _s, pending) {
+        audits++;
+        if (!input.clarification_answers?.length) {
+          assert.deepEqual(pending!.question, policyQuestion);
+          assert.deepEqual(
+            pending!.investigations.map((p) => p.attempts),
+            [4, 4],
+          );
+          assert.deepEqual(candidate.findings, draft('right.ts').findings);
+        } else {
+          assert.equal(pending, undefined);
+          assert.equal(candidate.findings.length, 2);
+        }
+        return pass;
+      },
+    };
+    const waiting = await run(f, worker);
+    assert(waiting.status === 'waiting');
+    const saved = loadResearchState(f.runId)!;
+    assert.equal(saved.corrections, 1);
+    assert.equal(saved.dispatch_history.length, 9);
+    if (interrupted) {
+      assert.equal(saved.invocation, interrupted.invocation);
+      assert.equal(saved.source_digest, interrupted.source_digest);
+      assert.deepEqual(saved.input, interrupted.input);
+      assert.deepEqual(saved.knowledge, interrupted.knowledge);
+      assert.deepEqual(
+        saved.dispatch_history.slice(0, interrupted.dispatch_history.length),
+        interrupted.dispatch_history,
+      );
+    }
+    assert.equal(fs.existsSync(researchArtifactDirectory(f.repo)), false);
+    assert.deepEqual(await run(f, worker), waiting);
+    assert.deepEqual(loadResearchState(f.runId), saved);
+    const answer = {
+      owner: waiting.owner,
+      question_id: waiting.question.id,
+      prompt: waiting.question.prompt,
+      choices: waiting.question.choices,
+      recommendation: waiting.question.recommendation,
+      selection: 'Private',
+      answer: null,
+    };
+    fs.writeFileSync(
+      f.input,
+      JSON.stringify({ ...(saved.raw_input as object), clarification_answers: [answer] }),
+    );
+    assert.equal((await run(f, worker)).status, 'completed');
+    const completed = loadResearchState(f.runId)!;
+    assert.equal(completed.corrections, 1);
+    assert.equal(completed.dispatch_history.length, 11);
+    assert.deepEqual(completed.clarification_history, [answer]);
+    assert.deepEqual(completed.accepted_questions, [
+      {
+        waiting: { status: waiting.status, question: waiting.question, owner: waiting.owner },
+        candidate: saved.candidate,
+        review: saved.audit,
+      },
+    ]);
+    assert.equal(audits, 2);
+  },
+);
+
+test.each(['conflicts', 'failures'])(
+  'parallel reconciliation retains bounded correction and retry exhaustion (%s)',
+  async (outcome) => {
+    const f = fixture();
+    const calls = [0, 0];
+    const worker: ResearchAgent = {
+      async investigate(_i, _k, _s, _c, assignment) {
+        const index = questions.indexOf(assignment!.question);
+        calls[index]!++;
+        if (calls[index]! % 2 === 1 || (outcome === 'failures' && calls[index]! > 2))
+          throw new Error('transient');
+        return { status: 'waiting', question: { ...policyQuestion, id: assignment!.question } };
+      },
+      async audit() {
+        assert.fail('Unreconciled questions and failures must not reach audit');
+      },
+    };
+    await assert.rejects(run(f, worker), /Research blocked/);
+    const saved = loadResearchState(f.runId)!;
+    assert.deepEqual(calls, outcome === 'conflicts' ? [8, 8] : [4, 4]);
+    assert.equal(saved.corrections, outcome === 'conflicts' ? 3 : 1);
+    assert.deepEqual(
+      saved.investigations!.map((p) => p.attempts),
+      calls,
+    );
+    assert.equal(saved.dispatch_history.length, calls[0]! + calls[1]!);
+    assert.equal(fs.existsSync(researchArtifactDirectory(f.repo)), false);
+    await assert.rejects(run(f, worker), /Research blocked/);
+    assert.deepEqual(loadResearchState(f.runId), saved);
+    assert.deepEqual(calls, outcome === 'conflicts' ? [8, 8] : [4, 4]);
+  },
+);

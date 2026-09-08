@@ -123,3 +123,77 @@ test('pins non-persistent first-attempt escalation for workflows that can write'
     assert.match(content, /Do not request persistent approval|永続的な許可は要求しない/u, relative);
   }
 });
+
+test('mirrored workflow and skill guidance preserves the complete waiting interaction and authority chain', () => {
+  const documents = [
+    '.codex/OUTCOME.md',
+    'workflows/README.md',
+    ...['research', 'think', 'build'].map((name) => `skills/${name}/SKILL.md`),
+  ];
+  const requirements = [
+    [/investigator- or designer-authored/, /investigator または designer が作成/],
+    [/Independent audit or review must accept/, /独立した audit または review が質問全体を受理/],
+    [/two or three distinct choices with descriptions/, /説明付きで 2 つまたは 3 つ/],
+    [/otherwise as text/, /同じ全文をテキスト/],
+    [/explicit listed selection or free-text answer/, /明示的な選択回答または自由記述/],
+    [
+      /owner binding, complete displayed question context and verbatim answer/,
+      /owner binding、表示した質問の全コンテキスト、回答原文/,
+    ],
+    [
+      /exact original root command under the same task identity/,
+      /同じ task identity.*元の root command/,
+    ],
+    [
+      /Empty, cancelled, timed-out, absent, silent, inferred and prose-only/,
+      /空・取消・timeout・回答なし・沈黙・推測・説明文/,
+    ],
+    [/immutable startup snapshot/, /変更不能な起動時 snapshot/],
+    [/accepted history, correction and retry budgets/, /受理済み履歴、correction と retry の予算/],
+    [
+      /Refreshing repository evidence requires a new explicit invocation/,
+      /repository evidence を更新するには、新たな明示的 invocation/,
+    ],
+    [/publishing only a verified ready Plan/, /検証済み ready Plan だけを公開/],
+    [/separate Issue publication and a new Build/, /別の Issue 公開と新たな Build/],
+    [
+      /never authorize Issue publication.*authorize Ship/,
+      /Issue 公開の承認.*Ship の承認には使わない/,
+    ],
+  ];
+  for (const document of documents)
+    for (const [index, prefix] of (document.startsWith('.codex/')
+      ? ['']
+      : ['', '.ja/']
+    ).entries()) {
+      const content = readFileSync(path.join(agentsRoot, prefix + document), 'utf8');
+      for (const pair of requirements) assert.match(content, pair[index]!, prefix + document);
+      if (!document.startsWith('.codex/'))
+        for (const field of [
+          'clarification_answers',
+          'owner',
+          'question_id',
+          'prompt',
+          'choices',
+          'recommendation',
+          'selection',
+          'answer',
+        ])
+          assert(content.includes('`' + field + '`'), `${prefix}${document}: ${field}`);
+      if (document === 'skills/think/SKILL.md')
+        assert.match(
+          content,
+          index === 0
+            ? /canonical JSON Plans in English.*visible Plan Markdown, and final reports use the configured language/s
+            : /canonical JSON Plan は英語.*表示する Plan Markdown・最終報告は設定言語/s,
+        );
+
+      for (const route of [
+        'Think → Research',
+        'Build → Research',
+        'Build → Think',
+        'Build → Think → Research',
+      ])
+        assert(content.includes(route), `${prefix}${document}: ${route}`);
+    }
+});

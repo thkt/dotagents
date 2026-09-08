@@ -52,6 +52,11 @@ function parseScreenshots(raw: unknown): ScreenshotSpec[] {
 
 export function parseBuildRunInput(raw: unknown): BuildRunInput {
   if (!isObject(raw)) throw new FlowError('build input must be an object');
+  if (
+    raw.clarification_answers !== undefined &&
+    (!Array.isArray(raw.clarification_answers) || raw.clarification_answers.length)
+  )
+    throw new FlowError('answers require an existing waiting owner', 'state_error');
   const repo = gitRoot(
     requiredString(raw.repo, 'build input.repo'),
     'build input.repo must be a Git worktree',

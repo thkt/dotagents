@@ -1,6 +1,7 @@
 /** @file Outcome: One internal engine drives an armed workflow through actors, actions, and gates. */
 
-import { runStageReturn, type StageAgents } from '../runtime/stage-return.ts';
+import { runStageReturn, resumeRootWaiting, type StageAgents } from '../runtime/stage-return.ts';
+import type { WaitingResult } from '../runtime/clarification.ts';
 import { parseResearchReport } from '../research/contracts.ts';
 import { thinkDigest } from '../think/state.ts';
 import { parseThinkReport } from '../think/contracts.ts';
@@ -133,9 +134,12 @@ async function driveWorkflow(
       switch (directive.kind) {
         case 'done':
           return { result: workflowStatus(runId), exitCode: 0 };
-        case 'blocked':
-          if (await returnToCaller(runId, runtime)) continue;
+        case 'blocked': {
+          const returned = await returnToCaller(runId, runtime);
+          if (returned === true) continue;
+          if (returned) return { result: { protocol: RESULT_PROTOCOL, ...returned }, exitCode: 0 };
           return { result: workflowStatus(runId), exitCode: 2 };
+        }
         case 'cancelled':
           return { result: workflowStatus(runId), exitCode: 0 };
         case 'run-actor':
@@ -228,7 +232,10 @@ async function driveWorkflow(
   }
 }
 
-async function returnToCaller(runId: string, runtime: WorkflowRuntime): Promise<boolean> {
+async function returnToCaller(
+  runId: string,
+  runtime: WorkflowRuntime,
+): Promise<boolean | WaitingResult> {
   const { state } = loadWorkflowState(runId);
   const handoff = state.handoff;
   const route = state.escalation?.next_step;
@@ -246,6 +253,7 @@ async function returnToCaller(runId: string, runtime: WorkflowRuntime): Promise<
     const result = await runStageReturn(runId, 'build', runtime.children);
     if (thinkDigest(loadWorkflowState(runId).state) !== parentBinding)
       throw new FlowError('stale Build parent after child execution', 'state_error');
+    if (!('report' in result)) return result;
     if (route === 'research') {
       const report = parseResearchReport(result.report);
       finishStageReturn(runId, handoff.binding, { research: report });
@@ -272,6 +280,15 @@ export async function runWorkflow(
   runtime?: WorkflowRuntime,
 ): Promise<CommandResult> {
   using _ownership = acquireWorkflowOwnership(runId);
+  try {
+    const existing = loadWorkflowState(runId).state;
+    if (existing.workflow === 'build' && !(existing.status !== 'running' && loadIntent(runId))) {
+      const waiting = await resumeRootWaiting(runId, 'build', inputFile);
+      if (waiting) return { result: { protocol: RESULT_PROTOCOL, ...waiting }, exitCode: 0 };
+    }
+  } catch (error) {
+    if (errorCode(error) !== 'no_flow') throw error;
+  }
   startOrResumeWorkflow(runId, inputFile);
   return await driveWorkflow(runId, runtime ?? defaultRuntime());
 }

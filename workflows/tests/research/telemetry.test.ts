@@ -123,7 +123,7 @@ test('independent read-only threads receive the governing input, candidate and c
           prompts.push(prompt);
           return {
             finalResponse: JSON.stringify(
-              author ? candidate : { summary: 'Supported unknown.', findings: [] },
+              author ? { result: candidate } : { summary: 'Supported unknown.', findings: [] },
             ),
           };
         },

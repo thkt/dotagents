@@ -9,22 +9,30 @@ import {
   elapsedMs,
 } from '../shared/codex.ts';
 import {
-  RESEARCH_AUDIT_SCHEMA,
+  researchAuditSchema,
   RESEARCH_DRAFT_SCHEMA,
+  RESEARCH_WAITING_SCHEMA,
   parseResearchAudit,
-  parseResearchDraft,
+  parseResearchInvestigationResult,
   type ResearchAudit,
   type ResearchCorrection,
   type ResearchDraft,
+  type ResearchInvestigationResult,
   type ResearchInput,
 } from './contracts.ts';
 import { FlowError, errorCode, errorMessage } from '../shared/errors.ts';
+import { rejectUnknownKeys } from '../shared/schema.ts';
 
 import { researchArtifactDirectory } from '../runtime/storage.ts';
 import { composePrompt } from '../shared/prompt.ts';
 import { ProgressReporter, workflowProgress } from '../shared/progress.ts';
 import type { KnowledgeEntry } from './knowledge.ts';
 import { projectOutcomeContext } from '../shared/project-outcome.ts';
+
+export interface QuestionAuditContext {
+  question: import('../runtime/clarification.ts').PendingQuestion;
+  investigations: import('./state.ts').Investigation[];
+}
 
 export interface InvestigationAssignment {
   question: string;
@@ -39,12 +47,13 @@ export interface ResearchAgent {
     snapshotRepo: string,
     correction?: ResearchCorrection,
     assignment?: InvestigationAssignment,
-  ): Promise<ResearchDraft>;
+  ): Promise<ResearchInvestigationResult>;
   audit(
     input: ResearchInput,
     draft: ResearchDraft,
     knowledge: KnowledgeEntry[],
     snapshotRepo: string,
+    question?: QuestionAuditContext,
   ): Promise<ResearchAudit>;
 }
 
@@ -69,6 +78,11 @@ function knowledgeInstruction(input: ResearchInput, knowledge: KnowledgeEntry[])
 function commonResearchContext(input: ResearchInput, projectOutcome: string): string[] {
   return [
     `Question: ${JSON.stringify(input.question)}`,
+    ...(input.clarification_answers?.length
+      ? [
+          `Complete clarification history (preserve the displayed context and explicit answer): ${JSON.stringify(input.clarification_answers)}`,
+        ]
+      : []),
     projectOutcome,
     'Write all contract statements in English. Preserve repository identifiers and quoted source text.',
     PLAN_DECISION_GUIDANCE,
@@ -91,6 +105,7 @@ function investigationPrompt(
   return composePrompt(
     [
       'Investigate the research question.',
+      'You may author exactly one waiting question only when a necessary, materially outcome-changing preference, scope, or policy decision requires user authority. Explain the material decision in its prompt and two or three described choices. Optional recommendation must name a choice. Factual uncertainty is an audited unknown, never a user preference. Delegate internal implementation choices. For a waiting proposal, list every original assignment affected by the answer in affected_questions; use null if uncertain, meaning all assignments. Include your own assignment. Never repeat an answered identity; use the complete answer history.',
       ...(assignment
         ? [
             `Your independent assignment: ${JSON.stringify(assignment)}. Answer this part while retaining the original question and scope. Your answer, findings, rejected claims, unknowns, and limitations must concern this assignment only. Other investigators handle the remaining parts: do not describe those parts as unverified, unknown, rejected, or a limitation merely because they are outside your assignment, and do not claim they are already verified.`,
@@ -106,7 +121,7 @@ function investigationPrompt(
           ]
         : []),
       knowledgeInstruction(input, knowledge),
-      'Return only the structured response.',
+      'Return only the structured response, with your complete evidence candidate or waiting proposal in result.',
     ],
     [
       ['RELEVANT KNOWLEDGE', knowledge],
@@ -121,10 +136,12 @@ function auditPrompt(
   draft: ResearchDraft,
   knowledge: KnowledgeEntry[],
   projectOutcome: string,
+  question?: QuestionAuditContext,
 ): string {
   return composePrompt(
     [
       'Independently audit the complete candidate without editing or replacing it.',
+      'For a pending question, audit its entire prompt, choices, descriptions and recommendation together with all sibling investigations and answer history. Reject incomplete answer dependencies: inspect all sibling results and ensure affected_questions includes every assignment whose conclusions depend on the decision. Reject gratuitous preferences, factual questions, internal implementation choices, materially unnecessary decisions, conflicting proposals, or a decision already answered. Independently establish necessity and user ownership. For question-only defects, identify the exact input or question context in the condition and message; evidence may be empty when no factual claim requires source citations. Return findings only; never author or replace a question. An empty findings array accepts this exact whole-question candidate.',
       ...commonResearchContext(input, projectOutcome),
       'Open every cited repository source and seek contradictory evidence for each candidate.',
       'Cite repository evidence by repo-relative path and L<number> or L<number>-L<number>; cite web evidence by HTTPS URL and a non-empty page section locator.',
@@ -134,7 +151,7 @@ function auditPrompt(
       'Return only the structured response.',
     ],
     [
-      ['CANDIDATE FINDINGS', draft],
+      ['CANDIDATE FINDINGS', question ?? draft],
       ['RELEVANT KNOWLEDGE', knowledge],
     ],
   );
@@ -171,7 +188,7 @@ export class CodexResearchAgent implements ResearchAgent {
     snapshotRepo: string,
     correction?: ResearchCorrection,
     assignment?: InvestigationAssignment,
-  ): Promise<ResearchDraft> {
+  ): Promise<ResearchInvestigationResult> {
     const projectOutcome = projectOutcomeContext(snapshotRepo);
     const thread = this.client.startThread(threadOptions(input, knowledge, snapshotRepo));
     const started = performance.now();
@@ -189,7 +206,14 @@ export class CodexResearchAgent implements ResearchAgent {
               input.subquestions ? assignment?.question : undefined,
             ),
             {
-              outputSchema: RESEARCH_DRAFT_SCHEMA,
+              outputSchema: {
+                type: 'object',
+                properties: {
+                  result: { anyOf: [RESEARCH_DRAFT_SCHEMA, RESEARCH_WAITING_SCHEMA] },
+                },
+                required: ['result'],
+                additionalProperties: false,
+              },
               ...(assignment ? { signal: assignment.signal } : {}),
               modelRun: {
                 label: 'research investigator',
@@ -209,10 +233,11 @@ export class CodexResearchAgent implements ResearchAgent {
     try {
       return this.progress.runSync(
         { workflow: 'research', stage: 'investigator_structured_validation' },
-        () =>
-          parseResearchDraft(
-            structuredResponseObject(result.finalResponse, 'research investigator'),
-          ),
+        () => {
+          const response = structuredResponseObject(result.finalResponse, 'research investigator');
+          rejectUnknownKeys(response, ['result'], 'research investigator response');
+          return parseResearchInvestigationResult(response.result);
+        },
       );
     } catch (error) {
       throw new FlowError(
@@ -227,14 +252,15 @@ export class CodexResearchAgent implements ResearchAgent {
     draft: ResearchDraft,
     knowledge: KnowledgeEntry[],
     snapshotRepo: string,
+    question?: QuestionAuditContext,
   ): Promise<ResearchAudit> {
     const projectOutcome = projectOutcomeContext(snapshotRepo);
     const thread = this.client.startThread(threadOptions(input, knowledge, snapshotRepo));
     const result = await this.progress.run(
       { workflow: 'research', stage: 'auditor_model_call' },
       (stage) =>
-        thread.run(auditPrompt(input, draft, knowledge, projectOutcome), {
-          outputSchema: RESEARCH_AUDIT_SCHEMA,
+        thread.run(auditPrompt(input, draft, knowledge, projectOutcome, question), {
+          outputSchema: researchAuditSchema(Boolean(question)),
           modelRun: {
             label: 'research auditor',
             idleCode: 'research_auditor_idle_timeout',
@@ -244,7 +270,11 @@ export class CodexResearchAgent implements ResearchAgent {
     );
     return this.progress.runSync(
       { workflow: 'research', stage: 'auditor_structured_validation' },
-      () => parseResearchAudit(structuredResponseObject(result.finalResponse, 'research auditor')),
+      () =>
+        parseResearchAudit(
+          structuredResponseObject(result.finalResponse, 'research auditor'),
+          Boolean(question),
+        ),
     );
   }
 }

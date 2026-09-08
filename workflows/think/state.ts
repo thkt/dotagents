@@ -1,6 +1,11 @@
 /** @file Outcome: Think retains its candidate, governing evidence, budgets and publication across restart. */
 
 import crypto from 'node:crypto';
+import {
+  parseClarificationOwner,
+  sameValue,
+  type ClarificationOwner,
+} from '../runtime/clarification.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -22,13 +27,15 @@ import {
 } from './contracts.ts';
 import type { ThinkResearchContext } from './agent.ts';
 import { parseResearchReport } from '../research/contracts.ts';
+import { parseClarificationAnswer, type ClarificationAnswer } from '../runtime/clarification.ts';
 
 export interface ThinkState {
-  protocol: 'codex-think-state-v2';
+  protocol: 'codex-think-state-v6';
   invocation: string;
   run_id: string;
   input: ThinkInput;
   input_digest: string;
+  input_authority: string;
   source_digest: string;
   contract_digest: string;
   research: ThinkResearchContext[];
@@ -39,6 +46,7 @@ export interface ThinkState {
     | 'review'
     | 'decide'
     | 'research'
+    | 'waiting'
     | 'publish'
     | 'completed'
     | 'blocked';
@@ -51,6 +59,12 @@ export interface ThinkState {
   correction: string | null;
   generated_at: string | null;
   publication: { json: string; markdown: string } | null;
+  clarification_history: ClarificationAnswer[];
+  raw_input: unknown;
+  stage_binding: string | null;
+  pending_owner: ClarificationOwner | null;
+  dispatch_history: string[];
+  accepted_questions: unknown[];
 }
 
 export function thinkDigest(value: unknown): string {
@@ -104,6 +118,7 @@ export function loadThinkState(runId: string): ThinkState | null {
         'run_id',
         'input',
         'input_digest',
+        'input_authority',
         'source_digest',
         'contract_digest',
         'research',
@@ -118,11 +133,17 @@ export function loadThinkState(runId: string): ThinkState | null {
         'correction',
         'generated_at',
         'publication',
+        'clarification_history',
+        'raw_input',
+        'stage_binding',
+        'pending_owner',
+        'dispatch_history',
+        'accepted_questions',
       ],
       'think state',
     );
     if (
-      s.protocol !== 'codex-think-state-v2' ||
+      s.protocol !== 'codex-think-state-v6' ||
       s.run_id !== runId ||
       typeof s.invocation !== 'string' ||
       !/^[0-9a-f-]{36}$/u.test(s.invocation) ||
@@ -130,6 +151,7 @@ export function loadThinkState(runId: string): ThinkState | null {
       !/^[0-9a-f]{64}$/u.test(s.source_digest) ||
       typeof s.contract_digest !== 'string' ||
       !/^[0-9a-f]{64}$/u.test(s.contract_digest) ||
+      typeof s.input_authority !== 'string' ||
       typeof s.input_digest !== 'string' ||
       !/^[0-9a-f]{64}$/u.test(s.input_digest) ||
       !isObject(s.input) ||
@@ -150,6 +172,7 @@ export function loadThinkState(runId: string): ThinkState | null {
         'publish',
         'completed',
         'blocked',
+        'waiting',
       ].includes(String(s.phase)) ||
       !Number.isInteger(s.corrections) ||
       Number(s.corrections) < 0 ||
@@ -176,10 +199,22 @@ export function loadThinkState(runId: string): ThinkState | null {
         throw new Error('invalid captured Research context');
       rejectUnknownKeys(
         context,
-        ['path', 'generated_at', 'question', 'answer', 'findings', 'unknowns', 'limitations'],
+        [
+          'path',
+          'generated_at',
+          'question',
+          'answer',
+          'findings',
+          'unknowns',
+          'limitations',
+          'clarification_answers',
+        ],
         'think Research context',
       );
-      const { path: _path, ...report } = context;
+      if (!Array.isArray(context.clarification_answers))
+        throw new Error('incompatible captured Research answer context');
+      context.clarification_answers.forEach(parseClarificationAnswer);
+      const { path: _path, clarification_answers: _answers, ...report } = context;
       parseResearchReport({
         protocol: 'codex-research-report',
         scope_paths: [],
@@ -197,7 +232,51 @@ export function loadThinkState(runId: string): ThinkState | null {
     )
       throw new Error('invalid publication identity');
     if (s.candidate !== null) parseThinkDecision(s.candidate);
+    if (
+      !isObject(s.raw_input) ||
+      !Array.isArray(s.accepted_questions) ||
+      !Array.isArray(s.dispatch_history) ||
+      s.pending_owner === undefined
+    )
+      throw new Error('incompatible active state');
+    if (
+      !(
+        s.stage_binding === null ||
+        (typeof s.stage_binding === 'string' && /^[a-f0-9]{64}$/u.test(s.stage_binding))
+      )
+    )
+      throw new Error('incompatible stage ownership');
+    if (s.pending_owner !== null) parseClarificationOwner(s.pending_owner);
+    if (!Array.isArray(s.clarification_history)) throw new Error('invalid clarification history');
+    s.clarification_history.forEach((answer) => parseClarificationAnswer(answer));
     if (s.review !== null) parseThinkReview(s.review);
+    if (s.phase === 'waiting') {
+      const candidate = s.candidate as unknown as ThinkDraft | null;
+      const review = s.review as unknown as ThinkReview | null;
+      if (
+        candidate?.status !== 'waiting' ||
+        !candidate.question ||
+        !s.pending_owner ||
+        !review ||
+        review.findings.some((f) => f.severity === 'blocking') ||
+        s.publication !== null ||
+        s.generated_at !== null
+      )
+        throw new Error('waiting question has no exact independent acceptance');
+      const owner = s.pending_owner as unknown as ClarificationOwner;
+      if (
+        !sameValue(
+          owner,
+          thinkWaitingOwner(
+            s as unknown as ThinkState,
+            s.stage_binding === null ? String(s.invocation) : owner.root,
+            s.stage_binding === null ? runId : owner.task,
+          ),
+        )
+      )
+        throw new Error('waiting owner or acceptance changed');
+    } else if (s.pending_owner !== null) throw new Error('pending owner is not waiting');
+
     if (
       ['validate', 'review', 'decide', 'research', 'publish', 'completed'].includes(
         String(s.phase),
@@ -234,5 +313,26 @@ export function thinkReport(state: ThinkState): ThinkReport {
     request: state.input.request,
     ...state.candidate!,
     research_reports: [...state.research, ...state.knowledge].map((item) => item.path),
+  };
+}
+
+export function thinkWaitingOwner(
+  state: ThinkState,
+  root: string,
+  task: string,
+): ClarificationOwner {
+  return {
+    task,
+    repo: state.input.repo,
+    workflow: 'think',
+    root,
+    leaf: state.run_id,
+    snapshot: state.source_digest,
+    candidate: thinkDigest({ ...state, pending_owner: null }),
+    review: thinkDigest(state.review),
+    dispatch: state.dispatch_history.at(-1) ?? state.invocation,
+    permissions: thinkDigest(state.raw_input),
+    selected_context: thinkDigest(state.knowledge),
+    handoff: state.stage_binding ?? thinkDigest({ root, task, invocation: state.invocation }),
   };
 }

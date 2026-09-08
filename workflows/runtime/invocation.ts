@@ -7,12 +7,21 @@ import { assertNoCleanup, ownCleanup } from '../cleanup/state.ts';
 import type { Workflow } from '../execution/contracts.ts';
 import { errorCode, errorMessage } from '../shared/errors.ts';
 import { gitRoot } from '../shared/repository.ts';
-import { atomicWrite, intentPath, statePath, workflowInputPath } from './storage.ts';
+import {
+  atomicWrite,
+  intentPath,
+  statePath,
+  workflowInputPath,
+  researchStatePath,
+  thinkStatePath,
+  workflowRunDirectory,
+} from './storage.ts';
 import { acquireWorkflowOwnership } from './ownership.ts';
-import { CHILD_PREFIX } from './stage-return.ts';
+import { CHILD_PREFIX, storedRootQuestion, validateWaitingLeaf } from './stage-return.ts';
 import { loadThinkState } from '../think/state.ts';
 import { loadResearchState } from '../research/state.ts';
 import { loadIssueState } from '../issue/state.ts';
+import { isObject } from '../shared/schema.ts';
 
 const INTENT_PROTOCOL = 'codex-workflow-intent' as const;
 type WorkflowInvocation = Workflow | 'issue' | 'research' | 'think' | 'cleanup';
@@ -346,4 +355,103 @@ export function requireCleanupIntent(
   inputFile: string,
 ): WorkflowIntent {
   return requireBoundIntent(runId, 'cleanup', repo, inputFile, 'cleanup input');
+}
+
+/** Discovery grants no execution authority; commands still diagnose unreadable or obsolete state. */
+function waitingWorkflow(runId: string): 'research' | 'think' | 'build' | null {
+  const peek = (file: string): Record<string, unknown> | null => {
+    try {
+      const value: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+      return isObject(value) ? value : null;
+    } catch {
+      return null;
+    }
+  };
+  const pendingReturn = (invocation: unknown): boolean => {
+    if (typeof invocation !== 'string' || !invocation) return false;
+    const file = path.join(workflowRunDirectory(runId), `returns-${invocation}.json`);
+    // A retained root must own its journal even when the lost question cannot be discovered.
+    if (!fs.existsSync(file)) storedRootQuestion(runId, invocation);
+    const state = peek(file)?.state;
+    return isObject(state) && Boolean(state.waiting) && !state.adoption;
+  };
+  const research = peek(researchStatePath(runId))?.state;
+  if (isObject(research) && research.phase === 'waiting') return 'research';
+  const think = peek(thinkStatePath(runId))?.state;
+  if (isObject(think) && think.phase !== 'completed' && think.phase !== 'blocked') {
+    const nested = pendingReturn(think.invocation);
+    if (think.phase === 'waiting' || nested) return 'think';
+  }
+  const build = peek(statePath(runId));
+  if (
+    build?.workflow === 'build' &&
+    build.status === 'blocked' &&
+    isObject(build.handoff) &&
+    !build.handoff.proposal &&
+    pendingReturn(build.invocation_id)
+  )
+    return 'build';
+  return null;
+}
+
+/** A waiting invocation is resumed, never re-armed by a concurrent prompt or a choice label. */
+export function waitingInvocation(runId: string, cwd: string) {
+  // Nonwaiting records leave ordinary conversation alone. Missing active ownership is
+  // diagnosed during discovery so a lost waiting journal cannot allow replacement.
+  const workflow = waitingWorkflow(runId);
+  if (!workflow) return null;
+  const repo = gitRoot(cwd, 'waiting workflow requires its original Git worktree');
+  const research = workflow === 'research' ? loadResearchState(runId) : null;
+  if (research?.phase === 'waiting' && research.pending_question && research.pending_owner) {
+    if (research.input.repo !== repo)
+      throw new Error('waiting workflow belongs to a different repository');
+    validateWaitingLeaf({
+      status: 'waiting',
+      question: research.pending_question,
+      owner: research.pending_owner,
+    });
+    return {
+      workflow: 'research' as const,
+      input_path: workflowInputPath(runId, 'research'),
+      question: research.pending_question,
+      owner: research.pending_owner,
+    };
+  }
+  const think = workflow === 'think' ? loadThinkState(runId) : null;
+  if (think) {
+    if (think.input.repo !== repo)
+      throw new Error('waiting workflow belongs to a different repository');
+    const waiting =
+      think.phase === 'waiting' && think.candidate?.question && think.pending_owner
+        ? { question: think.candidate.question, owner: think.pending_owner }
+        : storedRootQuestion(runId, think.invocation);
+    if (waiting) {
+      validateWaitingLeaf({ ...waiting, status: 'waiting' });
+      return {
+        workflow: 'think' as const,
+        input_path: workflowInputPath(runId, 'think'),
+        ...waiting,
+      };
+    }
+  }
+  if (workflow === 'build') {
+    const build = JSON.parse(fs.readFileSync(statePath(runId), 'utf8'));
+    if (build.manifest?.repo !== repo)
+      throw new Error('waiting workflow belongs to a different repository');
+    if (
+      build.workflow === 'build' &&
+      build.status === 'blocked' &&
+      build.manifest?.repo === repo &&
+      build.invocation_id
+    ) {
+      const waiting = storedRootQuestion(runId, build.invocation_id);
+      if (waiting)
+        return {
+          workflow: 'build' as const,
+          input_path: workflowInputPath(runId, 'build'),
+          ...waiting,
+        };
+    }
+  }
+  return null;
 }

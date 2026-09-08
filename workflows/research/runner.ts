@@ -31,7 +31,7 @@ interface ResearchDescription {
   };
 }
 
-export interface ResearchCommandResult {
+interface ResearchCompletedResult {
   protocol: typeof RESEARCH_RESULT_PROTOCOL;
   status: 'completed';
   report_json: string;
@@ -40,6 +40,14 @@ export interface ResearchCommandResult {
   unknowns: number;
   next_step: 'think';
 }
+
+export type ResearchCommandResult =
+  | ResearchCompletedResult
+  | (import('../runtime/clarification.ts').WaitingResult & {
+      protocol: typeof RESEARCH_RESULT_PROTOCOL;
+      report_json?: never;
+      report_markdown?: never;
+    });
 
 /** Exposes the authoring contract without starting a workflow or model. */
 export function describeResearch(): ResearchDescription {
@@ -78,6 +86,14 @@ export async function runResearchWorkflow(
   agent?: ResearchAgent,
 ): Promise<ResearchCommandResult> {
   const result = await runResearch(runId, inputFile, agent);
+  if ('status' in result && result.status === 'waiting')
+    return {
+      protocol: RESEARCH_RESULT_PROTOCOL,
+      status: 'waiting',
+      question: result.question,
+      owner: result.owner,
+    };
+  if (!('report' in result)) throw new FlowError('Research returned an invalid result');
   return {
     protocol: RESEARCH_RESULT_PROTOCOL,
     status: 'completed',

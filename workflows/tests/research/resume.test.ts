@@ -301,7 +301,7 @@ test('real process exits resume saved candidates, audits and paired publication 
     const result = await runResearchWorkflow(runId, inputFile, resumed);
     assert.equal(authors, boundary === 'investigate' ? 1 : 0);
     assert.equal(audits, ['investigate', 'validate', 'audit'].includes(boundary) ? 1 : 0);
-    assert.equal(result.report_json, researchPublicationPaths(saved).json);
+    assert.equal(result.report_json!, researchPublicationPaths(saved).json);
     const again = await runResearchWorkflow(runId, inputFile, {
       async investigate() {
         throw new Error('no redispatch');
@@ -389,8 +389,8 @@ test('partial publication retains its original destinations when artifact config
   process.env.CODEX_FLOW_ARTIFACT_DIR = temporaryDirectory('research-other-artifacts-');
   try {
     const result = await runResearchWorkflow(runId, inputFile, agent);
-    assert.equal(result.report_json, paths.json);
-    assert.equal(result.report_markdown, paths.markdown);
+    assert.equal(result.report_json!, paths.json);
+    assert.equal(result.report_markdown!, paths.markdown);
     assert.equal(fs.existsSync(paths.markdown), true);
   } finally {
     if (configured === undefined) delete process.env.CODEX_FLOW_ARTIFACT_DIR;
@@ -434,15 +434,15 @@ test('completed retrieval needs no snapshot or writes and repairs only missing v
   assert.equal('report' in saved, false);
   assert.equal(
     saved.generated_at,
-    JSON.parse(fs.readFileSync(result.report_json, 'utf8')).generated_at,
+    JSON.parse(fs.readFileSync(result.report_json!, 'utf8')).generated_at,
   );
-  const before = fs.readFileSync(result.report_json, 'utf8');
-  const markdown = fs.readFileSync(result.report_markdown, 'utf8');
+  const before = fs.readFileSync(result.report_json!, 'utf8');
+  const markdown = fs.readFileSync(result.report_markdown!, 'utf8');
   fs.rmSync(researchSnapshotPath(runId, saved), { recursive: true });
   fs.unlinkSync(path.join(repo, 'value.ts'));
   const sentinel = new Date('2000-01-01T00:00:00.000Z');
-  fs.utimesSync(result.report_json, sentinel, sentinel);
-  fs.utimesSync(result.report_markdown, sentinel, sentinel);
+  fs.utimesSync(result.report_json!, sentinel, sentinel);
+  fs.utimesSync(result.report_markdown!, sentinel, sentinel);
   const noAgent: ResearchAgent = {
     async investigate() {
       throw new Error('completed run must not dispatch');
@@ -452,13 +452,13 @@ test('completed retrieval needs no snapshot or writes and repairs only missing v
     },
   };
   assert.deepEqual(await runResearchWorkflow(runId, inputFile, noAgent), result);
-  assert.equal(fs.statSync(result.report_json).mtimeMs, sentinel.getTime());
-  assert.equal(fs.statSync(result.report_markdown).mtimeMs, sentinel.getTime());
-  fs.unlinkSync(result.report_markdown);
+  assert.equal(fs.statSync(result.report_json!).mtimeMs, sentinel.getTime());
+  assert.equal(fs.statSync(result.report_markdown!).mtimeMs, sentinel.getTime());
+  fs.unlinkSync(result.report_markdown!);
   assert.deepEqual(await runResearchWorkflow(runId, inputFile, noAgent), result);
-  assert.equal(fs.readFileSync(result.report_markdown, 'utf8'), markdown);
-  assert.equal(fs.readFileSync(result.report_json, 'utf8'), before);
-  assert.equal(fs.statSync(result.report_json).mtimeMs, sentinel.getTime());
+  assert.equal(fs.readFileSync(result.report_markdown!, 'utf8'), markdown);
+  assert.equal(fs.readFileSync(result.report_json!, 'utf8'), before);
+  assert.equal(fs.statSync(result.report_json!).mtimeMs, sentinel.getTime());
   fs.writeFileSync(inputFile, JSON.stringify({ ...input, question: 'Different question' }));
   await assert.rejects(runResearchWorkflow(runId, inputFile, noAgent), /exact original input/);
 });
@@ -499,4 +499,306 @@ test('successful publication never attempts a second Markdown write', async () =
     status: 'completed',
     writes: 1,
   });
+});
+
+const decisionQuestion = {
+  id: 'scope-policy',
+  prompt: 'Which supported deployment is in scope for this investigation?',
+  choices: [
+    { label: 'Public', description: 'Investigate the public deployment.' },
+    { label: 'Private', description: 'Investigate the private deployment.' },
+  ],
+  recommendation: null,
+};
+
+test('a retried investigator can enter waiting without losing its failure or invalidating settled state', async () => {
+  const { runId, inputFile, repo } = fixture();
+  let authors = 0;
+  let audits = 0;
+  const worker: ResearchAgent = {
+    async investigate(input) {
+      authors++;
+      if (authors === 1) throw new Error('Transient investigator failure');
+      return input.clarification_answers?.length
+        ? candidate
+        : { status: 'waiting', question: decisionQuestion };
+    },
+    async audit() {
+      audits++;
+      return passing;
+    },
+  };
+  const waiting = await runResearchWorkflow(runId, inputFile, worker);
+  assert(waiting.status === 'waiting');
+  const state = loadResearchState(runId)!;
+  assert.equal(state.investigations![0]!.attempts, 2);
+  assert.equal(state.investigations![0]!.settled, 1);
+  assert.equal(state.investigations![0]!.reason, null);
+  assert.equal(fs.existsSync(researchArtifactDirectory(repo)), false);
+  assert.deepEqual(await runResearchWorkflow(runId, inputFile, worker), waiting);
+  assert.equal(authors, 2);
+  assert.equal(audits, 1);
+  const original = JSON.parse(fs.readFileSync(inputFile, 'utf8'));
+  const { id, ...context } = decisionQuestion;
+  fs.writeFileSync(
+    inputFile,
+    JSON.stringify({
+      ...original,
+      clarification_answers: [
+        {
+          owner: waiting.owner,
+          question_id: id,
+          ...context,
+          selection: 'Private',
+          answer: null,
+        },
+      ],
+    }),
+  );
+  assert.equal((await runResearchWorkflow(runId, inputFile, worker)).status, 'completed');
+  assert.equal(authors, 3);
+  assert.equal(audits, 2);
+  assert.deepEqual(
+    loadResearchState(runId)!.dispatch_history.slice(0, state.dispatch_history.length),
+    state.dispatch_history,
+  );
+});
+
+test('Research waiting is audited, stable, owner-bound and resumes with full history and the original snapshot', async () => {
+  for (const freeText of [false, true]) {
+    const { runId, inputFile, repo } = fixture();
+    let authors = 0,
+      audits = 0;
+    const worker: ResearchAgent = {
+      async investigate(input, _k, snapshot) {
+        authors++;
+        assert.match(fs.readFileSync(path.join(snapshot, 'value.ts'), 'utf8'), /42/);
+        return input.clarification_answers?.length
+          ? candidate
+          : { status: 'waiting', question: decisionQuestion };
+      },
+      async audit(input, _draft, _k, _snapshot, question) {
+        audits++;
+        if (!input.clarification_answers?.length) {
+          assert.deepEqual(question!.question, decisionQuestion);
+          assert.equal(question!.investigations.length, 1);
+        } else assert.equal(question, undefined);
+        return passing;
+      },
+    };
+    const waiting = await runResearchWorkflow(runId, inputFile, worker);
+    assert(waiting.status === 'waiting');
+    assert.equal('report_json' in waiting, false);
+    assert.equal(fs.existsSync(researchArtifactDirectory(repo)), false);
+    const before = loadResearchState(runId)!;
+    assert.deepEqual(await runResearchWorkflow(runId, inputFile, worker), waiting);
+    assert.equal(authors, 1);
+    assert.equal(audits, 1);
+    const original = JSON.parse(fs.readFileSync(inputFile, 'utf8'));
+    const answer = {
+      owner: waiting.owner,
+      question_id: waiting.question.id,
+      prompt: waiting.question.prompt,
+      choices: waiting.question.choices,
+      recommendation: waiting.question.recommendation,
+      selection: freeText ? null : 'Public',
+      answer: freeText ? '  Both deployment policies, verbatim.  ' : null,
+    };
+    for (const changed of [
+      { ...answer, owner: { ...answer.owner, leaf: 'other' } },
+      { ...answer, prompt: 'edited' },
+    ]) {
+      fs.writeFileSync(
+        inputFile,
+        JSON.stringify({ ...original, clarification_answers: [changed] }),
+      );
+      await assert.rejects(runResearchWorkflow(runId, inputFile, worker), /owner|match/);
+      assert.equal(authors, 1);
+    }
+    fs.writeFileSync(path.join(repo, 'value.ts'), 'live repository refresh is not authorized\n');
+    fs.writeFileSync(inputFile, JSON.stringify({ ...original, clarification_answers: [answer] }));
+    const result = await runResearchWorkflow(runId, inputFile, worker);
+    assert.equal(result.status, 'completed');
+    const after = loadResearchState(runId)!;
+    assert.equal(after.invocation, before.invocation);
+    assert.equal(after.source_digest, before.source_digest);
+    assert.deepEqual(after.clarification_history, [answer]);
+    assert.equal(authors, 2);
+    assert.equal(audits, 2);
+    fs.writeFileSync(
+      inputFile,
+      JSON.stringify({
+        ...original,
+        clarification_answers: [{ ...answer, answer: 'edited', selection: null }],
+      }),
+    );
+    await assert.rejects(runResearchWorkflow(runId, inputFile, worker), /history/);
+    assert.equal(authors, 2);
+  }
+}, 15000);
+
+test('rejected Research questions return to their investigator for correction and fresh whole-question audit', async () => {
+  const { runId, inputFile } = fixture();
+  let authors = 0,
+    audits = 0;
+  const result = await runResearchWorkflow(runId, inputFile, {
+    async investigate(_i, _k, _s, correction) {
+      authors++;
+      if (authors > 1) assert.match(correction!.reason, /42/);
+      return { status: 'waiting', question: { ...decisionQuestion, id: `scope-${authors}` } };
+    },
+    async audit(_i, _d, _k, _s, question) {
+      audits++;
+      assert.equal(question!.question.id, `scope-${audits}`);
+      return audits === 1 ? blocking : passing;
+    },
+  });
+  assert(result.status === 'waiting');
+  assert.equal(result.question.id, 'scope-2');
+  assert.equal(loadResearchState(runId)!.corrections, 1);
+  assert.equal(authors, 2);
+  assert.equal(audits, 2);
+});
+
+for (const parallel of [false, true]) {
+  test(`rejected question correction exhaustion retains readable audit context and permits fresh authorization (parallel=${parallel})`, async () => {
+    const { runId, inputFile, repo } = fixture();
+    const originalInput = JSON.parse(fs.readFileSync(inputFile, 'utf8'));
+    if (parallel) originalInput.subquestions = ['Deployment scope?', 'Exported value?'];
+    fs.writeFileSync(inputFile, JSON.stringify(originalInput));
+    const rejection: ResearchAudit = {
+      summary: 'The proposed preference does not affect the requested result.',
+      findings: [
+        {
+          severity: 'blocking',
+          condition: 'Only necessary user-owned decisions may wait.',
+          message: 'Answer the factual request without this unnecessary preference.',
+          evidence: [],
+        },
+      ],
+    };
+    let proposals = 0,
+      siblings = 0,
+      audits = 0;
+    const worker: ResearchAgent = {
+      async investigate(_i, _k, _s, correction, assignment) {
+        if (parallel && assignment!.question === 'Exported value?') {
+          siblings++;
+          return candidate;
+        }
+        proposals++;
+        if (proposals > 1) assert.match(correction!.reason, /unnecessary preference/);
+        return {
+          status: 'waiting',
+          question: { ...decisionQuestion, id: `rejected-${proposals}` },
+        };
+      },
+      async audit(_i, _d, _k, _s, context) {
+        audits++;
+        assert.equal(context!.question.id, `rejected-${audits}`);
+        assert.equal(context!.investigations.length, parallel ? 2 : 1);
+        return rejection;
+      },
+    };
+    await assert.rejects(runResearchWorkflow(runId, inputFile, worker), /after 3 corrections/);
+    const terminal = loadResearchState(runId)!;
+    assert.equal(terminal.phase, 'blocked');
+    assert.equal(terminal.corrections, 3);
+    assert.deepEqual(terminal.pending_question, { ...decisionQuestion, id: 'rejected-4' });
+    assert.deepEqual(terminal.audit, rejection);
+    assert.equal(terminal.pending_owner, null);
+    assert.equal(terminal.publication, null);
+    assert.equal(terminal.generated_at, null);
+    assert.deepEqual(terminal.accepted_questions, []);
+    assert.deepEqual(terminal.clarification_history, []);
+    assert.equal(terminal.investigations![0]!.attempts, 4);
+    assert.equal(terminal.dispatch_history.length, parallel ? 12 : 8);
+    const terminalBytes = fs.readFileSync(researchStatePath(runId), 'utf8');
+    await assert.rejects(runResearchWorkflow(runId, inputFile, worker), /after 3 corrections/);
+    assert.equal(fs.readFileSync(researchStatePath(runId), 'utf8'), terminalBytes);
+    assert.equal(proposals, 4);
+    assert.equal(audits, 4);
+    assert.equal(siblings, parallel ? 4 : 0);
+    assert.equal(fs.existsSync(researchArtifactDirectory(repo)), false);
+
+    const freshInput = { ...originalInput, question: 'Confirm the exported value in a fresh run.' };
+    fs.writeFileSync(inputFile, JSON.stringify(freshInput));
+    await assert.rejects(runResearchWorkflow(runId, inputFile, agent), /exact original input/);
+    assert.equal(fs.readFileSync(researchStatePath(runId), 'utf8'), terminalBytes);
+    const authorized = armIntent({ runId, workflow: 'research', cwd: repo });
+    assert.equal(authorized.input_path, inputFile);
+    const completed = await runResearchWorkflow(runId, inputFile, agent);
+    assert.equal(completed.status, 'completed');
+    const fresh = loadResearchState(runId)!;
+    assert.notEqual(fresh.invocation, terminal.invocation);
+    assert.equal(fresh.corrections, 0);
+    assert.equal(fresh.pending_question, null);
+    assert.deepEqual(fresh.clarification_history, []);
+    assert.equal(loadIntent(runId), null);
+    assert.ok(fs.existsSync(researchSnapshotPath(runId, terminal)));
+  });
+}
+
+test('persisted Research waiting requires its independently accepted candidate and every bound value', async () => {
+  const { runId, inputFile } = fixture();
+  let calls = 0;
+  const worker: ResearchAgent = {
+    async investigate() {
+      calls++;
+      return { status: 'waiting', question: decisionQuestion };
+    },
+    async audit() {
+      return passing;
+    },
+  };
+  const waiting = await runResearchWorkflow(runId, inputFile, worker);
+  assert(waiting.status === 'waiting');
+  const original = fs.readFileSync(researchStatePath(runId), 'utf8');
+  const mutations = [
+    ...(['root', 'task'] as const).map(
+      (field) => (s: NonNullable<ReturnType<typeof loadResearchState>>) => {
+        s.pending_owner![field] = 'another-owner';
+        s.pending_owner!.handoff = researchDigest({
+          root: s.pending_owner!.root,
+          task: s.pending_owner!.task,
+          invocation: s.invocation,
+        });
+      },
+    ),
+    (s: NonNullable<ReturnType<typeof loadResearchState>>) => {
+      s.audit = null;
+    },
+    (s: NonNullable<ReturnType<typeof loadResearchState>>) => {
+      s.audit = blocking;
+    },
+    (s: NonNullable<ReturnType<typeof loadResearchState>>) => {
+      s.candidate!.answer = 'edited';
+    },
+    (s: NonNullable<ReturnType<typeof loadResearchState>>) => {
+      s.pending_question!.prompt = 'edited';
+    },
+    (s: NonNullable<ReturnType<typeof loadResearchState>>) => {
+      s.dispatch = 'edited';
+    },
+    (s: NonNullable<ReturnType<typeof loadResearchState>>) => {
+      s.input.allow_external_sources = true;
+    },
+    (s: NonNullable<ReturnType<typeof loadResearchState>>) => {
+      s.investigations![0]!.attempts++;
+    },
+  ];
+  for (const mutate of mutations) {
+    const state = JSON.parse(original).state;
+    mutate(state);
+    saveResearchState(runId, state);
+    const bytes = fs.readFileSync(researchStatePath(runId), 'utf8');
+    await assert.rejects(
+      runResearchWorkflow(runId, inputFile, worker),
+      /acceptance|owner|input|state cannot resume/,
+    );
+    assert.equal(fs.readFileSync(researchStatePath(runId), 'utf8'), bytes);
+    assert.equal(calls, 1);
+  }
+  fs.writeFileSync(researchStatePath(runId), original);
+  assert.deepEqual(await runResearchWorkflow(runId, inputFile, worker), waiting);
 });

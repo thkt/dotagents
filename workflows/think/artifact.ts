@@ -11,7 +11,7 @@ import {
 } from '../runtime/storage.ts';
 
 import { oneLine } from '../shared/text.ts';
-import { thinkNextStep, type ThinkReport } from './contracts.ts';
+import { parseThinkReport, thinkNextStep, type ThinkReport } from './contracts.ts';
 
 function renderThinkMarkdown(report: ThinkReport): string {
   const labels = { title: 'Design decision', research: 'Research required', next: 'Next state' };
@@ -40,6 +40,7 @@ export function persistThinkReport(
   report: ThinkReport,
   publicationPaths?: { json: string; markdown: string },
 ): { json: string; markdown: string } {
+  parseThinkReport(report);
   const paths =
     publicationPaths ??
     artifactPaths(

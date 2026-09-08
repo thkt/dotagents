@@ -22,6 +22,7 @@ import { ProgressReporter, workflowProgress } from '../shared/progress.ts';
 import { projectOutcomeContext } from '../shared/project-outcome.ts';
 
 export interface ThinkResearchContext {
+  clarification_answers: import('../runtime/clarification.ts').ClarificationAnswer[];
   path: string;
   generated_at: string;
   question: string;
@@ -59,6 +60,11 @@ export interface ThinkAgent {
 function commonPrompt(input: ThinkInput, projectOutcome: string): string[] {
   return [
     `Request: ${JSON.stringify(input.request)}`,
+    ...(input.clarification_answers?.length
+      ? [
+          `Complete clarification history (preserve the displayed context and explicit answer): ${JSON.stringify(input.clarification_answers)}`,
+        ]
+      : []),
     projectOutcome,
     "Write all contract statements in English. Keep code identifiers and existing test names in the repository's language.",
     PLAN_DECISION_GUIDANCE,
@@ -82,6 +88,7 @@ function designPrompt(
   return composePrompt(
     [
       'Turn this request into an implementation-ready Plan.',
+      'You may author one waiting question only for a necessary, materially outcome-changing preference, scope, or policy decision requiring user authority. Explain why it matters in the prompt; provide two or three distinctly described choices and optionally recommend one label. Factual gaps use research_required; delegate internal implementation choices. Use the full explicit answer history and never reuse an answered question identity.',
       ...commonPrompt(input, projectOutcome),
       ...(correction
         ? [
@@ -89,7 +96,7 @@ function designPrompt(
           ]
         : []),
       'Choose the smallest viable approach. Compare alternatives only when that materially improves the Plan.',
-      'Return status ready with a complete Plan only when the repository and supplied Research are sufficient. Otherwise return research_required with plan null and concrete research questions.',
+      'Return status ready with a complete Plan only when the repository and supplied Research are sufficient. For confirmed factual gaps return research_required with plan null and concrete research questions. For a necessary user-owned decision return waiting with plan null, no research_questions, and the complete question. Keep these outcomes mutually exclusive.',
       'After the bounded investigation, return only the structured response.',
     ],
     [
@@ -119,6 +126,7 @@ function reviewPrompt(
     [
       'Independently review this exact designer candidate. Return only findings; never rewrite or supply a final Plan.',
       ...commonPrompt(input, projectOutcome),
+      'For waiting decisions, independently reject gratuitous preferences, factual questions, internal implementation choices and materially unnecessary decisions. Review the complete designer-authored question, descriptions, recommendation and answer history. Never author or replace a question; return findings for designer correction. An empty findings array accepts only this exact candidate.',
       'Check simpler approaches, unsupported assumptions, hidden coupling and missing integration behavior. A ready Plan must satisfy the request and its acceptance tests must verify the unit goals under test_command.',
       'For research_required, verify that each question identifies a confirmed missing fact that materially changes requirements; ordinary implementation choices must return to the designer, not Research.',
       'Each finding must name the unmet condition, explain the defect and cite concrete evidence from the request, candidate, supplied reports or snapshot source locations. Use blocking only for required corrections and advisory for optional improvements. No findings means this exact candidate is sufficient.',
