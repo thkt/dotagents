@@ -5,7 +5,7 @@
 セットアップと検証範囲は[README](README.md#セットアップと検証)を、制御CLIの操作・上限・中断は[scripts/README.md](scripts/README.md)を参照してください。
 
 - 小さな変更もIssueに紐づけます。
-- 自動化によるPRは専用GitHub Appが作成し、人がレビュー・承認します。
+- GitHubへのIssue・PR作成、push・添付はユーザーの既存gh認証を使います。人がレビューしてマージを判断します。PR作者自身はGitHubのApproveを行えないため、必須レビューがあるrepoでは別の適格レビュアーが条件を満たします。
 - 秘密鍵やtokenをコード・文書・ログに残しません。
 
 ## 変更に応じた確認
@@ -105,7 +105,7 @@ agent-browserは、LLMによる探索的な画面確認で必要な場合に使�
 
 ## CIとmain保護
 
-CIの`checks`は依存を固定して導入し、このハーネスの`bun run check`を実行します。`verify`は`checks`がsuccessのときだけ成功します。PRはhead commitを検証し、コードを実行するjobにApp秘密鍵や書込みtokenを渡しません。
+CIの`checks`は依存を固定して導入し、このハーネスの`bun run check`を実行します。`verify`は`checks`がsuccessのときだけ成功します。PRはhead commitを検証し、コードを実行するjobに書込みtokenを渡しません。
 
 対象repoの保護設定と実際のcheck登録は公開時に確認します。CI成功だけで承認やマージを代行しません。人の承認後に差分が更新された場合は、最新commitとCIを再確認します。
 

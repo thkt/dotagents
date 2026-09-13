@@ -12,18 +12,18 @@
 ## IssueからPR作成
 
 ```sh
-bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to/target-checkout --app-config /absolute/path/to/host/app.json
+bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to/target-checkout
 ```
 
 番号または対象repoのIssue URLを渡します。実行前に対象のREADME・開発方針・適用される指示と、下記の設定を確認してください。ハーネスはBun、Git、gh、Codex CLIとホストの日本語確認環境を使います。対象repoの言語やテストツールは設定に従います。
 
-開始時にcheckout・設定・fetch/push remote・GitHub repo ID・base branch・ghの主体とpush権限を照合します。公開する実行では専用Appの対象アクセスも実装前に確認します。元checkoutがdirty、run保存先が既存、同名branchが存在する場合は作業を始めません。要求全文を保存し、元checkoutのcommitted HEADから `codex/development-N` の隔離worktreeを作ります。設定のsetupを隔離先で順に実行し、初回実装、文章確認、必要な撮影、対象のcheck、独立評価へ進みます。要求変更、対象・設定・主体の変更、上限超過は停止します。
+開始時にcheckout・設定・fetch/push remote・GitHub repo ID・base branch・ghの主体とpush権限を照合します。公開する実行ではユーザー認証の対象アクセスも実装前に確認します。元checkoutがdirty、run保存先が既存、同名branchが存在する場合は作業を始めません。要求全文を保存し、元checkoutのcommitted HEADから `codex/development-N` の隔離worktreeを作ります。設定のsetupを隔離先で順に実行し、初回実装、文章確認、必要な撮影、対象のcheck、独立評価へ進みます。要求変更、対象・設定・主体の変更、上限超過は停止します。
 
 新規実行の上限は初回実装を含むモデル累計20分、追加修正2回・独立評価2回、各checkとCI待機9分です。初回実装の消費時間をcorrectionへ渡す残時間から差し引きます。予算拡大や途中実行の自動復旧は行いません。
 
 保存先は `~/.local/share/dotagents/development/<Git管理ディレクトリの識別値>/<Issue番号>/` です。`--run-dir DIRECTORY` でcheckout・Git管理領域外を指定できます。`target.json` に対象設定・repo ID・gh主体、ほかに要求、指示・結果、検証ログ、作業checkout、PR本文・URL、CI結果を残します。既存保存先は再実行に使いません。中断後は記録・実プロセス・GitHubの状態を照合し、保存先の削除や別名での自動再試行をしません。
 
-`--no-publish` は独立評価までで止め、commit・push・PR作成を行わず、App設定とpush権限の確認も不要です。通常実行は検証済み対象を再照合し、commit、PR本文の文章確認、App権限の再確認、gh主体の資格情報を明示したpush、専用AppによるPR作成へ進みます。pushにはコマンド内だけで定義するHTTPSの公開先を使い、GitのURL書き換え後も対象が一致することを確認します。SSHへの切替や別repoへの書き換えは拒否します。生成媒体の変更を設定した保存先から添付します。新規PRのcheck登録もCI待機9分の中で待ち、登録待ち中もPRのhead・base・OPEN状態を照合します。最新CIとPRのhead・baseを照合し、表示・再生・配置の確認は `rendered_media_check` として担当者へ渡します。CI未確認時はPR URLと記録を保持して非zero終了します。人がレビュー・承認・マージします。
+`--no-publish` は独立評価までで止め、commit・push・PR作成を行わず、push権限の確認も不要です。通常実行は検証済み対象を再照合し、commit、PR本文の文章確認、ユーザー認証と権限の再確認、gh主体の資格情報を明示したpush、ユーザー認証によるPR作成へ進みます。pushにはコマンド内だけで定義するHTTPSの公開先を使い、GitのURL書き換え後も対象が一致することを確認します。SSHへの切替や別repoへの書き換えは拒否します。生成媒体の変更を設定した保存先から添付します。新規PRのcheck登録もCI待機9分の中で待ち、登録待ち中もPRのhead・base・OPEN状態を照合します。最新CIとPRのhead・baseを照合し、表示・再生・配置の確認は `rendered_media_check` として担当者へ渡します。CI未確認時はPR URLと記録を保持して非zero終了します。人がレビュー・承認・マージします。
 
 ## 対象repoの設定
 
@@ -46,7 +46,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to
 
 `{harness}` はコマンド引数内で信頼するハーネス実体の絶対パスへ展開します。このハーネス自身の設定は [../.dotagents.json](../.dotagents.json) が正本です。別repoへこの設定を無条件にコピーしません。
 
-読み取りによる照合は次で行えます。`--write` はghのpush権限も検証します。Issue作成・更新の主体はここで表示するghユーザーで、PR主体のAppとは分けて記録します。scopingの保存・十分性評価CLIはGitHubへ書き込まず、担当者が合意と対象を照合して既存ghのIssue操作を行います。
+読み取りによる照合は次で行えます。`--write` はghのpush権限も検証します。Issue・PRの作成・更新はここで表示するghユーザーの認証を使います。scopingの保存・十分性評価CLIはGitHubへ書き込まず、担当者が合意と対象を照合して既存ghのIssue操作を行います。
 
 ```sh
 bun /absolute/path/to/trusted/scripts/target.ts /absolute/path/to/target-checkout https://github.com/team/component/issues/99 --write
@@ -113,7 +113,7 @@ bun scripts/correction.ts /absolute/path/config.json
 
 `repair`と`review`は要求と失敗根拠を標準入力で受け取り、結果のJSONだけを標準出力へ返します。評価は`status: accepted | needs_changes`と文字列`findings`、修正は`status: repaired | needs_human`と文字列`findings`です。欠落、不正、実行失敗は停止し、成功には読み替えません。これは呼び出し間の最小の結果形式で、Issueの完了条件を置き換える契約ではありません。
 
-付属のCodex呼び出しはAstra/highを使い、修正はworkspace-write、評価はread-onlyで新しい実行を開始します。評価者はコード、テスト、文書を読み、ホスト側checkの結果と分けて評価します。実行前にCodexへログインし、対象モデルが利用できるCLIを用意してください。GitHub Appの鍵や書き込みtokenを作業環境へ渡さないでください。
+付属のCodex呼び出しはAstra/highを使い、修正はworkspace-write、評価はread-onlyで新しい実行を開始します。評価者はコード、テスト、文書を読み、ホスト側checkの結果と分けて評価します。実行前にCodexへログインし、対象モデルが利用できるCLIを用意してください。GitHubの書き込みtokenを成果物やプロンプトへ埋め込まないでください。
 
 独立評価は公開や人のレビューへ渡せるかを判断します。要求の全文を読み、実装、意味のあるテスト、必要な文書、用意された画像や動画と対象の対応付けを確認します。これらの不足は修正へ差し戻します。PR作成、添付、PR内の表示確認は公開担当、人のレビューや承認は人の担当です。これらが公開前に未実施であることだけを実装の不備とは扱わず、残る担当作業をfindingsに記してacceptedを返します。要求を免除したり、未実施の確認を完了扱いしたりしません。
 
@@ -186,33 +186,20 @@ Geminiは修正候補を作成し、別の読み取り専用Codexは原文、根
 
 ## PRの公開
 
-公開担当は、信頼するハーネスから対象checkoutとホスト上のApp設定を指定します。Bun・gh・macOS login Keychainを使います。App設定は `--app-config` または `DOTAGENTS_APP_CONFIG` の絶対パスで指定し、対象repoへ鍵やtokenを置きません。
-
-```json
-{
-  "id": 42,
-  "clientId": "configured-client-id",
-  "installationId": 89,
-  "keychainService": "registered-service",
-  "keychainAccount": "registered-account",
-  "keyFingerprint": "registered-public-key-sha256-base64"
-}
-```
-
-数値と文字列は形式例です。ホスト担当が登録済みApp・installation・Keychain項目・公開鍵fingerprintを照合して設定します。このIssueで登録を切り替えません。
+公開担当は信頼するハーネスから対象checkoutを指定し、ユーザーの既存gh認証を使います。App設定・署名鍵・installation tokenは不要です。環境変数のtokenが保存済み認証より優先される場合もあるため、実効主体を `gh api user` で確認します。対象hostはgithub.comです。`GH_HOST`が別hostを指定している場合はGitHub操作前に停止します。認証情報をrepo・ログ・PR本文へ保存しません。
 
 ```sh
-bun /absolute/path/to/trusted/scripts/publish.ts --repo /absolute/path/target-checkout --app-config /absolute/path/host/app.json --preflight
-bun /absolute/path/to/trusted/scripts/publish.ts --repo /absolute/path/target-checkout --app-config /absolute/path/host/app.json --head codex/example --title '変更の概要' --body-file /absolute/path/pr.md
+bun /absolute/path/to/trusted/scripts/publish.ts --repo /absolute/path/target-checkout --preflight
+bun /absolute/path/to/trusted/scripts/publish.ts --repo /absolute/path/target-checkout --actor USER_LOGIN --head codex/example --title '変更の概要' --body-file /absolute/path/pr.md
 ```
 
-preflightは対象とghのpush権限、App ID・鍵fingerprint、対象repoのinstallation・PR書込権限を照合し、対象repo ID限定tokenのアクセスを確認して失効します。PRを作りません。公開時も同じ確認を行います。App権限がなければ停止し、個人アカウントへ自動切替しません。
+preflightは対象repo・base branch・remoteとghのpush権限・実効ユーザーを照合し、PRを作らず確認結果を返します。`--actor` は事前に確認したloginを指定します。developmentは開始時のloginを公開時にも渡し、不一致で停止します。PR書込みの細かなtoken権限や組織ポリシーはpreflightだけで保証せず、公開失敗時は停止理由とGitHub上の実状態を確認します。
 
-PRのrepoとbase branchは対象設定を使います。同じhead・baseのopen PRがあればURLを返し、なければApp tokenで作成します。既存PRの本文更新、push、承認、マージはこのCLIでは行いません。SIGINT・SIGTERMでは実行中のコマンドとその子プロセスを停止し、後続の公開操作へ進みません。発行済みtokenは中断時もfinallyで失効を試み、鍵とtokenをログやファイルへ出しません。通信断・強制終了・失効失敗時は、PRとtokenの状態を照合してから対応します。制御テストの模擬応答は実際のAppアクセスを確認した証拠ではありません。
+同じhead・baseのopen PRがあれば作者を照合してURLを返し、なければ同じgh認証で作成して作者を確認します。旧Appや別ユーザーのPRを現在のユーザーの公開成功と扱いません。このCLIは既存PRの本文更新・push・承認・マージを行いません。SIGINT・SIGTERMでは実行中のコマンドと子プロセスを停止し、後続の公開操作へ進みません。通信断や強制終了時は、再試行前にPRの実状態を確認します。制御テストの模擬応答は実際のGitHubアクセスの証拠ではありません。
 
 ### PRへの画像・動画の添付
 
-App で PR を作成した後、公開担当の既存の gh 認証で`gh pr edit --attach`を実行します。対象 commit で取得した画像・動画を指定します。本文を指定しなければ、既存の本文を保って添付が追加されます。
+PR作成時と同じユーザーのgh認証で`gh pr edit --attach`を実行します。対象 commit で取得した画像・動画を指定します。本文を指定しなければ、既存の本文を保って添付が追加されます。
 
 ```sh
 gh pr edit PR_NUMBER --repo OWNER/REPO \

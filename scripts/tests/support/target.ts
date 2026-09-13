@@ -42,11 +42,3 @@ export function githubTarget(argv: string[], config = targetConfig): string | un
   }
   throw Error(`Unexpected API request: ${argv[2]}`);
 }
-export const testApp = {
-  id: 42,
-  clientId: 'configured-client',
-  installationId: 89,
-  keychainService: 'fixture-app',
-  keychainAccount: 'fixture-account',
-  keyFingerprint: 'expected-fingerprint',
-};

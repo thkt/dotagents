@@ -63,6 +63,10 @@ export function issueNumber(input: string, repository: string) {
   return raw;
 }
 export async function readTarget(checkout: string, read: Reader, writable = false) {
+  assert(
+    !process.env.GH_HOST || process.env.GH_HOST === 'github.com',
+    'GH_HOST must be github.com',
+  );
   const cwd = await realpath(checkout);
   assert(
     (await realpath(await read(['git', 'rev-parse', '--show-toplevel'], cwd))) === cwd,

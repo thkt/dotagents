@@ -51,7 +51,6 @@ async function prepare(args: string[], io: typeof runtime) {
       repo: { type: 'string' },
       'run-dir': { type: 'string' },
       'no-publish': { type: 'boolean' },
-      'app-config': { type: 'string' },
     },
   });
   assert(
@@ -66,8 +65,6 @@ async function prepare(args: string[], io: typeof runtime) {
   const input = parsed.positionals[0];
   assert(input);
   const number = issueNumber(input, repository);
-  const appPath = parsed.values['app-config'] ?? process.env.DOTAGENTS_APP_CONFIG;
-  const appArgs = appPath ? ['--app-config', appPath] : [];
   assert(
     (await git('status', '--porcelain')).length === 0,
     'Commit or preserve pending work before development; the entry uses committed HEAD',
@@ -83,9 +80,6 @@ async function prepare(args: string[], io: typeof runtime) {
     'title,body,state,updatedAt',
   ];
   const original = await checked(io, issue, repo);
-  if (!localOnly) {
-    await io.publish(['--repo', repo, ...appArgs, '--preflight']);
-  }
   const requirements = issueValue(original);
   const common = await realpath(
     await git('rev-parse', '--path-format=absolute', '--git-common-dir'),
@@ -129,7 +123,6 @@ async function prepare(args: string[], io: typeof runtime) {
     remote,
     localOnly,
     target,
-    appArgs,
   };
 }
 type Context = Awaited<ReturnType<typeof prepare>>;
@@ -305,7 +298,6 @@ async function ship(
     'Target changed before push',
   );
   await unchangedTarget(context, io, commit);
-  await io.publish(['--repo', cwd, ...context.appArgs, '--preflight']);
   await checked(
     io,
     await pushArguments(repository, branch, cwd, (argv, path) => checked(io, argv, path)),
@@ -314,7 +306,8 @@ async function ship(
   const url = await io.publish([
     '--repo',
     cwd,
-    ...context.appArgs,
+    '--actor',
+    context.target.actor,
     '--head',
     branch,
     '--title',

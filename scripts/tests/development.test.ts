@@ -28,7 +28,6 @@ const stopReasons = {
   missing_check: /Verification command is required/,
   wrong_issue: /Issue does not match target repository/,
   wrong_push: /Remote\/repository mismatch/,
-  denied_app: /App installation lacks target access/,
   actor_changed: /Target configuration or GitHub actor changed/,
   local_actor_changed: /Target configuration or GitHub actor changed/,
   config_changed: /Target configuration or GitHub actor changed/,
@@ -38,11 +37,7 @@ const stopReasons = {
 };
 
 async function checkStop(mode: keyof typeof stopReasons, dir: string, reviews: number) {
-  if (
-    !['wrong_repo', 'dirty', 'missing_check', 'wrong_issue', 'wrong_push', 'denied_app'].includes(
-      mode,
-    )
-  ) {
+  if (!['wrong_repo', 'dirty', 'missing_check', 'wrong_issue', 'wrong_push'].includes(mode)) {
     expect(await readFile(join(dir, 'stopped.txt'), 'utf8')).toMatch(stopReasons[mode]);
   }
   if (
@@ -57,7 +52,6 @@ async function checkStop(mode: keyof typeof stopReasons, dir: string, reviews: n
       'missing_check',
       'wrong_issue',
       'wrong_push',
-      'denied_app',
     ].includes(mode)
   ) {
     expect(reviews).toBe(0);
@@ -161,7 +155,6 @@ for (const mode of [
   'missing_check',
   'wrong_issue',
   'wrong_push',
-  'denied_app',
   'other_repo',
   'actor_changed',
   'local_actor_changed',
@@ -317,12 +310,7 @@ for (const mode of [
       },
       publish: async (args: string[]) => {
         expect(args).toContain('--repo');
-        if (args.includes('--preflight')) {
-          if (mode === 'denied_app') {
-            throw Error('App installation lacks target access');
-          }
-          return '{}';
-        }
+        expect(args[args.indexOf('--actor') + 1]).toBe('operator');
         publications++;
         expect(pushes).toBe(1);
         return `https://github.com/${settings.repository}/pull/100`;
