@@ -1,3 +1,3 @@
 # Project guidance
 
-Before starting any work, always read [.codex/OUTCOME.md](.codex/OUTCOME.md) and evaluate the scope against its completion criteria.
+Read [the project outcome](.codex/OUTCOME.md) and [development policy](DEVELOPMENT.md) before changing this shared harness.

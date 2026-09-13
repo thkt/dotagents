@@ -1,0 +1,4 @@
+interface:
+  display_name: "要求と実装範囲の整理"
+  short_description: "調査と対話で要求・実装範囲を整理し、合意した内容をGitHub Issueにする"
+  default_prompt: "$scoping 要求と実装範囲を整理し、合意した内容をIssueにしてください。"

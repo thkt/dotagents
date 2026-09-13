@@ -1,0 +1,19 @@
+{
+  "repository": "thkt/dotagents",
+  "remote": "origin",
+  "baseBranch": "main",
+  "setup": [
+    [
+      "bun",
+      "install",
+      "--frozen-lockfile",
+      "--ignore-scripts"
+    ]
+  ],
+  "check": [
+    "bun",
+    "run",
+    "check"
+  ],
+  "capture": null
+}

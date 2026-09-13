@@ -1,0 +1,168 @@
+import { test, expect, afterEach } from 'bun:test';
+import { mkdir, symlink, writeFile, readFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { correctionFixture, controller, object } from './support/correction.ts';
+
+const { trial, cleanup } = correctionFixture();
+afterEach(cleanup);
+
+for (const [mode, result, repairs, reviews] of [
+  ['normal', 'ready_for_human_review', 1, 1],
+  ['null_repair', 'invalid_repair', 1, 0],
+  ['null_review', 'invalid_review', 1, 1],
+  ['human', 'human_decision_required', 1, 0],
+  ['issue_changed', 'requirements_changed', 1, 1],
+  ['review_failed', 'review_failed', 1, 1],
+  ['docs', 'ready_for_human_review', 2, 2],
+  ['malformed', 'invalid_review', 1, 1],
+  ['changed', 'source_changed', 1, 1],
+  ['exhaust', 'execution_limit', 2, 0],
+] as const) {
+  test(mode, async () => {
+    const t = await trial(mode);
+    expect(t.execute().status).toBe(result === 'ready_for_human_review' ? 0 : 1);
+    const state = await t.state();
+    expect(state.result).toBe(result);
+    expect(state.repair).toBe(repairs);
+    expect(state.review).toBe(reviews);
+    if (result === 'ready_for_human_review') {
+      expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('correct');
+      if (mode === 'docs') {
+        expect(await readFile(join(t.config.cwd, 'README.md'), 'utf8')).toBe('current');
+      }
+    }
+    if (mode === 'normal' || mode === 'exhaust') {
+      const before = await t.state();
+      t.execute();
+      expect(await t.state()).toEqual(before);
+    }
+  });
+}
+
+test('changed limits cannot reset an existing trial', async () => {
+  const t = await trial('exhaust');
+  t.execute();
+  await writeFile(t.configFile, JSON.stringify({ ...t.config, repairLimit: 10 }));
+  const result = t.execute();
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('configuration changed');
+  expect((await t.state()).repair).toBe(2);
+});
+
+test('review limit prevents a third-party evaluator from being called again', async () => {
+  const t = await trial('docs', { reviewLimit: 1 });
+  t.execute();
+  const state = await t.state();
+  expect(state.result).toBe('execution_limit');
+  expect(state.review).toBe(1);
+  expect(state.repair).toBe(2);
+});
+
+for (const [target, path, content] of [
+  ['documentation', 'work/README.md', 'new documentation'],
+  ['Issue', 'helper.js', "console.log('Updated requirements');"],
+] as const) {
+  test(`terminal success is not reused for changed ${target}`, async () => {
+    const t = await trial('normal');
+    expect(t.execute().status).toBe(0);
+    const before = await t.state();
+    await writeFile(join(t.root, path), content);
+    const result = t.execute();
+    expect(result.status).toBe(1);
+    expect(object(JSON.parse(result.stdout)).result).toBe('target_changed_after_stop');
+    expect(await t.state()).toEqual(before);
+  });
+}
+
+for (const [name, change] of [
+  ['missing cwd', { cwd: undefined }],
+  ['empty command', { repair: [] }],
+  ['invalid limit', { reviewLimit: -1 }],
+] as const) {
+  test(`invalid config: ${name}`, async () => {
+    const t = await trial('normal');
+    await writeFile(t.configFile, JSON.stringify({ ...t.config, ...change }));
+    const result = t.execute();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Invalid');
+    expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
+  });
+}
+for (const change of [
+  { repair: -1 },
+  { active: { role: 'repair' } },
+  { events: [{}] },
+  { result: 'unrecognized_success' },
+  { captureSource: 42 },
+]) {
+  test(`invalid saved state is retained and rejected: ${JSON.stringify(change)}`, async () => {
+    const t = await trial('normal');
+    expect(t.execute().status).toBe(0);
+    const stateFile = join(t.config.runDir, 'state.json');
+    const invalid = JSON.stringify({ ...(await t.state()), ...change });
+    await writeFile(stateFile, invalid);
+    const result = t.execute();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Invalid');
+    expect(await readFile(stateFile, 'utf8')).toBe(invalid);
+  });
+}
+test('missing CLI configuration argument fails with usage', () => {
+  const result = spawnSync(process.execPath, [controller], { encoding: 'utf8' });
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('Usage:');
+});
+
+for (const path of ['.', 'evidence', '..evidence', '../..external']) {
+  test(`evidence directory boundary: ${path}`, async () => {
+    const t = await trial('boundary');
+    const runDir = resolve(t.config.cwd, path);
+    await writeFile(t.configFile, JSON.stringify({ ...t.config, runDir }));
+    const result = t.execute();
+    if (path === '../..external') {
+      expect(result.status).toBe(0);
+    } else {
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('Evidence must be outside the worktree');
+      expect(await Bun.file(join(runDir, 'state.json')).exists()).toBe(false);
+      expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
+    }
+  });
+}
+
+test('evidence directory boundary: symlink resolving into the worktree', async () => {
+  const t = await trial('boundary');
+  const inside = join(t.config.cwd, 'inside');
+  await mkdir(inside);
+  const runDir = join(t.root, 'linked-evidence');
+  await symlink(inside, runDir);
+  await writeFile(t.configFile, JSON.stringify({ ...t.config, runDir }));
+  const result = t.execute();
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('Evidence must not resolve inside the worktree');
+  expect(await Bun.file(join(inside, 'state.json')).exists()).toBe(false);
+  expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
+});
+
+for (const mode of ['writing_success', 'writing_failure']) {
+  test(`writing before check and after repair: ${mode}`, async () => {
+    const fixture = await trial(mode);
+    expect(fixture.execute().status).toBe(mode === 'writing_success' ? 0 : 1);
+    const state = await fixture.state();
+    expect(state.result).toBe(
+      mode === 'writing_success' ? 'ready_for_human_review' : 'writing_failed',
+    );
+    if (mode === 'writing_success') {
+      expect(await readFile(join(fixture.config.cwd, 'README.md'), 'utf8')).toBe(
+        'reviewed correct',
+      );
+      expect(await readFile(join(fixture.root, 'checked-documents'), 'utf8')).toBe(
+        'reviewed broken\nreviewed correct\n',
+      );
+    } else {
+      expect(state.checks).toBe(0);
+      expect(state.review).toBe(0);
+    }
+  });
+}

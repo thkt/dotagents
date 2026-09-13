@@ -1,0 +1,4 @@
+interface:
+  display_name: "Issueから実装"
+  short_description: "Issueを既存資産で実装し、検証と独立評価を経てPR作成まで進める"
+  default_prompt: "$implement 99"

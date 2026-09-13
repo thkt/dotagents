@@ -1,54 +1,23 @@
 {
   "name": "codex-agent-workflows",
-  "version": "0.1.0",
   "private": true,
-  "bin": {
-    "codex-build": "workflows/build/runner.ts",
-    "codex-build-artifacts": "workflows/build/artifact-verification.ts",
-    "codex-build-plan": "workflows/plan/validation.ts",
-    "codex-build-pr-body": "workflows/build/pr-body.ts",
-    "codex-cleanup": "workflows/cleanup/runner.ts",
-    "codex-code": "workflows/code/runner.ts",
-    "codex-issue": "workflows/issue/runner.ts",
-    "codex-post-edit": "hooks/post-edit.ts",
-    "codex-research": "workflows/research/runner.ts",
-    "codex-think": "workflows/think/runner.ts",
-    "codex-workflow-hook": "hooks/workflow-enforcer.ts"
-  },
   "type": "module",
+  "packageManager": "bun@1.4.2",
   "scripts": {
-    "check": "bun run verify:research && bun run lint && bun run format:check && bun run typecheck && bun run knip && bun run test && bun run validate:skills",
-    "format": "oxfmt --write .",
-    "format:check": "oxfmt --check .",
-    "fix:text": "textlint --fix '.ja/**/*.md'",
-    "lint": "oxlint .",
-    "lint:fix": "oxlint --fix .",
-    "lint:text": "textlint '.ja/**/*.md'",
-    "knip": "knip",
-    "test": "bun test --timeout=15000 --parallel=4 --no-isolate workflows/tests skills/tests",
-    "typecheck": "tsc -p tsconfig.json",
-    "verify:research": "bun workflows/research/verify.ts",
-    "verify:clean": "bun install --frozen-lockfile --ignore-scripts && bun run check",
-    "validate:skills": "bun skills/validate.ts"
-  },
-  "dependencies": {
-    "@openai/codex-sdk": "^0.149.1"
+    "test:control": "bun scripts/test.ts bun",
+    "typecheck": "tsc --noEmit",
+    "format": "oxfmt --write \"scripts/**/*.ts\"",
+    "format:check": "oxfmt --check \"scripts/**/*.ts\"",
+    "lint": "oxlint --deny-warnings scripts",
+    "complexity": "biome lint scripts",
+    "check": "bun run lint && bun run format:check && bun run complexity && bun run typecheck && bun run test:control"
   },
   "devDependencies": {
-    "@textlint-ja/textlint-rule-preset-ai-writing": "1.7.0",
-    "@types/bun": "1.4.0",
-    "@types/node": "^26.4.0",
-    "knip": "^6.33.0",
-    "oxfmt": "^0.65.0",
-    "oxlint": "^1.80.0",
-    "oxlint-tsgolint": "^7.0.2001",
-    "textlint": "15.8.0",
-    "textlint-rule-ja-no-redundant-expression": "4.0.1",
-    "textlint-rule-ja-no-weak-phrase": "2.0.0",
-    "textlint-rule-preset-ja-spacing": "3.0.3",
-    "textlint-rule-preset-ja-technical-writing": "12.0.2",
-    "typescript": "^7.0.2",
-    "yaml": "^2.9.0"
-  },
-  "packageManager": "bun@1.4.0"
+    "@biomejs/biome": "2.5.12",
+    "@types/bun": "1.4.1",
+    "oxfmt": "0.66.0",
+    "oxlint": "1.80.0",
+    "oxlint-tsgolint": "7.0.2001",
+    "typescript": "7.0.2"
+  }
 }
