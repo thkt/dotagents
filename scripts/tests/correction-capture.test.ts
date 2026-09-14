@@ -125,9 +125,17 @@ test('documentation repair keeps media unchanged through both checks and reviews
   expect(await readFile(media, 'utf8')).toBe('retained');
 });
 
-for (const change of ['records', 'source', 'definition', 'media', 'symlink', 'executable']) {
+for (const change of [
+  'records',
+  'required-records',
+  'source',
+  'definition',
+  'media',
+  'symlink',
+  'executable',
+]) {
   test(`successful capture reuse after review repair: ${change}`, async () => {
-    const t = await trial('reuse');
+    const t = await trial('reuse', { captureRequired: change === 'required-records' });
     const helper = join(t.root, 'reuse.js');
     await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
     await mkdir(join(t.config.cwd, 'trial/evidence'), { recursive: true });

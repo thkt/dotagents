@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile, realpath } from 'node:fs/promises';
-import { resolve, join, relative, isAbsolute, sep } from 'node:path';
+import { resolve, join } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { parseArgs } from 'node:util';
@@ -12,7 +12,7 @@ import {
   captureInstructions,
   testInstructions,
 } from './correction.ts';
-import { isRecord } from './input.ts';
+import { isRecord, outside } from './input.ts';
 import { publish } from './publish.ts';
 import { waitForCi } from './ci.ts';
 import { writingHostTimeoutMs } from './writing.ts';
@@ -88,10 +88,6 @@ async function prepare(args: string[], io: typeof runtime) {
   const dir = resolve(
     parsed.values['run-dir'] ?? join(homedir(), '.local/share/dotagents/development', key, number),
   );
-  const outside = (parent: string, child: string) => {
-    const path = relative(parent, child);
-    return path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path);
-  };
   assert(
     outside(repo, dir) && outside(common, dir),
     'Run directory must be outside checkout and Git storage',

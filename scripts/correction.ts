@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { assertConfig, assertState } from './input.ts';
+import { assertConfig, assertState, outside } from './input.ts';
 import type { Config, State, ActorRole, StopReason } from './input.ts';
 import { writingHostTimeoutMs } from './writing.ts';
 import { spawn } from 'node:child_process';
@@ -16,7 +16,7 @@ import {
   cp,
   realpath,
 } from 'node:fs/promises';
-import { resolve, relative, isAbsolute, sep, dirname } from 'node:path';
+import { resolve, dirname } from 'node:path';
 
 interface CommandResult {
   code: number | null;
@@ -200,11 +200,6 @@ async function snapshot(cwd: string, captureOnly = false, destination = '') {
   return digest(JSON.stringify(entries));
 }
 
-function outside(parent: string, child: string) {
-  const relation = relative(parent, child);
-  return relation === '..' || relation.startsWith(`..${sep}`) || isAbsolute(relation);
-}
-
 async function validate(config: Config) {
   if (!outside(resolve(config.cwd), resolve(config.runDir))) {
     throw Error('Evidence must be outside the worktree');
@@ -365,11 +360,12 @@ async function installMedia(config: Config, output: string) {
   await cp(output, destination, { recursive: true });
 }
 
-async function needsCapture(config: Config, previousSource?: string) {
+async function needsCapture(config: Config, source: string, previousSource?: string) {
   const { cwd } = config;
   if (previousSource !== undefined) {
     return (
-      previousSource !== (await snapshot(cwd, !config.captureRequired, config.captureDestination))
+      previousSource !==
+      (config.captureRequired ? source : await snapshot(cwd, true, config.captureDestination))
     );
   }
   if (config.captureRequired) {
@@ -411,7 +407,7 @@ async function verifyHost(
     return { stop: writingStop };
   }
   state.source = await snapshot(config.cwd);
-  if (config.capture && (await needsCapture(config, state.captureSource))) {
+  if (config.capture && (await needsCapture(config, state.source, state.captureSource))) {
     state.captureSource = undefined;
     const output = resolve(
       config.runDir,

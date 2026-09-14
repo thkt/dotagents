@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
-import { isAbsolute } from 'node:path';
+import { isAbsolute, relative, sep } from 'node:path';
+
+export function outside(parent: string, child: string) {
+  const path = relative(parent, child);
+  return path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path);
+}
 
 export function relativeDirectory(value: unknown): value is string {
   return (

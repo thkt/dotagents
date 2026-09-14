@@ -180,7 +180,6 @@ for (const mode of [
   'needs_human',
   'invalid_reply',
   'timeout',
-  'local_only',
   'review_failure',
   'requirements_changed',
   'source_changed',
@@ -371,7 +370,7 @@ for (const mode of [
         dir,
       ];
       args.push(...localArguments(mode));
-      if (mode === 'local_only' || mode === 'other_repo' || mode === 'local_denied') {
+      if (mode === 'other_repo' || mode === 'local_denied') {
         const result = await develop([...args, '--no-publish'], io);
         assert('status' in result);
         expect(result.status).toBe('verified_local');

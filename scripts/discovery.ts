@@ -1,18 +1,14 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile, rename, rm, realpath, readdir } from 'node:fs/promises';
-import { resolve, relative, isAbsolute, sep, join, dirname } from 'node:path';
+import { resolve, isAbsolute, join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
-import { isRecord, isArray } from './input.ts';
+import { isRecord, isArray, outside } from './input.ts';
 import { nonempty, criteria, assessment, session, ready } from './discovery-input.ts';
 import type { Session } from './discovery-input.ts';
 
 async function json(path: string): Promise<unknown> {
   return JSON.parse(await readFile(path, 'utf8'));
-}
-function outside(parent: string, child: string) {
-  const path = relative(parent, child);
-  return path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path);
 }
 async function save(dir: string, state: Session) {
   const temporary = join(dir, 'state.json.tmp');
