@@ -45,7 +45,7 @@ function assertTarget(value: unknown): asserts value is TargetConfig {
     );
   }
 }
-export function remoteRepository(url: string) {
+function remoteRepository(url: string) {
   const match =
     /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(
       url,

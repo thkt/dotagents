@@ -1,6 +1,16 @@
 import { test, expect, afterEach } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, writeFile, rm, symlink, readdir } from 'node:fs/promises';
+import {
+  realpath,
+  mkdtemp,
+  mkdir,
+  readFile,
+  writeFile,
+  rm,
+  symlink,
+  readdir,
+  rename,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { session } from '../discovery-input.ts';
@@ -19,7 +29,7 @@ function cli(...args: string[]) {
   return spawnSync(process.execPath, [entry, ...args], { encoding: 'utf8', timeout: 10000 });
 }
 async function setup() {
-  const root = await mkdtemp(join(tmpdir(), 'discovery-test-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'discovery-test-')));
   roots.push(root);
   const repo = join(root, 'repo');
   await mkdir(repo);
@@ -143,14 +153,21 @@ test('existing tasks, mismatched repositories and context inside checkout are re
   expect(cli('start', t.configFile).status).toBe(1);
   const other = join(t.root, 'other');
   await mkdir(other);
-  for (const override of [
-    { repo: other },
-    { contextDir: join(t.repo, 'private') },
-    { referencePaths: ['../outside.md'] },
-    { task: '../escape' },
-  ]) {
-    await writeFile(t.configFile, JSON.stringify({ ...t.config, ...override }));
-    expect(cli('start', t.configFile).status).toBe(1);
+  const invalid = [
+    [{ repo: other }, /not a git repository/],
+    [{ contextDir: join(t.repo, 'private') }, /Context must be outside/],
+    [{ referencePaths: ['../outside.md'] }, /Reference must be repo-relative/],
+    [{ task: '../escape' }, /Invalid task ID/],
+  ] as const;
+  for (const [index, [override, reason]] of invalid.entries()) {
+    await writeFile(
+      t.configFile,
+      JSON.stringify({ ...t.config, task: `invalid-${index}`, ...override }),
+    );
+    const stopped = cli('start', t.configFile);
+    expect(stopped.status).toBe(1);
+    expect(stopped.stderr).toMatch(reason);
+    expect(await readdir(join(t.config.contextDir, 'work'))).toEqual(['trial']);
   }
   const link = join(t.root, 'linked');
   await symlink(t.repo, link);
@@ -260,3 +277,36 @@ for (const binding of ['git-directory', 'checkout']) {
     },
   );
 }
+
+test('continuing operations reject a different repository at the saved checkout path', async () => {
+  const t = await setup();
+  git(t.repo, 'config', 'user.name', 'Test');
+  git(t.repo, 'config', 'user.email', 'test@example.com');
+  git(t.repo, 'commit', '--allow-empty', '-m', 'base');
+  const checkout = join(t.root, 'linked');
+  git(t.repo, 'worktree', 'add', '--detach', checkout);
+  await writeFile(t.configFile, JSON.stringify({ ...t.config, repo: checkout, task: 'linked' }));
+  const started = cli('start', t.configFile);
+  expect(started.status).toBe(0);
+  const dir = started.stdout.trim();
+  await t.evaluate();
+  await writeFile(t.file, JSON.stringify((await t.state()).assessment));
+  expect(cli('assess', dir, t.file).status).toBe(0);
+  const before = await readFile(join(dir, 'state.json'), 'utf8');
+  await rename(checkout, join(t.root, 'preserved'));
+  await mkdir(checkout);
+  git(checkout, 'init');
+  const note = join(t.root, 'note.md');
+  await writeFile(note, 'Different repository');
+  for (const args of [
+    ['gate', dir],
+    ['note', dir, note],
+    ['archive', dir, note],
+  ]) {
+    const result = cli(...args);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Context belongs to another repository');
+  }
+  expect(await readFile(join(dir, 'state.json'), 'utf8')).toBe(before);
+  expect(await readdir(t.config.contextDir)).not.toContain('research');
+});

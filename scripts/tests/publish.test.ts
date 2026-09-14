@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { test, expect, afterEach } from 'bun:test';
-import { mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises';
+import { realpath, mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { withInterrupts } from '../correction.ts';
 import { publish } from '../publish.ts';
+import { readTarget } from '../target.ts';
 import { initializeTarget, githubTarget, git } from './support/target.ts';
 
 afterEach(async () => {
@@ -15,6 +16,7 @@ afterEach(async () => {
 function targetReply(args: string[], mode: string, users: number) {
   if (args[1] === 'api' && args[2]?.includes('/pulls/')) {
     return JSON.stringify({
+      body: mode === 'stale_body' ? 'Previous body' : 'Reviewable body',
       user: {
         login: ['wrong_author', 'created_wrong_author'].includes(mode)
           ? 'old-app[bot]'
@@ -24,24 +26,15 @@ function targetReply(args: string[], mode: string, users: number) {
   }
   if (args[2] === 'user') {
     return JSON.stringify({
-      login: mode === 'actor_changed' && users > 1 ? 'other' : 'operator',
+      login:
+        ['actor_changed', 'existing_actor_changed'].includes(mode) && users > 1
+          ? 'other'
+          : 'operator',
     });
   }
   const reply = githubTarget(args);
   if (reply !== undefined) {
     return mode === 'denied' ? reply.replace('"push":true', '"push":false') : reply;
-  }
-}
-
-function checkResult(mode: string, result: string) {
-  if (mode === 'preflight') {
-    expect(JSON.parse(result)).toEqual({
-      repository: 'team/component',
-      base: 'release',
-      actor: 'operator',
-    });
-  } else {
-    expect(result).toBe(`https://github.com/team/component/pull/${mode === 'existing' ? 1 : 2}`);
   }
 }
 
@@ -62,7 +55,7 @@ function publicationReply(args: string[], mode: string, body: string) {
     if (mode === 'interrupted') {
       process.emit('SIGINT');
     }
-    return ['existing', 'wrong_author'].includes(mode)
+    return ['existing', 'wrong_author', 'stale_body', 'existing_actor_changed'].includes(mode)
       ? 'https://github.com/team/component/pull/1'
       : '';
   }
@@ -77,7 +70,8 @@ function publicationReply(args: string[], mode: string, body: string) {
 for (const mode of [
   'create',
   'existing',
-  'preflight',
+  'stale_body',
+  'existing_actor_changed',
   'wrong_author',
   'created_wrong_author',
   'actor_changed',
@@ -89,7 +83,7 @@ for (const mode of [
   'interrupted',
 ] as const) {
   test(`publisher: ${mode}`, async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'publisher-test-'));
+    const dir = await realpath(await mkdtemp(join(tmpdir(), 'publisher-test-')));
     try {
       const repo = join(dir, 'checkout');
       await mkdir(repo);
@@ -120,16 +114,23 @@ for (const mode of [
         repo,
         '--actor',
         mode === 'unexpected_actor' ? 'other' : 'operator',
-        ...(mode === 'preflight'
-          ? ['--preflight']
-          : ['--head', 'codex/test', '--title', 'Title with spaces', '--body-file', body]),
+        '--head',
+        'codex/test',
+        '--title',
+        'Title with spaces',
+        '--body-file',
+        body,
       ];
-      if (['create', 'existing', 'preflight'].includes(mode)) {
+      if (['create', 'existing'].includes(mode)) {
         const result = await withInterrupts(() => publish(args, io));
-        checkResult(mode, result);
+        expect(result).toBe(
+          `https://github.com/team/component/pull/${mode === 'existing' ? 1 : 2}`,
+        );
       } else {
-        assert(mode !== 'create' && mode !== 'existing' && mode !== 'preflight');
+        assert(mode !== 'create' && mode !== 'existing');
         const reasons = {
+          stale_body: /Existing PR body differs/,
+          existing_actor_changed: /GitHub actor changed/,
           wrong_author: /PR author differs/,
           created_wrong_author: /PR author differs/,
           actor_changed: /GitHub actor changed/,
@@ -143,7 +144,7 @@ for (const mode of [
         await assert.rejects(() => withInterrupts(() => publish(args, io)), reasons[mode]);
       }
       expect(publications.map((args) => args[2])).toEqual(
-        ['preflight', 'unexpected_actor', 'denied', 'empty'].includes(mode)
+        ['unexpected_actor', 'denied', 'empty'].includes(mode)
           ? []
           : ['create', 'create_failed', 'created_wrong_author'].includes(mode)
             ? ['list', 'create']
@@ -171,11 +172,9 @@ test('publisher rejects another GitHub host before invoking commands', async () 
   try {
     await assert.rejects(
       () =>
-        publish(['--repo', '/nonexistent', '--preflight'], {
-          command: async () => {
-            calls++;
-            throw Error('unexpected command');
-          },
+        readTarget('/nonexistent', async () => {
+          calls++;
+          throw Error('unexpected command');
         }),
       /GH_HOST must be github.com/,
     );

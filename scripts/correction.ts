@@ -40,7 +40,7 @@ let interrupted = false;
 let activeGroup: number | undefined;
 
 function killGroup(pid: number | undefined) {
-  if (pid === undefined) {
+  if (pid === undefined || pid !== activeGroup) {
     return;
   }
   try {
@@ -50,6 +50,7 @@ function killGroup(pid: number | undefined) {
       throw error;
     }
   }
+  activeGroup = undefined;
 }
 
 function interrupt() {
@@ -100,7 +101,6 @@ export async function command(
     timedOut = true;
     killGroup(child.pid);
   }, timeoutMs);
-  const writingWorker = argv[1]?.endsWith('/writing-review.ts') && argv[2] === '--worker';
   const code = await new Promise<number | null>((done) => {
     // Bun 1.4.2 can drop 'close', or the whole exit notification, for a child that
     // the timeout or an interrupt killed. Finish on exit plus ended pipes as well,
@@ -132,9 +132,7 @@ export async function command(
       });
     }
     child.on('exit', (code) => {
-      if (code !== 0 || writingWorker) {
-        killGroup(child.pid);
-      }
+      killGroup(child.pid);
       exitCode = code;
       settle();
     });
@@ -145,7 +143,7 @@ export async function command(
     child.on('close', resolveCode);
   });
   clearTimeout(timer);
-  activeGroup = undefined;
+  killGroup(child.pid);
   if (files) {
     await writeFile(`${files}.stdout`, stdout);
     await writeFile(`${files}.stderr`, stderr);
@@ -443,11 +441,9 @@ async function verifyHost(
     }
     await installMedia(config, output);
     state.source = await snapshot(config.cwd);
-    state.captureSource = await snapshot(
-      config.cwd,
-      !config.captureRequired,
-      config.captureDestination,
-    );
+    state.captureSource = config.captureRequired
+      ? state.source
+      : await snapshot(config.cwd, true, config.captureDestination);
     await persist();
   }
   return verifyCheck(config, state, persist);
@@ -552,12 +548,8 @@ async function cycle(
   if ('stop' in repaired) {
     return repaired.stop;
   }
-  state.findings = parseReply(repaired.stdout)?.findings;
-  return repairOutcome(repaired.stdout);
-}
-
-function repairOutcome(stdout: string): StopReason | null {
-  const value = parseReply(stdout);
+  const value = parseReply(repaired.stdout);
+  state.findings = value?.findings;
   if (!value || !['repaired', 'needs_human'].includes(value.status)) {
     return 'invalid_repair';
   }

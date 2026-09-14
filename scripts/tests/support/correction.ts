@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
+import { realpath, mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -20,7 +20,7 @@ export const controller = resolve(import.meta.dir, '../../correction.ts');
 export function correctionFixture() {
   const roots: string[] = [];
   async function trial(mode: string, overrides: Partial<Config> = {}) {
-    const root = await mkdtemp(join(tmpdir(), 'correction-test-'));
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'correction-test-')));
     roots.push(root);
     const cwd = join(root, 'work');
     const initialized = spawnSync('git', ['init', '-q', cwd]);

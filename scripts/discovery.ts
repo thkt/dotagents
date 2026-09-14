@@ -126,6 +126,11 @@ async function load(dir: string) {
   session(state);
   assert(dirname(dirname(dir)) === state.contextDir, 'Session storage mismatch');
   assert((await realpath(state.repo)) === state.repo, 'Checkout changed');
+  const binding = await readFile(join(state.contextDir, 'repository.txt'), 'utf8');
+  assert(
+    (await gitDirectory(state.repo)) === (await gitDirectory(binding)),
+    'Context belongs to another repository',
+  );
   return state;
 }
 async function run(action: string, dir: string, file?: string) {

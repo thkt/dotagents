@@ -170,3 +170,35 @@ if(role==='review') await split(process.stdout,JSON.stringify({status:'accepted'
     expect(reply.findings).toBe(findings);
   }
 });
+
+test('successful check leaves no child writer after acceptance', async () => {
+  const t = await trial('normal');
+  await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
+  const worker = join(t.root, 'successful-check.js');
+  const groupFile = join(t.root, 'group');
+  await writeFile(
+    worker,
+    `import {spawn} from 'node:child_process'; import {writeFileSync} from 'node:fs';
+    writeFileSync(${JSON.stringify(groupFile)}, String(process.pid));
+    const child = spawn(process.execPath, ['-e', "setTimeout(()=>require('node:fs').writeFileSync('source.txt','late edit'),500);setInterval(()=>{},1000)"], {stdio:'ignore'});
+    child.unref();`,
+  );
+  await writeFile(t.configFile, JSON.stringify({ ...t.config, check: [process.execPath, worker] }));
+  let group: number | undefined;
+  try {
+    const result = t.execute();
+    group = Number(await readFile(groupFile, 'utf8'));
+    expect({ status: result.status, state: await t.state(), stderr: result.stderr }).toMatchObject({
+      status: 0,
+      state: { result: 'ready_for_human_review' },
+    });
+    await Bun.sleep(700);
+    expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('correct');
+  } finally {
+    if (group) {
+      try {
+        process.kill(-group, 'SIGKILL');
+      } catch {}
+    }
+  }
+});

@@ -40,7 +40,7 @@ function issueValue(text: string) {
       value.state === 'OPEN',
     'Issue must be open with a title and requirements',
   );
-  return { title: value.title, body: value.body };
+  return { title: value.title };
 }
 
 async function prepare(args: string[], io: typeof runtime) {
@@ -112,7 +112,6 @@ async function prepare(args: string[], io: typeof runtime) {
   await git('worktree', 'add', '-b', branch, cwd, 'HEAD');
   return {
     number,
-    repo,
     issue,
     original,
     requirements,
@@ -317,6 +316,7 @@ async function ship(
   ]);
   await writeFile(join(dir, 'pr-url.txt'), url);
   if (media.length) {
+    await unchangedTarget(context, io, commit);
     await checked(
       io,
       [

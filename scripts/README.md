@@ -19,7 +19,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to
 
 開始時にcheckout・設定・fetch/push remote・GitHub repo ID・base branch・ghの主体とpush権限を照合します。公開する実行ではユーザー認証の対象アクセスも実装前に確認します。元checkoutがdirty、run保存先が既存、同名branchが存在する場合は作業を始めません。要求全文を保存し、元checkoutのcommitted HEADから `codex/development-N` の隔離worktreeを作ります。設定のsetupを隔離先で順に実行し、初回実装、文章確認、必要な撮影、対象のcheck、独立評価へ進みます。要求変更、対象・設定・主体の変更、上限超過は停止します。
 
-新規実行の上限は初回実装を含むモデル累計20分、追加修正2回・独立評価2回、各checkとCI待機9分です。初回実装の消費時間をcorrectionへ渡す残時間から差し引きます。予算拡大や途中実行の自動復旧は行いません。
+新規実行の上限は初回実装・修正・独立評価のモデル累計20分、追加修正2回・独立評価2回、各checkとCI待機9分です。初回実装の消費時間をcorrectionへ渡す残時間から差し引きます。[文章確認](#日本語の確認と修正)のGeminiと忠実性評価は別枠です。予算拡大や途中実行の自動復旧は行いません。
 
 保存先は `~/.local/share/dotagents/development/<Git管理ディレクトリの識別値>/<Issue番号>/` です。`--run-dir DIRECTORY` でcheckout・Git管理領域外を指定できます。`target.json` に対象設定・repo ID・gh主体、ほかに要求、指示・結果、検証ログ、作業checkout、PR本文・URL、CI結果を残します。既存保存先は再実行に使いません。中断後は記録・実プロセス・GitHubの状態を照合し、保存先の削除や別名での自動再試行をしません。
 
@@ -189,17 +189,17 @@ Geminiは修正候補を作成し、別の読み取り専用Codexは原文、根
 公開担当は信頼するハーネスから対象checkoutを指定し、ユーザーの既存gh認証を使います。App設定・署名鍵・installation tokenは不要です。環境変数のtokenが保存済み認証より優先される場合もあるため、実効主体を `gh api user` で確認します。対象hostはgithub.comです。`GH_HOST`が別hostを指定している場合はGitHub操作前に停止します。認証情報をrepo・ログ・PR本文へ保存しません。
 
 ```sh
-bun /absolute/path/to/trusted/scripts/publish.ts --repo /absolute/path/target-checkout --preflight
+bun /absolute/path/to/trusted/scripts/target.ts /absolute/path/target-checkout --write
 bun /absolute/path/to/trusted/scripts/publish.ts --repo /absolute/path/target-checkout --actor USER_LOGIN --head codex/example --title '変更の概要' --body-file /absolute/path/pr.md
 ```
 
-preflightは対象repo・base branch・remoteとghのpush権限・実効ユーザーを照合し、PRを作らず確認結果を返します。`--actor` は事前に確認したloginを指定します。developmentは開始時のloginを公開時にも渡し、不一致で停止します。PR書込みの細かなtoken権限や組織ポリシーはpreflightだけで保証せず、公開失敗時は停止理由とGitHub上の実状態を確認します。
+`target.ts CHECKOUT --write`は対象repo・base branch・remoteとghのpush権限・実効ユーザーを照合し、PRを作らず確認結果を返します。`--actor` は事前に確認したloginを指定します。developmentは開始時のloginを公開時にも渡し、不一致で停止します。PR書込みの細かなtoken権限や組織ポリシーは読み取り確認だけで保証せず、公開失敗時は停止理由とGitHub上の実状態を確認します。
 
-同じhead・baseのopen PRがあれば作者を照合してURLを返し、なければ同じgh認証で作成して作者を確認します。旧Appや別ユーザーのPRを現在のユーザーの公開成功と扱いません。このCLIは既存PRの本文更新・push・承認・マージを行いません。SIGINT・SIGTERMでは実行中のコマンドと子プロセスを停止し、後続の公開操作へ進みません。通信断や強制終了時は、再試行前にPRの実状態を確認します。制御テストの模擬応答は実際のGitHubアクセスの証拠ではありません。
+同じhead・baseのopen PRがあれば作者と確認済み本文の一致を照合してURLを返します。不一致なら本文を保持して停止し、担当者が内容を照合して対応します。新規作成も同じgh認証を使い、作者と本文を確認します。旧Appや別ユーザーのPRを現在のユーザーの公開成功と扱いません。このCLIは既存PRの本文更新・push・承認・マージを行いません。正常終了時もコマンドの所有するprocess groupの残存子を終了させます。SIGINT・SIGTERMでは実行中のコマンドと子プロセスを停止し、後続の公開操作へ進みません。通信断や強制終了時は、再試行前にPRの実状態を確認します。制御テストの模擬応答は実際のGitHubアクセスの証拠ではありません。
 
 ### PRへの画像・動画の添付
 
-PR作成時と同じユーザーのgh認証で`gh pr edit --attach`を実行します。対象 commit で取得した画像・動画を指定します。本文を指定しなければ、既存の本文を保って添付が追加されます。
+添付直前に対象と開始時のユーザー認証を再照合し、同じユーザーのgh認証で`gh pr edit --attach`を実行します。対象 commit で取得した画像・動画を指定します。本文を指定しなければ、既存の本文を保って添付が追加されます。
 
 ```sh
 gh pr edit PR_NUMBER --repo OWNER/REPO \

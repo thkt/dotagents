@@ -3,12 +3,12 @@ import { mkdir, readFile, writeFile, lstat, realpath, rename, rm } from 'node:fs
 import { resolve, join, relative } from 'node:path';
 import { parseArgs } from 'node:util';
 import type { WritingRunner } from './writing.ts';
-import { reviewWriting, writingCommand, writingHash, writingHostTimeoutMs } from './writing.ts';
+import { reviewWriting, runWritingCommand, writingHash, writingHostTimeoutMs } from './writing.ts';
 import { isRecord } from './input.ts';
 import { command, withInterrupts } from './correction.ts';
 
 async function git(cwd: string, dir: string, args: string[]) {
-  return writingCommand(['git', ...args], cwd, '', join(dir, 'git'));
+  return runWritingCommand(['git', ...args], cwd, '', join(dir, 'git'));
 }
 
 async function optionalFile(path: string) {
@@ -139,7 +139,7 @@ export async function reviewDocuments(
   await rm(active);
 }
 
-export async function writingMain(args: string[]) {
+async function writingMain(args: string[]) {
   const { positionals, values } = parseArgs({
     args,
     allowPositionals: true,

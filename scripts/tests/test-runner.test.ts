@@ -1,9 +1,8 @@
 import { test, expect } from 'bun:test';
-import { resolve } from 'node:path';
 import { checkReport } from '../test.ts';
 import { runnerTests } from './support/runner.ts';
 
-runnerTests('bun', resolve(import.meta.dir, '../../node_modules'));
+runnerTests();
 
 // Keep the runner's format valid so each case reaches the intended summary rule.
 for (const { name, bun, playwright } of [

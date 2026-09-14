@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { test, expect } from 'bun:test';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -15,6 +16,9 @@ const issue = JSON.stringify({
   updatedAt: '1',
 });
 const stopReasons = {
+  denied_start: /GitHub push permission required/,
+  permission_lost: /GitHub push permission required/,
+  attachment_actor_changed: /Target configuration or GitHub actor changed/,
   initial_failure: /Initial implementation process failed/,
   needs_human: /Human decision required: Need agreement on scope/,
   invalid_reply: /Invalid implementation reply/,
@@ -36,8 +40,21 @@ const stopReasons = {
   dirty: /Commit or preserve pending work before development/,
 };
 
-async function checkStop(mode: keyof typeof stopReasons, dir: string, reviews: number) {
-  if (!['wrong_repo', 'dirty', 'missing_check', 'wrong_issue', 'wrong_push'].includes(mode)) {
+async function checkStop(
+  mode: keyof typeof stopReasons,
+  dir: string,
+  reviews: number,
+  implementations: number,
+) {
+  if (mode === 'denied_start') {
+    expect(implementations).toBe(0);
+    expect(existsSync(join(dir, 'checkout'))).toBe(false);
+  }
+  if (
+    !['denied_start', 'wrong_repo', 'dirty', 'missing_check', 'wrong_issue', 'wrong_push'].includes(
+      mode,
+    )
+  ) {
     expect(await readFile(join(dir, 'stopped.txt'), 'utf8')).toMatch(stopReasons[mode]);
   }
   if (
@@ -113,9 +130,24 @@ async function prepareInput(repo: string, mode: string, settings: typeof targetC
   return git(repo, 'rev-parse', 'HEAD');
 }
 
-function targetResponse(mode: string, reply: string, repository: string, reviews: number) {
+function targetResponse(
+  mode: string,
+  reply: string,
+  repository: string,
+  reviews: number,
+  publications: number,
+) {
   if (mode === 'wrong_repo') {
     return reply.replace(repository, 'other/repo');
+  }
+  if (
+    ['denied_start', 'local_denied'].includes(mode) ||
+    (mode === 'permission_lost' && reviews > 0)
+  ) {
+    reply = reply.replace('"push":true', '"push":false');
+  }
+  if (mode === 'attachment_actor_changed' && publications > 0) {
+    reply = reply.replace('operator', 'different-operator');
   }
   return ['actor_changed', 'local_actor_changed'].includes(mode) && reviews > 0
     ? reply.replace('operator', 'different-operator')
@@ -140,6 +172,10 @@ async function changeTarget(mode: string, config: Config, settings: typeof targe
 
 for (const mode of [
   'success',
+  'denied_start',
+  'permission_lost',
+  'local_denied',
+  'attachment_actor_changed',
   'initial_failure',
   'needs_human',
   'invalid_reply',
@@ -210,7 +246,7 @@ for (const mode of [
     async function github(argv: string[], cwd: string) {
       const targetReply = githubTarget(argv, settings);
       if (targetReply !== undefined) {
-        return ok(targetResponse(mode, targetReply, settings.repository, reviews));
+        return ok(targetResponse(mode, targetReply, settings.repository, reviews, publications));
       }
       switch (`${argv[1]}/${argv[2]}`) {
         case 'issue/view':
@@ -220,7 +256,10 @@ for (const mode of [
               : issue,
           );
         case 'pr/checks':
-          return { ...ok(), code: mode === 'ci_failure' ? 1 : 0 };
+          return {
+            ...ok(),
+            code: mode === 'ci_failure' ? 1 : 0,
+          };
         case 'pr/view':
           return ok(
             JSON.stringify({
@@ -279,6 +318,11 @@ for (const mode of [
         reviews++;
         if (reviews === 1) {
           await changeTarget(mode, config, settings);
+          if (mode === 'attachment_actor_changed') {
+            const media = join(config.cwd, 'trial/evidence/generated');
+            await mkdir(media, { recursive: true });
+            await writeFile(join(media, 'view.png'), 'image');
+          }
         }
         if (mode === 'other_repo') {
           expect(config.check).toEqual(settings.check);
@@ -327,7 +371,7 @@ for (const mode of [
         dir,
       ];
       args.push(...localArguments(mode));
-      if (mode === 'local_only' || mode === 'other_repo') {
+      if (mode === 'local_only' || mode === 'other_repo' || mode === 'local_denied') {
         const result = await develop([...args, '--no-publish'], io);
         assert('status' in result);
         expect(result.status).toBe('verified_local');
@@ -347,9 +391,11 @@ for (const mode of [
         expect(publications).toBe(1);
       } else {
         await assert.rejects(() => develop(args, io), stopReasons[mode]);
-        expect(publications).toBe(mode === 'ci_failure' ? 1 : 0);
-        expect(pushes).toBe(mode === 'ci_failure' ? 1 : 0);
-        await checkStop(mode, dir, reviews);
+        expect(publications).toBe(
+          ['ci_failure', 'attachment_actor_changed'].includes(mode) ? 1 : 0,
+        );
+        expect(pushes).toBe(['ci_failure', 'attachment_actor_changed'].includes(mode) ? 1 : 0);
+        await checkStop(mode, dir, reviews, implementations);
         if (mode === 'ci_failure') {
           expect(await readFile(join(dir, 'pr-url.txt'), 'utf8')).toContain('/pull/100');
         }

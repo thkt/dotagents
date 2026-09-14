@@ -130,7 +130,6 @@ export async function runWritingCommand(
   );
   return stdout;
 }
-export const writingCommand: WritingRunner = runWritingCommand;
 
 export function geminiResponse(stdout: string) {
   const events: unknown[] = stdout
@@ -215,7 +214,7 @@ export async function reviewWriting(
   documents: WritingDocument[],
   facts: string,
   dir: string,
-  runner = writingCommand,
+  runner: WritingRunner = runWritingCommand,
 ) {
   assert(documents.length && new Set(documents.map((d) => d.name)).size === documents.length);
   await mkdir(dir); // Never overwrite or silently restart an interrupted review.

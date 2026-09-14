@@ -15,12 +15,13 @@ async function command(argv: string[], cwd: string) {
 }
 const runtime = { command };
 
-async function checkAuthor(
+async function checkPr(
   io: typeof runtime,
   repo: string,
   url: string,
   actor: string,
   cwd: string,
+  body: string,
 ) {
   const prefix = `https://github.com/${repo}/pull/`;
   const number = url.startsWith(prefix) ? url.slice(prefix.length) : '';
@@ -32,6 +33,10 @@ async function checkAuthor(
     isRecord(prior) && isRecord(prior.user) && prior.user.login === actor,
     'PR author differs from authenticated user',
   );
+  assert(
+    prior.body === body,
+    'Existing PR body differs from reviewed body; reconcile before continuing',
+  );
 }
 
 export async function publish(args: string[], io = runtime) {
@@ -40,7 +45,6 @@ export async function publish(args: string[], io = runtime) {
     options: {
       repo: { type: 'string' },
       actor: { type: 'string' },
-      preflight: { type: 'boolean' },
       head: { type: 'string' },
       title: { type: 'string' },
       'body-file': { type: 'string' },
@@ -49,26 +53,21 @@ export async function publish(args: string[], io = runtime) {
   });
   const { head, title, 'body-file': bodyPath } = values;
   assert(
-    values.repo && (values.preflight || (head && title?.trim() && bodyPath)),
-    'Required: --repo CHECKOUT and --preflight or --head BRANCH --title TITLE --body-file PATH',
+    values.repo && head && title && title.trim() && bodyPath,
+    'Required: --repo CHECKOUT --head BRANCH --title TITLE --body-file PATH',
   );
-  const bodyFile = bodyPath ? resolve(bodyPath) : '';
-  if (!values.preflight) {
-    assert((await readFile(bodyFile, 'utf8')).trim(), 'PR body must not be empty');
-  }
+  const bodyFile = resolve(bodyPath);
+  const body = await readFile(bodyFile, 'utf8');
+  assert(body.trim(), 'PR body must not be empty');
   const target = await readTarget(
     values.repo,
     async (argv, cwd) => (await io.command(argv, cwd)).trim(),
     true,
   );
   const { repository: repo, baseBranch: base } = target.config;
-  assert(values.preflight || head !== base, 'Head must differ from base');
+  assert(head !== base, 'Head must differ from base');
   assert(!values.actor || target.actor === values.actor, 'GitHub actor changed');
   assertRunning();
-  if (values.preflight) {
-    return JSON.stringify({ repository: repo, base, actor: target.actor });
-  }
-  assert(head && title);
   const existing = (
     await io.command(
       [
@@ -94,13 +93,13 @@ export async function publish(args: string[], io = runtime) {
     )
   ).trim();
   assertRunning();
-  if (existing) {
-    await checkAuthor(io, repo, existing, target.actor, target.cwd);
-    return existing;
-  }
   const actor: unknown = JSON.parse(await io.command(['gh', 'api', 'user'], target.cwd));
   assert(isRecord(actor) && actor.login === target.actor, 'GitHub actor changed');
   assertRunning();
+  if (existing) {
+    await checkPr(io, repo, existing, target.actor, target.cwd, body);
+    return existing;
+  }
   const url = (
     await io.command(
       [
@@ -121,7 +120,7 @@ export async function publish(args: string[], io = runtime) {
       target.cwd,
     )
   ).trim();
-  await checkAuthor(io, repo, url, target.actor, target.cwd);
+  await checkPr(io, repo, url, target.actor, target.cwd, body);
   return url;
 }
 
