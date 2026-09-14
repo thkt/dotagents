@@ -23,6 +23,25 @@ test('reject missing completion and tool use', () => {
   expect(() => geminiResponse(eventStream('text') + '\n{"event":"tool_call"}')).toThrow();
 });
 
+test('invalid model streams remain failures even with a service-error payload', () => {
+  expect(() => geminiResponse('not JSON')).toThrow(SyntaxError);
+  const error =
+    '\n' +
+    JSON.stringify({
+      event: 'result',
+      result: {
+        status: 'ERROR',
+        error: '503 service unavailable',
+      },
+    });
+  expect(() => geminiResponse('{"event":"init","init":{"model":"wrong"}}' + error)).toThrow(
+    'Unexpected writing model',
+  );
+  expect(() => geminiResponse(eventStream('text').replace('SUCCESS', 'UNKNOWN'))).toThrow(
+    'Invalid Gemini result',
+  );
+});
+
 test('protected references and duplicate documents cannot be silently rewritten', () => {
   expect(() =>
     writingCandidate(
@@ -138,6 +157,22 @@ test('availability classification does not swallow unknown or malformed failures
 });
 
 for (const [name, before, after] of [
+  ['indented fence', '  ~~~sh\n  publish --dry-run\n  ~~~\n', '  ~~~sh\n  publish\n  ~~~\n'],
+  ['nested fence', '- 手順\n\n  ```sh\n  safe\n  ```\n', '- 手順\n\n  ```sh\n  unsafe\n  ```\n'],
+  ['indented code', '手順\n\n    safe\n', '手順\n\n    unsafe\n'],
+  [
+    'relative reference',
+    '[手順][steps]\n\n[steps]: ./safe.md\n',
+    '[手順][steps]\n\n[steps]: ./unsafe.md\n',
+  ],
+  [
+    'collapsed reference',
+    '[steps][]\n\n[steps]: ./safe.md\n',
+    '[steps][]\n\n[steps]: ./unsafe.md\n',
+  ],
+  ['reference image', '![steps]\n\n[steps]: ./safe.png\n', '![steps]\n\n[steps]: ./unsafe.png\n'],
+  ['reference count', '[steps]\n\n[steps]: ./safe.md\n', '[steps] [steps]\n\n[steps]: ./safe.md\n'],
+  ['reference order', '[a] [b]\n\n[a]: ./a\n[b]: ./b\n', '[b] [a]\n\n[a]: ./a\n[b]: ./b\n'],
   ['inline order', '`prepare` then `publish`', '`publish` then `prepare`'],
   [
     'link order',
@@ -147,6 +182,10 @@ for (const [name, before, after] of [
   ['block and inline order', '`prepare`\n```sh\ndeploy\n```\n', '```sh\ndeploy\n```\n`prepare`\n'],
 ] as const) {
   test(`protected content rejects changed ${name}`, () => {
+    const unchanged = [{ name: 'README.md', body: before }];
+    expect(writingCandidate(JSON.stringify({ documents: unchanged }), unchanged)).toEqual(
+      unchanged,
+    );
     expect(() =>
       writingCandidate(JSON.stringify({ documents: [{ name: 'README.md', body: after }] }), [
         { name: 'README.md', body: before },

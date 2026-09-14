@@ -192,9 +192,8 @@ async function snapshot(cwd: string, captureOnly = false, destination = '') {
       if (!isMissing(error)) {
         throw error;
       }
-      if (!captureOnly) {
-        entries.push([name, 'deleted']);
-      }
+      // Identity is the materialized worktree, independent of index/HEAD bookkeeping.
+      // A missing path contributes nothing both before and after staging its deletion.
     }
   }
   return digest(JSON.stringify(entries));

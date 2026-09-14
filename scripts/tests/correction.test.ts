@@ -1,11 +1,46 @@
 import { test, expect, afterEach } from 'bun:test';
-import { mkdir, symlink, writeFile, readFile } from 'node:fs/promises';
+import { mkdir, symlink, writeFile, readFile, rm, rename, chmod } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { correctionFixture, controller, object } from './support/correction.ts';
+import { git } from './support/target.ts';
 
 const { trial, cleanup } = correctionFixture();
 afterEach(cleanup);
+
+for (const mutation of ['delete', 'rename'] as const) {
+  test(`verified ${mutation} survives staging and commit but rejects later artifacts`, async () => {
+    const t = await trial('normal');
+    const cwd = t.config.cwd;
+    git(cwd, 'config', 'user.email', 'test@example.com');
+    git(cwd, 'config', 'user.name', 'Test');
+    await writeFile(join(cwd, 'obsolete.txt'), 'old');
+    git(cwd, 'add', '--all');
+    git(cwd, 'commit', '-m', 'base');
+    if (mutation === 'delete') {
+      await rm(join(cwd, 'obsolete.txt'));
+    } else {
+      await rename(join(cwd, 'obsolete.txt'), join(cwd, 'renamed.txt'));
+    }
+    expect(t.execute().status).toBe(0); // Actual check fails, repair runs, then check and review pass.
+    const verified = await t.state();
+    expect(verified.checks).toBe(2);
+    git(cwd, 'add', '--all');
+    expect(t.execute().status).toBe(0);
+    git(cwd, 'commit', '-m', 'verified artifacts');
+    expect(t.execute().status).toBe(0);
+    expect(await t.state()).toEqual(verified);
+    if (mutation === 'delete') {
+      await writeFile(join(cwd, 'obsolete.txt'), 'restored after acceptance');
+    } else {
+      await chmod(join(cwd, 'renamed.txt'), 0o755);
+    }
+    const stale = t.execute();
+    expect(stale.status).toBe(1);
+    expect(object(JSON.parse(stale.stdout)).result).toBe('target_changed_after_stop');
+    expect(await t.state()).toEqual(verified);
+  });
+}
 
 for (const [mode, result, repairs, reviews] of [
   ['normal', 'ready_for_human_review', 1, 1],

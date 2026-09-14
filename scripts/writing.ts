@@ -186,6 +186,29 @@ function protectedParts(body: string) {
     .map((match) => match[0]);
 }
 
+function markdownParts(body: string) {
+  const parts: unknown[] = [];
+  Bun.markdown.render(body, {
+    code: (content, meta) => {
+      parts.push(['code', content, meta?.language]);
+      return content;
+    },
+    codespan: (content) => {
+      parts.push(['codespan', content]);
+      return content;
+    },
+    link: (content, meta) => {
+      parts.push(['link', meta.href, meta.title]);
+      return content;
+    },
+    image: (content, meta) => {
+      parts.push(['image', meta.src, meta.title]);
+      return content;
+    },
+  });
+  return parts;
+}
+
 export function writingCandidate(text: string, original: WritingDocument[]) {
   const value: unknown = JSON.parse(text);
   assert(
@@ -201,8 +224,8 @@ export function writingCandidate(text: string, original: WritingDocument[]) {
       `Missing/duplicate document: ${document.name}`,
     );
     assert.deepEqual(
-      protectedParts(body),
-      protectedParts(document.body),
+      [protectedParts(body), markdownParts(body)],
+      [protectedParts(document.body), markdownParts(document.body)],
       `Protected content changed: ${document.name}`,
     );
     return { name: document.name, body };

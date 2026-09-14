@@ -45,11 +45,12 @@ export async function waitForCi(
   },
   execute: typeof command,
   budgetMs: number,
+  clock = { now: () => performance.now(), sleep: (ms: number) => setTimeout(ms) },
 ) {
   assert(target.ciChecks.length > 0, 'Expected CI checks required');
-  const deadline = performance.now() + budgetMs;
+  const deadline = clock.now() + budgetMs;
   let attempt = 0;
-  while (performance.now() < deadline) {
+  while (clock.now() < deadline) {
     assertRunning();
     const view = await execute(
       [
@@ -64,7 +65,7 @@ export async function waitForCi(
       ],
       target.cwd,
       '',
-      Math.max(1, deadline - performance.now()),
+      Math.max(1, deadline - clock.now()),
       join(target.dir, `ci-registration-${++attempt}`),
     );
     assertRunning();
@@ -78,7 +79,7 @@ export async function waitForCi(
       'PR target changed while waiting for CI registration',
     );
     assert(Array.isArray(pr.statusCheckRollup), 'Missing CI registration status');
-    const remaining = deadline - performance.now();
+    const remaining = deadline - clock.now();
     if (remaining <= 0) {
       return undefined;
     }
@@ -86,7 +87,7 @@ export async function waitForCi(
     if (status !== 'pending') {
       return { ...view, code: status === 'passed' ? 0 : 1 };
     }
-    await setTimeout(Math.min(1000, remaining));
+    await clock.sleep(Math.min(1000, remaining));
   }
   assertRunning();
   return undefined;

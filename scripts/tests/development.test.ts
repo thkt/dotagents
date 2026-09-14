@@ -82,21 +82,21 @@ async function checkStop(
   }
 }
 
-function actorReply(mode: string) {
-  return mode === 'invalid_reply'
-    ? 'not JSON'
-    : JSON.stringify({
-        status: mode === 'needs_human' ? 'needs_human' : 'repaired',
-        findings: 'Need agreement on scope',
-      });
-}
-
+const implementationResults: Record<string, Partial<Awaited<ReturnType<typeof command>>>> = {
+  initial_failure: { code: 1 },
+  timeout: { timedOut: true },
+  invalid_reply: { stdout: 'not JSON' },
+  needs_human: {
+    stdout: JSON.stringify({ status: 'needs_human', findings: 'Need agreement on scope' }),
+  },
+};
 function implementationResult(mode: string) {
   return {
-    ...ok(actorReply(mode)),
-    code: mode === 'initial_failure' ? 1 : 0,
+    ...ok(
+      JSON.stringify({ status: 'repaired', findings: 'Implementation claim, not verification' }),
+    ),
     ms: 500,
-    timedOut: mode === 'timeout',
+    ...implementationResults[mode],
   };
 }
 
@@ -214,38 +214,22 @@ for (const mode of [
     const repo = join(root, 'repo');
     const dir = join(root, 'run');
     await mkdir(repo);
-    const settings =
-      mode === 'other_repo'
+    const settings = {
+      ...targetConfig,
+      setup: [['sh', '-c', 'printf configured > setup.txt']],
+      check: [
+        'sh',
+        '-c',
+        'test "$(cat result.txt)" = implemented && test "$(cat setup.txt)" = configured',
+      ],
+      capture: ['success', 'attachment_actor_changed'].includes(mode)
         ? {
-            ...targetConfig,
-            setup: [['sh', '-c', 'printf configured > setup.txt']],
-            check: [
-              'sh',
-              '-c',
-              'test "$(cat result.txt)" = implemented && test "$(cat setup.txt)" = configured',
-            ],
+            command: ['capture-fixture'],
+            destination: 'review/media',
+            required: false,
           }
-        : {
-            repository: 'thkt/dotagents-workflow-trial',
-            remote: 'origin',
-            baseBranch: 'main',
-            ciChecks: ['checks'],
-            setup: [
-              ['bun', 'install', '--frozen-lockfile', '--ignore-scripts'],
-              ['bun', 'run', 'setup:e2e'],
-            ],
-            check: ['bun', 'run', 'check'],
-            capture: {
-              command: [
-                'bun',
-                '{harness}/scripts/capture.ts',
-                'trial/capture.spec.js',
-                'trial/playwright.config.js',
-              ],
-              destination: 'trial/evidence/generated',
-              required: false,
-            },
-          };
+        : null,
+    };
     if (['no_ci', 'local_no_ci'].includes(mode)) {
       settings.ciChecks = [];
     }
@@ -313,9 +297,6 @@ for (const mode of [
         if (argv[0] === 'gh') {
           return github(argv, cwd);
         }
-        if (argv[0] === 'bun') {
-          return ok();
-        }
         implementations++;
         if (mode === 'other_repo') {
           expect(input).not.toContain('CAPTURE_OUTPUT');
@@ -332,7 +313,7 @@ for (const mode of [
         if (reviews === 1) {
           await changeTarget(mode, config, settings);
           if (mode === 'attachment_actor_changed') {
-            const media = join(config.cwd, 'trial/evidence/generated');
+            const media = join(config.cwd, 'review/media');
             await mkdir(media, { recursive: true });
             await writeFile(join(media, 'view.png'), 'image');
           }
@@ -398,7 +379,7 @@ for (const mode of [
         expect(publications).toBe(1);
         const body = await readFile(join(dir, 'pr.md'), 'utf8');
         expect(body).toContain('Verified current implementation and media');
-        expect(body).not.toContain('Need agreement on scope');
+        expect(body).not.toContain('Implementation claim, not verification');
         await assert.rejects(() => develop(args, io), /EEXIST/);
         expect(implementations).toBe(1);
         expect(publications).toBe(1);

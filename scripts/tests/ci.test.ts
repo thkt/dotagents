@@ -99,6 +99,7 @@ for (const scenario of scenarios) {
   test(`CI execution: ${scenario.name}`, async () => {
     let views = 0;
     const budget = scenario.budget ?? 3500;
+    let now = 0;
     try {
       const action = () =>
         waitForCi(
@@ -113,6 +114,12 @@ for (const scenario of scenarios) {
             return ok(JSON.stringify(current));
           },
           budget,
+          {
+            now: () => now,
+            sleep: async (ms) => {
+              now += ms;
+            },
+          },
         );
       if (scenario.error) {
         await assert.rejects(() => withInterrupts(action), scenario.error);
