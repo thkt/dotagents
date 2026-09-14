@@ -65,7 +65,9 @@ bun /absolute/path/to/trusted/scripts/target.ts /absolute/path/to/target-checkou
 
 必要媒体は対象設定のcapture commandで撮影します。コマンドにはcheckout外の新しい絶対出力ディレクトリを最後の引数として渡します。PNG/JPEG/WebP/MP4/WebMだけを直下に保存し、動画contextを閉じて確定してください。撮影中はcheckoutに媒体・コード・文書・レポートを書きません。ホストは空の出力、不正形式、symlinkを拒否し、対象不変を確認して `destination` へ取り込みます。生成媒体専用領域は置き換えるため手書きの記録を置きません。
 
-付属のPlaywrightアダプターは `bun {harness}/scripts/capture.ts SPEC CONFIG ABSOLUTE_OUTPUT` です。対象repo側のPlaywright依存、指定したspecと設定のprojects・webServerを使います。spec欠落、テスト0件、skip、失敗は成功扱いしません。[trial repo](https://github.com/thkt/dotagents-workflow-trial/blob/93b38f0bc690373b4b1f68e37a42f721929d6386/README.md)では同repoのspec・config・媒体保存先を使います。この共通repoは商品とPlaywright依存を持ちません。ブラウザーやサーバーの起動可否をホストで確認します。
+付属のPlaywrightアダプターは `bun {harness}/scripts/capture.ts SPEC CONFIG ABSOLUTE_OUTPUT` です。対象repo側のPlaywright依存、指定したspecと設定のprojects・webServerを使います。spec欠落、テスト0件、skip、失敗は成功扱いしません。[trial repo](https://github.com/thkt/dotagents-workflow-trial/blob/d0134086ad9bdddb5ed2693327cb1ffb0859c4a2/README.md)では同repoのspec・config・媒体保存先を使います。この共通repoは商品とPlaywright依存を持ちません。ブラウザーやサーバーの起動可否をホストで確認します。
+
+`destination`の媒体は撮影で更新されます。過去の記録の固定ハッシュを最新媒体の根拠には使いません。撮影後に対象ソース（commitと未commit差分を含む）・撮影ログ・配置した媒体のサイズとSHA-256・検証結果を照合し、対応PRへ記録します。公開時はホスト固有のパス・非公開repo情報・非公開の実行ログを転載せず、公開可能な要約と根拠を示します。過去の記録は対象時点を保ち、PR内の表示・再生と同headのCIはそれぞれの実施結果を区別します。
 
 correctionを単独で設定する場合も、capture commandに加えて `captureDestination` と `captureRequired` を明示します。`captureRequired: true` でcommandがない設定は実行前に拒否します。capture commandの省略は、媒体不要の合意がある場合だけ使います。通常入口のdevelopmentは対象設定をそのまま渡します。
 
