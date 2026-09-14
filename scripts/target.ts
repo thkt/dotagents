@@ -11,6 +11,7 @@ export interface TargetConfig {
   baseBranch: string;
   setup: string[][];
   check: string[];
+  ciChecks: string[];
   capture: null | { command: string[]; destination: string; required: boolean };
 }
 function argv(value: unknown): value is string[] {
@@ -35,6 +36,12 @@ function assertTarget(value: unknown): asserts value is TargetConfig {
     'Explicit setup commands required (empty array allowed)',
   );
   assert(argv(value.check), 'Verification command is required');
+  assert(
+    Array.isArray(value.ciChecks) &&
+      value.ciChecks.every((name) => typeof name === 'string' && name.trim()) &&
+      new Set(value.ciChecks).size === value.ciChecks.length,
+    'Explicit unique CI check names required (empty array allowed)',
+  );
   if (value.capture !== null) {
     assert(
       isRecord(value.capture) &&
@@ -141,7 +148,7 @@ export async function pushArguments(repository: string, branch: string, cwd: str
   assert(pushUrls === url, 'Effective push URL differs from verified HTTPS target');
   const effective = await read(['git', ...options, 'ls-remote', '--get-url', remote], cwd);
   assert(effective === url, 'Effective push URL differs from verified HTTPS target');
-  return ['git', ...options, 'push', remote, `${branch}:refs/heads/${branch}`];
+  return ['git', ...options, 'push', '--no-follow-tags', remote, `${branch}:refs/heads/${branch}`];
 }
 
 export function targetCommand(command: string[]) {

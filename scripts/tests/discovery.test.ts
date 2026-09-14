@@ -147,6 +147,26 @@ test('research archiving requires sufficient context and preserves existing reco
   expect(await readdir(join(t.config.contextDir, 'research'))).toHaveLength(1);
 });
 
+test('a subdirectory cannot make checkout-local context appear external', async () => {
+  const t = await setup();
+  const subdirectory = join(t.repo, 'src');
+  await mkdir(subdirectory);
+  await writeFile(
+    t.configFile,
+    JSON.stringify({
+      ...t.config,
+      repo: subdirectory,
+      contextDir: join(t.repo, 'private-context'),
+      task: 'subdirectory',
+    }),
+  );
+  const stopped = cli('start', t.configFile);
+  expect(stopped.status).toBe(1);
+  expect(stopped.stderr).toContain('Target must be the checkout root');
+  expect((await readdir(t.repo)).sort()).toEqual(['.git', 'src']);
+  expect(await readdir(join(t.config.contextDir, 'work'))).toEqual(['trial']);
+});
+
 test('existing tasks, mismatched repositories and context inside checkout are rejected', async () => {
   const t = await setup();
   const before = await t.state();

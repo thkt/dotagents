@@ -15,5 +15,9 @@
     "run",
     "check"
   ],
-  "capture": null
+  "capture": null,
+  "ciChecks": [
+    "checks",
+    "verify"
+  ]
 }

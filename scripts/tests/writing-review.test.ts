@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { GeminiUnavailable } from '../writing.ts';
 import { reviewDocuments } from '../writing-review.ts';
-import { eventStream } from './support/writing.ts';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -39,11 +38,9 @@ async function documentTrial(committed = true) {
 function rewriter(file: string, name = 'README.md', [from, to] = ['長い文章', '短い文']) {
   return async (argv: string[]) =>
     argv[0] === 'agy'
-      ? eventStream(
-          JSON.stringify({
-            documents: [{ name, body: (await readFile(file, 'utf8')).replace(from, to) }],
-          }),
-        )
+      ? JSON.stringify({
+          documents: [{ name, body: (await readFile(file, 'utf8')).replace(from, to) }],
+        })
       : JSON.stringify({ status: 'accepted', findings: '条件は同じ' });
 }
 
@@ -173,3 +170,30 @@ test('unavailable review is reused for identical input and retried for new facts
   await reviewDocuments(t.cwd, '新たな根拠', t.dir, rewriter(t.file));
   expect(await readFile(t.file, 'utf8')).toBe('短い文。4件です。');
 });
+
+for (const kind of ['new', 'tracked'] as const) {
+  test(`${kind} document entering the review set prevents candidate adoption`, async () => {
+    const t = await documentTrial();
+    const added = join(t.cwd, 'ADDED.md');
+    if (kind === 'tracked') {
+      await writeFile(added, '既存の説明。');
+      t.git('add', 'ADDED.md');
+      t.git('commit', '-m', 'existing document');
+    }
+    const runner = rewriter(t.file);
+    await assert.rejects(
+      () =>
+        reviewDocuments(t.cwd, '4件', t.dir, async (argv) => {
+          const response = await runner(argv);
+          if (argv[0] !== 'agy') {
+            await writeFile(added, '確認中に加わった説明。');
+          }
+          return response;
+        }),
+      /Writing target changed during review/,
+    );
+    expect(await readFile(t.file, 'utf8')).toBe('長い文章。4件です。');
+    expect(await readFile(added, 'utf8')).toBe('確認中に加わった説明。');
+    expect(await readFile(join(t.dir, 'active.json'), 'utf8')).toContain('reviewing');
+  });
+}

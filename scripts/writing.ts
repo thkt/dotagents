@@ -15,6 +15,7 @@ export interface WritingDocument {
   name: string;
   body: string;
 }
+// Returns model response text for agy, otherwise the command stdout. Raw logs are retained.
 export type WritingRunner = (
   argv: string[],
   cwd: string,
@@ -110,12 +111,13 @@ export async function runWritingCommand(
       done(code);
     });
   });
+  let output = stdout;
   if (executable === 'agy' && child.killed) {
     // The timeout can cut the output mid-line, so classify it before parsing.
     throw new GeminiUnavailable('timeout');
   }
   if (executable === 'agy' && stdout.trim()) {
-    geminiResponse(stdout);
+    output = geminiResponse(stdout);
     assert(code === 0, `Writing model failed after a success response; inspect ${prefix}`);
   }
   if (executable === 'agy' && (code !== 0 || !stdout.trim())) {
@@ -128,7 +130,7 @@ export async function runWritingCommand(
     code === 0,
     `${executable === 'agy' ? 'Writing model' : executable} failed; inspect ${prefix}`,
   );
-  return stdout;
+  return output;
 }
 
 export function geminiResponse(stdout: string) {
@@ -172,14 +174,16 @@ export function geminiResponse(stdout: string) {
 }
 
 function protectedParts(body: string) {
+  const frontmatter = body.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/);
   return [
-    body.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)?.[0] ?? '',
-    ...Array.from(body.matchAll(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1[^\n]*$/gm), (m) => m[0]),
-    ...Array.from(
-      body.matchAll(/`[^`\n]+`|\]\(([^)]+)\)|https?:\/\/[^\s)>]+|\b[0-9a-f]{40,64}\b|Closes #\d+/g),
-      (m) => m[0],
-    ).sort(),
-  ];
+    ...(frontmatter ? [frontmatter] : []),
+    ...body.matchAll(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1[^\n]*$/gm),
+    ...body.matchAll(
+      /`[^`\n]+`|\]\(([^)]+)\)|https?:\/\/[^\s)>]+|\b[0-9a-f]{40,64}\b|Closes #\d+/g,
+    ),
+  ]
+    .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+    .map((match) => match[0]);
 }
 
 export function writingCandidate(text: string, original: WritingDocument[]) {
@@ -228,24 +232,22 @@ export async function reviewWriting(
   );
   let output: string;
   try {
-    output = geminiResponse(
-      await runner(
-        [
-          'agy',
-          '--model',
-          writingModel,
-          '--output-format',
-          'stream-json',
-          '--print-timeout',
-          '5m',
-          '--sandbox',
-          '-p',
-          prompt,
-        ],
-        dir,
-        '',
-        join(dir, 'gemini'),
-      ),
+    output = await runner(
+      [
+        'agy',
+        '--model',
+        writingModel,
+        '--output-format',
+        'stream-json',
+        '--print-timeout',
+        '5m',
+        '--sandbox',
+        '-p',
+        prompt,
+      ],
+      dir,
+      '',
+      join(dir, 'gemini'),
     );
   } catch (error) {
     if (!(error instanceof GeminiUnavailable)) {

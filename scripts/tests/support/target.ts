@@ -11,6 +11,7 @@ export const targetConfig: TargetConfig = {
   setup: [],
   check: ['sh', '-c', 'test -f result.txt'],
   capture: null,
+  ciChecks: ['checks'],
 };
 export function git(cwd: string, ...argv: string[]) {
   const result = spawnSync('git', argv, { cwd, encoding: 'utf8', timeout: 10000 });

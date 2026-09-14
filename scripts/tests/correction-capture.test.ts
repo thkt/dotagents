@@ -1,6 +1,6 @@
 import { test, expect, afterEach } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, rm, symlink, chmod } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { correctionFixture, object, events } from './support/correction.ts';
@@ -45,11 +45,57 @@ for (const [mode, result, captures, reviews] of [
   });
 }
 
+async function changeInitialMediaInput(cwd: string, kind: string) {
+  switch (kind) {
+    case 'deleted-doc':
+    case 'deleted-symlink':
+    case 'deleted-executable':
+      return rm(join(cwd, 'README.md'));
+    case 'new-symlink':
+      return symlink('source.txt', join(cwd, 'NEW.md'));
+    case 'executable-doc':
+      return chmod(join(cwd, 'README.md'), 0o755);
+    case 'nonexecutable-doc':
+      return chmod(join(cwd, 'README.md'), 0o644);
+    case 'ignored-executable-mode':
+      await chmod(join(cwd, 'runner.md'), 0o644);
+      return writeFile(join(cwd, 'README.md'), 'current');
+    default: {
+      const names: Record<string, string> = {
+        'new-doc': 'NEW.md',
+        'new-code': 'new.js',
+        'tracked-code': 'app.js',
+      };
+      return writeFile(join(cwd, names[kind] ?? 'README.md'), 'current');
+    }
+  }
+}
+
+async function prepareInitialMediaInput(cwd: string, kind: string) {
+  if (kind === 'deleted-symlink') {
+    await rm(join(cwd, 'README.md'));
+    await symlink('source.txt', join(cwd, 'README.md'));
+  }
+  if (kind === 'deleted-executable' || kind === 'nonexecutable-doc') {
+    await chmod(join(cwd, 'README.md'), 0o755);
+  }
+  if (kind === 'ignored-executable-mode') {
+    await writeFile(join(cwd, 'runner.md'), 'runner');
+    await chmod(join(cwd, 'runner.md'), 0o755);
+  }
+}
+
 for (const kind of [
   'tracked-doc',
   'staged-doc',
   'new-doc',
   'deleted-doc',
+  'new-symlink',
+  'executable-doc',
+  'nonexecutable-doc',
+  'ignored-executable-mode',
+  'deleted-symlink',
+  'deleted-executable',
   'new-code',
   'tracked-code',
 ]) {
@@ -66,29 +112,21 @@ for (const kind of [
     await writeFile(join(cwd, 'README.md'), 'original');
     await writeFile(join(cwd, 'app.js'), 'original');
     await writeFile(media, 'retained');
+    await prepareInitialMediaInput(cwd, kind);
     git('add', '.');
     git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'baseline');
-    if (kind === 'deleted-doc') {
-      await rm(join(cwd, 'README.md'));
-    } else {
-      const name =
-        kind === 'new-doc'
-          ? 'NEW.md'
-          : kind === 'new-code'
-            ? 'new.js'
-            : kind === 'tracked-code'
-              ? 'app.js'
-              : 'README.md';
-      await writeFile(join(cwd, name), 'current');
-      if (kind === 'staged-doc') {
-        git('add', 'README.md');
-      }
+    if (kind === 'ignored-executable-mode') {
+      git('config', 'core.filemode', 'false');
+    }
+    await changeInitialMediaInput(cwd, kind);
+    if (kind === 'staged-doc') {
+      git('add', 'README.md');
     }
     t.config.capture = [process.execPath, join(t.root, 'helper.js'), 'capture'];
     await writeFile(t.configFile, JSON.stringify(t.config));
     expect(t.execute().status).toBe(0);
     const state = await t.state();
-    const hasCode = kind.endsWith('code');
+    const hasCode = !['tracked-doc', 'staged-doc', 'new-doc', 'deleted-doc'].includes(kind);
     expect(events(state.events).filter((event) => object(event).role === 'capture')).toHaveLength(
       hasCode ? 1 : 0,
     );

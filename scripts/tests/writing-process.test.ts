@@ -171,3 +171,27 @@ function stopChild(pid: number | undefined) {
     } catch {}
   }
 }
+
+test('successful writing returns response text while preserving the raw event log', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'writing-success-'));
+  const worker = join(dir, 'worker.ts');
+  const response = JSON.stringify({ documents: [{ name: 'README.md', body: '確認済み。' }] });
+  const raw = modelOutput({ name: 'success', status: 'SUCCESS', response });
+  await writeFile(join(dir, 'agy'), `#!${process.execPath}\nconsole.log(${JSON.stringify(raw)});`, {
+    mode: 0o755,
+  });
+  await writeFile(
+    worker,
+    `import {runWritingCommand} from ${JSON.stringify(resolve(import.meta.dir, '../writing.ts'))};
+    process.env.PATH=${JSON.stringify(dir)};
+    console.log(await runWritingCommand(['agy'], ${JSON.stringify(dir)}, '', ${JSON.stringify(join(dir, 'model'))}));`,
+  );
+  try {
+    const result = await command([process.execPath, worker], dir, '', 10000);
+    expect(result.code).toBe(0);
+    expect(result.stdout.trim()).toBe(response);
+    expect(await readFile(join(dir, 'model.stdout'), 'utf8')).toBe(raw + '\n');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

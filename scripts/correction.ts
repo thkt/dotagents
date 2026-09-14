@@ -371,7 +371,16 @@ async function needsCapture(config: Config, source: string, previousSource?: str
   if (config.captureRequired) {
     return true;
   }
-  const tracked = await command(['git', 'diff', '--name-only', '-z', 'HEAD'], cwd, '', 10000);
+  return !(await onlyPlainMarkdown(cwd));
+}
+
+async function onlyPlainMarkdown(cwd: string) {
+  const tracked = await command(
+    ['git', '-c', 'core.filemode=true', 'diff', '--raw', '--no-renames', '-z', 'HEAD'],
+    cwd,
+    '',
+    10000,
+  );
   const untracked = await command(
     ['git', 'ls-files', '--others', '--exclude-standard', '-z'],
     cwd,
@@ -379,10 +388,45 @@ async function needsCapture(config: Config, source: string, previousSource?: str
     10000,
   );
   if (tracked.code !== 0 || untracked.code !== 0) {
-    return true;
+    return false;
   }
-  const paths = `${tracked.stdout}${untracked.stdout}`.split('\0').filter(Boolean);
-  return !(paths.length > 0 && paths.every((path) => path.endsWith('.md')));
+  const paths = new Map(
+    untracked.stdout
+      .split('\0')
+      .filter(Boolean)
+      .map((path) => [path, false]),
+  );
+  const records = tracked.stdout.split('\0');
+  for (let index = 0; index < records.length - 1; index += 2) {
+    const header = records[index] ?? '';
+    const path = records[index + 1];
+    // Both sides matter: deleting a symlink or removing an executable bit changes code too.
+    if (!path || !/^:(?:000000|100644) (?:000000|100644) /.test(header)) {
+      return false;
+    }
+    paths.set(path, header.startsWith(':100644 000000 '));
+  }
+  if (!paths.size) {
+    return false;
+  }
+  for (const [path, deleted] of paths) {
+    if (!(await plainMarkdownFile(cwd, path, deleted))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function plainMarkdownFile(cwd: string, path: string, deleted: boolean) {
+  if (!path.endsWith('.md')) {
+    return false;
+  }
+  try {
+    const stat = await lstat(resolve(cwd, path));
+    return stat.isFile() && !(stat.mode & 0o111);
+  } catch (error) {
+    return deleted && isMissing(error);
+  }
 }
 
 async function verifyWriting(config: Config, state: State, persist: Persist) {

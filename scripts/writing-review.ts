@@ -68,18 +68,7 @@ async function cachedReview(
   return true;
 }
 
-export async function reviewDocuments(
-  cwd: string,
-  facts: string,
-  dir: string,
-  runner?: WritingRunner,
-  currentFacts: () => Promise<string> = async () => facts,
-) {
-  const active = join(dir, 'active.json');
-  assert(
-    (await optionalFile(active)) === undefined,
-    'Interrupted writing adoption requires reconciliation',
-  );
+async function changedDocuments(cwd: string, dir: string) {
   const paths = new Set(
     (
       (await git(cwd, dir, ['diff', '--name-only', '-z', '--diff-filter=AMRC', 'HEAD'])) +
@@ -97,10 +86,25 @@ export async function reviewDocuments(
     );
     input.push({ name, body: await readFile(path, 'utf8') });
   }
+  return input.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function reviewDocuments(
+  cwd: string,
+  facts: string,
+  dir: string,
+  runner?: WritingRunner,
+  currentFacts: () => Promise<string> = async () => facts,
+) {
+  const active = join(dir, 'active.json');
+  assert(
+    (await optionalFile(active)) === undefined,
+    'Interrupted writing adoption requires reconciliation',
+  );
+  const input = await changedDocuments(cwd, dir);
   if (!input.length) {
     return;
   }
-  input.sort((a, b) => a.name.localeCompare(b.name));
   const key = writingHash(JSON.stringify({ facts, documents: input }));
   if (await cachedReview(dir, key, facts, input)) {
     return;
@@ -108,17 +112,7 @@ export async function reviewDocuments(
   await writeFile(active, JSON.stringify({ key, phase: 'reviewing' }), { flag: 'wx' });
   const result = await reviewWriting(input, facts, join(dir, key), runner);
   assert((await currentFacts()) === facts, 'Writing facts changed during review');
-  for (const doc of input) {
-    const path = resolve(cwd, doc.name);
-    assert(
-      (await lstat(path)).isFile() && (await realpath(path)) === path,
-      'Writing target type changed',
-    );
-    assert(
-      (await readFile(resolve(cwd, doc.name), 'utf8')) === doc.body,
-      'Writing target changed during review',
-    );
-  }
+  assert.deepEqual(await changedDocuments(cwd, dir), input, 'Writing target changed during review');
   if ((await optionalFile(join(dir, key, 'skipped.json'))) !== undefined) {
     await writeFile(
       join(dir, `done-${key}.json`),

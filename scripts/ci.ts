@@ -5,6 +5,34 @@ import type { command } from './correction.ts';
 import { assertRunning } from './correction.ts';
 import { isRecord } from './input.ts';
 
+function checkStatus(values: unknown[], required: string[]) {
+  const checks = values.map((value) => {
+    assert(isRecord(value), 'Invalid CI check');
+    const name = value.name ?? value.context;
+    const state =
+      value.status === undefined
+        ? value.state
+        : value.status === 'COMPLETED'
+          ? value.conclusion
+          : 'PENDING';
+    assert(typeof name === 'string' && typeof state === 'string', 'Invalid CI check status');
+    return { name, state };
+  });
+  if (
+    checks.some(
+      ({ name, state }) =>
+        !['SUCCESS', 'SKIPPED', 'NEUTRAL', 'PENDING'].includes(state) ||
+        (required.includes(name) && ['SKIPPED', 'NEUTRAL'].includes(state)),
+    )
+  ) {
+    return 'failed';
+  }
+  return required.some((name) => !checks.some((check) => check.name === name)) ||
+    checks.some((check) => check.state === 'PENDING')
+    ? 'pending'
+    : 'passed';
+}
+
 export async function waitForCi(
   target: {
     cwd: string;
@@ -13,10 +41,12 @@ export async function waitForCi(
     commit: string;
     baseBranch: string;
     dir: string;
+    ciChecks: string[];
   },
   execute: typeof command,
   budgetMs: number,
 ) {
+  assert(target.ciChecks.length > 0, 'Expected CI checks required');
   const deadline = performance.now() + budgetMs;
   let attempt = 0;
   while (performance.now() < deadline) {
@@ -52,24 +82,9 @@ export async function waitForCi(
     if (remaining <= 0) {
       return undefined;
     }
-    if (pr.statusCheckRollup.length > 0) {
-      return execute(
-        [
-          'gh',
-          'pr',
-          'checks',
-          target.url,
-          '--repo',
-          target.repository,
-          '--watch',
-          '--interval',
-          '10',
-        ],
-        target.cwd,
-        '',
-        remaining,
-        join(target.dir, 'ci'),
-      );
+    const status = checkStatus(pr.statusCheckRollup, target.ciChecks);
+    if (status !== 'pending') {
+      return { ...view, code: status === 'passed' ? 0 : 1 };
     }
     await setTimeout(Math.min(1000, remaining));
   }

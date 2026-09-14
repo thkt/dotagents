@@ -56,7 +56,7 @@ for (const accepted of [true, false]) {
         reviewWriting(original, '商品数は4件。', dir, async (argv, _cwd, input) => {
           calls++;
           if (argv[0] === 'agy') {
-            return eventStream(JSON.stringify({ documents: candidate }));
+            return JSON.stringify({ documents: candidate });
           }
           const payload = input.slice(input.lastIndexOf('\n') + 1);
           expect(JSON.parse(payload)).toEqual({ facts: '商品数は4件。', original, candidate });
@@ -128,8 +128,7 @@ test('availability classification does not swallow unknown or malformed failures
       failure,
     );
     await assert.rejects(
-      () =>
-        reviewWriting(original, '4件', join(root, 'invalid'), async () => eventStream('not JSON')),
+      () => reviewWriting(original, '4件', join(root, 'invalid'), async () => 'not JSON'),
       SyntaxError,
     );
     await assert.rejects(() => readFile(join(root, 'invalid', 'skipped.json')), { code: 'ENOENT' });
@@ -137,3 +136,21 @@ test('availability classification does not swallow unknown or malformed failures
     await rm(root, { recursive: true, force: true });
   }
 });
+
+for (const [name, before, after] of [
+  ['inline order', '`prepare` then `publish`', '`publish` then `prepare`'],
+  [
+    'link order',
+    '[Setup](https://example.org/setup) [Deploy](https://example.org/deploy)',
+    '[Deploy](https://example.org/deploy) [Setup](https://example.org/setup)',
+  ],
+  ['block and inline order', '`prepare`\n```sh\ndeploy\n```\n', '```sh\ndeploy\n```\n`prepare`\n'],
+] as const) {
+  test(`protected content rejects changed ${name}`, () => {
+    expect(() =>
+      writingCandidate(JSON.stringify({ documents: [{ name: 'README.md', body: after }] }), [
+        { name: 'README.md', body: before },
+      ]),
+    ).toThrow('Protected content changed');
+  });
+}

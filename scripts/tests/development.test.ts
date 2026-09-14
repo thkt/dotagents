@@ -17,6 +17,7 @@ const issue = JSON.stringify({
 });
 const stopReasons = {
   denied_start: /GitHub push permission required/,
+  no_ci: /Publishing requires expected CI checks/,
   permission_lost: /GitHub push permission required/,
   attachment_actor_changed: /Target configuration or GitHub actor changed/,
   initial_failure: /Initial implementation process failed/,
@@ -46,14 +47,20 @@ async function checkStop(
   reviews: number,
   implementations: number,
 ) {
-  if (mode === 'denied_start') {
+  if (mode === 'denied_start' || mode === 'no_ci') {
     expect(implementations).toBe(0);
     expect(existsSync(join(dir, 'checkout'))).toBe(false);
   }
   if (
-    !['denied_start', 'wrong_repo', 'dirty', 'missing_check', 'wrong_issue', 'wrong_push'].includes(
-      mode,
-    )
+    ![
+      'denied_start',
+      'no_ci',
+      'wrong_repo',
+      'dirty',
+      'missing_check',
+      'wrong_issue',
+      'wrong_push',
+    ].includes(mode)
   ) {
     expect(await readFile(join(dir, 'stopped.txt'), 'utf8')).toMatch(stopReasons[mode]);
   }
@@ -112,6 +119,9 @@ async function git(cwd: string, ...args: string[]) {
 }
 
 async function prepareInput(repo: string, mode: string, settings: typeof targetConfig) {
+  if (mode === 'dirty') {
+    await writeFile(join(repo, 'unrelated.txt'), 'retain');
+  }
   if (mode === 'missing_check') {
     await writeFile(join(repo, '.dotagents.json'), JSON.stringify({ ...settings, check: [] }));
     await git(repo, 'add', '.');
@@ -172,6 +182,8 @@ async function changeTarget(mode: string, config: Config, settings: typeof targe
 
 for (const mode of [
   'success',
+  'no_ci',
+  'local_no_ci',
   'denied_start',
   'permission_lost',
   'local_denied',
@@ -217,6 +229,7 @@ for (const mode of [
             repository: 'thkt/dotagents-workflow-trial',
             remote: 'origin',
             baseBranch: 'main',
+            ciChecks: ['checks'],
             setup: [
               ['bun', 'install', '--frozen-lockfile', '--ignore-scripts'],
               ['bun', 'run', 'setup:e2e'],
@@ -233,11 +246,11 @@ for (const mode of [
               required: false,
             },
           };
+    if (['no_ci', 'local_no_ci'].includes(mode)) {
+      settings.ciChecks = [];
+    }
     await initializeTarget(repo, settings);
     const original = await prepareInput(repo, mode, settings);
-    if (mode === 'dirty') {
-      await writeFile(join(repo, 'unrelated.txt'), 'retain');
-    }
     let implementations = 0,
       reviews = 0,
       pushes = 0,
@@ -254,11 +267,6 @@ for (const mode of [
               ? issue.replace('visible', 'different')
               : issue,
           );
-        case 'pr/checks':
-          return {
-            ...ok(),
-            code: mode === 'ci_failure' ? 1 : 0,
-          };
         case 'pr/view':
           return ok(
             JSON.stringify({
@@ -267,7 +275,13 @@ for (const mode of [
               baseRefName: settings.baseBranch,
               state: 'OPEN',
               body: 'Closes #99',
-              statusCheckRollup: [{ name: 'checks' }],
+              statusCheckRollup: [
+                {
+                  name: 'checks',
+                  status: 'COMPLETED',
+                  conclusion: mode === 'ci_failure' ? 'FAILURE' : 'SUCCESS',
+                },
+              ],
             }),
           );
         default:
@@ -370,7 +384,7 @@ for (const mode of [
         dir,
       ];
       args.push(...localArguments(mode));
-      if (mode === 'other_repo' || mode === 'local_denied') {
+      if (mode === 'other_repo' || mode === 'local_denied' || mode === 'local_no_ci') {
         const result = await develop([...args, '--no-publish'], io);
         assert('status' in result);
         expect(result.status).toBe('verified_local');

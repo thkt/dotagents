@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test, expect } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -78,5 +78,51 @@ test('Issue identifiers accept exact supported forms, never embedded URLs', () =
     expect(() => issueNumber(input, 'team/component')).toThrow(
       'Issue does not match target repository',
     );
+  }
+});
+
+test('branch publication does not publish reachable annotated tags from user push settings', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'push-refs-'));
+  const cwd = join(root, 'checkout'),
+    remote = join(root, 'remote.git');
+  try {
+    await mkdir(cwd);
+    await mkdir(remote);
+    await initializeTarget(cwd);
+    git(remote, 'init', '--bare');
+    git(cwd, 'switch', '-c', 'codex/test');
+    git(cwd, 'tag', '-a', 'unpublished-release', '-m', 'Keep this tag local');
+    git(cwd, 'config', 'push.followTags', 'true');
+    const args = await pushArguments('team/component', 'codex/test', cwd, async (argv) =>
+      git(cwd, ...argv.slice(1)),
+    );
+    // Substitute only the transport destination so real ref publication stays local.
+    const local = args
+      .slice(1)
+      .map((arg) => arg.replace('https://github.com/team/component.git', remote));
+    local.splice(local.indexOf('push'), 0, '-c', 'protocol.file.allow=always');
+    git(cwd, ...local);
+    expect(git(remote, 'for-each-ref', '--format=%(refname)')).toBe('refs/heads/codex/test');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('CI check policy must be explicit with unique nonempty names', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'ci-policy-'));
+  try {
+    await initializeTarget(cwd);
+    const read = async (argv: string[]) => githubTarget(argv) ?? git(cwd, ...argv.slice(1));
+    for (const ciChecks of [undefined, [''], ['checks', 'checks']]) {
+      await writeFile(join(cwd, '.dotagents.json'), JSON.stringify({ ...targetConfig, ciChecks }));
+      await assert.rejects(() => readTarget(cwd, read), /Explicit unique CI check names/);
+    }
+    await writeFile(
+      join(cwd, '.dotagents.json'),
+      JSON.stringify({ ...targetConfig, ciChecks: [] }),
+    );
+    expect((await readTarget(cwd, read)).config.ciChecks).toEqual([]);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
   }
 });

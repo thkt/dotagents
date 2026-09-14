@@ -48,6 +48,10 @@ async function start(file: string) {
   );
   assert(isArray(config.referencePaths), 'Invalid referencePaths');
   const repo = await realpath(config.repo);
+  const checkout = execFileSync('git', ['-C', repo, 'rev-parse', '--show-toplevel'], {
+    encoding: 'utf8',
+  }).trim();
+  assert((await realpath(checkout)) === repo, 'Target must be the checkout root');
   const referencePaths = config.referencePaths.map((path) => {
     nonempty(path);
     assert(

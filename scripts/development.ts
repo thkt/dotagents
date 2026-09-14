@@ -61,6 +61,7 @@ async function prepare(args: string[], io: typeof runtime) {
   const git = (...argv: string[]) => checked(io, ['git', ...argv], repo);
   const localOnly = parsed.values['no-publish'] ?? false;
   const target = await readTarget(repo, (argv, cwd) => checked(io, argv, cwd), !localOnly);
+  assert(localOnly || target.config.ciChecks.length > 0, 'Publishing requires expected CI checks');
   const { repository } = target.config;
   const input = parsed.positionals[0];
   assert(input);
@@ -355,7 +356,7 @@ async function ship(
   );
   await writeFile(join(dir, 'pr.json'), view);
   const ci = await waitForCi(
-    { cwd, repository, url, commit, baseBranch, dir },
+    { cwd, repository, url, commit, baseBranch, dir, ciChecks: context.target.config.ciChecks },
     io.command,
     checkTimeMs,
   );
