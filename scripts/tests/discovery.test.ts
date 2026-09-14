@@ -137,14 +137,78 @@ test('all criteria and current revision are required; inputs do not replace save
 test('research archiving requires sufficient context and preserves existing records', async () => {
   const t = await setup();
   const report = join(t.root, 'report.md');
-  await writeFile(report, 'Question, current sources, conclusion and unresolved scope.');
-  expect(cli('archive', t.dir, report).status).toBe(1);
+  const content = 'Question, current sources, conclusion and unresolved scope.';
+  const legacy = join(t.config.contextDir, 'research');
+  await mkdir(legacy);
+  await writeFile(join(legacy, 'legacy.md'), 'Preserved private historical research');
+  await writeFile(report, content);
+  const blocked = cli('archive', t.dir, report);
+  expect(blocked.status).toBe(1);
+  expect(blocked.stderr).toContain('Context is not sufficient');
+  expect(await readdir(t.repo)).not.toContain('research');
   expect((await t.evaluate()).status).toBe(0);
+  const before = await t.state();
+  const index = git(t.repo, 'ls-files', '--stage');
   const saved = cli('archive', t.dir, report);
   expect(saved.status).toBe(0);
+  const path = saved.stdout.trim();
+  expect(path.startsWith(join(t.repo, 'research') + '/')).toBe(true);
   expect(cli('archive', t.dir, report).stdout).toBe(saved.stdout);
-  expect(await readFile(saved.stdout.trim(), 'utf8')).toContain('current sources');
-  expect(await readdir(join(t.config.contextDir, 'research'))).toHaveLength(1);
+  expect(await readFile(path, 'utf8')).toBe(content);
+  expect(await t.state()).toEqual(before);
+  expect(git(t.repo, 'ls-files', '--stage')).toBe(index);
+  expect(await readdir(legacy)).toEqual(['legacy.md']);
+  expect(await readFile(join(legacy, 'legacy.md'), 'utf8')).toBe(
+    'Preserved private historical research',
+  );
+
+  expect(cli('note', t.dir, report).status).toBe(0);
+  expect(cli('archive', t.dir, report).status).toBe(1);
+  expect((await t.evaluate()).status).toBe(0);
+  expect(cli('archive', t.dir, report).stdout).toBe(saved.stdout);
+
+  await writeFile(path, 'Existing record that must be retained');
+  const conflict = cli('archive', t.dir, report);
+  expect(conflict.status).toBe(1);
+  expect(conflict.stderr).toContain('Existing content differs');
+  expect(await readFile(path, 'utf8')).toBe('Existing record that must be retained');
+  await writeFile(report, 'A different conclusion with a new source.');
+  const changed = cli('archive', t.dir, report);
+  expect(changed.status).toBe(0);
+  expect(changed.stdout).not.toBe(saved.stdout);
+  expect(await readFile(changed.stdout.trim(), 'utf8')).toBe(
+    'A different conclusion with a new source.',
+  );
+});
+
+test('ignored reports cannot be reported as shareable research', async () => {
+  const t = await setup();
+  await writeFile(join(t.repo, '.gitignore'), 'research/\n');
+  expect((await t.evaluate()).status).toBe(0);
+  await writeFile(t.file, 'Reviewed report');
+  const before = await t.state();
+  const stopped = cli('archive', t.dir, t.file);
+  expect(stopped.status).toBe(1);
+  expect(stopped.stderr).toContain('Research report is ignored by Git');
+  expect(await readdir(join(t.repo, 'research'))).toEqual([]);
+  expect(await t.state()).toEqual(before);
+});
+
+test('an existing report symlink is rejected without changing its target', async () => {
+  const t = await setup();
+  expect((await t.evaluate()).status).toBe(0);
+  await writeFile(t.file, 'Reviewed report');
+  const saved = cli('archive', t.dir, t.file);
+  expect(saved.status).toBe(0);
+  const path = saved.stdout.trim();
+  await rm(path);
+  await symlink(t.file, path);
+  const before = await t.state();
+  const stopped = cli('archive', t.dir, t.file);
+  expect(stopped.status).toBe(1);
+  expect(stopped.stderr).toContain('Research report must be a regular file');
+  expect(await readFile(t.file, 'utf8')).toBe('Reviewed report');
+  expect(await t.state()).toEqual(before);
 });
 
 test('a subdirectory cannot make checkout-local context appear external', async () => {
@@ -229,23 +293,27 @@ test('question-tracking sessions are preserved and cannot silently pass the gate
 
 test('symlinked work and research storage cannot redirect writes', async () => {
   const t = await setup();
-  const archive = join(t.config.contextDir, 'research');
-  await symlink(t.repo, archive);
-  await writeFile(t.file, 'Report');
+  const outside = join(t.root, 'outside');
+  await mkdir(outside);
+  const archive = join(t.repo, 'research');
+  await symlink(outside, archive);
   expect((await t.evaluate()).status).toBe(0);
-  expect(cli('archive', t.dir, t.file).status).toBe(1);
+  await writeFile(t.file, 'Report');
+  const stopped = cli('archive', t.dir, t.file);
+  expect(stopped.status).toBe(1);
+  expect(stopped.stderr).toContain('Research storage must not be a symlink');
   const work = join(t.config.contextDir, 'work');
   await rm(work, { recursive: true });
   await symlink(t.repo, work);
   expect(cli('start', t.configFile).status).toBe(1);
-  expect(await readdir(t.repo)).toEqual(['.git']);
+  expect(await readdir(outside)).toEqual([]);
 });
 
 for (const binding of ['git-directory', 'checkout']) {
   test(
     binding === 'checkout'
       ? 'legacy checkout binding accepts a linked worktree'
-      : 'worktrees share research and keep task assessments separate',
+      : 'committed research reaches worktrees and clones without sharing assessments',
     async () => {
       const t = await setup();
       git(
@@ -272,11 +340,12 @@ for (const binding of ['git-directory', 'checkout']) {
         expect(cli('gate', started.stdout.trim()).status).toBe(1);
         return;
       }
-      await writeFile(t.file, 'Reusable finding with source and scope.');
       expect((await t.evaluate()).status).toBe(0);
+      await writeFile(t.file, 'Reusable finding with source and scope.');
       const report = cli('archive', t.dir, t.file);
       expect(report.status).toBe(0);
       const archived = await readFile(report.stdout.trim(), 'utf8');
+      expect(archived).toBe('Reusable finding with source and scope.');
       const before = await t.state();
       await writeFile(t.configFile, JSON.stringify({ ...t.config, repo: linked, task: 'next' }));
       const started = cli('start', t.configFile);
@@ -289,11 +358,56 @@ for (const binding of ['git-directory', 'checkout']) {
       expect(cli('gate', started.stdout.trim()).status).toBe(1);
       expect(await t.state()).toEqual(before);
       expect(await readFile(report.stdout.trim(), 'utf8')).toBe(archived);
-      expect(await readdir(join(t.config.contextDir, 'research'))).toHaveLength(1);
+      expect(await readdir(linked)).not.toContain('research');
+      const originalHead = git(t.repo, 'rev-parse', 'HEAD');
+      expect(git(linked, 'rev-parse', 'HEAD')).toBe(originalHead);
+      expect(git(t.repo, 'diff', '--cached', '--name-only')).toBe('');
+      git(t.repo, 'add', '--', 'research');
+      git(
+        t.repo,
+        '-c',
+        'user.name=Trial',
+        '-c',
+        'user.email=trial@example.com',
+        'commit',
+        '-m',
+        'research',
+      );
+      const committed = git(t.repo, 'rev-parse', 'HEAD');
+      git(linked, 'merge', '--ff-only', committed);
+      const files = git(linked, 'ls-files').split('\n');
+      expect(files.every((path) => path.startsWith('research/') && path.endsWith('.md'))).toBe(
+        true,
+      );
+      const relativeReport = files[0];
+      expect(relativeReport).toBeDefined();
+      expect(await readFile(join(linked, relativeReport ?? ''), 'utf8')).toBe(archived);
+      await writeFile(t.file, JSON.stringify(before.assessment));
+      expect(cli('assess', started.stdout.trim(), t.file).status).toBe(0);
+      await writeFile(t.file, archived);
+      const linkedReport = cli('archive', started.stdout.trim(), t.file);
+      expect(linkedReport.status).toBe(0);
+      expect(linkedReport.stdout.trim()).toBe(join(linked, relativeReport ?? ''));
+      expect(await t.state()).toEqual(before);
       const clone = join(t.root, 'clone');
       git(t.root, 'clone', t.repo, clone);
+      expect(await readFile(join(clone, relativeReport ?? ''), 'utf8')).toBe(archived);
+      expect(await readdir(clone)).not.toContain('context');
       await writeFile(t.configFile, JSON.stringify({ ...t.config, repo: clone, task: 'clone' }));
       expect(cli('start', t.configFile).status).toBe(1);
+      await writeFile(
+        t.configFile,
+        JSON.stringify({
+          ...t.config,
+          repo: clone,
+          task: 'clone',
+          contextDir: join(t.root, 'clone-context'),
+        }),
+      );
+      const clonedSession = cli('start', t.configFile);
+      expect(clonedSession.status).toBe(0);
+      expect(cli('gate', clonedSession.stdout.trim()).status).toBe(1);
+      expect(await readFile(join(clone, relativeReport ?? ''), 'utf8')).toBe(archived);
     },
   );
 }
@@ -329,4 +443,5 @@ test('continuing operations reject a different repository at the saved checkout 
   }
   expect(await readFile(join(dir, 'state.json'), 'utf8')).toBe(before);
   expect(await readdir(t.config.contextDir)).not.toContain('research');
+  expect(await readdir(checkout)).not.toContain('research');
 });

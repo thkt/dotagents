@@ -8,7 +8,7 @@
 
 trialの[PR #111](https://github.com/thkt/dotagents-workflow-trial/pull/111)・[PR #112](https://github.com/thkt/dotagents-workflow-trial/pull/112)の差分を共有採用版と照合しました。ユーザー認証、`ciChecks`の`checks`・`verify`、`scripts/tests/discovery.test.ts`と`scripts/tests/support/correction.ts`のfixture実パス化は共有版に適用済みです。共通の運用は[開発方針](../DEVELOPMENT.md)と[撮影手順](../scripts/README.md#ホストによるブラウザー検証と撮影)に記載しています。trialの商品・旧App版コード・媒体・履歴はtrialに保持します。
 
-旧版`5aafabc944bf78e6d0b7b224ae3ae207eca475fb`の追跡実装はGit履歴とホストの保全コピーから参照できます。旧未追跡資料・ignored資産・別worktree・保存庫は取り込み先へ混ぜず保全し、削除しません。旧OUTCOMEと旧hookを新方式の有効な指示として残しません。researchの既存資料は履歴資料として保持します。
+旧版`5aafabc944bf78e6d0b7b224ae3ae207eca475fb`の追跡実装はGit履歴とホストの保全コピーから参照できます。旧未追跡資料・ignored資産・別worktree・保存庫は取り込み先へ混ぜず保全し、削除しません。旧OUTCOMEと旧hookを新方式の有効な指示として残しません。移行前のresearch資料は履歴資料として保持します。現行の調査成果の保存・共有は[researchの入口](../research/README.md)を参照してください。
 
 ## 2026-09-14の受入結果と未実施範囲
 

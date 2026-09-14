@@ -4,7 +4,7 @@
 
 ## 開始設定
 
-設定ファイルに次を指定する。絶対パスは利用環境に合わせ、repoとcontextDirは別の場所にする。contextDirは/tmpの作業コピーとは別の、継続保存する場所を選ぶ。
+設定ファイルに次を指定する。repoは調査成果を残す対象checkout、contextDirはセッション状態・評価・lockの保存先で、別の場所にする。絶対パスは利用環境に合わせる。contextDirは/tmpの作業コピーとは別の、継続保存する場所を選ぶ。
 
 ```json
 {
@@ -21,7 +21,7 @@
 bun /absolute/path/to/trusted/scripts/discovery.ts start /absolute/path/config.json
 ```
 
-出力したSESSIONを以降のコマンドへ渡す。既存セッションを再開するときは最初にstatusを読み、依頼・対象・決定事項・未解決事項を確認する。同じtaskの開始は上書きせず失敗する。contextDirはGitの共通管理ディレクトリに紐づき、同じリポジトリのworktree間で共有する。GitとBunが必要。別cloneは同じremoteでも別の保存先を使う。対象worktreeのrepoと新しいtaskを指定して開始し、researchから適用できる調査を選ぶ。担当者はセッションごとのcheckout・基準・評価を共有しない運用とし、現在のコード・要求に対して再評価する。
+出力したSESSIONを以降のコマンドへ渡す。既存セッションを再開するときは最初にstatusを読み、依頼・対象・決定事項・未解決事項を確認する。同じtaskの開始は上書きせず失敗する。contextDirはGitの共通管理ディレクトリに紐づき、同じリポジトリのworktree間で共有する。GitとBunが必要。別cloneは同じremoteでも別の保存先を使う。対象worktreeのrepoと新しいtaskを指定して開始し、対象repoのresearch/にある調査から適用できるものを選ぶ。担当者はセッションごとのcheckout・基準・評価を共有しない運用とし、現在のコード・要求に対して再評価する。調査成果は、それを含むコミットを取り込んでworktreeやclone間で共有する。
 
 criteriaFileはIDをキー、問いを非空文字列とするJSONオブジェクト。開始時の全文を保持するので、元ファイルの変更で実行中の基準は変わらない。開始した基準を実行途中で置き換えない。referencePathsは参照候補であり、存在・内容・十分性をCLIが検証したという意味ではない。外部資料のURL・版と選択理由はnoteに残す。
 
@@ -33,7 +33,7 @@ criteriaFileはIDをキー、問いを非空文字列とするJSONオブジェ�
 | `note SESSION NOTES.md` | 根拠・決定の正本への参照・未解決事項を保存する。旧評価を無効にする |
 | `assess SESSION ASSESSMENT.json` | 現在のrevisionと全基準への評価を保存する |
 | `gate SESSION` | 未評価・不足なら終了1、充足なら次の判断を表示して終了0 |
-| `archive SESSION REPORT.md` | gateが通る場合だけ完了した調査記録をresearchへ保存する。同じセッション版・本文の再保存は同じファイルを返す |
+| `archive SESSION REPORT.md` | gateが通る場合だけ指定した報告本文を対象checkoutのresearch/へ保存する。セッションやrevisionが異なっても、同じ本文の保存先名は同じになる |
 
 start・note・assess・archiveの終了0は保存成功を示す。assessが不足を保存した場合も0であり、進行の判定には必ずgateを使う。エラー時は非zero。statusは読み取りのみ。gateは更新との競合を防ぐため一時lockを使うが、保存済みの評価は変更しない。
 
@@ -58,11 +58,23 @@ start・note・assess・archiveの終了0は保存成功を示す。assessが不
 
 ## 保存と制約
 
-contextDirのwork/task/state.jsonがセッション記録の正本。調査記録はresearch内のMarkdownへ保存し、セッションとrevisionを付ける。出典・確認日・適用範囲・未確認事項はREPORT.mdに含める。要求合意の正本はGitHub Issueであり、state.jsonはその代替ではない。
+contextDirのwork/task/state.jsonがセッション記録の正本。archiveは実行場所にかかわらず、セッションのrepoに記録されたcheckoutのresearch/へREPORT.mdの本文をそのまま保存する。ファイル名は本文のSHA-256に.mdを付けたものになり、異なる本文は別ファイルになる。既存ファイルの本文が一致しなければ上書きせず失敗する。セッションの絶対パス、revision、内部評価は報告に付加しない。
 
-CLIは対象checkout・Git管理ディレクトリ内への保存、別GitリポジトリによるcontextDirの再利用、既存taskの上書きを拒否する。共有保存庫は参加する全checkoutの外に置く。更新はlockと一時ファイルからの置換を使う。ロックやstate.json.tmpが残った場合は自動で削除・再開せず、実行中のプロセスと保存済み内容を照合してから対応する。
+REPORT.mdには問い、出典と対象版・確認日、結論、適用条件、未解決事項を含める。別の開発者やcloneから辿れる参照を使う。入力本文に含まれる機密情報やローカルパスをCLIが検出・除去する保証はないため、共有する本文を担当者が選んで確認する。要求合意の正本はGitHub Issueであり、報告やstate.jsonはその代替ではない。
+
+CLIはセッションの保存先が対象checkout・Git管理領域内になる設定、別GitリポジトリによるcontextDirの再利用、既存taskの上書きを拒否する。contextDirは参加する全checkoutの外に置く。報告の保存先はGitで無視されていないことを確認し、research/や既存の保存先ファイルがsymlinkの場合は拒否する。Git add・commit・push、既存の外部researchの移管・削除は行わない。
+
+セッションの更新はlockと一時ファイルからの置換を使う。ロックやstate.json.tmpが残った場合は自動で削除・再開せず、実行中のプロセスと保存済み内容を照合してから対応する。
 
 信頼する担当者が操作する単一ホスト用。悪意ある同一ユーザーによる保存ファイルの改変、外部資料の変更検出、全ディスク障害への耐久性は保証しない。gateは保存時の評価を返すため、外部のコード・要求・資料が変わったら担当者がnoteで変更を記録し再評価する。実装CLIの起動をシステム全体で禁止する機構ではない。
+
+## 調査成果の引き継ぎ
+
+archiveの成功はローカル保存の完了。共有担当は差分を読み、今回共有する報告と公開範囲を確認する。依頼と既存の許可に従い、対象repoの検証・独立評価を経た通常の変更やPRへ報告を含める。既存の調査と重なる場合はそのコミット済み記録を参照し、生ログや外部保存庫を一括で追加しない。
+
+implementはcleanなcommitted HEADからworktreeを作る。引き継ぐ前に、必要なresearch/の各報告がそのHEADに含まれ、確認済みの本文と一致することをgit showで照合し、git statusでcheckoutがcleanであることを確認する。未コミットの報告を退避してcleanにしただけでは引き継げない。必要な報告は既存の許可範囲でコミットに含め、コミット自体に追加の許可が必要なら依存する引き継ぎを保留する。公開の許可がない場合は公開だけを保留し、報告を含むcleanなHEADからの公開しない実装（--no-publish）は進められる。保存した場所と未完了の操作を報告する。
+
+共有後はIssueにrepo相対の報告パス、コミット、公開先の参照を残す。終了時もローカル保存、コミット、公開を分けて伝える。別checkoutは報告を含むコミットから開始し、現在の要求に対する基準と評価を新しいセッションで確認する。過去の評価や合意を自動で引き継がない。
 
 ## 共通登録を変更する場合
 

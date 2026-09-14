@@ -19,6 +19,8 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to
 
 開始時にcheckout・設定・fetch/push remote・GitHub repo ID・base branch・ghの主体とpush権限を照合します。公開する実行ではユーザー認証の対象アクセスも実装前に確認します。元checkoutがdirty、run保存先が既存、同名branchが存在する場合は作業を始めません。要求全文を保存し、元checkoutのcommitted HEADから `codex/development-N` の隔離worktreeを作ります。設定のsetupを隔離先で順に実行し、初回実装、文章確認、必要な撮影、対象のcheck、独立評価へ進みます。要求変更、対象・設定・主体の変更、上限超過は停止します。
 
+scopingの共有用調査報告は対象repoのresearch/へ保存します。引き継ぎ前に[調査成果の引き継ぎ手順](../skills/scoping/references/session.md#調査成果の引き継ぎ)で、必要な報告本文が開始元のHEADに含まれることを確認します。未コミットの報告を退避してcheckoutをcleanにしただけでは、その報告は実装worktreeに入りません。セッション状態・評価・lockはGit管理外に残します。
+
 新規実行の上限は初回実装・修正・独立評価のモデル累計20分、追加修正2回・独立評価2回、各checkとCI待機9分です。初回実装の消費時間をcorrectionへ渡す残時間から差し引きます。[文章確認](#日本語の確認と修正)のGeminiと忠実性評価は別枠です。予算拡大や途中実行の自動復旧は行いません。
 
 保存先は `~/.local/share/dotagents/development/<Git管理ディレクトリの識別値>/<Issue番号>/` です。`--run-dir DIRECTORY` でcheckout・Git管理領域外を指定できます。`target.json` に対象設定・repo ID・gh主体、ほかに要求、指示・結果、検証ログ、作業checkout、PR本文・URL、CI結果を残します。既存保存先は再実行に使いません。中断後は記録・実プロセス・GitHubの状態を照合し、保存先の削除や別名での自動再試行をしません。
