@@ -42,7 +42,10 @@ async function waitForFile(path: string) {
   const deadline = Date.now() + 4000;
   while (Date.now() < deadline) {
     try {
-      return await readFile(path, 'utf8');
+      const contents = await readFile(path, 'utf8');
+      if (contents.trim()) {
+        return contents;
+      }
     } catch (error) {
       if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
         throw error;
@@ -113,7 +116,7 @@ if (pidFile) {
         expect(await readFile(stateFile, 'utf8')).toBe(before);
       } finally {
         child.kill('SIGKILL');
-        if (group !== undefined) {
+        if (group !== undefined && Number.isSafeInteger(group) && group > 1) {
           try {
             process.kill(-group, 'SIGKILL');
           } catch {

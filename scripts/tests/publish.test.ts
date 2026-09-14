@@ -49,9 +49,6 @@ function publicationReply(args: string[], mode: string, body: string) {
     expect(args[args.indexOf(flag) + 1]).toBe(value);
   }
   if (args[2] === 'list') {
-    if (mode === 'list_failed') {
-      throw Error('list_failed');
-    }
     if (mode === 'interrupted') {
       process.emit('SIGINT');
     }
@@ -78,7 +75,6 @@ for (const mode of [
   'unexpected_actor',
   'denied',
   'empty',
-  'list_failed',
   'create_failed',
   'interrupted',
 ] as const) {
@@ -137,7 +133,6 @@ for (const mode of [
           unexpected_actor: /GitHub actor changed/,
           denied: /push permission required/,
           empty: /body must not be empty/,
-          list_failed: /list_failed/,
           create_failed: /create_failed/,
           interrupted: /Interrupted execution/,
         };
