@@ -1,0 +1,129 @@
+import assert from 'node:assert/strict';
+import { realpath, mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import type { Config } from '../../input.ts';
+import { isRecord, isArray } from '../../input.ts';
+
+export function object(value: unknown) {
+  assert(isRecord(value));
+  return value;
+}
+export function events(value: unknown) {
+  assert(isArray(value));
+  return value;
+}
+
+export const controller = resolve(import.meta.dir, '../../correction.ts');
+
+export function correctionFixture() {
+  const roots: string[] = [];
+  async function trial(mode: string, overrides: Partial<Config> = {}) {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'correction-test-')));
+    roots.push(root);
+    const cwd = join(root, 'work');
+    const initialized = spawnSync('git', ['init', '-q', cwd]);
+    if (initialized.status !== 0) {
+      throw Error('Test repository initialization failed');
+    }
+    await writeFile(join(cwd, 'source.txt'), 'broken');
+    const helper = join(root, 'helper.js');
+    await writeFile(
+      helper,
+      `
+import {readFileSync,writeFileSync,appendFileSync,existsSync} from 'node:fs';
+import {join} from 'node:path';
+const role=process.argv[2], mode=${JSON.stringify(mode)};
+if(role==='issue') console.log(mode==='issue_changed'&&existsSync(${JSON.stringify(join(root, 'issue-changed'))})?'Changed requirement':'Agreed requirement: correct source and docs');
+if(role==='writing') {
+ if(mode==='writing_failure') process.exit(1);
+ writeFileSync('README.md','reviewed '+readFileSync('source.txt','utf8'));
+}
+if(role==='capture') {
+ if(mode==='capture_timeout') await new Promise(r=>setTimeout(r,10000));
+ if(mode==='capture_unavailable') {console.error('Host permission denied');process.exit(78);}
+ if(mode==='capture_changed') writeFileSync('source.txt','changed by capture');
+ if(mode==='capture_failure' && readFileSync('source.txt','utf8')==='broken') {console.error('Capture assertion failed');process.exit(1);}
+ writeFileSync(join(process.argv[3],'desktop.png'),readFileSync('source.txt','utf8'));
+}
+if(role==='check') {
+ if(mode.startsWith('writing_')) {
+  const document=readFileSync('README.md','utf8');
+  if(document!=='reviewed '+readFileSync('source.txt','utf8')) process.exit(9);
+  appendFileSync(${JSON.stringify(join(root, 'checked-documents'))},document+'\\n');
+ }
+ if(mode==='check_timeout') await new Promise(r=>setTimeout(r,10000));
+ if(mode==='normal') {console.log('source must be correct');console.error('validation failed: source is broken');}
+ process.exit(readFileSync('source.txt','utf8')==='broken'?1:0);
+}
+if(role==='repair') {
+ if(mode==='normal') {
+  const prompt=readFileSync(0,'utf8');
+  const stdout=${JSON.stringify(join(root, 'evidence/check-1.stdout'))};
+  const stderr=${JSON.stringify(join(root, 'evidence/check-1.stderr'))};
+  if(!prompt.includes(stdout)||!prompt.includes(stderr)) process.exit(3);
+  const expected=readFileSync(stdout,'utf8').trim();
+  const failure=readFileSync(stderr,'utf8').trim();
+  if(expected!=='source must be correct'||failure!=='validation failed: source is broken') process.exit(4);
+  if(prompt.includes(expected)||prompt.includes(failure)) process.exit(5);
+ }
+ if(mode==='null_repair') {console.log('null');process.exit(0);}
+ if(mode==='timeout') await new Promise(r=>setTimeout(r,10000));
+ if(mode==='human') {console.log(JSON.stringify({status:'needs_human',findings:'Need changed requirements'}));process.exit(0);}
+ if(mode!=='exhaust') writeFileSync('source.txt','correct');
+ if(existsSync(${JSON.stringify(join(root, 'reviewed'))})) writeFileSync('README.md','current');
+ console.log(JSON.stringify({status:'repaired',findings:'fixed'}));
+}
+if(role==='review') {
+ if(mode.startsWith('capture_') && readFileSync('trial/evidence/generated/desktop.png','utf8')!==readFileSync('source.txt','utf8')) process.exit(5);
+ if(mode==='capture_review'&&!existsSync('README.md')) {writeFileSync(${JSON.stringify(join(root, 'reviewed'))},'1');console.log(JSON.stringify({status:'needs_changes',findings:'README missing'}));process.exit(0);}
+
+ if(mode==='null_review') {console.log('null');process.exit(0);}
+ if(mode==='review_failed') process.exit(2);
+ if(mode==='issue_changed') writeFileSync(${JSON.stringify(join(root, 'issue-changed'))},'yes');
+ if(mode==='malformed') console.log('success');
+ else if(mode==='changed') {writeFileSync('source.txt','changed');console.log(JSON.stringify({status:'accepted',findings:''}));}
+ else if(mode==='docs'&&!existsSync('README.md')) {writeFileSync(${JSON.stringify(join(root, 'reviewed'))},'1');console.log(JSON.stringify({status:'needs_changes',findings:'README missing'}));}
+ else console.log(JSON.stringify({status:'accepted',findings:'checked'}));
+}
+`,
+    );
+    const config: Config = {
+      cwd,
+      runDir: join(root, 'evidence'),
+      issue: [process.execPath, helper, 'issue'],
+      check: [process.execPath, helper, 'check'],
+      ...(mode.startsWith('writing_') ? { writing: [process.execPath, helper, 'writing'] } : {}),
+      ...(mode.startsWith('capture_') ? { capture: [process.execPath, helper, 'capture'] } : {}),
+      captureDestination: 'trial/evidence/generated',
+      captureRequired: false,
+      repair: [process.execPath, helper, 'repair'],
+      review: [process.execPath, helper, 'review'],
+      repairLimit: 2,
+      reviewLimit: 2,
+      modelTimeMs: 15000,
+      checkTimeMs: 1000,
+      ...overrides,
+    };
+    const configFile = join(root, 'config.json');
+    await writeFile(configFile, JSON.stringify(config));
+    const execute = () =>
+      spawnSync(process.execPath, [controller, configFile], { encoding: 'utf8', timeout: 20000 });
+    return {
+      root,
+      config,
+      configFile,
+      execute,
+      state: async () =>
+        object(JSON.parse(await readFile(join(config.runDir, 'state.json'), 'utf8'))),
+    };
+  }
+
+  return {
+    trial,
+    cleanup: async () => {
+      await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+    },
+  };
+}

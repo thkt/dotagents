@@ -1,17 +1,3 @@
 .DS_Store
 node_modules/
 .codex/workflow-artifacts/
-
-# Keep owned source directories even when a user's global gitignore excludes build/.
-!skills/build/
-!skills/build/**
-!.ja/skills/build/
-!.ja/skills/build/**
-!workflows/build/
-!workflows/build/**
-!workflows/tests/build/
-!workflows/tests/build/**
-
-# Shared canonical Research is available for human review and commit.
-!research/
-!research/**

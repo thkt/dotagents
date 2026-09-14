@@ -1,21 +1,18 @@
 {
   "compilerOptions": {
-    "allowImportingTsExtensions": true,
-    "erasableSyntaxOnly": true,
-    "module": "nodenext",
-    "noEmit": true,
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
-    "noFallthroughCasesInSwitch": true,
-    "noImplicitReturns": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "rewriteRelativeImportExtensions": true,
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleResolution": "bundler",
+    "types": [
+      "bun"
+    ],
     "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
-    "target": "esnext",
-    "types": ["bun", "node"],
-    "verbatimModuleSyntax": true
+    "noUncheckedIndexedAccess": true
   },
-  "include": ["hooks/**/*.ts", "workflows/**/*.ts", "skills/**/*.ts"]
+  "include": [
+    "scripts/**/*.ts"
+  ]
 }
