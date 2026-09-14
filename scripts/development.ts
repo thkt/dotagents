@@ -156,7 +156,7 @@ async function implement(context: Context, io: typeof runtime) {
     captureInstructions(context.target.config.capture),
     `Target setup/check/capture contract (do not weaken or replace): ${JSON.stringify(context.target.config)}`,
     'Do not commit, push, publish, change the Issue or weaken acceptance criteria. Do not run the full check; the host will do it after implementation.',
-    'Do not edit control scripts or credentials outside this checkout. If scope or authorization must change, return needs_human. Otherwise return repaired with a concrete summary.',
+    'Do not edit control scripts or credentials outside this checkout. If scope or authorization must change, return needs_human with the concrete decision and its impact. If an instruction file caused that stop, identify the file actually read, quote the relevant instruction and distinguish its explicit requirement from your interpretation. Otherwise return repaired with a concrete summary.',
     `Requirements:\n${original}`,
   ].join('\n');
   await writeFile(join(dir, 'implementation.prompt'), prompt);
