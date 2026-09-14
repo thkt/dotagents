@@ -1,0 +1,286 @@
+{
+  "issue": "https://github.com/thkt/dotagents/issues/58",
+  "pull_request": "https://github.com/thkt/dotagents/pull/60",
+  "base_commit": "c6a2100a450842fefc2f236c2efc99abbad01a4f",
+  "source_sha256": {
+    "scripts/capture.ts": "a5c6aae337ffe7721870c4809c061ba7ab5fee182acceaa80f23fe6294aab8ac",
+    "scripts/capture-config.ts": "59e40c7541a14c4453732683b4956b23d21a9093d8fabbbc1297cc843c390fb2",
+    "scripts/correction.ts": "99de389feb204f9b1e5340f670ffd8756fe3c1d98b9ddb65a86fa9fa82ceccc5",
+    "scripts/input.ts": "6a710ca245dd39030a2e03ed9000a6fccba8eb59447065ab12238f39b6dd5446",
+    "scripts/verify-capture.ts": "93497882b99055f0549cb4f4437b815ae49bcd8b0f2e94e5a98b8d9a18ad6670",
+    "scripts/tests/capture.test.ts": "d6d6d3339664813b00dae4d890479aade871169bdbc6be0b15c3e484eab38531",
+    "scripts/tests/capture-browser-errors.test.ts": "9f07968d12b8a9c7ab6a659327b70bd4cf99d1e49d80ebb7e5ebf2d702a6cbe4"
+  },
+  "environment": {
+    "bun": "1.4.2",
+    "playwright": "1.63.0",
+    "browser": "chromium",
+    "PLAYWRIGHT_BROWSERS_PATH": "0",
+    "target_dependency": "Existing dotagents-workflow-trial installation; no dependencies installed"
+  },
+  "capture": {
+    "command": "PLAYWRIGHT_BROWSERS_PATH=0 bun scripts/verify-capture.ts TARGET_REPO chromium",
+    "target_parameter": "Absolute path to a repository with Playwright 1.63.0 and its installed Chromium",
+    "fixture_version": "source_sha256.scripts/verify-capture.ts",
+    "result": "passed",
+    "scenarios": [
+      {
+        "name": "normal",
+        "expected_exit_code": 0,
+        "exit_code_assertion": "passed",
+        "checkout_unchanged_assertion": "passed",
+        "playwright_stats": {
+          "expected": 2,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        },
+        "adapter_stderr": "",
+        "media": [
+          {
+            "name": "setup.png",
+            "bytes": 68,
+            "sha256": "a38a4ff7320a3d8764ac959b264f15e335360d7c1e23a0627dee7f366c95c58f"
+          },
+          {
+            "name": "view.png",
+            "bytes": 9592,
+            "sha256": "bf8a1cdd4c1ade3cb1a414f9e1dd5458b1f92605b213dd593b8b6374795531c5"
+          }
+        ]
+      },
+      {
+        "name": "outside",
+        "expected_exit_code": 0,
+        "exit_code_assertion": "passed",
+        "checkout_unchanged_assertion": "passed",
+        "playwright_stats": {
+          "expected": 2,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        },
+        "adapter_stderr": "",
+        "media": [
+          {
+            "name": "setup.png",
+            "bytes": 68,
+            "sha256": "a38a4ff7320a3d8764ac959b264f15e335360d7c1e23a0627dee7f366c95c58f"
+          },
+          {
+            "name": "view.png",
+            "bytes": 9592,
+            "sha256": "bf8a1cdd4c1ade3cb1a414f9e1dd5458b1f92605b213dd593b8b6374795531c5"
+          }
+        ]
+      },
+      {
+        "name": "skipped",
+        "expected_exit_code": 1,
+        "exit_code_assertion": "passed",
+        "checkout_unchanged_assertion": "passed",
+        "playwright_stats": {
+          "expected": 1,
+          "skipped": 1,
+          "unexpected": 0,
+          "flaky": 0
+        },
+        "adapter_stderr": "Capture must execute all registered tests successfully; report: <fixture>/skipped.report.json",
+        "media": [
+          {
+            "name": "setup.png",
+            "bytes": 68,
+            "sha256": "a38a4ff7320a3d8764ac959b264f15e335360d7c1e23a0627dee7f366c95c58f"
+          }
+        ]
+      },
+      {
+        "name": "zero",
+        "expected_exit_code": 1,
+        "exit_code_assertion": "passed",
+        "checkout_unchanged_assertion": "passed",
+        "playwright_stats": {
+          "expected": 1,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        },
+        "adapter_stderr": "Capture must execute all registered tests successfully; report: <fixture>/zero.report.json",
+        "media": [
+          {
+            "name": "setup.png",
+            "bytes": 68,
+            "sha256": "a38a4ff7320a3d8764ac959b264f15e335360d7c1e23a0627dee7f366c95c58f"
+          }
+        ]
+      },
+      {
+        "name": "failed",
+        "expected_exit_code": 1,
+        "exit_code_assertion": "passed",
+        "checkout_unchanged_assertion": "passed",
+        "playwright_stats": {
+          "expected": 1,
+          "skipped": 0,
+          "unexpected": 1,
+          "flaky": 0
+        },
+        "adapter_stderr": "Capture must execute all registered tests successfully; report: <fixture>/failed.report.json",
+        "media": [
+          {
+            "name": "setup.png",
+            "bytes": 68,
+            "sha256": "a38a4ff7320a3d8764ac959b264f15e335360d7c1e23a0627dee7f366c95c58f"
+          }
+        ]
+      },
+      {
+        "name": "invalid-media",
+        "expected_exit_code": 1,
+        "exit_code_assertion": "passed",
+        "checkout_unchanged_assertion": "passed",
+        "playwright_stats": {
+          "expected": 2,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        },
+        "adapter_stderr": "Invalid capture media: view.png",
+        "media": [
+          {
+            "name": "setup.png",
+            "bytes": 68,
+            "sha256": "a38a4ff7320a3d8764ac959b264f15e335360d7c1e23a0627dee7f366c95c58f"
+          },
+          {
+            "name": "view.png",
+            "bytes": 12,
+            "sha256": "5464533c9647b67eb320c40ccc5959537c09102ae75388f6a7675b433e745c9d"
+          }
+        ]
+      },
+      {
+        "name": "unavailable",
+        "expected_exit_code": 78,
+        "exit_code_assertion": "passed",
+        "checkout_unchanged_assertion": "passed",
+        "playwright_stats": {
+          "expected": 1,
+          "skipped": 0,
+          "unexpected": 1,
+          "flaky": 0
+        },
+        "adapter_stderr": "",
+        "media": [
+          {
+            "name": "setup.png",
+            "bytes": 68,
+            "sha256": "a38a4ff7320a3d8764ac959b264f15e335360d7c1e23a0627dee7f366c95c58f"
+          }
+        ]
+      }
+    ]
+  },
+  "control": {
+    "command": "bun test scripts/tests/capture.test.ts scripts/tests/capture-browser-errors.test.ts",
+    "exit_code": 0,
+    "passed": 12,
+    "failed": 0
+  },
+  "mutation": {
+    "file": "scripts/capture.ts",
+    "replace": {
+      "before": "code === 0 && capturePassed(value, spec),",
+      "after": "code === 0,"
+    },
+    "scope": "Temporary copy only",
+    "mutated_source_sha256": "d99647c5ed761f0d90312e1fb7e5dea49cf8cca5213d91c14d112828829aae7e",
+    "control": {
+      "command": "bun test scripts/tests/capture.test.ts scripts/tests/capture-browser-errors.test.ts",
+      "exit_code": 1,
+      "passed": 10,
+      "failed": 2,
+      "failures": [
+        {
+          "scenario": "skipped",
+          "expected_adapter_exit_code": 1,
+          "actual_adapter_exit_code": 0
+        },
+        {
+          "scenario": "missing_spec",
+          "expected_adapter_exit_code": 1,
+          "actual_adapter_exit_code": 0
+        }
+      ]
+    },
+    "integration": {
+      "command": "PLAYWRIGHT_BROWSERS_PATH=0 bun scripts/verify-capture.ts TARGET_REPO chromium",
+      "exit_code": 1,
+      "stopped_at": "skipped",
+      "diagnostic": "AssertionError: skipped: expected 1",
+      "adapter_output": "Capture passed; report: <fixture>/skipped.report.json",
+      "zero_scenario": "Not reached in integration; missing_spec rejection checked by the control case"
+    }
+  },
+  "prior_commit": {
+    "commit": "c6a2100a450842fefc2f236c2efc99abbad01a4f",
+    "capture_source_sha256": {
+      "scripts/capture.ts": "a134d0470180dd58dc556890307fee31ec59fdf949bcbbe9b716d4d046c61894",
+      "scripts/capture-config.ts": "5d25a208b8bcaab7d9c9eb813392c3ed62d7f3d895d7655a781b55a70b712af0",
+      "scripts/verify-capture.ts": "55402f3b6a9095fe3e042630612fa4e5be35d24d4d18d163a5b9b564c7791481"
+    },
+    "common_check": {
+      "command": "bun run check",
+      "passed": 199,
+      "failed": 0,
+      "log_excerpt": "199 pass\n0 fail\nRan 199 tests across 15 files.\nAll tests executed.",
+      "stdout_sha256": "e0db0586dc645a0a4c07541be3845e4a2dbeba684ef9880b5aebbd41c4292c60",
+      "stderr_sha256": "645eea765d0ec94bf5c28ff97e4ef142e8036feb876b959fcd9009507174ff21"
+    },
+    "capture": {
+      "playwright": "1.63.0",
+      "browser": "chromium",
+      "scenarios_passed": 7,
+      "additional_regressions": [
+        {
+          "scenario": "expect",
+          "exit_code": 0
+        },
+        {
+          "scenario": "style",
+          "exit_code": 0
+        }
+      ],
+      "sandbox_launch_exit_code": 78,
+      "limitation": "The prior fixture did not independently detect a removed capturePassed call"
+    },
+    "review": {
+      "status": "accepted",
+      "record_sha256": "5103a15174de85b3c29cb5b32ea40cef1dc07cf9ee3b99f54f0e0e9404d2c104",
+      "source_manifest_sha256": "b63fb29fe22e464eabdc89b884f334fc9858cc12d7074ea88f830a5010a4be57"
+    },
+    "writing": {
+      "documents": "skipped: service_unavailable (HTTP 429)",
+      "pr_body": "skipped: timeout",
+      "candidate_fidelity": "not performed; no Gemini candidate"
+    },
+    "ci": [
+      {
+        "name": "checks",
+        "conclusion": "SUCCESS",
+        "url": "https://github.com/thkt/dotagents/actions/runs/34846507947/job/103983649925"
+      },
+      {
+        "name": "verify",
+        "conclusion": "SUCCESS",
+        "url": "https://github.com/thkt/dotagents/actions/runs/34846507947/job/103983843373"
+      }
+    ]
+  },
+  "unverified": [
+    "Firefox/WebKit real capture",
+    "Normal implementation-to-publication real-model end-to-end flow",
+    "Complete media decoding and visual quality"
+  ],
+  "provenance": "Report statistics and adapter diagnostics are extracted from retained host outputs. Exit-code and checkout assertions come from the completed verify-capture.ts run. Absolute host paths are replaced by <fixture>; private raw logs remain on the execution host."
+}

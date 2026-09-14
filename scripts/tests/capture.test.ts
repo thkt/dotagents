@@ -228,71 +228,98 @@ test('capture refuses empty, disguised and linked media', async () => {
   }
 });
 
-test('capture CLI loads the external configuration and preserves the host browser cache', async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'capture-adapter-')));
-  try {
-    const repo = join(root, 'repo'),
-      output = join(root, 'media');
-    const packageDir = join(repo, 'node_modules/@playwright/test');
-    await mkdir(packageDir, { recursive: true });
-    await mkdir(join(repo, 'config/tests'), { recursive: true });
-    await mkdir(output);
-    await writeFile(
-      join(packageDir, 'package.json'),
-      JSON.stringify({
-        name: '@playwright/test',
-        type: 'module',
-        exports: { './cli': './cli.mjs' },
-      }),
-    );
-    await writeFile(
-      join(packageDir, 'cli.mjs'),
-      `import {writeFileSync} from 'node:fs';
+for (const scenario of ['passed', 'skipped', 'missing_spec'] as const) {
+  test(`capture CLI ${scenario} checks execution with valid media and preserves host settings`, async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'capture-adapter-')));
+    try {
+      const repo = join(root, 'repo'),
+        output = join(root, 'media');
+      const packageDir = join(repo, 'node_modules/@playwright/test');
+      await mkdir(packageDir, { recursive: true });
+      await mkdir(join(repo, 'config/tests'), { recursive: true });
+      await mkdir(output);
+      await writeFile(
+        join(packageDir, 'package.json'),
+        JSON.stringify({
+          name: '@playwright/test',
+          type: 'module',
+          exports: { './cli': './cli.mjs' },
+        }),
+      );
+      const selectedStatus = scenario === 'skipped' ? 'skipped' : 'passed';
+      const specs = [
+        {
+          file: scenario === 'missing_spec' ? 'setup.spec.ts' : 'capture.spec.ts',
+          tests: [
+            {
+              status: scenario === 'skipped' ? 'skipped' : 'expected',
+              expectedStatus: selectedStatus,
+              results: [{ status: selectedStatus }],
+            },
+          ],
+        },
+      ];
+      if (scenario === 'skipped') {
+        specs.push({
+          file: 'setup.spec.ts',
+          tests: [
+            { status: 'expected', expectedStatus: 'passed', results: [{ status: 'passed' }] },
+          ],
+        });
+      }
+      await writeFile(
+        join(packageDir, 'cli.mjs'),
+        `import {writeFileSync} from 'node:fs';
 const {default: config} = await import(process.argv[process.argv.indexOf('--config') + 1]);
 const output = process.env.CAPTURE_OUTPUT;
 writeFileSync(output + '.observed.json', JSON.stringify({cache: process.env.PLAYWRIGHT_BROWSERS_PATH, server: config.webServer, projects: config.projects}));
 writeFileSync(config.reporter[0][1].outputFile, JSON.stringify({
- config: {rootDir: config.testDir}, stats: {expected: 1, skipped: 0, unexpected: 0, flaky: 0}, errors: [],
- suites: [{specs: [{file: 'capture.spec.ts', tests: [{status: 'expected', expectedStatus: 'passed', results: [{status: 'passed'}]}]}]}]
+ config: {rootDir: config.testDir}, stats: {expected: 1, skipped: ${scenario === 'skipped' ? 1 : 0}, unexpected: 0, flaky: 0}, errors: [],
+ suites: [{specs: ${JSON.stringify(specs)}}]
 }));
 writeFileSync(output + '/view.png', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64'));`,
-    );
-    await writeFile(
-      join(repo, 'config/playwright.config.mjs'),
-      `export default {testDir:'./tests', webServer: {command:'serve'}, projects:[{name:'webkit', testDir:'./tests', use:{browserName:'webkit'}}]};`,
-    );
-    await writeFile(join(repo, 'config/tests/capture.spec.ts'), '// Existing spec');
-    const result = spawnSync(
-      process.execPath,
-      [
-        resolve(import.meta.dir, '../capture.ts'),
-        'config/tests/capture.spec.ts',
-        'config/playwright.config.mjs',
-        output,
-      ],
-      {
-        cwd: repo,
-        encoding: 'utf8',
-        timeout: 10000,
-        env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: '/host/browser-cache' },
-      },
-    );
-    expect(result.stderr).toBe('');
-    expect(result.status).toBe(0);
-    expect(JSON.parse(await readFile(output + '.observed.json', 'utf8'))).toMatchObject({
-      cache: '/host/browser-cache',
-      server: { cwd: join(repo, 'config') },
-      projects: [
+      );
+      await writeFile(
+        join(repo, 'config/playwright.config.mjs'),
+        `export default {testDir:'./tests', webServer: {command:'serve'}, projects:[{name:'webkit', testDir:'./tests', use:{browserName:'webkit'}}]};`,
+      );
+      await writeFile(join(repo, 'config/tests/capture.spec.ts'), 'export {};');
+      const result = spawnSync(
+        process.execPath,
+        [
+          resolve(import.meta.dir, '../capture.ts'),
+          'config/tests/capture.spec.ts',
+          'config/playwright.config.mjs',
+          output,
+        ],
         {
-          testDir: join(repo, 'config/tests'),
-          outputDir: output + '.artifacts',
-          use: { browserName: 'webkit' },
+          cwd: repo,
+          encoding: 'utf8',
+          timeout: 10000,
+          env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: '/host/browser-cache' },
         },
-      ],
-    });
-    expect(await readdir(join(repo, 'config/tests'))).toEqual(['capture.spec.ts']);
-    await validateCaptureMedia(output);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
+      );
+      expect(result.status).toBe(scenario === 'passed' ? 0 : 1);
+      if (scenario === 'passed') {
+        expect(result.stderr).toBe('');
+      } else {
+        expect(result.stderr).toContain('Capture must execute all registered tests successfully');
+      }
+      expect(JSON.parse(await readFile(output + '.observed.json', 'utf8'))).toMatchObject({
+        cache: '/host/browser-cache',
+        server: { cwd: join(repo, 'config') },
+        projects: [
+          {
+            testDir: join(repo, 'config/tests'),
+            outputDir: output + '.artifacts',
+            use: { browserName: 'webkit' },
+          },
+        ],
+      });
+      expect(await readdir(join(repo, 'config/tests'))).toEqual(['capture.spec.ts']);
+      await validateCaptureMedia(output);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}

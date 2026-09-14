@@ -1,5 +1,4 @@
-// Host-only integration fixture. Deliberately outside the common test suite:
-// borrow an explicitly supplied target's Playwright; install nothing here.
+// The common suite must not require a target repository's browser installation.
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, symlink, realpath, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,6 +6,7 @@ import { createServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { command, withInterrupts } from './correction.ts';
+import { validateCaptureMedia } from './capture.ts';
 
 async function availablePort() {
   const server = createServer();
@@ -49,7 +49,11 @@ await writeFile(
   join(repo, 'config/tests/setup.spec.ts'),
   `import { test } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
-test('setup', () => writeFileSync(process.env.CAPTURE_OUTPUT + '.setup', 'ready'));`,
+test('setup', () => {
+ writeFileSync(process.env.CAPTURE_OUTPUT + '.setup', 'ready');
+ // Otherwise empty media could hide a missing execution check for skipped or absent specs.
+ writeFileSync(process.env.CAPTURE_OUTPUT + '/setup.png', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=', 'base64'));
+});`,
 );
 const definition = `import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
@@ -87,7 +91,7 @@ async function contents() {
     .sort();
   return Promise.all(paths.map(async (path) => [path, (await readFile(path)).toString('base64')]));
 }
-async function verify(name: string, spec: string, status: number) {
+async function verify(name: string, spec: string, status: number, rejection?: RegExp) {
   const output = join(root, name);
   await mkdir(output);
   const before = await contents();
@@ -105,6 +109,12 @@ async function verify(name: string, spec: string, status: number) {
     `${name}: expected ${status}; inspect ${root}`,
   );
   assert.deepEqual(await contents(), before, `Capture changed checkout: ${name}`);
+  if (rejection) {
+    assert.match(result.stderr, rejection);
+  }
+  if (name === 'skipped' || name === 'zero') {
+    await validateCaptureMedia(output);
+  }
   if (status === 0) {
     assert.equal(await readFile(output + '.cwd', 'utf8'), join(repo, 'config'));
     assert((await readdir(output)).includes('view.png'));
@@ -120,20 +130,20 @@ await writeFile(
   outsideSpec,
   "import {test} from '@playwright/test'; test.skip('not executed', () => {});",
 );
-await verify('skipped', outsideSpec, 1);
+await verify('skipped', outsideSpec, 1, /Capture must execute all registered tests successfully/);
 await writeFile(outsideSpec, 'export {};');
-await verify('zero', outsideSpec, 1);
+await verify('zero', outsideSpec, 1, /Capture must execute all registered tests successfully/);
 await writeFile(
   outsideSpec,
   "import {test, expect} from '@playwright/test'; test('failure', () => expect(1).toBe(2));",
 );
-await verify('failed', outsideSpec, 1);
+await verify('failed', outsideSpec, 1, /Capture must execute all registered tests successfully/);
 await writeFile(
   outsideSpec,
   `import {test} from '@playwright/test'; import {writeFileSync} from 'node:fs';
 test('invalid media', () => writeFileSync(process.env.CAPTURE_OUTPUT + '/view.png', 'not an image'));`,
 );
-await verify('invalid-media', outsideSpec, 1);
+await verify('invalid-media', outsideSpec, 1, /Invalid capture media: view\.png/);
 await writeFile(outsideSpec, definition);
 await writeFile(config, configSource(true));
 await verify('unavailable', outsideSpec, 78);

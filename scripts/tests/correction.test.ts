@@ -22,7 +22,7 @@ for (const mutation of ['delete', 'rename'] as const) {
     } else {
       await rename(join(cwd, 'obsolete.txt'), join(cwd, 'renamed.txt'));
     }
-    expect(t.execute().status).toBe(0); // Actual check fails, repair runs, then check and review pass.
+    expect(t.execute().status).toBe(0);
     const verified = await t.state();
     expect(verified.checks).toBe(2);
     git(cwd, 'add', '--all');

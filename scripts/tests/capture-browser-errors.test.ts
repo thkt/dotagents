@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import { captureUnavailable } from '../capture.ts';
 
 test('configured browser executable launch failures remain unavailable', () => {
-  // Observed from the real Playwright 1.63 JSON reporter with launchOptions.executablePath.
+  // Requiring a browserType prefix would miss executablePath failures in Playwright 1.63.
   expect(
     captureUnavailable({
       message:

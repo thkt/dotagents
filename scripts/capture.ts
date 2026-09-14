@@ -6,8 +6,7 @@ import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { isRecord, outside } from './input.ts';
 
-// Recognize launch failures from the configured browser/server, without launching a
-// second, hard-coded browser. Unknown errors remain execution failures.
+// A fixed-browser probe could reject a working target that uses a different browser.
 export function captureUnavailable(report: unknown) {
   const text = JSON.stringify(report);
   return (

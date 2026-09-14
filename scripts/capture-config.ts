@@ -107,7 +107,7 @@ function hooks(value: unknown, configFile: string): unknown {
   }
   assert(typeof value === 'string', 'Invalid global hook');
   const require = createRequire(configFile);
-  // Playwright first resolves a hook as a file relative to the original config.
+  // Module-only resolution would miss bare hook filenames beside the original config.
   try {
     return require.resolve(resolve(dirname(configFile), value));
   } catch {

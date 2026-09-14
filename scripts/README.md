@@ -65,7 +65,7 @@ bun /absolute/path/to/trusted/scripts/target.ts /absolute/path/to/target-checkou
 
 必要媒体は対象設定のcapture commandで撮影します。コマンドにはcheckout外の新しい絶対出力ディレクトリを最後の引数として渡します。PNG/JPEG/WebP/MP4/WebMだけを直下に保存し、動画contextを閉じて確定してください。撮影中はcheckoutに媒体・コード・文書・レポートを書きません。ホストは空の出力、不正形式、symlinkを拒否し、対象不変を確認して `destination` へ取り込みます。生成媒体専用領域は置き換えるため手書きの記録を置きません。
 
-付属のPlaywrightアダプターは `bun {harness}/scripts/capture.ts SPEC CONFIG ABSOLUTE_OUTPUT` です。対象repo側のPlaywright依存、指定したspecと設定のprojects・webServerを使います。元設定からの相対`testDir`、global setup/teardown、`tsconfig`、`webServer.cwd`を解決します。指定specが通常の`testDir`外にあれば、そのspecのディレクトリへ探索範囲を広げます。各撮影projectでは指定specだけを選び、依存・teardown projectは元の選択条件を保ちます。projectの`use`とブラウザーの選択、ホストの`PLAYWRIGHT_BROWSERS_PATH`を引き継ぎます。spec欠落、指定specの実行0件、skip、失敗は成功扱いしません。setupだけ成功しても撮影の成功にはしません。[trial repo](https://github.com/thkt/dotagents-workflow-trial/blob/d0134086ad9bdddb5ed2693327cb1ffb0859c4a2/README.md)では同repoのspec・config・媒体保存先を使います。この共通repoは商品とPlaywright依存を持ちません。ブラウザーやサーバーは対象設定で起動し、起動失敗をレポートから分類します。固定ブラウザーの事前起動は行いません。
+付属のPlaywrightアダプターは `bun {harness}/scripts/capture.ts SPEC CONFIG ABSOLUTE_OUTPUT` です。対象repo側のPlaywright依存、指定したspec、設定のprojects・webServerを使います。元設定からの相対`testDir`、global setup/teardown、`tsconfig`、`webServer.cwd`を解決します。指定specが通常の`testDir`外にあれば、そのspecのディレクトリへ探索範囲を広げます。各撮影projectでは指定specだけを選び、依存・teardown projectは元の選択条件を保ちます。projectの`use`とブラウザーの選択、ホストの`PLAYWRIGHT_BROWSERS_PATH`を引き継ぎます。spec欠落、指定specの実行0件、skip、失敗は成功扱いしません。setupだけ成功しても撮影の成功にはしません。[trial repo](https://github.com/thkt/dotagents-workflow-trial/blob/d0134086ad9bdddb5ed2693327cb1ffb0859c4a2/README.md)では同repoのspec・config・媒体保存先を使います。この共通repoはプロダクトを含まず、Playwright依存も持ちません。ブラウザーやサーバーは対象設定で起動し、起動失敗をレポートから分類します。
 
 アダプターは新しい外部出力先を要求し、生成設定・JSONレポート・artifactsの保存先もその隣へ指定します。既存snapshotの参照先は元設定の場所から解決し、snapshot更新は無効にします。媒体は拡張子とファイル先頭の形式識別子を照合し、空の出力とsymlinkを拒否します。完全なデコードや表示品質はこの照合では保証しません。spec、global hook、webServer自身の書込みもcheckout外へ向けてください。任意の対象コードの書込みを隔離する機能ではなく、ホストは撮影後に対象の不変を照合します。
 
@@ -150,8 +150,8 @@ SIGKILLやOS停止は捕捉できません。CLIだけが強制終了すると�
 
 ## 検証
 
-現在の共通checkの順序、ハーネスの検証範囲は[README](../README.md#セットアップと検証)、書式・型情報を使うlint・テスト実行完了の方針は[DEVELOPMENT.md](../DEVELOPMENT.md#typescriptの書き方)を参照してください。
-制御テストは `scripts/tests/` に置き、対象の責務に合わせて分けています。2026-09-14の修正で行った整理の判断と未確認範囲は[検証記録](../docs/evidence/harness-review-2026-09-14.md)へ分けています。
+現在の共通checkの順序やハーネスの検証範囲は[README](../README.md#セットアップと検証)を、書式や型情報を用いるlintおよびテスト完了の方針は[DEVELOPMENT.md](../DEVELOPMENT.md#typescriptの書き方)を参照してください。
+制御テストは `scripts/tests/` に配置し、対象の責務に合わせて分割しています。
 
 | 対象 | テスト |
 | --- | --- |
@@ -170,7 +170,7 @@ SIGKILLやOS停止は捕捉できません。CLIだけが強制終了すると�
 bun scripts/verify-capture.ts /absolute/path/to/target-repo firefox
 ```
 
-最後の引数は`chromium`、`firefox`、`webkit`のいずれかです。通常の相対`testDir`とその外のspec、依存project、既定の`webServer.cwd`、選択ブラウザー、checkout不変、0件・skip・失敗・不正媒体・起動不能を実Playwrightで確認します。これは共通checkには含めず、対象Playwright版・選択ブラウザー・ログの場所と結果を別の証拠として報告します。共通repoの`capture: null`は維持します。
+最後の引数は`chromium`、`firefox`、`webkit`のいずれかです。通常の相対`testDir`およびその範囲外にあるspec、依存project、既定の`webServer.cwd`、選択したブラウザー、checkoutの不変性、ならびに0件・skip・失敗・不正媒体・起動不能を実際のPlaywrightで確認します。この確認は共通checkには含めず、対象のPlaywrightバージョン、選択したブラウザー、ログの保存場所、および実行結果を別の証拠として報告します。
 
 Playwright runnerを起動する契約テストは[trial repoのtrial/control/](https://github.com/thkt/dotagents-workflow-trial/tree/93b38f0bc690373b4b1f68e37a42f721929d6386/trial/control)に置き、同repoの `test:trial-control` が商品側の依存を使って実行します。Bun runnerと両レポート形式の拒否条件は `scripts/tests/test-runner.test.ts` に残します。
 
@@ -196,9 +196,7 @@ bun /absolute/path/trusted-checkout/scripts/writing-review.ts file \
 
 `development.ts`は変更されたMarkdownを対象に、ホストの共通check・独立評価の前と修正後に`documents`モードを実行します。変更のない文書は対象外です。候補の採用前に対象文書の集合・内容・根拠を再照合し、確認中に新たな文書が対象になった場合も停止します。同じ文書と根拠に対する成功記録を再利用します。利用不能の記録は成功とは分けて保持します。同じ保存先で入力が同じ場合は再試行せず、未実施の理由を通知します。入力が変わった場合は確認を試します。PR本文は検証結果から作成し、確認を通してからpush・公開します。`--no-publish`も文書の確認は行いますが、PR本文作成と公開は行いません。`correction.ts`を単独で使う場合は、設定の`writing`に同CLIの`--worker documents --facts FILE --run-dir DIRECTORY`呼び出しを指定します。
 
-コードブロックと参照形式リンク・画像はBun標準のMarkdown parserでも抽出し、インデントされたfence、リスト内のコード、相対参照先を保護します。frontmatter、コード表記、URL、hash、Issue参照の既存の機械的照合も維持します。
-
-Geminiは修正候補を作成し、別の読み取り専用Codexは原文、根拠、候補の間で意味の一致を評価します。モデルID、完了結果、JSON、コード表記、URL等を機械的に確認し、抽出した保護対象は本文中の順序と個数も保持します。意味の評価はモデルの判断であり、事実の正しさや完全一致を保証するものではありません。元資料の確認と人のレビューも必要です。
+Geminiは修正候補を作成し、別の読み取り専用Codexは原文、根拠、候補の間で意味の一致を評価します。モデルID、完了結果、JSONを確認し、frontmatter、コード（インデントやリスト内を含む）、リンクや画像の参照先（相対や参照形式を含む）、URL、hash、Issue参照の変更を拒否します。保護対象の順序と個数も保持します。意味の評価はモデルによる判断であり、事実の正しさや完全な一致を保証するものではありません。元資料の確認と人間によるレビューも必要です。
 
 各モデル呼び出しの上限は5分、1回の処理全体の制限時間は11分です。文書処理は既存の修正サイクルごと、PR本文は公開前に1回行い、自動の再試行はありません。この時間は従来の実装・独立評価のモデル時間枠とは別枠として扱い、ログへ残します。入力が大きすぎる場合は情報を捨てずに停止します。必要に応じて対象を分割して確認した上で、再開方法を判断します。
 
