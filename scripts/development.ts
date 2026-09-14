@@ -149,8 +149,8 @@ async function implement(context: Context, io: typeof runtime) {
   }
   await unchangedTarget(context, io);
   const prompt = [
-    'Implement the complete agreed Issue using existing code and verification assets. Read the target README, development policy and applicable repository instructions when present.',
-    'Prepare meaningful tests and current documentation. The host runs the configured verification; do not launch browsers or servers in your sandbox.',
+    'Implement the complete agreed Issue using existing code and verification assets. Follow applicable repository instructions; consult the target README and development policy sections relevant to this change.',
+    'Prepare the tests and documentation needed for the agreed behavior; reuse sufficient existing verification. Complete the implementation and targeted checks needed to prepare it for host verification without pausing for approval of routine choices within scope. The host runs the configured verification; do not launch browsers or servers in your sandbox.',
     testInstructions,
     'Documentation-only Issues use the same flow. Apply the target documentation policy when present; keep current operating instructions accurate and place historical results in evidence; add tests or code only when the agreed requirements need them.',
     captureInstructions(context.target.config.capture),
