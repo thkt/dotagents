@@ -15,6 +15,19 @@ export function events(value: unknown) {
   return value;
 }
 
+// Simulated external actor response; expectations remain in individual tests.
+export const reviewReplySource = `
+const reviewContext=role==='review'?JSON.parse(readFileSync(0,'utf8').split('Host context: ')[1].split('\\n')[0]):null;
+function reviewReply(status,findings) {
+ const previous=reviewContext.previous?.items??[];
+ return {status,findings,targetId:reviewContext.targetId,
+ assessments:{code:'Source behavior inspected',requirements:'Compared agreed deliverables',tests:'Existing check covers source',documentation:'Documentation inspected'},
+ items: previous.length ? previous.map(item=>({...item,disposition:status==='accepted'?'fixed':'open',reason:status==='accepted'?'Current README contains the required instructions':'Documentation remains absent'})) : status==='accepted'?[]:[{
+ id:'R'+reviewContext.attempt+'-docs',introducedIn:reviewContext.targetId,kind:'defect',area:'documentation',required:true,location:{path:null,line:null},condition:'Reader needs setup instructions',impact:'Cannot operate the change',evidence:'Required README is absent',action:'Add current instructions',disposition:'open',reason:'Missing documentation confirmed'}],
+ documents:[],handoff:['Human review and publication remain']};
+}
+`;
+
 export const controller = resolve(import.meta.dir, '../../correction.ts');
 
 export function correctionFixture() {
@@ -27,6 +40,13 @@ export function correctionFixture() {
     if (initialized.status !== 0) {
       throw Error('Test repository initialization failed');
     }
+    for (const args of [
+      ['config', 'user.email', 'test@example.com'],
+      ['config', 'user.name', 'Test'],
+      ['commit', '--allow-empty', '-m', 'fixture base'],
+    ]) {
+      assert(spawnSync('git', args, { cwd }).status === 0);
+    }
     await writeFile(join(cwd, 'source.txt'), 'broken');
     const helper = join(root, 'helper.js');
     await writeFile(
@@ -35,6 +55,7 @@ export function correctionFixture() {
 import {readFileSync,writeFileSync,appendFileSync,existsSync} from 'node:fs';
 import {join} from 'node:path';
 const role=process.argv[2], mode=${JSON.stringify(mode)};
+${reviewReplySource}
 if(role==='issue') console.log(mode==='issue_changed'&&existsSync(${JSON.stringify(join(root, 'issue-changed'))})?'Changed requirement':'Agreed requirement: correct source and docs');
 if(role==='writing') {
  if(mode==='writing_failure') process.exit(1);
@@ -77,15 +98,15 @@ if(role==='repair') {
 }
 if(role==='review') {
  if(mode.startsWith('capture_') && readFileSync('trial/evidence/generated/desktop.png','utf8')!==readFileSync('source.txt','utf8')) process.exit(5);
- if(mode==='capture_review'&&!existsSync('README.md')) {writeFileSync(${JSON.stringify(join(root, 'reviewed'))},'1');console.log(JSON.stringify({status:'needs_changes',findings:'README missing'}));process.exit(0);}
+ if(mode==='capture_review'&&!existsSync('README.md')) {writeFileSync(${JSON.stringify(join(root, 'reviewed'))},'1');console.log(JSON.stringify(reviewReply('needs_changes','README missing')));process.exit(0);}
 
  if(mode==='null_review') {console.log('null');process.exit(0);}
  if(mode==='review_failed') process.exit(2);
  if(mode==='issue_changed') writeFileSync(${JSON.stringify(join(root, 'issue-changed'))},'yes');
  if(mode==='malformed') console.log('success');
- else if(mode==='changed') {writeFileSync('source.txt','changed');console.log(JSON.stringify({status:'accepted',findings:''}));}
- else if(mode==='docs'&&!existsSync('README.md')) {writeFileSync(${JSON.stringify(join(root, 'reviewed'))},'1');console.log(JSON.stringify({status:'needs_changes',findings:'README missing'}));}
- else console.log(JSON.stringify({status:'accepted',findings:'checked'}));
+ else if(mode==='changed') {writeFileSync('source.txt','changed');console.log(JSON.stringify(reviewReply('accepted','changed')));}
+ else if(mode==='docs'&&!existsSync('README.md')) {writeFileSync(${JSON.stringify(join(root, 'reviewed'))},'1');console.log(JSON.stringify(reviewReply('needs_changes','README missing')));}
+ else console.log(JSON.stringify(reviewReply('accepted','checked')));
 }
 `,
     );

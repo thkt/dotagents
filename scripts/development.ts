@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { reviewModel } from './review.ts';
 import { mkdir, readFile, writeFile, realpath } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { homedir } from 'node:os';
@@ -188,6 +189,8 @@ async function implement(context: Context, io: typeof runtime) {
     'Requirements changed during implementation',
   );
   const config = {
+    baseCommit: context.base,
+    reviewModel,
     cwd,
     runDir: join(dir, 'verification'),
     issue: context.issue,

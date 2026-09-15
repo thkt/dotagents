@@ -1,10 +1,46 @@
 import { test, expect } from 'bun:test';
+import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, writeFile, readdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { events, object } from './support/correction.ts';
 
-for (const mode of ['normal', 'nonzero', 'missing', 'write_error'] as const) {
+function sortedStrings(value: unknown) {
+  const values = events(value);
+  assert(values.every((item) => typeof item === 'string'));
+  return values.toSorted();
+}
+
+async function expectInvocation(root: string, role: string) {
+  const invocation = object(JSON.parse(await readFile(join(root, 'invocation.json'), 'utf8')));
+  const args = events(invocation.args);
+  expect(args).toContain('--output-schema');
+  expect(args[args.indexOf('--sandbox') + 1]).toBe(
+    role === 'repair' ? 'workspace-write' : 'read-only',
+  );
+  const schema = object(invocation.schema);
+  expect(sortedStrings(schema.required)).toEqual(
+    (role === 'review'
+      ? ['status', 'findings', 'targetId', 'assessments', 'items', 'documents', 'handoff']
+      : ['status', 'findings']
+    ).toSorted(),
+  );
+  expect(sortedStrings(object(object(schema.properties).status).enum)).toEqual(
+    (role === 'repair' ? ['repaired', 'needs_human'] : ['accepted', 'needs_changes']).toSorted(),
+  );
+}
+
+for (const mode of [
+  'normal',
+  'repair',
+  'review-text',
+  'nonzero',
+  'missing',
+  'write_error',
+] as const) {
+  const role = mode === 'repair' || mode === 'review-text' ? mode : 'review';
+  const succeeds = ['normal', 'repair', 'review-text'].includes(mode);
   test(`Codex actor logs: ${mode}`, async () => {
     const root = await mkdtemp(join(tmpdir(), 'actor-stream-'));
     try {
@@ -13,8 +49,11 @@ for (const mode of ['normal', 'nonzero', 'missing', 'write_error'] as const) {
         await writeFile(
           join(root, 'codex'),
           `#!${process.execPath}
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 const args = process.argv.slice(2);
+const schemaIndex = args.indexOf('--output-schema');
+const schema = schemaIndex < 0 ? null : JSON.parse(readFileSync(args[schemaIndex + 1], 'utf8'));
+writeFileSync(${JSON.stringify(join(root, 'invocation.json'))}, JSON.stringify({args, schema}));
 writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({status:'accepted', findings:''}));
 process.stdout.write('x'.repeat(${bytes}) + 'stdout-end');
 process.stderr.write('y'.repeat(${bytes}) + 'stderr-end');
@@ -23,16 +62,16 @@ process.exitCode = ${mode === 'nonzero' ? 7 : 0};
           { mode: 0o755 },
         );
       }
-      // Limit only the child process; ignore SIGXFSZ so writes report EFBIG.
+      // Allow schema and invocation metadata, then fail large log writes with EFBIG.
       const result = spawnSync(
         '/bin/sh',
         [
           '-c',
-          mode === 'write_error' ? 'ulimit -f 1; trap "" XFSZ; exec "$@"' : 'exec "$@"',
+          mode === 'write_error' ? 'ulimit -f 16; trap "" XFSZ; exec "$@"' : 'exec "$@"',
           'actor-test',
           process.execPath,
           resolve('scripts/codex-actor.ts'),
-          'review',
+          role,
           root,
         ],
         {
@@ -43,16 +82,17 @@ process.exitCode = ${mode === 'nonzero' ? 7 : 0};
         },
       );
       expect(result.error).toBeUndefined();
-      expect(result.status).toBe(mode === 'normal' ? 0 : 1);
-      if (mode === 'normal') {
+      expect(result.status).toBe(succeeds ? 0 : 1);
+      if (succeeds) {
         expect(JSON.parse(result.stdout)).toEqual({ status: 'accepted', findings: '' });
       } else {
         expect(result.stdout).toBe('');
       }
       const entries = await readdir(root);
-      const dir = entries.find((entry) => entry.startsWith('review-codex-'));
+      const dir = entries.find((entry) => entry.startsWith(`${role}-codex-`));
       expect(dir).toBeDefined();
-      if (dir && (mode === 'normal' || mode === 'nonzero')) {
+      if (dir && (succeeds || mode === 'nonzero')) {
+        await expectInvocation(root, role);
         expect(await readFile(join(root, dir, 'events.jsonl'), 'utf8')).toBe(
           'x'.repeat(bytes) + 'stdout-end',
         );
@@ -61,6 +101,13 @@ process.exitCode = ${mode === 'nonzero' ? 7 : 0};
         );
       }
       if (dir && mode === 'write_error') {
+        await expectInvocation(root, role);
+        const sizes = await Promise.all(
+          ['events.jsonl', 'stderr.log'].map(
+            async (name) => (await stat(join(root, dir, name))).size,
+          ),
+        );
+        expect(sizes.some((size) => size > 0 && size < bytes)).toBe(true);
         expect(result.stderr).toContain('EFBIG');
       }
     } finally {
