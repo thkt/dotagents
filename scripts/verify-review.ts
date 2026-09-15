@@ -134,7 +134,7 @@ async function probe(root: string, broken: boolean) {
     actual === (broken ? '[]' : '[30,40]'),
     'Fixture no longer matches the independently defined oracle',
   );
-  const review = state.reviewHistory?.at(-1);
+  const review = state.reviewHistory.at(-1);
   const reproduced: unknown = JSON.parse(actual);
   const result = {
     name,

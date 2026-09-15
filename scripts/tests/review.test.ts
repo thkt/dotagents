@@ -39,6 +39,7 @@ for (const [name, mutation, reason] of [
 ] as const) {
   test(`review rejects ${name} and preserves the raw response and target`, async () => {
     const t = await trial('normal');
+    await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
     await reviewer(
       t,
       `const reply=reviewReply('needs_changes','Concrete documentation defect'); ${mutation};`,
@@ -49,7 +50,7 @@ for (const [name, mutation, reason] of [
     expect(state.result).toBe('invalid_review');
     expect(state.findings).toContain(reason);
     expect(state.reviewHistory).toEqual([]);
-    expect(state.repair).toBe(1);
+    expect(state.repair).toBe(0);
     expect(await Bun.file(join(t.config.runDir, 'review-1.stdout')).exists()).toBe(true);
     const target = object(
       JSON.parse(await readFile(join(t.config.runDir, 'review-1.target.json'), 'utf8')),
@@ -85,6 +86,9 @@ if(reviewContext.previous) {
     const first = object(events(history[0]?.items)[0]);
     expect(first.disposition).toBe('open');
     if (valid) {
+      expect([state.repair, state.review]).toEqual([2, 2]);
+      expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('correct');
+      expect(await readFile(join(t.config.cwd, 'README.md'), 'utf8')).toBe('current');
       const latest = object(events(history[1]?.items)[0]);
       expect(latest.id).toBe(first.id);
       expect(latest.introducedIn).toBe(history[0]?.targetId);

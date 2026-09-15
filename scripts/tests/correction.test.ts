@@ -49,7 +49,6 @@ for (const [mode, result, repairs, reviews] of [
   ['human', 'human_decision_required', 1, 0],
   ['issue_changed', 'requirements_changed', 1, 1],
   ['review_failed', 'review_failed', 1, 1],
-  ['docs', 'ready_for_human_review', 2, 2],
   ['malformed', 'invalid_review', 1, 1],
   ['changed', 'source_changed', 1, 1],
   ['exhaust', 'execution_limit', 2, 0],
@@ -63,9 +62,6 @@ for (const [mode, result, repairs, reviews] of [
     expect(state.review).toBe(reviews);
     if (result === 'ready_for_human_review') {
       expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('correct');
-      if (mode === 'docs') {
-        expect(await readFile(join(t.config.cwd, 'README.md'), 'utf8')).toBe('current');
-      }
     }
     if (mode === 'normal' || mode === 'exhaust') {
       const before = await t.state();

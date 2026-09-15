@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import { isArray, isRecord } from './input.ts';
 
 export const reviewModel = { model: 'gpt-6-astra', reasoningEffort: 'high' };
+const reviewStatuses = ['accepted', 'needs_changes'] as const;
+const findingKinds = ['defect', 'concern'] as const;
+const reviewAreas = ['code', 'requirements', 'tests', 'documentation'] as const;
+const dispositions = ['open', 'fixed', 'not_applicable'] as const;
+const documentRoles = ['current', 'historical', 'proposal'] as const;
 const text = { type: 'string', minLength: 1 };
 const object = (properties: Record<string, unknown>) => ({
   type: 'object',
@@ -9,10 +14,10 @@ const object = (properties: Record<string, unknown>) => ({
   required: Object.keys(properties),
   properties,
 });
-const choice = (...values: string[]) => ({ type: 'string', enum: values });
+const choice = (values: readonly string[]) => ({ type: 'string', enum: values });
 const list = (items: unknown) => ({ type: 'array', items });
 export const reviewSchema = object({
-  status: choice('accepted', 'needs_changes'),
+  status: choice(reviewStatuses),
   findings: text,
   targetId: text,
   assessments: object({ code: text, requirements: text, tests: text, documentation: text }),
@@ -20,8 +25,8 @@ export const reviewSchema = object({
     object({
       id: text,
       introducedIn: text,
-      kind: choice('defect', 'concern'),
-      area: choice('code', 'requirements', 'tests', 'documentation'),
+      kind: choice(findingKinds),
+      area: choice(reviewAreas),
       required: { type: 'boolean' },
       location: object({
         path: { type: ['string', 'null'] },
@@ -31,40 +36,38 @@ export const reviewSchema = object({
       impact: text,
       evidence: text,
       action: text,
-      disposition: choice('open', 'fixed', 'not_applicable'),
+      disposition: choice(dispositions),
       reason: text,
     }),
   ),
-  documents: list(
-    object({ path: text, role: choice('current', 'historical', 'proposal'), reason: text }),
-  ),
+  documents: list(object({ path: text, role: choice(documentRoles), reason: text })),
   handoff: list(text),
 });
 
 export interface ReviewItem {
   id: string;
   introducedIn: string;
-  kind: 'defect' | 'concern';
-  area: 'code' | 'requirements' | 'tests' | 'documentation';
+  kind: (typeof findingKinds)[number];
+  area: (typeof reviewAreas)[number];
   required: boolean;
   location: { path: string | null; line: number | null };
   condition: string;
   impact: string;
   evidence: string;
   action: string;
-  disposition: 'open' | 'fixed' | 'not_applicable';
+  disposition: (typeof dispositions)[number];
   reason: string;
 }
 export interface Review {
-  status: 'accepted' | 'needs_changes';
+  status: (typeof reviewStatuses)[number];
   findings: string;
   targetId: string;
   assessments: { code: string; requirements: string; tests: string; documentation: string };
   items: ReviewItem[];
-  documents: { path: string; role: 'current' | 'historical' | 'proposal'; reason: string }[];
+  documents: { path: string; role: (typeof documentRoles)[number]; reason: string }[];
   handoff: string[];
 }
-const oneOf = (value: unknown, choices: string[]) =>
+const oneOf = (value: unknown, choices: readonly string[]) =>
   typeof value === 'string' && choices.includes(value);
 const nonempty = (value: unknown): value is string => typeof value === 'string' && !!value.trim();
 function fields(value: unknown, keys: string[]): value is Record<string, unknown> {
@@ -105,11 +108,11 @@ function item(value: unknown): value is ReviewItem {
     ['id', 'introducedIn', 'condition', 'impact', 'evidence', 'action', 'reason'].every((key) =>
       nonempty(value[key]),
     ) &&
-    oneOf(value.kind, ['defect', 'concern']) &&
-    oneOf(value.area, ['code', 'requirements', 'tests', 'documentation']) &&
+    oneOf(value.kind, findingKinds) &&
+    oneOf(value.area, reviewAreas) &&
     typeof value.required === 'boolean' &&
     location(value.location) &&
-    oneOf(value.disposition, ['open', 'fixed', 'not_applicable'])
+    oneOf(value.disposition, dispositions)
   );
 }
 function document(value: unknown): value is Review['documents'][number] {
@@ -117,7 +120,7 @@ function document(value: unknown): value is Review['documents'][number] {
     fields(value, ['path', 'role', 'reason']) &&
     nonempty(value.path) &&
     nonempty(value.reason) &&
-    oneOf(value.role, ['current', 'historical', 'proposal'])
+    oneOf(value.role, documentRoles)
   );
 }
 export function isReview(value: unknown): value is Review {
@@ -135,7 +138,7 @@ export function isReview(value: unknown): value is Review {
     return false;
   }
   return (
-    oneOf(value.status, ['accepted', 'needs_changes']) &&
+    oneOf(value.status, reviewStatuses) &&
     nonempty(value.findings) &&
     nonempty(value.targetId) &&
     fields(value.assessments, ['code', 'requirements', 'tests', 'documentation']) &&

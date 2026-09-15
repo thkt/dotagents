@@ -543,7 +543,7 @@ async function reviewTarget(config: Config, state: State, issue: string) {
       '--no-ext-diff',
       '--no-textconv',
       '--no-renames',
-      state.baseCommit ?? 'HEAD',
+      state.baseCommit,
     ],
     config.cwd,
     '',
@@ -601,7 +601,7 @@ async function evaluate(
   if ('stop' in target) {
     return { stop: target.stop };
   }
-  const history = state.reviewHistory ?? [];
+  const history = state.reviewHistory;
   const prompt = [
     reviewInstructions,
     `Host context: ${JSON.stringify({ targetId: target.targetId, attempt: state.review + 1, targetRecord: `${target.prefix}.target.json`, diff: `${target.prefix}.diff`, additions: `${target.prefix}.additions.json`, previous: history.at(-1) ?? null })}`,
@@ -643,7 +643,7 @@ async function evaluate(
 
 function summarizeReviews(state: State) {
   return reviewSummary(
-    state.reviewHistory ?? [],
+    state.reviewHistory,
     state.events.filter((event) => event.role === 'review').map((event) => `${event.prefix}.json`),
   );
 }
@@ -662,7 +662,7 @@ async function cycle(
     return host.stop;
   }
   let findings = host.findings;
-  if (findings && state.reviewHistory?.length) {
+  if (findings && state.reviewHistory.length) {
     findings += `\nPrevious independent review (historical; verify current artifacts):\n${summarizeReviews(state)}`;
   }
   if (!findings) {
@@ -737,9 +737,6 @@ async function execute(config: Config): Promise<State> {
     if (!isMissing(error)) {
       throw error;
     }
-  }
-  if (state && (state.reviewFormat !== 1 || !state.baseCommit || !state.reviewHistory)) {
-    throw Error('Historical review format cannot be converted or resumed; preserve existing run');
   }
   const configHash = digest(JSON.stringify(config));
   if (state && state.configHash !== configHash) {
