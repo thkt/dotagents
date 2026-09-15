@@ -4,4 +4,4 @@ Provide the shared `scoping` and `implement` workflows for explicitly configured
 
 Use `bun run check` for this harness. Product tests and evidence remain in the trial repository. Old workflow state is retained as historical evidence and is never resumed or converted by the new runtime.
 
-Adoption, registration cutover and fresh-task migration acceptance were completed on 2026-09-14 in [Issue #54](https://github.com/thkt/dotagents/issues/54). Adopted versions, acceptance evidence, unmeasured cases and preservation/recovery conditions are recorded in [the migration record](../docs/migration-54.md). Use the shared skills for normal work; migration procedures are not per-task prerequisites.
+Adoption, registration cutover and fresh-task migration acceptance were completed on 2026-09-14 in [Issue #54](https://github.com/thkt/dotagents/issues/54). That Issue records adopted versions, acceptance evidence and unmeasured cases. Current preservation and registration-change rules are in the [development policy](DEVELOPMENT.md#旧資産の保全と登録変更). Use the shared skills for normal work; migration procedures are not per-task prerequisites.

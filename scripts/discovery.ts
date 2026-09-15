@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdir, readFile, writeFile, rename, rm, realpath, readdir, lstat } from 'node:fs/promises';
-import { resolve, isAbsolute, join, dirname } from 'node:path';
-import { createHash } from 'node:crypto';
+import { resolve, isAbsolute, join, dirname, basename } from 'node:path';
 import { isRecord, isArray, outside } from './input.ts';
 import { nonempty, criteria, assessment, session, ready } from './discovery-input.ts';
 import type { Session } from './discovery-input.ts';
@@ -110,13 +109,18 @@ async function note(state: Session, file: string) {
 }
 async function archive(state: Session, file: string) {
   assert(ready(state), 'Context is not sufficient');
+  const name = basename(file);
+  assert(
+    /^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/.test(name),
+    'Use a lowercase hyphenated Markdown filename',
+  );
+  assert(name !== 'readme.md', 'README.md is reserved for the research index');
   const content = await readFile(file, 'utf8');
   nonempty(content);
-  const id = createHash('sha256').update(content).digest('hex');
   const dir = join(state.repo, 'research');
   await mkdir(dir, { recursive: true });
   assert((await realpath(dir)) === dir, 'Research storage must not be a symlink');
-  const path = join(dir, `${id}.md`);
+  const path = join(dir, name);
   const ignored = spawnSync('git', ['-C', state.repo, 'check-ignore', '--quiet', '--', path], {
     encoding: 'utf8',
   });
