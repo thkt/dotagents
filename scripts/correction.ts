@@ -634,14 +634,18 @@ async function evaluate(
   }
   history.push(review);
   state.reviewHistory = history;
-  state.findings = reviewSummary(
-    history,
-    state.events.filter((event) => event.role === 'review').map((event) => `${event.prefix}.json`),
-  );
+  state.findings = summarizeReviews(state);
   if (review.status === 'accepted') {
     return { stop: 'ready_for_human_review' };
   }
   return { findings: state.findings };
+}
+
+function summarizeReviews(state: State) {
+  return reviewSummary(
+    state.reviewHistory ?? [],
+    state.events.filter((event) => event.role === 'review').map((event) => `${event.prefix}.json`),
+  );
 }
 
 async function cycle(
@@ -658,6 +662,9 @@ async function cycle(
     return host.stop;
   }
   let findings = host.findings;
+  if (findings && state.reviewHistory?.length) {
+    findings += `\nPrevious independent review (historical; verify current artifacts):\n${summarizeReviews(state)}`;
+  }
   if (!findings) {
     const result = await evaluate(config, state, issue, persist);
     if (result.stop) {

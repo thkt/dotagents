@@ -106,6 +106,44 @@ if(reviewContext.previous) {
   });
 }
 
+test('repair after a failed check retains prior review findings and current failure evidence', async () => {
+  const t = await trial('normal');
+  await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
+  await reviewer(
+    t,
+    "const reply=reviewReply(reviewContext.previous?'accepted':'needs_changes','Documentation review');",
+  );
+  const repair = join(t.root, 'repair.js');
+  await writeFile(
+    repair,
+    `import {readFileSync,writeFileSync} from 'node:fs';
+readFileSync(0,'utf8');
+const recovering=readFileSync('source.txt','utf8')==='broken';
+writeFileSync('source.txt',recovering?'correct':'broken');
+writeFileSync('README.md','current');
+console.log(JSON.stringify({status:'repaired',findings:'Updated source and documentation'}));`,
+  );
+  t.config.repair = [process.execPath, repair];
+  await writeFile(t.configFile, JSON.stringify(t.config));
+  expect(t.execute().status).toBe(0);
+  const state = await t.state();
+  expect(state.result).toBe('ready_for_human_review');
+  expect([state.checks, state.repair, state.review]).toEqual([3, 2, 2]);
+  const history = events(state.reviewHistory).map(object);
+  const first = object(events(history[0]?.items)[0]);
+  const prompt = await readFile(join(t.config.runDir, 'repair-2.prompt'), 'utf8');
+  expect(prompt).toContain('check-2.stdout');
+  expect(prompt).toContain('check-2.stderr');
+  expect(prompt).toContain(String(first.id));
+  expect(prompt).toContain(String(first.introducedIn));
+  expect(prompt).toContain(String(first.evidence));
+  expect(prompt).toContain(String(first.action));
+  expect(prompt).toContain('review-1.json');
+  expect(object(events(history[1]?.items)[0]).disposition).toBe('fixed');
+  expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('correct');
+  expect(await readFile(join(t.config.cwd, 'README.md'), 'utf8')).toBe('current');
+});
+
 test('accepted concerns, document versions, base diff, check and model remain traceable', async () => {
   const t = await trial('normal', {
     reviewModel: { model: 'fixture-model', reasoningEffort: 'high' },
