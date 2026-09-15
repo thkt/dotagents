@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { parseReview, reviewInstructions, reviewSummary } from './review.ts';
+import type { Review } from './review.ts';
 import { assertConfig, assertState, outside } from './input.ts';
 import type { Config, State, ActorRole, StopReason } from './input.ts';
 import { writingHostTimeoutMs } from './writing.ts';
@@ -163,7 +165,7 @@ function isCaptureRecord(name: string, destination: string) {
   );
 }
 
-async function snapshot(cwd: string, captureOnly = false, destination = '') {
+async function sourceFiles(cwd: string, captureOnly = false, destination = '') {
   const list = await command(
     ['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
     cwd,
@@ -173,7 +175,7 @@ async function snapshot(cwd: string, captureOnly = false, destination = '') {
   if (list.code !== 0) {
     throw Error('Cannot identify source files');
   }
-  const entries = [];
+  const entries: [string, number, string][] = [];
   for (const name of [...new Set(list.stdout.split('\0').filter(Boolean))].sort()) {
     const path = resolve(cwd, name);
     try {
@@ -196,7 +198,11 @@ async function snapshot(cwd: string, captureOnly = false, destination = '') {
       // A missing path contributes nothing both before and after staging its deletion.
     }
   }
-  return digest(JSON.stringify(entries));
+  return entries;
+}
+
+export async function snapshot(cwd: string, captureOnly = false, destination = '') {
+  return digest(JSON.stringify(await sourceFiles(cwd, captureOnly, destination)));
 }
 
 async function validate(config: Config) {
@@ -234,17 +240,6 @@ export function parseReply(stdout: string): { status: string; findings: string }
     return null;
   }
   return { status: value.status, findings: value.findings };
-}
-
-function parseReview(stdout: string) {
-  const reply = parseReply(stdout);
-  if (!reply || !['accepted', 'needs_changes'].includes(reply.status)) {
-    return null;
-  }
-  if (reply.status === 'needs_changes' && !reply.findings.trim()) {
-    return null;
-  }
-  return reply;
 }
 
 async function runModel(
@@ -508,23 +503,114 @@ async function verifyCheck(
     : { findings: `check failed. Read ${checked.prefix}.stdout and ${checked.prefix}.stderr.` };
 }
 
+async function reviewTarget(config: Config, state: State, issue: string) {
+  const prefix = resolve(config.runDir, `review-${state.review + 1}`);
+  const files = await sourceFiles(config.cwd);
+  if (digest(JSON.stringify(files)) !== state.source) {
+    return { stop: 'source_changed' as const };
+  }
+  const check = state.events.findLast((event) => event.role === 'check');
+  assert(
+    check && check.code === 0 && !check.timedOut && check.source === state.source,
+    'Review requires successful check of current source',
+  );
+  const target = {
+    issue: { hash: state.issueHash, content: issue },
+    baseCommit: state.baseCommit,
+    source: state.source,
+    files,
+    check: {
+      command: config.check,
+      ...check,
+      stdoutHash: digest(await readFile(`${check.prefix}.stdout`)),
+      stderrHash: digest(await readFile(`${check.prefix}.stderr`)),
+    },
+    model: { command: config.review, settings: config.reviewModel ?? null },
+    configHash: state.configHash,
+  };
+  const targetId = digest(JSON.stringify(target));
+  await writeFile(`${prefix}.target.json`, JSON.stringify({ targetId, ...target }, null, 2), {
+    flag: 'wx',
+  });
+  const diff = await command(
+    [
+      'git',
+      '-c',
+      'core.filemode=true',
+      'diff',
+      '--binary',
+      '--full-index',
+      '--no-ext-diff',
+      '--no-textconv',
+      '--no-renames',
+      state.baseCommit ?? 'HEAD',
+    ],
+    config.cwd,
+    '',
+    10000,
+  );
+  assert(diff.code === 0, 'Cannot record review diff');
+  await writeFile(`${prefix}.diff`, diff.stdout, { flag: 'wx' });
+  const untracked = await command(
+    ['git', 'ls-files', '--others', '--exclude-standard', '-z'],
+    config.cwd,
+    '',
+    10000,
+  );
+  assert(untracked.code === 0, 'Cannot record untracked files');
+  const additions = [];
+  for (const path of untracked.stdout.split('\0').filter(Boolean)) {
+    const stat = await lstat(resolve(config.cwd, path));
+    additions.push({
+      path,
+      mode: stat.mode,
+      symlink: stat.isSymbolicLink(),
+      content: stat.isSymbolicLink()
+        ? await readlink(resolve(config.cwd, path))
+        : (await readFile(resolve(config.cwd, path))).toString('base64'),
+    });
+  }
+  await writeFile(`${prefix}.additions.json`, JSON.stringify(additions, null, 2), { flag: 'wx' });
+  return { prefix, targetId, files };
+}
+
+function documentVersions(review: Review, files: [string, number, string][]) {
+  return review.documents.map((document) => {
+    const file = files.find(([path]) => path === document.path);
+    assert(file, `Document reference is not in reviewed source: ${document.path}`);
+    // Symlinks can refer to ignored or external content not covered by the source identity.
+    assert(
+      (file[1] & 0o170000) === 0o100000,
+      'Document reference must be a regular repository file',
+    );
+    return { ...document, mode: file[1], hash: file[2] };
+  });
+}
+
 async function evaluate(
   config: Config,
   state: State,
   issue: string,
   persist: Persist,
 ): Promise<{ stop?: StopReason; findings?: string }> {
+  // Do not create an apparent attempt if the existing execution budget is exhausted.
+  if (state.review >= config.reviewLimit || state.modelMs >= config.modelTimeMs) {
+    return { stop: 'execution_limit' };
+  }
+  const target = await reviewTarget(config, state, issue);
+  if ('stop' in target) {
+    return { stop: target.stop };
+  }
+  const history = state.reviewHistory ?? [];
   const prompt = [
-    'Assess readiness for publication and human review against the full requirements: implementation, meaningful tests, required documentation, and prepared evidence.',
-    'Read the target test policy when present and evaluate the tests relevant to this change against it. Ask what realistic bug deleting each relevant test would miss and weigh its additional assurance against runtime, flakiness and maintenance cost. Passing checks alone do not establish behavioral assurance. Return needs_changes for concrete missed behavior or unjustified tests, identifying the affected tests and reasons; do not reject justified deletion or consolidation merely because test counts or coverage metrics decrease.',
-    'Apply the target documentation policy when present, including documentation-only changes; assess required updates and their evidence rather than requiring code or new tests for every Issue.',
-    'Do not edit files or run check; its host-side result is exit 0. Do not trust implementation claims.',
-    'Return needs_changes for deficiencies in those deliverables, including missing required media or unclear evidence provenance.',
-    'The publisher owns PR creation, attachment upload and rendered-media checks; humans own review and approval. Their pending actions alone are not implementation defects.',
-    'If the deliverables are ready, return accepted and identify the remaining publisher/human actions in findings. Do not claim those actions are completed or waive them.',
-    'Return JSON {"status":"accepted"|"needs_changes","findings":"concrete unmet conditions or review summary and remaining handoff actions"}.',
+    reviewInstructions,
+    `Host context: ${JSON.stringify({ targetId: target.targetId, attempt: state.review + 1, targetRecord: `${target.prefix}.target.json`, diff: `${target.prefix}.diff`, additions: `${target.prefix}.additions.json`, previous: history.at(-1) ?? null })}`,
     `Requirements:\n${issue}`,
   ].join('\n');
+  const before = await targetChange(config, state);
+  if (before) {
+    return { stop: before };
+  }
   const reviewed = await runModel(config, state, 'review', prompt, persist);
   if ('stop' in reviewed) {
     return { stop: reviewed.stop };
@@ -533,17 +619,29 @@ async function evaluate(
   if (changed) {
     return { stop: changed };
   }
-  const review = parseReview(reviewed.stdout);
-  if (!review) {
+  let review: Review;
+  try {
+    review = parseReview(reviewed.stdout, target.targetId, state.review, history.at(-1));
+    const documents = documentVersions(review, target.files);
+    await writeFile(
+      `${target.prefix}.json`,
+      JSON.stringify({ target: `${target.prefix}.target.json`, review, documents }, null, 2),
+      { flag: 'wx' },
+    );
+  } catch (error) {
+    state.findings = `Invalid review: ${error instanceof Error ? error.message : String(error)}; raw response: ${target.prefix}.stdout`;
     return { stop: 'invalid_review' };
   }
+  history.push(review);
+  state.reviewHistory = history;
+  state.findings = reviewSummary(
+    history,
+    state.events.filter((event) => event.role === 'review').map((event) => `${event.prefix}.json`),
+  );
   if (review.status === 'accepted') {
-    state.findings = review.findings;
     return { stop: 'ready_for_human_review' };
   }
-
-  state.findings = review.findings;
-  return { findings: review.findings };
+  return { findings: state.findings };
 }
 
 async function cycle(
@@ -633,6 +731,9 @@ async function execute(config: Config): Promise<State> {
       throw error;
     }
   }
+  if (state && (state.reviewFormat !== 1 || !state.baseCommit || !state.reviewHistory)) {
+    throw Error('Historical review format cannot be converted or resumed; preserve existing run');
+  }
   const configHash = digest(JSON.stringify(config));
   if (state && state.configHash !== configHash) {
     throw Error('Run configuration changed; do not reset the existing limits');
@@ -641,7 +742,15 @@ async function execute(config: Config): Promise<State> {
     throw Error(interruptionMessage);
   }
   const issue = await readIssue(config);
+  const base =
+    state?.baseCommit ??
+    config.baseCommit ??
+    (await command(['git', 'rev-parse', 'HEAD'], config.cwd, '', 10000)).stdout.trim();
+  assert(/^[a-f0-9]{40,64}$/.test(base), 'Review requires a base commit');
   state ??= {
+    reviewFormat: 1,
+    baseCommit: base,
+    reviewHistory: [],
     configHash,
     issueHash: digest(issue),
     repair: 0,

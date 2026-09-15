@@ -3,8 +3,30 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, writeFile, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { object } from './support/correction.ts';
 
-for (const mode of ['normal', 'nonzero', 'missing', 'write_error'] as const) {
+async function expectSchema(dir: string, role: string) {
+  const schema = object(JSON.parse(await readFile(join(dir, 'schema.json'), 'utf8')));
+  expect(schema.required).toEqual(
+    role === 'review'
+      ? ['status', 'findings', 'targetId', 'assessments', 'items', 'documents', 'handoff']
+      : ['status', 'findings'],
+  );
+  expect(object(object(schema.properties).status).enum).toEqual(
+    role === 'repair' ? ['repaired', 'needs_human'] : ['accepted', 'needs_changes'],
+  );
+}
+
+for (const mode of [
+  'normal',
+  'repair',
+  'review-text',
+  'nonzero',
+  'missing',
+  'write_error',
+] as const) {
+  const role = mode === 'repair' || mode === 'review-text' ? mode : 'review';
+  const succeeds = ['normal', 'repair', 'review-text'].includes(mode);
   test(`Codex actor logs: ${mode}`, async () => {
     const root = await mkdtemp(join(tmpdir(), 'actor-stream-'));
     try {
@@ -32,7 +54,7 @@ process.exitCode = ${mode === 'nonzero' ? 7 : 0};
           'actor-test',
           process.execPath,
           resolve('scripts/codex-actor.ts'),
-          'review',
+          role,
           root,
         ],
         {
@@ -43,16 +65,17 @@ process.exitCode = ${mode === 'nonzero' ? 7 : 0};
         },
       );
       expect(result.error).toBeUndefined();
-      expect(result.status).toBe(mode === 'normal' ? 0 : 1);
-      if (mode === 'normal') {
+      expect(result.status).toBe(succeeds ? 0 : 1);
+      if (succeeds) {
         expect(JSON.parse(result.stdout)).toEqual({ status: 'accepted', findings: '' });
       } else {
         expect(result.stdout).toBe('');
       }
       const entries = await readdir(root);
-      const dir = entries.find((entry) => entry.startsWith('review-codex-'));
+      const dir = entries.find((entry) => entry.startsWith(`${role}-codex-`));
       expect(dir).toBeDefined();
-      if (dir && (mode === 'normal' || mode === 'nonzero')) {
+      if (dir && (succeeds || mode === 'nonzero')) {
+        await expectSchema(join(root, dir), role);
         expect(await readFile(join(root, dir, 'events.jsonl'), 'utf8')).toBe(
           'x'.repeat(bytes) + 'stdout-end',
         );

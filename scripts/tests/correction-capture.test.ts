@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile, readFile, rm, symlink, chmod } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { correctionFixture, object, events } from './support/correction.ts';
+import { reviewReplySource, correctionFixture, object, events } from './support/correction.ts';
 
 const { trial, cleanup } = correctionFixture();
 afterEach(cleanup);
@@ -185,6 +185,7 @@ import {readFileSync,writeFileSync,existsSync,mkdirSync,rmSync,symlinkSync,chmod
 import {createHash} from 'node:crypto';
 import {join} from 'node:path';
 const role=process.argv[2], change=${JSON.stringify(change)};
+${reviewReplySource}
 const media='trial/evidence/generated/demo.webm', record='trial/evidence/provenance.json';
 const hash=()=>createHash('sha256').update(readFileSync(media)).digest('hex');
 if(role==='capture') writeFileSync(join(process.argv[3],'demo.webm'),crypto.randomUUID());
@@ -206,7 +207,7 @@ if(role==='review') {
   const same=JSON.parse(readFileSync(record,'utf8')).hash===hash();
   if(same!==(change==='records')) process.exit(7);
  }
- console.log(JSON.stringify({status,findings:'verify media identity'}));
+ console.log(JSON.stringify(reviewReply(status,'verify media identity')));
 }
 `,
     );
