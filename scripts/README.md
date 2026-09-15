@@ -122,17 +122,17 @@ bun scripts/correction.ts /absolute/path/config.json
 
 ### 修正・独立評価の担当
 
-`repair`と`review`は要求と失敗根拠を標準入力で受け取り、結果のJSONだけを標準出力へ返します。修正の`status: repaired | needs_human`と文字列`findings`、文章の意味照合の形式はそのまま使います。最終`review`は[review.ts](review.ts)の専用schemaに従います。独自のreviewコマンドにも同じ形式が必要です。
+`repair`と`review`は、要求と失敗の根拠を標準入力で受け取り、結果のJSONだけを標準出力へ返します。修正の`status: repaired | needs_human`と文字列`findings`、文章の意味照合の形式はそのまま使います。最終`review`は[review.ts](review.ts)の専用schemaに従います。独自のreviewコマンドにも同じ形式が必要です。
 
-最終評価は`status: accepted | needs_changes`、概要の`findings`、ホスト指定の`targetId`、4観点の`assessments`、指摘の`items`、参照文書の`documents`、後続担当の作業の`handoff`を返します。各観点には判断理由と未確認範囲を記し、適用しない観点もその理由を説明します。
+最終評価は、`status: accepted | needs_changes`、概要の`findings`、ホストが指定した`targetId`、4観点の`assessments`、指摘の`items`、参照文書の`documents`、後続担当の作業を示す`handoff`を返します。各観点には判断理由と未確認範囲を記し、適用しない観点についてもその理由を説明します。
 
-指摘は`id`、初出対象の`introducedIn`、証明できた欠陥／未確認の懸念を分ける`kind`、指摘の観点を表す`area`（code・requirements・tests・documentation）、必須対応かを表す`required`、`location`、発生条件、影響、根拠、必要な対応を持ちます。文書不足など実在するコード位置がない場合はpath・lineを`null`にし、架空の位置や再現実行を埋めません。新規指摘は`R<評価回数>-<識別名>`で作り、`disposition: open`にします。
+指摘は、`id`、初出対象の`introducedIn`、証明できた欠陥と未確認の懸念を分ける`kind`、指摘の観点を表す`area`（code・requirements・tests・documentation）、必須対応かを表す`required`、`location`、発生条件、影響、根拠、必要な対応を持ちます。文書不足など実在するコード位置がない場合は、pathとlineを`null`にし、架空の位置や再現実行を埋めません。新規の指摘は`R<評価回数>-<識別名>`で作り、`disposition: open`にします。
 
-再評価は以前の全指摘を引き継ぎ、元の指摘内容と初出対象を保持します。現在の成果物と必要な検証を読んで、`disposition`を`open`・`fixed`・`not_applicable`のいずれかにし、`reason`へ未解決・修正済み・根拠付き非該当の判断理由を記します。修正担当の自己申告だけでは解決と扱いません。再発時は`open`へ戻します。
+再評価は以前の全指摘を引き継ぎ、元の指摘内容と初出対象を保持します。現在の成果物と必要な検証を確認し、`disposition`を`open`・`fixed`・`not_applicable`のいずれかにします。`reason`へは未解決・修正済み・根拠付き非該当の判断理由を記します。修正担当の自己申告だけでは解決と扱いません。再発時は`open`へ戻します。
 
 ホストは形式と必須項目、対象ID、指摘IDの重複や脱落、元の指摘内容の改変、結果の矛盾を検査します。未解決の必須指摘を含むacceptedと、必須指摘のないneeds_changesは`invalid_review`です。必須対応でない懸念はacceptedにも残せます。指摘の真偽や判断理由の十分性まで形式検査で保証するものではありません。欠落、不正、実行失敗は停止し、指摘なしや成功には読み替えません。
 
-付属のCodex呼び出しはAstra/highを使い、修正はworkspace-write、評価はread-onlyで新しい実行を開始します。評価者はコード、テスト、文書を読み、ホスト側checkの結果と分けて評価します。実行前にCodexへログインし、対象モデルが利用できるCLIを用意してください。GitHubの書き込みtokenを成果物やプロンプトへ埋め込まないでください。
+付属のCodex呼び出しはAstra/highを使います。修正はworkspace-write、評価はread-onlyで新しい実行を開始します。評価者はコード、テスト、文書を読み、ホスト側のcheck結果と分けて評価します。実行前にCodexへログインし、対象モデルが利用できるCLIを用意してください。GitHubの書き込みtokenを成果物やプロンプトへ埋め込まないでください。
 
 独立評価は、コードの正しさ、Issueの要求・範囲との一致、テストの検出力、文書・証拠と実装版の整合を区別して判断します。差分に加え、影響する呼出し元、共有型、状態遷移、エラー処理、関連テストを読みます。Issueに個別の要求がなくてもコードとしての欠陥を指摘します。無関係な全コード・全テストの監査や好みの書き方、対象外の機能追加は求めません。
 
@@ -214,7 +214,7 @@ SIGKILLのテストでは残存プロセスをテスト側で後片付けして�
 
 ### 実モデルによるレビューの確認
 
-共通checkと別に、ホストで次を実行します。既存のCodex認証を使い、ブラウザーやサーバー、GitHub公開は必要ありません。
+共通checkと別に、ホストで次を実行します。既存のCodex認証を使い、ブラウザーやサーバーの起動、GitHub公開は必要ありません。
 
 ```sh
 bun scripts/verify-review.ts
