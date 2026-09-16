@@ -202,6 +202,7 @@ export const reviewInstructions = [
   'Report code defects even when the Issue does not explicitly enumerate the behavior. Distinguish demonstrated defects from unverified concerns. Neither no findings nor passing check guarantees absence of defects.',
   'Read the target test policy. Ask what realistic bug deleting each relevant test would miss, weigh assurance against runtime, flakiness and maintenance, and detect copied expectations or negative tests passing for the wrong reason. Justified deletion or consolidation is not a defect merely because counts decrease.',
   'Apply the target documentation policy, including documentation-only changes. Distinguish current policy, historical evidence and unadopted proposals. Do not require new code or tests without a relevant requirement.',
+  'Compare implementation premises with the selected Issue/report references and their handoff versions in the host context. In requirements/documentation assessments, explain relevant applicability, agreement and changed evidence; use document reasons for source selection. A decision-blocking gap or contradiction is a required open finding with the affected decision and return path in action, not an accepted handoff task. Human decisions cannot be resolved by the reviewer.',
   'Do not edit files or run the full check. The host check result is in the target record. Use current artifacts and necessary targeted verification to adjudicate findings; do not trust repair self-reports.',
   'Return the review JSON schema. Echo targetId from the host context. Give substantive reasons in all four assessments, including applicability and unverified limits. findings is the overall summary.',
   'Each item needs a stable ID R<attempt>-<name>, introducedIn equal to this targetId, kind defect or concern, area code/requirements/tests/documentation, required, location, condition, impact, evidence, action, disposition open, and reason. Use null path/line when no real code location exists, including missing documentation. Never invent locations or reproduction runs.',
@@ -219,6 +220,7 @@ export function reviewSummary(history: Review[], recordPaths: string[]) {
     current.findings,
     `Review target: ${current.targetId}`,
     ...Object.entries(current.assessments).map(([key, value]) => `${key}: ${value}`),
+    ...current.documents.map((doc) => `Source: ${doc.path} (${doc.role}): ${doc.reason}`),
     ...current.items.map(
       (item) =>
         `${item.id} (${item.area}/${item.kind}, ${item.disposition}, required=${item.required}, target=${item.introducedIn}): ${item.location.path ?? 'No file location'}${item.location.line === null ? '' : `:${item.location.line}`}: ${item.condition}; impact: ${item.impact}; evidence: ${item.evidence}; action: ${item.action}; judgment: ${item.reason}`,

@@ -106,17 +106,34 @@ for (const [target, path, content] of [
   });
 }
 
-for (const [name, change] of [
-  ['missing cwd', { cwd: undefined }],
-  ['empty command', { repair: [] }],
-  ['invalid limit', { reviewLimit: -1 }],
+for (const [name, change, reason] of [
+  ['missing cwd', { cwd: undefined }, 'Invalid cwd'],
+  ['empty command', { repair: [] }, 'Invalid repair command'],
+  ['invalid limit', { reviewLimit: -1 }, 'Invalid reviewLimit'],
+  [
+    'report without base',
+    { reports: [{ path: 'research/reset.md', blob: 'a'.repeat(40) }] },
+    'Required reports need baseCommit',
+  ],
+  [
+    'ambiguous report versions',
+    {
+      baseCommit: 'a'.repeat(40),
+      reports: [
+        { path: 'research/reset.md', blob: 'a'.repeat(40) },
+        { path: 'research/reset.md', blob: 'b'.repeat(40) },
+      ],
+    },
+    'Duplicate required report',
+  ],
 ] as const) {
   test(`invalid config: ${name}`, async () => {
     const t = await trial('normal');
     await writeFile(t.configFile, JSON.stringify({ ...t.config, ...change }));
     const result = t.execute();
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('Invalid');
+    expect(result.stderr).toContain(reason);
+    expect(await Bun.file(join(t.config.runDir, 'check-1.stdout')).exists()).toBe(false);
     expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
   });
 }

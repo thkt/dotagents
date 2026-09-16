@@ -18,6 +18,30 @@ export function relativeDirectory(value: unknown): value is string {
 }
 
 export type ActorRole = 'repair' | 'review';
+export interface ReportReference {
+  path: string;
+  blob: string;
+}
+
+export function assertReportReferences(value: unknown): asserts value is ReportReference[] {
+  assert(isArray(value), 'Invalid required reports');
+  const paths = new Set<string>();
+  for (const report of value) {
+    assert(isRecord(report), 'Invalid required report');
+    assert(
+      relativeDirectory(report.path) &&
+        report.path.startsWith('research/') &&
+        report.path.endsWith('.md'),
+      'Required report must be a repo-relative research/*.md path',
+    );
+    assert(
+      typeof report.blob === 'string' && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(report.blob),
+      `Expected reviewed Git blob ID: ${report.path}`,
+    );
+    assert(!paths.has(report.path), 'Duplicate required report');
+    paths.add(report.path);
+  }
+}
 const stopReasons = [
   'writing_failed',
   'execution_limit',
@@ -37,6 +61,7 @@ const stopReasons = [
 export type StopReason = (typeof stopReasons)[number];
 export interface Config {
   baseCommit?: string;
+  reports?: ReportReference[];
   reviewModel?: { model: string; reasoningEffort: string };
   cwd: string;
   runDir: string;
@@ -104,6 +129,10 @@ const command = (value: unknown) =>
 export function assertConfig(value: unknown): asserts value is Config {
   assert(isRecord(value), 'Invalid configuration object');
   assert(optionalString(value.baseCommit), 'Invalid base commit');
+  if (value.reports !== undefined) {
+    assertReportReferences(value.reports);
+    assert(value.reports.length === 0 || value.baseCommit, 'Required reports need baseCommit');
+  }
   assert(
     value.reviewModel === undefined ||
       (isRecord(value.reviewModel) &&
