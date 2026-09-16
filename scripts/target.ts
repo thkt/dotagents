@@ -3,6 +3,7 @@ import { readFile, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { isRecord, relativeDirectory } from './input.ts';
+import { writingSelection } from './writing-targets.ts';
 
 export type Reader = (argv: string[], cwd: string) => Promise<string>;
 export interface TargetConfig {
@@ -13,6 +14,7 @@ export interface TargetConfig {
   check: string[];
   ciChecks: string[];
   capture: null | { command: string[]; destination: string; required: boolean };
+  writing?: { documents: string[]; exclude?: string[] };
 }
 function argv(value: unknown): value is string[] {
   return (
@@ -36,6 +38,7 @@ function assertTarget(value: unknown): asserts value is TargetConfig {
     'Explicit setup commands required (empty array allowed)',
   );
   assert(argv(value.check), 'Verification command is required');
+  writingSelection(value.writing);
   assert(
     Array.isArray(value.ciChecks) &&
       value.ciChecks.every((name) => typeof name === 'string' && name.trim()) &&

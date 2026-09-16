@@ -126,3 +126,31 @@ test('CI check policy must be explicit with unique nonempty names', async () => 
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+test('target validates writing paths before execution and preserves explicit selection', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'writing-policy-'));
+  try {
+    await initializeTarget(cwd);
+    const read = async (argv: string[]) => githubTarget(argv) ?? git(cwd, ...argv.slice(1));
+    for (const writing of [
+      null,
+      { documents: ['../outside/'] },
+      { documents: ['/docs/'] },
+      { documents: ['docs/**/*.md'] },
+      { documents: ['docs/'], exclude: 'issues/' },
+      { documents: ['docs/'], excludes: ['docs/request.md'] },
+    ]) {
+      await writeFile(join(cwd, '.dotagents.json'), JSON.stringify({ ...targetConfig, writing }));
+      await assert.rejects(() => readTarget(cwd, read), /Invalid writing selection/);
+    }
+    for (const writing of [
+      { documents: ['manual/', 'README.md'], exclude: ['manual/request.md'] },
+      { documents: [] },
+    ]) {
+      await writeFile(join(cwd, '.dotagents.json'), JSON.stringify({ ...targetConfig, writing }));
+      expect((await readTarget(cwd, read)).config.writing).toEqual(writing);
+    }
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
