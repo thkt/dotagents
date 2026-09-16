@@ -1,3 +1,4 @@
+import { reviewSchema, reviewModel } from './review.ts';
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
@@ -14,26 +15,30 @@ const final = join(dir, 'final.json');
 const schema = join(dir, 'schema.json');
 await writeFile(
   schema,
-  JSON.stringify({
-    type: 'object',
-    additionalProperties: false,
-    required: ['status', 'findings'],
-    properties: {
-      status: {
-        type: 'string',
-        enum: role !== 'repair' ? ['accepted', 'needs_changes'] : ['repaired', 'needs_human'],
-      },
-      findings: { type: 'string' },
-    },
-  }),
+  JSON.stringify(
+    role === 'review'
+      ? reviewSchema
+      : {
+          type: 'object',
+          additionalProperties: false,
+          required: ['status', 'findings'],
+          properties: {
+            status: {
+              type: 'string',
+              enum: role !== 'repair' ? ['accepted', 'needs_changes'] : ['repaired', 'needs_human'],
+            },
+            findings: { type: 'string' },
+          },
+        },
+  ),
 );
 const args = [
   'exec',
   '--ignore-user-config',
   '-m',
-  'gpt-6-astra',
+  reviewModel.model,
   '-c',
-  'model_reasoning_effort="high"',
+  `model_reasoning_effort="${reviewModel.reasoningEffort}"`,
   '--sandbox',
   role !== 'repair' ? 'read-only' : 'workspace-write',
   ...(role === 'review-text' ? ['--skip-git-repo-check'] : []),

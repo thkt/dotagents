@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { isReview } from './review.ts';
+import type { Review } from './review.ts';
 import { isAbsolute, relative, sep } from 'node:path';
 
 export function outside(parent: string, child: string) {
@@ -34,6 +36,8 @@ const stopReasons = [
 ] as const;
 export type StopReason = (typeof stopReasons)[number];
 export interface Config {
+  baseCommit?: string;
+  reviewModel?: { model: string; reasoningEffort: string };
   cwd: string;
   runDir: string;
   issue: string[];
@@ -58,6 +62,9 @@ interface Event {
   prefix: string;
 }
 export interface State {
+  reviewFormat: 1;
+  baseCommit: string;
+  reviewHistory: Review[];
   configHash: string;
   issueHash: string;
   repair: number;
@@ -96,6 +103,14 @@ const command = (value: unknown) =>
 
 export function assertConfig(value: unknown): asserts value is Config {
   assert(isRecord(value), 'Invalid configuration object');
+  assert(optionalString(value.baseCommit), 'Invalid base commit');
+  assert(
+    value.reviewModel === undefined ||
+      (isRecord(value.reviewModel) &&
+        typeof value.reviewModel.model === 'string' &&
+        typeof value.reviewModel.reasoningEffort === 'string'),
+    'Invalid review model',
+  );
   for (const key of ['cwd', 'runDir']) {
     assert(typeof value[key] === 'string' && value[key].length > 0, `Invalid ${key}`);
   }
@@ -155,7 +170,18 @@ export function assertState(value: unknown): asserts value is State {
     'Invalid active reservation',
   );
   assert(isArray(value.events) && value.events.every(isEvent), 'Invalid saved events');
+  assert(value.reviewFormat === undefined || value.reviewFormat === 1, 'Invalid review format');
+  assert(optionalString(value.baseCommit), 'Invalid saved base commit');
+  assert(
+    value.reviewHistory === undefined ||
+      (isArray(value.reviewHistory) && value.reviewHistory.every(isReview)),
+    'Invalid saved review history',
+  );
   assert(optionalString(value.findings), 'Invalid saved findings');
   assert(optionalString(value.captureSource), 'Invalid saved capture source');
   assert(optionalString(value.source) && validResult(value.result), 'Invalid saved result');
+  assert(
+    value.reviewFormat === 1 && value.baseCommit && value.reviewHistory,
+    'Historical review format cannot be converted or resumed; preserve existing run',
+  );
 }

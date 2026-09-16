@@ -329,6 +329,9 @@ for (const mode of [
         }
         expect(await readFile(join(config.cwd, 'result.txt'), 'utf8')).toBe('implemented');
         return {
+          reviewFormat: 1,
+          baseCommit: await git(config.cwd, 'rev-parse', 'HEAD'),
+          reviewHistory: [],
           configHash: '',
           issueHash: '',
           repair: 0,
