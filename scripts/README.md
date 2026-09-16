@@ -15,19 +15,38 @@
 bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to/target-checkout
 ```
 
-番号または対象repoのIssue URLを渡します。実行前に対象のREADME、開発方針、適用される指示と、下記の設定を確認してください。ハーネスはBun、Git、gh、Codex CLIとホストの日本語確認環境を使います。対象repoの言語やテストツールは設定に従います。
+番号または対象repoのIssue URLを渡します。実行前に対象のREADME、開発方針、適用される指示、下記の設定を確認してください。ハーネスはBun、Git、gh、Codex CLIとホストの日本語確認環境を使います。対象repoの言語やテストツールは設定に従います。
 
-開始時にcheckout、設定、fetch/push remote、GitHub repo ID、base branch、ghの主体とpush権限を照合します。公開する実行ではユーザー認証の対象アクセスも実装前に確認します。元checkoutがdirtyな場合、run保存先が既に存在する場合、同名branchが存在する場合は作業を始めません。要求全文を保存し、元checkoutのcommitted HEADから `codex/development-N` の隔離worktreeを作ります。設定のsetupを隔離先で順に実行し、初回実装、文章確認、必要な撮影、対象のcheck、独立評価へ進みます。要求の変更、対象・設定・主体の変更、上限超過が発生した場合は停止します。
+開始時にcheckout、設定、fetch/push remote、GitHub repo ID、base branch、ghの主体、push権限を照合します。公開する実行ではユーザー認証の対象アクセスも実装前に確認します。元checkoutがdirtyな場合、run保存先がすでに存在する場合、同名branchが存在する場合は作業を始めません。要求全文を保存し、元checkoutのcommitted HEADから `codex/development-N` の隔離worktreeを作ります。設定のsetupを隔離先で順に実行し、初回実装、文章確認、必要な撮影、対象のcheck、独立評価へ進みます。要求の変更、対象・設定・主体の変更、上限超過が発生した場合は停止します。
 
-scopingの共有用調査報告は対象repoのresearch/へ保存します。引き継ぎ前に[調査成果の引き継ぎ手順](../skills/scoping/references/session.md#調査成果の引き継ぎ)で、必要な報告本文が開始元のHEADに含まれることを確認します。未コミットの報告を退避してcheckoutをcleanにしただけでは、その報告は実装worktreeに入りません。セッション状態、評価、lockはGit管理外に残します。
+scopingの共有用調査報告は対象repoのresearch/へ保存します。必要な報告は[引き継ぎ引数](#調査報告を指定した実装開始)で指定し、確認済みの本文が開始元のHEADと実装worktreeに含まれることを照合します。未commitの報告を退避してcheckoutをcleanにしただけでは、その報告は実装worktreeに入りません。セッション状態、評価、lockはGit管理外に残します。
 
-新規実行の上限は初回実装・修正・独立評価のモデル累計20分、追加修正2回、独立評価2回、各checkとCI待機それぞれ9分です。初回実装の消費時間をcorrectionへ渡す残時間から差し引きます。[文章確認](#日本語の確認と修正)のGeminiと忠実性評価は別枠です。予算拡大や途中実行の自動復旧は行いません。
+新規実行の上限は初回実装・修正・独立評価のモデル累計20分、追加修正2回、独立評価2回、各checkとCI待機がそれぞれ9分です。初回実装の消費時間はcorrectionへ渡す残り時間から差し引きます。[文章確認](#日本語の確認と修正)のGeminiと忠実性評価は別枠です。予算拡大や途中実行の自動復旧は行いません。
 
 保存先は `~/.local/share/dotagents/development/<Git管理ディレクトリの識別値>/<Issue番号>/` です。`--run-dir DIRECTORY` でcheckoutやGit管理領域の外を指定できます。`target.json` に対象設定、repo ID、gh主体を残し、ほかに要求、指示と結果、検証ログ、作業checkout、PR本文とURL、CI結果を残します。既存の保存先は再実行に使いません。中断後は記録、実プロセス、GitHubの状態を照合し、保存先の削除や別名での自動再試行は行いません。
 
 `--no-publish` は独立評価までで止め、commit、push、PR作成を行いません。push権限の確認も不要です。通常実行は検証済み対象を再照合し、commit、PR本文の文章確認、ユーザー認証と権限の再確認、gh主体の資格情報を明示したpush、ユーザー認証によるPR作成へ進みます。pushにはコマンド内だけで定義するHTTPSの公開先を使い、GitのURL書き換え後も対象が一致することを確認します。SSHへの切り替えや別repoへの書き換えは拒否します。`push.followTags`の設定にかかわらず、タグを同時に公開しません。設定した保存先から生成媒体の変更を添付します。
 
-`ciChecks`に指定した全checkの登録とSUCCESSを、CI待機9分の中で待ちます。同時にPRのhead、base、OPEN状態を照合します。必要なcheckのSKIPPEDやNEUTRALは成功と扱わず、同名checkが複数ある場合は全件の成功を求めます。他の登録済みcheckに失敗や保留がある場合も完了にしません。各取得時の応答と診断は`ci-registration-N.stdout`および`.stderr`へ保存します。最新CIとPRのhead・baseを照合し、表示・再生・配置の確認は `rendered_media_check` として担当者へ渡します。CI未確認時はPR URLと記録を保持して非zeroコードで終了します。人がレビュー、承認、マージを行います。
+`ciChecks`に指定した全checkの登録とSUCCESSを、9分のCI待機時間内で待ちます。同時にPRのhead、base、OPEN状態を照合します。必要なcheckのSKIPPEDやNEUTRALは成功と扱わず、同名checkが複数ある場合は全件の成功を求めます。他の登録済みcheckに失敗や保留がある場合も完了にしません。各取得時の応答と診断は`ci-registration-N.stdout`および`.stderr`へ保存します。最新CIとPRのhead・baseを照合し、表示・再生・配置の確認は `rendered_media_check` として担当者へ渡します。CI未確認時はPR URLと記録を保持して非zeroコードで終了します。人がレビュー、承認、マージを行います。
+
+## 調査報告を指定した実装開始
+
+担当者は[scopingの引き継ぎ手順](../skills/scoping/references/session.md#調査成果の引き継ぎ)で、対象Issue、今回必要な報告の参照、開始commit、保存・commit・共有の状態を確認します。判断に必要な報告だけを選び、必要な報告がない場合はその判断を明示します。報告本文やIssue本文を引き継ぎ用の別文書へ複製しません。
+
+報告が必要な実装では、確認済みの値を次のように指定します。`START_COMMIT`は開始するHEADの完全なcommit ID、`REVIEWED_BLOB`は内容を確認した時点の`git hash-object --no-filters -- research/reset-behavior.md`の出力です。記号は実際の値に置き換えてください。
+
+```sh
+bun /absolute/path/to/trusted/scripts/development.ts 99 \
+  --repo /absolute/path/to/target-checkout \
+  --start-commit START_COMMIT \
+  --report research/reset-behavior.md=REVIEWED_BLOB
+```
+
+`--report`は必要な報告ごとに繰り返します。報告を指定するときは`--start-commit`も必須です。CLIは開始HEADとの一致、報告がそのcommitの通常ファイルであること、確認済みblobとの一致、checkoutの本文との一致を実装前に検証します。worktreeは照合済みcommitから作り、setup後にも報告を照合してから担当AIを起動します。担当AIにはIssue URL、開始commit、報告パスとblob IDを渡し、worktreeの本文を読むよう指示します。
+
+欠落、未commit、版や内容の違いがあれば、その不足を表示して停止します。確認せず現在のIDへ差し替えて進めないでください。元checkoutの未追跡ファイルを含む作業差分も従来どおり停止対象とし、自動削除・退避・commitは行いません。必要な報告がなく、開始commitも指定しない通常のIssueは、現在のcleanなHEADから開始します。必要報告の選択や内容の十分性、人の合意をCLIが判定するものではありません。
+
+ローカルの報告とcommitの一致は、GitHubで共有済みであることの証明にはなりません。共有先のcommitへのリンクはIssueから辿れるようにし、保存済み、commit済み、共有済みの状態を分けて報告します。未共有でも既存の許可範囲で`--no-publish`の実装は可能です。共有や必要なcommitの許可が不足する場合は、それに依存する作業だけを保留します。十分性gateは人の合意や実装許可を代替しません。
 
 ## 対象repoの設定
 

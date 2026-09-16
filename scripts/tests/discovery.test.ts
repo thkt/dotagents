@@ -64,8 +64,8 @@ async function setup() {
     await writeFile(file, JSON.stringify(value));
     return cli(action, dir, file);
   };
-  const evaluate = async (missing = false) =>
-    send('assess', {
+  const evaluate = async (missing = false, action = 'assess') =>
+    send(action, {
       revision: (await state()).revision,
       decision: 'Choose reset behavior',
       checks: {
@@ -90,7 +90,10 @@ test('decisions and evidence require reassessment before progress', async () => 
   const report = join(t.root, 'notes.md');
   await writeFile(report, 'Existing reset behavior verified against source revision abc.');
   expect(cli('note', t.dir, report).status).toBe(0);
-  expect((await t.evaluate(true)).status).toBe(0);
+  const missing = await t.evaluate(true, 'gate');
+  expect(missing.status).toBe(1);
+  expect(missing.stderr).toContain('Context is not sufficient');
+  expect((await t.state()).assessment?.next).toContain('Stop UI implementation');
   expect(cli('gate', t.dir).status).toBe(1);
   await writeFile(
     report,
@@ -99,8 +102,9 @@ test('decisions and evidence require reassessment before progress', async () => 
   expect(cli('note', t.dir, report).status).toBe(0);
   expect(cli('status', t.dir).status).toBe(0);
   expect(cli('gate', t.dir).status).toBe(1);
-  expect((await t.evaluate()).status).toBe(0);
-  expect(cli('gate', t.dir).status).toBe(0);
+  const sufficient = await t.evaluate(false, 'gate');
+  expect(sufficient.status).toBe(0);
+  expect(sufficient.stdout).toContain('Choose reset behavior');
   const completed = await t.state();
   expect(completed.entries.some((item) => item.text.includes('source revision abc'))).toBe(true);
   expect(completed.entries.some((item) => item.text.includes('Agreed: retain focus'))).toBe(true);
@@ -124,15 +128,18 @@ test('all criteria and current revision are required; inputs do not replace save
     },
   ]) {
     expect(
-      (await t.send('assess', { revision: 0, decision: 'Choose', checks, next: 'Continue' }))
-        .status,
+      (await t.send('gate', { revision: 0, decision: 'Choose', checks, next: 'Continue' })).status,
     ).toBe(1);
   }
   expect((await t.evaluate()).status).toBe(0);
   const before = await t.state();
-  expect((await t.send('assess', before.assessment)).status).toBe(1);
+  const stale = await t.send('gate', before.assessment);
+  expect(stale.status).toBe(1);
+  expect(stale.stderr).toContain('Stale assessment');
   expect(await t.state()).toEqual(before);
   expect(before.criteria).toEqual(originalCriteria);
+  expect((await t.evaluate(true)).status).toBe(0);
+  expect(cli('gate', t.dir).status).toBe(1);
 });
 
 test('research archiving requires sufficient context and preserves existing records', async () => {
@@ -290,7 +297,7 @@ test('lock and unfinished save block even a previously sufficient evaluation', a
   expect((await t.evaluate()).status).toBe(1);
   await rm(join(t.dir, 'lock'), { recursive: true });
   await mkdir(join(t.dir, 'state.json.tmp'));
-  expect((await t.evaluate()).status).toBe(1);
+  expect((await t.evaluate(false, 'gate')).status).toBe(1);
   expect(await t.state()).toEqual(before);
   expect(cli('gate', t.dir).status).toBe(1);
 });

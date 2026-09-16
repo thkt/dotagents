@@ -15,6 +15,18 @@ const issue = JSON.stringify({
   state: 'OPEN',
   updatedAt: '1',
 });
+const reportPath = 'research/result-behavior.md';
+const reportContent = 'Reviewed finding: keep the result visible until reset.\n';
+const secondReport = 'research/result-validation.md';
+
+async function commitReport(repo: string) {
+  await mkdir(join(repo, 'research'));
+  await writeFile(join(repo, reportPath), reportContent);
+  await writeFile(join(repo, secondReport), 'Existing result tests cover reset and empty input.\n');
+  await git(repo, 'add', '--', reportPath, secondReport);
+  await git(repo, 'commit', '-m', 'required research');
+  return git(repo, 'rev-parse', `HEAD:${reportPath}`);
+}
 const stopReasons = {
   denied_start: /GitHub push permission required/,
   no_ci: /Publishing requires expected CI checks/,
@@ -119,6 +131,9 @@ async function git(cwd: string, ...args: string[]) {
 }
 
 async function prepareInput(repo: string, mode: string, settings: typeof targetConfig) {
+  if (mode === 'other_repo') {
+    await commitReport(repo);
+  }
   if (mode === 'dirty') {
     await writeFile(join(repo, 'unrelated.txt'), 'retain');
   }
@@ -163,7 +178,17 @@ function targetResponse(
     ? reply.replace('operator', 'different-operator')
     : reply;
 }
-function localArguments(mode: string) {
+async function developmentArguments(mode: string, repo: string, original: string) {
+  if (mode === 'other_repo') {
+    return [
+      '--start-commit',
+      original,
+      '--report',
+      `${reportPath}=${await git(repo, 'rev-parse', `HEAD:${reportPath}`)}`,
+      '--report',
+      `${secondReport}=${await git(repo, 'rev-parse', `HEAD:${secondReport}`)}`,
+    ];
+  }
   return mode === 'local_actor_changed' ? ['--no-publish'] : [];
 }
 async function changeTarget(mode: string, config: Config, settings: typeof targetConfig) {
@@ -303,6 +328,14 @@ for (const mode of [
           expect(input).not.toContain('Close video contexts');
           expect(input).toContain('If the agreed Issue needs media, return needs_human');
           expect(await readFile(join(cwd, 'setup.txt'), 'utf8')).toBe('configured');
+          expect(await readFile(join(cwd, reportPath), 'utf8')).toBe(reportContent);
+          expect(await readFile(join(cwd, secondReport), 'utf8')).toBe(
+            'Existing result tests cover reset and empty input.\n',
+          );
+          expect(input).toContain(reportPath);
+          expect(input).toContain(secondReport);
+          expect(input).toContain(original);
+          expect(input).not.toContain(reportContent.trim());
         }
         expect(input).toContain('Show the requested result.');
         await writeFile(join(cwd, 'result.txt'), 'implemented');
@@ -367,7 +400,7 @@ for (const mode of [
         '--run-dir',
         dir,
       ];
-      args.push(...localArguments(mode));
+      args.push(...(await developmentArguments(mode, repo, original)));
       if (mode === 'other_repo' || mode === 'local_denied' || mode === 'local_no_ci') {
         const result = await develop([...args, '--no-publish'], io);
         assert('status' in result);
@@ -401,6 +434,111 @@ for (const mode of [
       expect(await readFile(join(repo, 'result.txt'), 'utf8')).toBe('old');
       if (mode === 'dirty') {
         expect(await readFile(join(repo, 'unrelated.txt'), 'utf8')).toBe('retain');
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
+const handoffFailures = {
+  missing: /Required report is missing from start commit.*research\/result-behavior.md/,
+  uncommitted: /Required report is missing from start commit.*research\/result-behavior.md/,
+  modified: /Required report has uncommitted content.*research\/result-behavior.md/,
+  different_blob: /Required report differs from reviewed version.*research\/result-behavior.md/,
+  different_start: /Start commit differs from handoff/,
+  no_start: /Required reports need --start-commit/,
+  setup_modified: /Required report has uncommitted content.*research\/result-behavior.md/,
+};
+
+for (const [mode, reason] of Object.entries(handoffFailures)) {
+  test(`development stops incomplete research handoff: ${mode}`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'development-handoff-'));
+    const repo = join(root, 'repo');
+    const dir = join(root, 'run');
+    await mkdir(repo);
+    try {
+      const settings = { ...targetConfig, setup: [['fixture-setup']] };
+      await initializeTarget(repo, settings);
+      const beforeReport = await git(repo, 'rev-parse', 'HEAD');
+      const blob = await commitReport(repo);
+      const reviewed = await git(repo, 'rev-parse', 'HEAD');
+      if (mode === 'missing' || mode === 'uncommitted') {
+        await git(repo, 'reset', '--hard', beforeReport);
+        if (mode === 'uncommitted') {
+          await mkdir(join(repo, 'research'));
+          await writeFile(join(repo, reportPath), reportContent);
+        }
+      }
+      if (mode === 'modified') {
+        await writeFile(join(repo, reportPath), 'Unchecked working report.\n');
+      }
+      if (mode === 'different_blob') {
+        await writeFile(join(repo, reportPath), 'A different committed report.\n');
+        await git(repo, 'add', '--', reportPath);
+        await git(repo, 'commit', '-m', 'changed report');
+      }
+      if (mode !== 'setup_modified') {
+        await writeFile(join(repo, 'unrelated.txt'), 'Preserve other work');
+      }
+      const head = await git(repo, 'rev-parse', 'HEAD');
+      const status = await git(repo, 'status', '--porcelain');
+      let setups = 0;
+      const io = {
+        command: async (argv: string[], cwd: string, input: string, timeout: number) => {
+          const reply = githubTarget(argv, settings);
+          if (reply !== undefined) {
+            return ok(reply);
+          }
+          if (argv[0] === 'git') {
+            return command(argv, cwd, input, timeout);
+          }
+          if (argv[0] === 'gh' && argv[1] === 'issue') {
+            return ok(issue);
+          }
+          if (argv[0] === 'fixture-setup') {
+            setups++;
+            await writeFile(join(cwd, reportPath), 'Setup replaced the reviewed content.\n');
+            return ok();
+          }
+          throw Error(`Implementation must not start: ${argv[0]}`);
+        },
+        verify: async (): Promise<State> => {
+          throw Error('Verification must not start');
+        },
+        publish: async (): Promise<string> => {
+          throw Error('Publication must not start');
+        },
+      };
+      const args = [
+        '99',
+        '--repo',
+        repo,
+        '--run-dir',
+        dir,
+        '--no-publish',
+        '--report',
+        `${reportPath}=${blob}`,
+      ];
+      if (mode === 'different_blob') {
+        args.unshift(
+          '--report',
+          `${secondReport}=${await git(repo, 'rev-parse', `HEAD:${secondReport}`)}`,
+        );
+      }
+      if (mode !== 'no_start') {
+        args.push('--start-commit', mode === 'different_start' ? beforeReport : head);
+      }
+      await assert.rejects(() => develop(args, io), reason);
+      expect(setups).toBe(mode === 'setup_modified' ? 1 : 0);
+      expect(existsSync(join(dir, 'checkout'))).toBe(mode === 'setup_modified');
+      expect(await git(repo, 'rev-parse', 'HEAD')).toBe(head);
+      expect(await git(repo, 'status', '--porcelain')).toBe(status);
+      if (mode !== 'setup_modified') {
+        expect(await readFile(join(repo, 'unrelated.txt'), 'utf8')).toBe('Preserve other work');
+      } else {
+        expect(head).toBe(reviewed);
+        expect(await readFile(join(repo, reportPath), 'utf8')).toBe(reportContent);
       }
     } finally {
       await rm(root, { recursive: true, force: true });
