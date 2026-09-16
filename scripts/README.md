@@ -232,7 +232,7 @@ Issue #66の試行結果は[2026-09-15の実モデル検証記録](../docs/evide
 
 Antigravity CLIの`agy`と既存のCodex CLIを使います。初回利用前に`agy models`で`gemini-3.8-flash-high`を確認し、ログインはホストの既存設定を使います。CIにモデル認証は追加しません。
 
-Issueや直接作成・更新するPR本文、単独の文書は、本文案と事実・合意・出典のファイルを分けて準備します。対象に含まれない秘密や非公開ログを入力へ混ぜないでください。
+直接作成・更新するPR本文、人向けの単独Markdownは、本文案と事実・合意・出典のファイルを分けて準備します。対象に含まれない秘密や非公開ログを入力へ混ぜないでください。
 
 ```sh
 bun /absolute/path/trusted-checkout/scripts/writing-review.ts file \
@@ -240,9 +240,24 @@ bun /absolute/path/trusted-checkout/scripts/writing-review.ts file \
   --output /absolute/path/reviewed.md --run-dir /absolute/path/outside-checkout/writing-run
 ```
 
-確認に成功すると、新しいoutputファイルへ確認済み候補を書き出します。Antigravity CLIを利用できない理由を確認できた場合は、原文をoutputへ保持し、`skipped.json`へモデル名、理由、入力hashを記録して通常の確認へ進みます。未実施の理由はIssueやPRの説明、または完了報告に記載し、確認済みとは報告しません。Issueではこのファイルを`gh issue create/edit --body-file`へ渡し、PRでは`publish.ts`または`gh pr edit --body-file`へ渡します。タイトルや機械的な識別子の生成はこの本文修正とは分けます。公開後は実際の本文、リンク、添付を読み直します。配置や説明を変更した場合も、その最新本文に同じ確認を適用します。
+確認に成功すると、新しいoutputファイルへ確認済み候補を書き出します。Antigravity CLIを利用できない理由を確認できた場合は、原文をoutputへ保持し、`skipped.json`へモデル名、理由、入力hashを記録して通常の確認へ進みます。未実施の理由はPRの説明、または完了報告に記載し、確認済みとは報告しません。PRではこのファイルを`publish.ts`または`gh pr edit --body-file`へ渡します。タイトルや機械的な識別子の生成はこの本文修正とは分けます。公開後は実際の本文、リンク、添付を読み直します。配置や説明を変更した場合も、その最新本文に同じ確認を適用します。
 
-`development.ts`は変更されたMarkdownを対象に、ホストの共通check・独立評価の前と修正後に`documents`モードを実行します。変更のない文書は対象外です。候補の採用前に対象文書の集合、内容、根拠を再照合し、確認中に新たな文書が対象になった場合も停止します。同じ文書と根拠に対する成功記録を再利用します。利用不能の記録は成功とは分けて保持します。同じ保存先で入力が同じ場合は再試行せず、未実施の理由を通知します。入力が変わった場合は確認を試みます。PR本文は検証結果から作成し、確認を通してからpush・公開します。`--no-publish`も文書の確認は行いますが、PR本文作成と公開は行いません。`correction.ts`を単独で使う場合は、設定の`writing`に同CLIの`--worker documents --facts FILE --run-dir DIRECTORY`呼び出しを指定します。
+`development.ts`は下記の設定で選んだ変更済みの人向けMarkdownを対象に、ホストの共通check・独立評価の前と修正後に`documents`モードを実行します。変更のない文書は対象外です。候補の採用前に対象選択の設定、対象文書の集合、内容、根拠を再照合し、確認中に新たな文書が対象になった場合も停止します。同じ対象選択・文書・根拠に対する成功記録を再利用します。利用不能の記録は成功とは分けて保持します。同じ保存先で入力が同じ場合は再試行せず、未実施の理由を通知します。入力が変わった場合は確認を試みます。PR本文は検証結果から作成し、確認を通してからpush・公開します。`--no-publish`も文書の確認は行いますが、PR本文作成と公開は行いません。`correction.ts`を単独で使う場合は、設定の`writing`に同CLIの`--worker documents --facts FILE --run-dir DIRECTORY`呼び出しを指定します。
+
+対象repoの`.dotagents.json`に`writing`を指定できます。`documents`は既定値を置き換え、`exclude`は選択から除くパスです。repo相対のファイル名または末尾`/`のディレクトリを指定し、ディレクトリは配下を含めます。大文字・小文字を区別し、glob・絶対パス・`..`は使えません。`writing`未指定時はルートの`README.md`と`docs/`だけを候補にします。`documents: []`は一括確認の対象なしを表します。研究記録や独自配置の操作説明は用途を確認して明示してください。変更されていないファイルは設定に含まれていても送信しません。
+
+```json
+"writing": {
+  "documents": ["README.md", "docs/", "research/", "manual/", "scripts/README.md"],
+  "exclude": ["docs/request-draft.md", "research/pending-requests/"]
+}
+```
+
+既知のAI向けファイル名（`AGENTS.md`、`AGENTS.override.md`、`SKILL.md`、`CLAUDE.md`、`GEMINI.md`、`copilot-instructions.md`、`*.prompt.md`、`*.instructions.md`）、指示配置（`.agents/`、`.claude/`、`.cursor/`、`.gemini/`、`skills/`、`agents/`、`prompts/`、`instructions/`、`rules/`）、テスト・fixture配置（`test/`、`tests/`、`__tests__/`、`fixture/`、`fixtures/`、`__fixtures__/`）、およびMarkdown以外のファイルは、明示したパスに含まれていても対象外です。これらの名前の判定は大文字・小文字を区別しません。任意の名前のAI指示や試験データは`exclude`へ指定します。
+
+Issue本文と下書きは標準対象外です。`issue.md`、`issue-59.md`など`issue`または`issues`に`-`・`_`・`.`が続くMarkdown名、`issues/`、`issue-drafts/`、`.github/ISSUE_TEMPLATE/`は除外します。任意の名前で保存する場合は`exclude`に指定するか、frontmatterに`writing-purpose: issue`を記載してください。調査記録とIssue案を兼ねる文書もIssue用途として扱います。通常のIssue作成・更新は[scopingのIssue反映手順](../skills/scoping/references/issue.md)に従い、Gemini校正と校正候補の意味照合を起動しません。要求の抜け・矛盾・曖昧さ、合意・根拠との一致、必要な独立評価と人の合意は引き続き確認します。
+
+`file`モードは人向けMarkdownやPR本文を明示して確認する入口です。`documents`の選択パスには制限されませんが、既知の対象外パス、Issue用途のfrontmatter、Markdown以外のファイルはモデル起動前に拒否します。シンボリックリンクも受け付けません。任意名のIssue案やAI指示をこの入口へ渡さないでください。外部送信の許可は用途による対象選択とは別に確認します。対象外だけの変更では両モデルを起動せず、対象外と通知します。校正成功や利用不能によるスキップ記録は作りません。
 
 Geminiは修正候補を作成し、別の読み取り専用Codexは原文、根拠、候補の間で意味の一致を評価します。モデルID、完了結果、JSONを確認し、frontmatter、コード（インデントやリスト内を含む）、リンクや画像の参照先（相対や参照形式を含む）、URL、hash、Issue参照の変更を拒否します。保護対象の順序と個数も保持します。意味の評価はモデルによる判断であり、事実の正しさや完全な一致を保証するものではありません。元資料の確認と人間によるレビューも必要です。
 
