@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { parseReview, reviewInstructions, reviewSummary } from './review.ts';
 import type { Review } from './review.ts';
+import { researchContext, verifyReportBase } from './research-handoff.ts';
 import { assertConfig, assertState, outside } from './input.ts';
 import type { Config, State, ActorRole, StopReason } from './input.ts';
 import { writingHostTimeoutMs } from './writing.ts';
@@ -517,6 +518,7 @@ async function reviewTarget(config: Config, state: State, issue: string) {
   const target = {
     issue: { hash: state.issueHash, content: issue },
     baseCommit: state.baseCommit,
+    reports: config.reports ?? [],
     source: state.source,
     files,
     check: {
@@ -606,6 +608,7 @@ async function evaluate(
     reviewInstructions,
     `Host context: ${JSON.stringify({ targetId: target.targetId, attempt: state.review + 1, targetRecord: `${target.prefix}.target.json`, diff: `${target.prefix}.diff`, additions: `${target.prefix}.additions.json`, previous: history.at(-1) ?? null })}`,
     `Requirements:\n${issue}`,
+    researchContext(state.baseCommit, config.reports),
   ].join('\n');
   const before = await targetChange(config, state);
   if (before) {
@@ -687,6 +690,7 @@ async function cycle(
     'Return JSON with status repaired or needs_human, and findings explaining your changes or the necessary human decision.',
     'If requirements, permissions or execution limits must change, report needs_human without changing them.',
     `Requirements:\n${issue}\nFailure evidence:\n${findings}`,
+    researchContext(state.baseCommit, config.reports),
   ].join('\n');
   const repaired = await runModel(config, state, 'repair', prompt, persist);
   if ('stop' in repaired) {
@@ -751,6 +755,11 @@ async function execute(config: Config): Promise<State> {
     config.baseCommit ??
     (await command(['git', 'rev-parse', 'HEAD'], config.cwd, '', 10000)).stdout.trim();
   assert(/^[a-f0-9]{40,64}$/.test(base), 'Review requires a base commit');
+  await verifyReportBase(base, config.reports ?? [], async (...args) => {
+    const result = await command(['git', ...args], config.cwd, '', 10000);
+    assert(result.code === 0 && !result.timedOut, 'Cannot verify report base');
+    return result.stdout.trim();
+  });
   state ??= {
     reviewFormat: 1,
     baseCommit: base,

@@ -352,6 +352,11 @@ for (const mode of [
           }
         }
         if (mode === 'other_repo') {
+          expect(config.baseCommit).toBe(original);
+          expect(config.reports).toEqual([
+            { path: reportPath, blob: await git(repo, 'rev-parse', `HEAD:${reportPath}`) },
+            { path: secondReport, blob: await git(repo, 'rev-parse', `HEAD:${secondReport}`) },
+          ]);
           expect(config.check).toEqual(settings.check);
           expect(config.capture).toBeUndefined();
           expect((await command(config.check, config.cwd, '', 10000)).code).toBe(0);

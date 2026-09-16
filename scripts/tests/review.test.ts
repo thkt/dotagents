@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { correctionFixture, events, object, reviewReplySource } from './support/correction.ts';
@@ -198,4 +198,96 @@ test('historical review runs are preserved without conversion or renewed executi
   expect(result.status).toBe(1);
   expect(result.stderr).toContain('Historical review format cannot be converted or resumed');
   expect(await readFile(join(t.config.runDir, 'state.json'), 'utf8')).toBe(old);
+});
+
+test('selected evidence reaches repair and review with original versions and changed applicability', async () => {
+  const t = await trial('normal');
+  const path = 'research/reset.md';
+  const proposal = 'research/keyboard.md';
+  const original =
+    'Observed: pointer reset clears filters; keyboard behavior unverified. Source: source.txt at baseline.\n';
+  const updated =
+    'Observed: pointer reset clears filters; keyboard reset also verified by the new targeted check.\n';
+  await mkdir(join(t.config.cwd, 'research'));
+  await writeFile(join(t.config.cwd, path), original);
+  await writeFile(
+    join(t.config.cwd, proposal),
+    'Proposal only: move focus to the first result on keyboard reset. No agreement.\n',
+  );
+  git(t.config.cwd, 'add', 'research');
+  git(t.config.cwd, 'commit', '-m', 'selected evidence');
+  const base = git(t.config.cwd, 'rev-parse', 'HEAD');
+  const reports = [path, proposal].map((path) => ({
+    path,
+    blob: git(t.config.cwd, 'rev-parse', `HEAD:${path}`),
+  }));
+  t.config.baseCommit = base;
+  t.config.reports = reports;
+  const repair = join(t.root, 'repair.js');
+  await writeFile(
+    repair,
+    `import {writeFileSync} from 'node:fs';
+writeFileSync('source.txt','correct');
+writeFileSync(${JSON.stringify(path)},${JSON.stringify(updated)});
+console.log(JSON.stringify({status:'repaired',findings:'Fixture evidence updated; focus proposal remains unagreed'}));`,
+  );
+  t.config.repair = [process.execPath, repair];
+  // The simulated judgment exercises transport only, not model semantic accuracy.
+  await reviewer(
+    t,
+    `const reply=reviewReply('accepted','Scoped evidence assessed');
+reply.assessments.requirements='Pointer and keyboard evidence have different applicability; focus movement is an unagreed proposal, not a requirement.';
+reply.documents=[
+ {path:${JSON.stringify(path)},role:'current',reason:'New keyboard observation supersedes the handoff limitation; compare startCommit before reuse'},
+ {path:${JSON.stringify(proposal)},role:'proposal',reason:'Focus movement has no agreement; excluded from implementation scope'}
+];`,
+  );
+  expect(t.execute().status).toBe(0);
+  const state = await t.state();
+  expect([state.repair, state.review]).toEqual([1, 1]);
+  for (const role of ['repair', 'review']) {
+    const prompt = await readFile(join(t.config.runDir, `${role}-1.prompt`), 'utf8');
+    const references: unknown = JSON.parse(
+      prompt.split('Implementation references: ')[1]?.split('\n')[0] ?? 'null',
+    );
+    expect(references).toEqual({ startCommit: base, reports });
+    expect(prompt).not.toContain(original.trim());
+    expect(prompt).not.toContain(updated.trim());
+  }
+  const target = object(
+    JSON.parse(await readFile(join(t.config.runDir, 'review-1.target.json'), 'utf8')),
+  );
+  expect(target.reports).toEqual(reports);
+  expect(target.baseCommit).toBe(base);
+  const record = object(JSON.parse(await readFile(join(t.config.runDir, 'review-1.json'), 'utf8')));
+  expect(object(events(record.documents)[0]).hash).toBe(
+    createHash('sha256').update(updated).digest('hex'),
+  );
+  expect(git(t.config.cwd, 'show', `${base}:${path}`)).toBe(original.trim());
+  expect(state.findings).toContain(`${proposal} (proposal)`);
+  expect(state.findings).toContain('Focus movement has no agreement');
+  // A later evidence-only edit cannot reuse the accepted result.
+  await writeFile(join(t.config.cwd, path), 'Keyboard observation withdrawn.\n');
+  const stale = t.execute();
+  expect(stale.status).toBe(1);
+  expect(object(JSON.parse(stale.stdout)).result).toBe('target_changed_after_stop');
+});
+
+test('standalone correction rejects a stale report pin before executing verification', async () => {
+  const t = await trial('normal');
+  const path = 'research/reset.md';
+  await mkdir(join(t.config.cwd, 'research'));
+  await writeFile(join(t.config.cwd, path), 'Reviewed pointer behavior');
+  const blob = git(t.config.cwd, 'hash-object', '--no-filters', '--', path);
+  await writeFile(join(t.config.cwd, path), 'Changed pointer behavior');
+  git(t.config.cwd, 'add', 'research');
+  git(t.config.cwd, 'commit', '-m', 'different evidence');
+  t.config.baseCommit = git(t.config.cwd, 'rev-parse', 'HEAD');
+  t.config.reports = [{ path, blob }];
+  await writeFile(t.configFile, JSON.stringify(t.config));
+  const result = t.execute();
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain(`Required report differs from reviewed version: ${path}`);
+  expect(await Bun.file(join(t.config.runDir, 'check-1.stdout')).exists()).toBe(false);
+  expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
 });
