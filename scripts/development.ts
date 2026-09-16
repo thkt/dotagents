@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { reviewModel } from './review.ts';
+import { prBody } from './pr-body.ts';
 import { mkdir, readFile, writeFile, realpath } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { homedir } from 'node:os';
@@ -263,10 +264,8 @@ async function ship(
   const changed = await git('status', '--porcelain');
   assert(changed.length > 0, 'No implementation changes; no PR created');
   // Reuse the controller's source/Issue check immediately before publication.
-  assert(
-    (await io.verify(config)).result === 'ready_for_human_review',
-    'Verified source or requirements changed',
-  );
+  const verified = await io.verify(config);
+  assert(verified.result === 'ready_for_human_review', 'Verified source or requirements changed');
   await git('add', '--all');
   await git('commit', '-m', `${requirements.title} (#${number})`);
   const commit = await git('rev-parse', 'HEAD');
@@ -281,10 +280,18 @@ async function ship(
       /\.(png|jpe?g|webp|mp4|webm)$/i.test(file),
   );
   const body = join(dir, 'pr.md');
-  const summary = await readFile(join(dir, 'verification-summary.md'), 'utf8');
   await writeFile(
     body,
-    `Closes #${number}\n\n${summary}\n\n対象commit: ${commit}\n\nローカルcheckと独立評価を完了。最新CI、人のレビュー・承認は別途確認する。\n`,
+    prBody({
+      review: verified.reviewHistory.at(-1),
+      repository,
+      number,
+      commit,
+      check: context.target.config.check,
+      ciChecks: context.target.config.ciChecks,
+      media,
+      localRoots: [cwd, dir],
+    }),
   );
   const reviewedBody = join(dir, 'pr-reviewed.md');
   await checked(
@@ -309,6 +316,10 @@ async function ship(
   assert(
     (await readFile(reviewedBody, 'utf8')).includes(`Closes #${number}`),
     'Reviewed PR lost Issue reference',
+  );
+  assert(
+    (await readFile(reviewedBody, 'utf8')).includes(commit),
+    'Reviewed PR lost verified commit',
   );
   assert(
     (await io.verify(config)).result === 'ready_for_human_review',
@@ -400,7 +411,11 @@ async function ship(
     commit,
     evidence: dir,
     ci: ci?.code === 0 && !ci.timedOut ? 'passed' : 'pending_or_failed',
-    remaining: ['human_review', ...(media.length ? ['rendered_media_check'] : [])],
+    remaining: [
+      ...(ci?.code === 0 && !ci.timedOut ? [] : ['ci']),
+      'human_review',
+      ...(media.length ? ['rendered_media_check'] : []),
+    ],
   };
   await writeFile(join(dir, 'result.json'), JSON.stringify(result, null, 2));
   assert(result.ci === 'passed', `PR created but CI is not confirmed: ${url}; inspect ${dir}`);
@@ -417,7 +432,16 @@ export async function develop(args: string[], io = runtime) {
     const config = await implement(context, io);
     if (context.localOnly) {
       await unchangedTarget(context, io);
-      return { status: 'verified_local', evidence: context.dir, checkout: context.cwd };
+      return {
+        status: 'verified_local',
+        evidence: context.dir,
+        checkout: context.cwd,
+        remaining: [
+          'publication',
+          ...(context.target.config.ciChecks.length ? ['ci'] : []),
+          'human_review',
+        ],
+      };
     }
     console.error('Verified; committing, publishing and checking CI');
     return await ship(context, config, io);
