@@ -18,6 +18,7 @@ import { publish } from './publish.ts';
 import { waitForCi } from './ci.ts';
 import { writingHostTimeoutMs } from './writing.ts';
 import { readTarget, issueNumber, targetCommand, pushArguments } from './target.ts';
+import { researchHandoff, verifyReports } from './research-handoff.ts';
 
 const runtime = { command, verify: run, publish };
 const modelTimeMs = 1200000;
@@ -52,11 +53,13 @@ async function prepare(args: string[], io: typeof runtime) {
       repo: { type: 'string' },
       'run-dir': { type: 'string' },
       'no-publish': { type: 'boolean' },
+      'start-commit': { type: 'string' },
+      report: { type: 'string', multiple: true },
     },
   });
   assert(
     parsed.positionals.length === 1,
-    'Usage: bun scripts/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY]',
+    'Usage: bun scripts/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report research/NAME.md=BLOB]',
   );
   const repo = await realpath(parsed.values.repo ?? process.cwd());
   const git = (...argv: string[]) => checked(io, ['git', ...argv], repo);
@@ -67,6 +70,14 @@ async function prepare(args: string[], io: typeof runtime) {
   const input = parsed.positionals[0];
   assert(input);
   const number = issueNumber(input, repository);
+  const base = await git('rev-parse', 'HEAD');
+  const reports = await researchHandoff(
+    repo,
+    base,
+    parsed.values['start-commit'],
+    parsed.values.report ?? [],
+    git,
+  );
   assert(
     (await git('status', '--porcelain')).length === 0,
     'Commit or preserve pending work before development; the entry uses committed HEAD',
@@ -101,13 +112,13 @@ async function prepare(args: string[], io: typeof runtime) {
     outside(repo, canonical) && outside(common, canonical),
     'Run directory resolves inside repository storage',
   );
-  const base = await git('rev-parse', 'HEAD');
   const remote = await git('remote', 'get-url', target.config.remote);
-  const cwd = join(dir, 'checkout');
+  const cwd = join(canonical, 'checkout');
   const branch = `codex/development-${number}`;
   await writeFile(join(dir, 'issue.json'), original);
   await writeFile(join(dir, 'target.json'), JSON.stringify(target, null, 2));
-  await git('worktree', 'add', '-b', branch, cwd, 'HEAD');
+  assert((await git('rev-parse', 'HEAD')) === base, 'Start HEAD changed during preparation');
+  await git('worktree', 'add', '-b', branch, cwd, base);
   return {
     number,
     issue,
@@ -120,6 +131,7 @@ async function prepare(args: string[], io: typeof runtime) {
     remote,
     localOnly,
     target,
+    reports,
   };
 }
 type Context = Awaited<ReturnType<typeof prepare>>;
@@ -149,6 +161,9 @@ async function implement(context: Context, io: typeof runtime) {
     await checked(io, targetCommand(argv), cwd, join(dir, `setup-${index + 1}`));
   }
   await unchangedTarget(context, io);
+  await verifyReports(cwd, context.base, context.reports, (...args) =>
+    checked(io, ['git', ...args], cwd),
+  );
   const prompt = [
     'Implement the complete agreed Issue using existing code and verification assets. Follow applicable repository instructions; consult the target README and development policy sections relevant to this change.',
     'Prepare the tests and documentation needed for the agreed behavior; reuse sufficient existing verification. Complete the implementation and targeted checks needed to prepare it for host verification without pausing for approval of routine choices within scope. The host runs the configured verification; do not launch browsers or servers in your sandbox.',
@@ -159,6 +174,12 @@ async function implement(context: Context, io: typeof runtime) {
     'Do not commit, push, publish, change the Issue or weaken acceptance criteria. Do not run the full check; the host will do it after implementation.',
     'Do not edit control scripts or credentials outside this checkout. If scope or authorization must change, return needs_human with the concrete decision and its impact. If an instruction file caused that stop, identify the file actually read, quote the relevant instruction and distinguish its explicit requirement from your interpretation. Otherwise return repaired with a concrete summary.',
     `Requirements:\n${original}`,
+    `Implementation references: ${JSON.stringify({
+      issue: `https://github.com/${context.target.config.repository}/issues/${context.number}`,
+      startCommit: context.base,
+      reports: context.reports,
+    })}`,
+    'Read the required reports at these paths in the worktree. Their reviewed blobs were verified in the start commit and checkout. These references do not replace the Issue, content assessment or human agreement; publication of the reports is not verified here.',
   ].join('\n');
   await writeFile(join(dir, 'implementation.prompt'), prompt);
   const actor = [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'repair', dir];

@@ -107,6 +107,11 @@ async function note(state: Session, file: string) {
   state.entries.push({ kind: 'note', text });
   state.assessment = null;
 }
+async function saveAssessment(dir: string, state: Session, file: string) {
+  await assess(state, file);
+  state.revision++;
+  await save(dir, state);
+}
 async function archive(state: Session, file: string) {
   assert(ready(state), 'Context is not sufficient');
   const name = basename(file);
@@ -167,6 +172,9 @@ async function run(action: string, dir: string, file?: string) {
     );
     const current = await load(canonical);
     if (action === 'gate') {
+      if (file) {
+        await saveAssessment(canonical, current, file);
+      }
       assert(ready(current), 'Context is not sufficient; inspect status');
       console.log(current.assessment?.decision);
       return;
@@ -177,12 +185,12 @@ async function run(action: string, dir: string, file?: string) {
       return;
     }
     if (action === 'assess') {
-      await assess(current, file);
+      await saveAssessment(canonical, current, file);
     } else {
       await note(current, file);
+      current.revision++;
+      await save(canonical, current);
     }
-    current.revision++;
-    await save(canonical, current);
     console.log(
       JSON.stringify({
         revision: current.revision,
@@ -200,13 +208,13 @@ try {
       ['start', 'status', 'gate', 'note', 'assess', 'archive'].includes(action) &&
       target &&
       !extra,
-    'Usage: bun scripts/discovery.ts start CONFIG | status|gate SESSION | note|assess|archive SESSION INPUT',
+    'Usage: bun scripts/discovery.ts start CONFIG | status SESSION | gate SESSION [ASSESSMENT] | note|assess|archive SESSION INPUT',
   );
   if (action === 'start') {
     assert(!file, 'Unexpected argument');
     await start(target);
   } else {
-    assert(!['status', 'gate'].includes(action) || !file, 'Unexpected argument');
+    assert(action !== 'status' || !file, 'Unexpected argument');
     await run(action, target, file);
   }
 } catch (error) {
