@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import { develop } from '../development.ts';
 import { command } from '../correction.ts';
 import type { Config, State } from '../input.ts';
+import { reviewSummary } from '../review.ts';
+import type { Review } from '../review.ts';
 import { initializeTarget, githubTarget, targetConfig } from './support/target.ts';
 
 const issue = JSON.stringify({
@@ -235,7 +237,7 @@ for (const mode of [
   'head_changed',
 ] as const) {
   test(`development ${mode}`, async () => {
-    const root = await mkdtemp(join(tmpdir(), 'development-'));
+    const root = await mkdtemp(join(tmpdir(), 'development run-'));
     const repo = join(root, 'repo');
     const dir = join(root, 'run');
     await mkdir(repo);
@@ -260,6 +262,77 @@ for (const mode of [
     }
     await initializeTarget(repo, settings);
     const original = await prepareInput(repo, mode, settings);
+    const review: Review = {
+      status: 'accepted',
+      targetId: 'internal-current-target',
+      findings: `Internal narrative: ${dir}/verification/review-2.stdout\nRAW_LOG_ONLY`,
+      assessments: {
+        code: `Keep the requested result visible until reset so readers can inspect it. The /home/settings route now preserves the selected filters; see https://example.com/results. 詳細は${dir}/verification/check-2.stdoutを確認済みだが実サービスのタイミングは未確認。`,
+        requirements: 'Issue #99 requires a visible result; result.txt now retains that result.',
+        tests: `Reset and empty-input checks passed; live service behavior remains unverified. Details: ${dir}/verification/check-2.stdout`,
+        documentation:
+          'The historical pointer observation applies only to pointer input; focus movement remains an unagreed proposal.',
+      },
+      items: [
+        {
+          id: 'R1-result',
+          introducedIn: 'internal-old-target',
+          kind: 'defect',
+          area: 'requirements',
+          required: true,
+          location: { path: 'result.txt', line: 1 },
+          condition: 'Reset left stale content.',
+          impact: 'Readers could see an obsolete result.',
+          evidence: `RAW_LOG_ONLY\n${dir}/verification/check-1.stderr`,
+          action: 'Clear the retained result on reset.',
+          disposition: 'fixed',
+          reason: `Reset now clears the result, confirmed by the reset check (${dir}/verification/check-2.stdout).`,
+        },
+        {
+          id: 'R2-live',
+          introducedIn: 'internal-current-target',
+          kind: 'concern',
+          area: 'tests',
+          required: false,
+          location: { path: null, line: null },
+          condition: 'Live service timing is unmeasured.',
+          impact: 'Timing may differ in production.',
+          evidence: 'Only simulated service responses were available.',
+          action: '担当AI: Report live service timing as unverified.',
+          disposition: 'open',
+          reason: 'This run verifies the agreed local behavior only.',
+        },
+      ],
+      documents: [
+        {
+          path: '.dotagents.json',
+          role: 'current',
+          reason: 'Defines the local check; its success does not establish live service behavior.',
+        },
+      ],
+      handoff: [
+        `担当AI: Compare the public explanation with Issue #99; live service timing remains unverified (${dir}/verification/check-2.stdout).`,
+      ],
+    };
+    const firstItem = review.items[0];
+    assert(firstItem);
+    const history: Review[] = [
+      {
+        ...review,
+        status: 'needs_changes',
+        targetId: 'internal-old-target',
+        items: [
+          { ...firstItem, disposition: 'open', reason: 'Still reproducible in the first check.' },
+        ],
+      },
+      review,
+    ];
+    const internal = JSON.stringify(history);
+    const rawReview = JSON.stringify(review);
+    const summary = reviewSummary(history, [
+      join(dir, 'verification/review-1.json'),
+      join(dir, 'verification/review-2.json'),
+    ]);
     let implementations = 0,
       reviews = 0,
       pushes = 0,
@@ -276,6 +349,8 @@ for (const mode of [
               ? issue.replace('visible', 'different')
               : issue,
           );
+        case 'pr/edit':
+          return ok();
         case 'pr/view':
           return ok(
             JSON.stringify({
@@ -345,7 +420,9 @@ for (const mode of [
         reviews++;
         if (reviews === 1) {
           await changeTarget(mode, config, settings);
-          if (mode === 'attachment_actor_changed') {
+          await mkdir(config.runDir, { recursive: true });
+          await writeFile(join(config.runDir, 'review-2.stdout'), rawReview);
+          if (settings.capture) {
             const media = join(config.cwd, 'review/media');
             await mkdir(media, { recursive: true });
             await writeFile(join(media, 'view.png'), 'image');
@@ -369,7 +446,7 @@ for (const mode of [
         return {
           reviewFormat: 1,
           baseCommit: await git(config.cwd, 'rev-parse', 'HEAD'),
-          reviewHistory: [],
+          reviewHistory: history,
           configHash: '',
           issueHash: '',
           repair: 0,
@@ -378,7 +455,7 @@ for (const mode of [
           modelMs: 1,
           active: null,
           events: [],
-          findings: 'Verified current implementation and media',
+          findings: summary,
           result:
             mode === 'review_failure'
               ? 'review_failed'
@@ -392,6 +469,9 @@ for (const mode of [
         expect(args[args.indexOf('--actor') + 1]).toBe('operator');
         publications++;
         expect(pushes).toBe(1);
+        const bodyPath = args[args.indexOf('--body-file') + 1];
+        assert(bodyPath);
+        expect(await readFile(bodyPath, 'utf8')).toBe(await readFile(join(dir, 'pr.md'), 'utf8'));
         return `https://github.com/${settings.repository}/pull/100`;
       },
     };
@@ -412,6 +492,10 @@ for (const mode of [
         expect(result.status).toBe('verified_local');
         expect(pushes).toBe(0);
         expect(publications).toBe(0);
+        expect(result.remaining).toContain('publication');
+        expect(result.remaining).toContain('human_review');
+        expect(result.remaining.includes('ci')).toBe(mode !== 'local_no_ci');
+        expect(existsSync(join(dir, 'pr.md'))).toBe(false);
       } else if (mode === 'success') {
         const result = await develop(args, io);
         assert('ci' in result);
@@ -419,7 +503,40 @@ for (const mode of [
         expect(result.url).toContain('/pull/100');
         expect(publications).toBe(1);
         const body = await readFile(join(dir, 'pr.md'), 'utf8');
-        expect(body).toContain('Verified current implementation and media');
+        expect(body).toContain('Keep the requested result visible until reset');
+        expect(body).toContain(
+          '詳細は（内部パス省略）を確認済みだが実サービスのタイミングは未確認。',
+        );
+        expect(body).toContain('The /home/settings route now preserves the selected filters');
+        expect(body).toContain('https://example.com/results');
+        expect(body).toContain('Issue #99 requires a visible result');
+        expect(body).toContain('Reset and empty-input checks passed');
+        expect(body).toContain('Reset now clears the result, confirmed by the reset check');
+        expect(body).toContain('Live service timing is unmeasured');
+        expect(body).toContain('Report live service timing as unverified');
+        expect(body).toContain('focus movement remains an unagreed proposal');
+        expect(body).toContain(`/blob/${result.commit}/.dotagents.json`);
+        expect(body).toContain('its success does not establish live service behavior');
+        expect(body).toContain('対象commit: ' + result.commit);
+        expect(body).toContain('Closes #99');
+        expect(body).toContain('公開・CI・公開後確認は未完了');
+        expect(body).toContain('CLI: 対象commitの媒体を添付する（review/media/view.png）');
+        expect(body).toContain('担当AI: 添付後の実際のPR画面');
+        expect(body).toContain('人: 要求や権限の変更を判断');
+        expect(result.remaining).toEqual(['human_review', 'rendered_media_check']);
+        [
+          dir,
+          'RAW_LOG_ONLY',
+          'internal-old-target',
+          'internal-current-target',
+          'check-2.stdout',
+          'review-1.json',
+        ].forEach((privateDetail) => {
+          expect(body).not.toContain(privateDetail);
+        });
+        expect(await readFile(join(dir, 'verification-summary.md'), 'utf8')).toBe(summary);
+        expect(await readFile(join(dir, 'verification/review-2.stdout'), 'utf8')).toBe(rawReview);
+        expect(JSON.stringify(history)).toBe(internal);
         expect(body).not.toContain('Implementation claim, not verification');
         await assert.rejects(() => develop(args, io), /EEXIST/);
         expect(implementations).toBe(1);
@@ -433,6 +550,14 @@ for (const mode of [
         await checkStop(mode, dir, reviews, implementations);
         if (mode === 'ci_failure') {
           expect(await readFile(join(dir, 'pr-url.txt'), 'utf8')).toContain('/pull/100');
+          const body = await readFile(join(dir, 'pr.md'), 'utf8');
+          expect(body).toContain('公開・CI・公開後確認は未完了');
+          expect(body).toContain('今回の新規添付対象はありません');
+          expect(body).not.toContain('rendered_media_check');
+          expect(JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'))).toMatchObject({
+            ci: 'pending_or_failed',
+            remaining: ['ci', 'human_review'],
+          });
         }
       }
       expect(await git(repo, 'rev-parse', 'HEAD')).toBe(original);
