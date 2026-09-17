@@ -68,6 +68,7 @@ for (const [name, mutation, reason] of [
 for (const disposition of ['fixed', 'not_applicable'] as const) {
   test(`re-evaluation adjudicates prior findings: ${disposition}`, async () => {
     const t = await trial('docs');
+    await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
     if (disposition === 'not_applicable') {
       await writeFile(join(t.config.cwd, 'README.md'), 'current');
     }
@@ -87,7 +88,7 @@ if(reviewContext.previous) {
     expect(history.length).toBe(2);
     const first = object(events(history[0]?.items)[0]);
     expect(first.disposition).toBe('open');
-    expect([state.repair, state.review]).toEqual([2, 2]);
+    expect([state.repair, state.review]).toEqual([1, 2]);
     expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('correct');
     expect(await readFile(join(t.config.cwd, 'README.md'), 'utf8')).toBe('current');
     const latest = object(events(history[1]?.items)[0]);
@@ -102,7 +103,7 @@ if(reviewContext.previous) {
     const prompt = await readFile(join(t.config.runDir, 'review-2.prompt'), 'utf8');
     const context = object(JSON.parse(prompt.split('Host context: ')[1]?.split('\n')[0] ?? 'null'));
     expect(context.previous).toEqual(history[0]);
-    expect(await readFile(join(t.config.runDir, 'repair-2.prompt'), 'utf8')).toContain(
+    expect(await readFile(join(t.config.runDir, 'repair-1.prompt'), 'utf8')).toContain(
       String(first.id),
     );
   });
@@ -119,6 +120,7 @@ for (const [name, mutation, reason] of [
 ] as const) {
   test(`re-evaluation rejects ${name} judgment and retains the last complete review`, async () => {
     const t = await trial('docs');
+    await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
     await reviewer(
       t,
       `
@@ -135,7 +137,7 @@ if(reviewContext.previous) { ${mutation}; }`,
       JSON.parse(await readFile(join(t.config.runDir, 'review-1.json'), 'utf8')),
     );
     expect(events(state.reviewHistory)[0]).toEqual(record.review);
-    expect([state.repair, state.review]).toEqual([2, 2]);
+    expect([state.repair, state.review]).toEqual([1, 2]);
     expect(await Bun.file(join(t.config.runDir, 'review-2.stdout')).exists()).toBe(true);
     expect(await Bun.file(join(t.config.runDir, 'review-2.target.json')).exists()).toBe(true);
     expect(await Bun.file(join(t.config.runDir, 'review-2.json')).exists()).toBe(false);

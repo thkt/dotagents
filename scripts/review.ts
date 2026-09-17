@@ -190,11 +190,11 @@ export function parseReview(
   assert(isReviewResponse(value), 'Missing or invalid review fields');
   assert(value.targetId === targetId, 'Review target mismatch');
   const priorItems = previous?.items ?? [];
-  const old = new Set(priorItems.map((item) => item.id));
+  const ids = new Set(priorItems.map((item) => item.id));
   const updates = new Map(value.updates.map((update) => [update.id, update]));
   assert(updates.size === value.updates.length, 'Duplicate finding update ID');
   assert(
-    value.updates.every((update) => old.has(update.id)),
+    value.updates.every((update) => ids.has(update.id)),
     'Unknown finding update ID',
   );
   const items = priorItems.map((prior) => {
@@ -202,7 +202,6 @@ export function parseReview(
     assert(update, 'Prior finding omitted');
     return { ...prior, disposition: update.disposition, reason: update.reason };
   });
-  const ids = new Set(old);
   for (const finding of value.newItems) {
     assert(!ids.has(finding.id), 'Duplicate finding ID');
     ids.add(finding.id);
@@ -239,9 +238,9 @@ export const reviewInstructions = [
   'Compare implementation premises with the selected Issue/report references and their handoff versions in the host context. In requirements/documentation assessments, explain relevant applicability, agreement and changed evidence; use document reasons for source selection. A decision-blocking gap or contradiction is a required open finding with the affected decision and return path in action, not an accepted handoff task. Human decisions cannot be resolved by the reviewer.',
   'Do not edit files or run the full check. The host check result is in the target record. Use current artifacts and necessary targeted verification to adjudicate findings; do not trust repair self-reports.',
   'Return the review JSON schema. Echo targetId from the host context. Give substantive reasons in all four assessments, including applicability and unverified limits. findings is the overall summary. Return updates and newItems, not status or items; the host reconstructs the complete record and computes status from required open findings.',
-  'The existing PR generator selects assessments, item condition/impact/reason (and action for open items), document reasons and handoff for public readers. In code assessment explain the concrete change and why it is needed; in requirements map it to the agreed behavior; in tests state actual verification and limits, distinguishing simulated tests from live execution; in documentation explain applicable sources, versions, agreement and changed premises. Use concise factual prose, not generic all-passed claims. Keep raw logs and host-local record references in evidence/findings and the internal records, not these public-facing fields. For prior findings, return only id, disposition and reason in updates; reason should explain the current resolution without copying raw evidence. The host preserves the original details.',
+  'The existing PR generator selects assessments, item condition/impact/reason (and action for open items), document reasons and handoff for public readers. In code assessment explain the concrete change and why it is needed; in requirements map it to the agreed behavior; in tests state actual verification and limits, distinguishing simulated tests from live execution; in documentation explain applicable sources, versions, agreement and changed premises. Use concise factual prose, not generic all-passed claims. Keep raw logs and host-local record references in evidence/findings and the internal records, not these public-facing fields. For prior findings, reason should explain the current resolution without copying raw evidence.',
   'Each newItems entry needs a stable ID R<attempt>-<name>, introducedIn equal to this targetId, kind defect or concern, area code/requirements/tests/documentation, required, location, condition, impact, evidence, action, disposition open, and reason. Use null path/line when no real code location exists, including missing documentation. Never invent locations or reproduction runs.',
-  'Return exactly one updates entry for EVERY previous item ID, including already resolved items; use only id, disposition (open, fixed, not_applicable) and reason based on the current artifacts and verification. Do not repeat original details or place prior IDs in newItems. On the first review updates is empty. Explain concrete evidence for fixes or non-applicability, not merely an implementer claim. Reopen when needed. Keep unresolved required items open; the host computes needs_changes while any remain, otherwise accepted.',
+  'Return exactly one updates entry for EVERY previous item ID, including already resolved items; use only id, disposition (open, fixed, not_applicable) and reason based on the current artifacts and verification. The host preserves the original details. Do not repeat them or place prior IDs in newItems. On the first review updates is empty. Explain concrete evidence for fixes or non-applicability, not merely an implementer claim. Reopen when needed. Keep unresolved required items open.',
   'List principal repository documents actually consulted with their exact repository-relative path, role current/historical/proposal and reference reason. The host binds their versions; this is not proof of sufficient reading or a whole-document index.',
   'Publisher PR creation, upload and rendered-media checks, and human review/approval are handoff actions, not implementation defects. List pending actions in handoff; do not waive them or claim completion.',
   'For each handoff action name its owner and concrete pending check: CLI for publication/upload/CI execution; responsible AI for evidence comparison and actual PR rendered-media/layout checks; human for requirement/authority decisions, review, approval and merge. Accepted is not completion of those actions.',
