@@ -127,29 +127,28 @@ test('CI check policy must be explicit with unique nonempty names', async () => 
   }
 });
 
-test('target validates writing paths before execution and preserves explicit selection', async () => {
-  const cwd = await mkdtemp(join(tmpdir(), 'writing-policy-'));
+test('target rejects retired writing settings before GitHub access', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'retired-writing-'));
   try {
     await initializeTarget(cwd);
-    const read = async (argv: string[]) => githubTarget(argv) ?? git(cwd, ...argv.slice(1));
-    for (const writing of [
-      null,
-      { documents: ['../outside/'] },
-      { documents: ['/docs/'] },
-      { documents: ['docs/**/*.md'] },
-      { documents: ['docs/'], exclude: 'issues/' },
-      { documents: ['docs/'], excludes: ['docs/request.md'] },
-    ]) {
-      await writeFile(join(cwd, '.dotagents.json'), JSON.stringify({ ...targetConfig, writing }));
-      await assert.rejects(() => readTarget(cwd, read), /Invalid writing selection/);
+    let githubReads = 0;
+    const read = async (argv: string[]) => {
+      if (argv[0] === 'gh') {
+        githubReads++;
+        return githubTarget(argv) ?? '';
+      }
+      return git(cwd, ...argv.slice(1));
+    };
+    for (const writing of [{ documents: ['README.md'] }, { documents: [] }, null]) {
+      const text = JSON.stringify({ ...targetConfig, writing });
+      await writeFile(join(cwd, '.dotagents.json'), text);
+      await assert.rejects(
+        () => readTarget(cwd, read),
+        /writing is no longer supported; remove writing from .dotagents.json/,
+      );
+      expect(await Bun.file(join(cwd, '.dotagents.json')).text()).toBe(text);
     }
-    for (const writing of [
-      { documents: ['manual/', 'README.md'], exclude: ['manual/request.md'] },
-      { documents: [] },
-    ]) {
-      await writeFile(join(cwd, '.dotagents.json'), JSON.stringify({ ...targetConfig, writing }));
-      expect((await readTarget(cwd, read)).config.writing).toEqual(writing);
-    }
+    expect(githubReads).toBe(0);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

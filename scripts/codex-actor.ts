@@ -7,8 +7,8 @@ import { pipeline } from 'node:stream/promises';
 
 // Logs stay outside the actor's worktree. The parent owns limits and process termination.
 const [role, evidenceDir] = process.argv.slice(2);
-if ((role !== 'repair' && role !== 'review' && role !== 'review-text') || !evidenceDir) {
-  throw Error('Usage: bun scripts/codex-actor.ts repair|review|review-text EVIDENCE_DIR');
+if ((role !== 'repair' && role !== 'review') || !evidenceDir) {
+  throw Error('Usage: bun scripts/codex-actor.ts repair|review EVIDENCE_DIR');
 }
 const dir = await mkdtemp(join(evidenceDir, `${role}-codex-`));
 const final = join(dir, 'final.json');
@@ -25,7 +25,7 @@ await writeFile(
           properties: {
             status: {
               type: 'string',
-              enum: role !== 'repair' ? ['accepted', 'needs_changes'] : ['repaired', 'needs_human'],
+              enum: ['repaired', 'needs_human'],
             },
             findings: { type: 'string' },
           },
@@ -41,7 +41,6 @@ const args = [
   `model_reasoning_effort="${reviewModel.reasoningEffort}"`,
   '--sandbox',
   role !== 'repair' ? 'read-only' : 'workspace-write',
-  ...(role === 'review-text' ? ['--skip-git-repo-check'] : []),
   '--json',
   '--output-schema',
   schema,

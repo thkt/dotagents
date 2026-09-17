@@ -148,43 +148,59 @@ console.log(JSON.stringify({status:'repaired',findings:'Updated source and docum
   expect(await readFile(join(t.config.cwd, 'README.md'), 'utf8')).toBe('current');
 });
 
-test('accepted concerns, document versions, base diff, check and model remain traceable', async () => {
-  const t = await trial('normal', {
-    reviewModel: { model: 'fixture-model', reasoningEffort: 'high' },
-  });
-  await writeFile(join(t.config.cwd, 'README.md'), 'Current operating instructions');
-  git(t.config.cwd, 'add', 'source.txt');
-  git(t.config.cwd, 'commit', '-m', 'source base');
-  const base = git(t.config.cwd, 'rev-parse', 'HEAD');
-  await reviewer(
-    t,
-    `const reply=reviewReply('needs_changes','Ready with an unverified concern');
+for (const documentsOnly of [false, true]) {
+  test(`accepted document versions, diff, check and model remain traceable (documents only: ${documentsOnly})`, async () => {
+    const t = await trial('normal', {
+      reviewModel: { model: 'fixture-model', reasoningEffort: 'high' },
+    });
+    await writeFile(join(t.config.cwd, 'README.md'), 'Current operating instructions');
+    if (documentsOnly) {
+      await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
+    }
+    git(t.config.cwd, 'add', 'source.txt');
+    git(t.config.cwd, 'commit', '-m', 'source base');
+    const base = git(t.config.cwd, 'rev-parse', 'HEAD');
+    await reviewer(
+      t,
+      `const reply=reviewReply('needs_changes','Ready with an unverified concern');
 reply.status='accepted'; reply.items[0].kind='concern'; reply.items[0].required=false;
 reply.documents=[{path:'README.md',role:'current',reason:'Operating instructions for this change'}];`,
-  );
-  expect(t.execute().status).toBe(0);
-  const state = await t.state();
-  const target = object(
-    JSON.parse(await readFile(join(t.config.runDir, 'review-1.target.json'), 'utf8')),
-  );
-  expect(target.baseCommit).toBe(base);
-  expect(object(target.issue).hash).toBe(state.issueHash);
-  expect(object(target.issue).content).toContain('Agreed requirement');
-  expect(object(target.check).command).toEqual(t.config.check);
-  expect(object(target.check).code).toBe(0);
-  expect(object(target.check).source).toBe(state.source);
-  expect(object(target.model).settings).toEqual(t.config.reviewModel);
-  const record = object(JSON.parse(await readFile(join(t.config.runDir, 'review-1.json'), 'utf8')));
-  expect(object(record.review).targetId).toBe(target.targetId);
-  expect(object(events(record.documents)[0]).hash).toBe(
-    createHash('sha256').update('Current operating instructions').digest('hex'),
-  );
-  expect(await readFile(join(t.config.runDir, 'review-1.diff'), 'utf8')).toContain('+correct');
-  expect(await readFile(join(t.config.runDir, 'review-1.additions.json'), 'utf8')).toContain(
-    'README.md',
-  );
-  expect(state.findings).toContain('Human review and publication remain');
-});
+    );
+    expect(t.execute().status).toBe(0);
+    const state = await t.state();
+    const target = object(
+      JSON.parse(await readFile(join(t.config.runDir, 'review-1.target.json'), 'utf8')),
+    );
+    expect(target.baseCommit).toBe(base);
+    expect(object(target.issue).hash).toBe(state.issueHash);
+    expect(object(target.issue).content).toContain('Agreed requirement');
+    expect(object(target.check).command).toEqual(t.config.check);
+    expect(object(target.check).code).toBe(0);
+    expect(object(target.check).source).toBe(state.source);
+    expect(object(target.model).settings).toEqual(t.config.reviewModel);
+    const record = object(
+      JSON.parse(await readFile(join(t.config.runDir, 'review-1.json'), 'utf8')),
+    );
+    expect(object(record.review).targetId).toBe(target.targetId);
+    expect(object(events(record.documents)[0]).hash).toBe(
+      createHash('sha256').update('Current operating instructions').digest('hex'),
+    );
+    const diff = await readFile(join(t.config.runDir, 'review-1.diff'), 'utf8');
+    expect(state.repair).toBe(documentsOnly ? 0 : 1);
+    if (documentsOnly) {
+      expect(diff).toBe('');
+    } else {
+      expect(diff).toContain('+correct');
+    }
+    const additions = events(
+      JSON.parse(await readFile(join(t.config.runDir, 'review-1.additions.json'), 'utf8')),
+    ).map(object);
+    expect(additions.find((file) => file.path === 'README.md')?.content).toBe(
+      Buffer.from('Current operating instructions').toString('base64'),
+    );
+    expect(state.findings).toContain('Human review and publication remain');
+  });
+}
 
 test('historical review runs are preserved without conversion or renewed execution', async () => {
   const t = await trial('normal');

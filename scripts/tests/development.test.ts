@@ -55,7 +55,7 @@ const stopReasons = {
   ci_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
   ci_final_unavailable: /PR created but CI is not confirmed \(unavailable\)/,
   ci_final_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
-  writing_failure: /Command failed: .*; Writing review failed in fixture/,
+  retired_writing: /writing is no longer supported; remove writing from .dotagents.json/,
   wrong_repo: /GitHub repository mismatch/,
   missing_check: /Verification command is required/,
   wrong_issue: /Issue does not match target repository/,
@@ -74,36 +74,28 @@ async function checkStop(
   reviews: number,
   implementations: number,
 ) {
-  if (mode === 'denied_start' || mode === 'no_ci') {
-    expect(implementations).toBe(0);
-    expect(existsSync(join(dir, 'checkout'))).toBe(false);
-  }
   if (
-    ![
+    [
       'denied_start',
       'no_ci',
       'wrong_repo',
       'dirty',
       'missing_check',
+      'retired_writing',
       'wrong_issue',
       'wrong_push',
     ].includes(mode)
   ) {
-    expect(await readFile(join(dir, 'stopped.txt'), 'utf8')).toMatch(stopReasons[mode]);
+    expect(implementations).toBe(0);
+    expect(reviews).toBe(0);
+    expect(existsSync(join(dir, 'checkout'))).toBe(false);
+    return;
   }
+  expect(await readFile(join(dir, 'stopped.txt'), 'utf8')).toMatch(stopReasons[mode]);
   if (
-    [
-      'initial_failure',
-      'needs_human',
-      'invalid_reply',
-      'timeout',
-      'requirements_changed',
-      'wrong_repo',
-      'dirty',
-      'missing_check',
-      'wrong_issue',
-      'wrong_push',
-    ].includes(mode)
+    ['initial_failure', 'needs_human', 'invalid_reply', 'timeout', 'requirements_changed'].includes(
+      mode,
+    )
   ) {
     expect(reviews).toBe(0);
   }
@@ -127,17 +119,6 @@ function implementationResult(mode: string) {
   };
 }
 
-async function writingStub(argv: string[], mode: string) {
-  if (mode === 'writing_failure') {
-    return { ...ok(), code: 1, stderr: 'Writing review failed in fixture' };
-  }
-  const input = argv[argv.indexOf('--input') + 1];
-  const output = argv[argv.indexOf('--output') + 1];
-  assert(input && output);
-  await writeFile(output, await readFile(input, 'utf8'));
-  return ok();
-}
-
 const ok = (stdout = '') => ({ code: 0, stdout, stderr: '', timedOut: false, ms: 1 });
 async function git(cwd: string, ...args: string[]) {
   const result = await command(['git', ...args], cwd, '', 10000);
@@ -152,8 +133,14 @@ async function prepareInput(repo: string, mode: string, settings: typeof targetC
   if (mode === 'dirty') {
     await writeFile(join(repo, 'unrelated.txt'), 'retain');
   }
-  if (mode === 'missing_check') {
-    await writeFile(join(repo, '.dotagents.json'), JSON.stringify({ ...settings, check: [] }));
+  if (mode === 'missing_check' || mode === 'retired_writing') {
+    await writeFile(
+      join(repo, '.dotagents.json'),
+      JSON.stringify({
+        ...settings,
+        ...(mode === 'missing_check' ? { check: [] } : { writing: { documents: ['README.md'] } }),
+      }),
+    );
     await git(repo, 'add', '.');
     await git(repo, 'commit', '-m', 'unset verification');
   }
@@ -238,8 +225,17 @@ function publicationView(mode: string, stdout: string) {
   return ok(mode === 'ci_publication_invalid_json' ? 'not JSON' : stdout);
 }
 
-async function prView(mode: string, argv: string[], cwd: string, settings: typeof targetConfig) {
+async function prView(
+  mode: string,
+  argv: string[],
+  cwd: string,
+  settings: typeof targetConfig,
+  timeout: number,
+) {
   const polling = argv.at(-1)?.includes('statusCheckRollup');
+  if (!polling) {
+    expect(timeout).toBe(660000);
+  }
   const finalRead = argv.at(-1) === 'headRefOid,baseRefName,state';
   const publication = argv.at(-1)?.includes('body');
   if ((mode === 'ci_unavailable' && polling) || (mode === 'ci_final_unavailable' && finalRead)) {
@@ -363,7 +359,7 @@ for (const mode of [
   'ci_target_changed',
   'ci_final_unavailable',
   'ci_final_target_changed',
-  'writing_failure',
+  'retired_writing',
   'wrong_repo',
   'dirty',
   'missing_check',
@@ -477,7 +473,7 @@ for (const mode of [
       reviews = 0,
       pushes = 0,
       publications = 0;
-    async function github(argv: string[], cwd: string) {
+    async function github(argv: string[], cwd: string, timeout: number) {
       const targetReply = githubTarget(argv, settings);
       if (targetReply !== undefined) {
         return ok(targetResponse(mode, targetReply, settings.repository, reviews, publications));
@@ -492,7 +488,7 @@ for (const mode of [
         case 'pr/edit':
           return ok();
         case 'pr/view':
-          return prView(mode, argv, cwd, settings);
+          return prView(mode, argv, cwd, settings, timeout);
         default:
           throw Error('Unexpected gh call');
       }
@@ -505,9 +501,6 @@ for (const mode of [
         timeout: number,
         prefix?: string,
       ) => {
-        if (argv[1]?.endsWith('/writing-review.ts')) {
-          return writingStub(argv, mode);
-        }
         if (argv[0] === 'git' && argv.includes('push')) {
           pushes++;
           expect(argv).toContain(
@@ -517,16 +510,21 @@ for (const mode of [
           return ok();
         }
         if (['git', 'sh'].includes(argv[0] ?? '')) {
+          expect(timeout).toBe(660000);
           return command(argv, cwd, input, timeout, prefix);
         }
         if (argv[0] === 'gh') {
-          const response = await github(argv, cwd);
+          const response = await github(argv, cwd, timeout);
           if (prefix) {
             await writeFile(`${prefix}.stdout`, response.stdout);
             await writeFile(`${prefix}.stderr`, response.stderr);
           }
           return response;
         }
+        expect(argv.slice(1, 3)).toEqual([
+          new URL('../codex-actor.ts', import.meta.url).pathname,
+          'repair',
+        ]);
         implementations++;
         if (mode === 'other_repo') {
           expect(input).not.toContain('CAPTURE_OUTPUT');
@@ -547,6 +545,7 @@ for (const mode of [
         return implementationResult(mode);
       },
       verify: async (config: Config): Promise<State> => {
+        expect(config).not.toHaveProperty('writing');
         reviews++;
         if (reviews === 1) {
           await changeTarget(mode, config, settings);

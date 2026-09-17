@@ -52,15 +52,11 @@ export function correctionFixture() {
     await writeFile(
       helper,
       `
-import {readFileSync,writeFileSync,appendFileSync,existsSync} from 'node:fs';
+import {readFileSync,writeFileSync,existsSync} from 'node:fs';
 import {join} from 'node:path';
 const role=process.argv[2], mode=${JSON.stringify(mode)};
 ${reviewReplySource}
 if(role==='issue') console.log(mode==='issue_changed'&&existsSync(${JSON.stringify(join(root, 'issue-changed'))})?'Changed requirement':'Agreed requirement: correct source and docs');
-if(role==='writing') {
- if(mode==='writing_failure') process.exit(1);
- writeFileSync('README.md','reviewed '+readFileSync('source.txt','utf8'));
-}
 if(role==='capture') {
  if(mode==='capture_timeout') await new Promise(r=>setTimeout(r,10000));
  if(mode==='capture_unavailable') {console.error('Host permission denied');process.exit(78);}
@@ -69,11 +65,6 @@ if(role==='capture') {
  writeFileSync(join(process.argv[3],'desktop.png'),readFileSync('source.txt','utf8'));
 }
 if(role==='check') {
- if(mode.startsWith('writing_')) {
-  const document=readFileSync('README.md','utf8');
-  if(document!=='reviewed '+readFileSync('source.txt','utf8')) process.exit(9);
-  appendFileSync(${JSON.stringify(join(root, 'checked-documents'))},document+'\\n');
- }
  if(mode==='check_timeout') await new Promise(r=>setTimeout(r,10000));
  if(mode==='normal') {console.log('source must be correct');console.error('validation failed: source is broken');}
  process.exit(readFileSync('source.txt','utf8')==='broken'?1:0);
@@ -115,7 +106,6 @@ if(role==='review') {
       runDir: join(root, 'evidence'),
       issue: [process.execPath, helper, 'issue'],
       check: [process.execPath, helper, 'check'],
-      ...(mode.startsWith('writing_') ? { writing: [process.execPath, helper, 'writing'] } : {}),
       ...(mode.startsWith('capture_') ? { capture: [process.execPath, helper, 'capture'] } : {}),
       captureDestination: 'trial/evidence/generated',
       captureRequired: false,
