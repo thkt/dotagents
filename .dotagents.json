@@ -16,19 +16,6 @@
     "check"
   ],
   "capture": null,
-  "writing": {
-    "documents": [
-      "README.md",
-      "scripts/README.md",
-      "docs/",
-      "research/",
-      ".codex/DEVELOPMENT.md",
-      ".codex/OUTCOME.md"
-    ],
-    "exclude": [
-      "research/issue-59-writing-targets.md"
-    ]
-  },
   "ciChecks": [
     "checks",
     "verify"
