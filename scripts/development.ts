@@ -107,13 +107,7 @@ async function prepare(args: string[], io: typeof runtime) {
   const input = parsed.positionals[0];
   assert(input);
   const number = issueNumber(input, repository);
-  const reports = await researchHandoff(
-    repo,
-    base,
-    parsed.values['start-commit'],
-    parsed.values.report ?? [],
-    git,
-  );
+  const reports = researchHandoff(base, parsed.values['start-commit'], parsed.values.report ?? []);
   await verifyStartInputs(repo, base, target.text, reports, io);
   const issue = [
     'gh',
