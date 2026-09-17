@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { test, expect } from 'bun:test';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, chmod, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { develop } from '../development.ts';
@@ -65,7 +65,6 @@ const stopReasons = {
   config_changed: /Target configuration or GitHub actor changed/,
   branch_changed: /Actor changed branch or HEAD/,
   head_changed: /Actor changed branch or HEAD/,
-  dirty: /Commit or preserve pending work before development/,
 };
 
 async function checkStop(
@@ -79,7 +78,6 @@ async function checkStop(
       'denied_start',
       'no_ci',
       'wrong_repo',
-      'dirty',
       'missing_check',
       'retired_writing',
       'wrong_issue',
@@ -128,10 +126,15 @@ async function git(cwd: string, ...args: string[]) {
 
 async function prepareInput(repo: string, mode: string, settings: typeof targetConfig) {
   if (mode === 'other_repo') {
+    await writeFile(join(repo, 'notes.txt'), 'committed notes');
+    await git(repo, 'add', '--', 'notes.txt');
     await commitReport(repo);
-  }
-  if (mode === 'dirty') {
+    await writeFile(join(repo, 'notes.txt'), 'staged notes');
+    await git(repo, 'add', '--', 'notes.txt');
+    await writeFile(join(repo, 'notes.txt'), 'working notes');
+    await chmod(join(repo, 'notes.txt'), 0o755);
     await writeFile(join(repo, 'unrelated.txt'), 'retain');
+    await chmod(join(repo, 'unrelated.txt'), 0o751);
   }
   if (mode === 'missing_check' || mode === 'retired_writing') {
     await writeFile(
@@ -155,6 +158,21 @@ async function prepareInput(repo: string, mode: string, settings: typeof targetC
     );
   }
   return git(repo, 'rev-parse', 'HEAD');
+}
+
+async function pendingWork(repo: string) {
+  if (!existsSync(join(repo, 'notes.txt'))) {
+    return undefined;
+  }
+  return {
+    status: await git(repo, 'status', '--porcelain'),
+    staged: await git(repo, 'diff', '--cached', '--binary'),
+    working: await git(repo, 'diff', '--binary'),
+    notes: await readFile(join(repo, 'notes.txt'), 'utf8'),
+    notesMode: (await stat(join(repo, 'notes.txt'))).mode,
+    untracked: await readFile(join(repo, 'unrelated.txt'), 'utf8'),
+    untrackedMode: (await stat(join(repo, 'unrelated.txt'))).mode,
+  };
 }
 
 function targetResponse(
@@ -361,7 +379,6 @@ for (const mode of [
   'ci_final_target_changed',
   'retired_writing',
   'wrong_repo',
-  'dirty',
   'missing_check',
   'wrong_issue',
   'wrong_push',
@@ -398,6 +415,7 @@ for (const mode of [
     }
     await initializeTarget(repo, settings);
     const original = await prepareInput(repo, mode, settings);
+    const pending = await pendingWork(repo);
     const review: Review = {
       status: 'accepted',
       targetId: 'internal-current-target',
@@ -527,6 +545,13 @@ for (const mode of [
         ]);
         implementations++;
         if (mode === 'other_repo') {
+          expect(await git(cwd, 'rev-parse', 'HEAD')).toBe(original);
+          expect(await readFile(join(cwd, 'notes.txt'), 'utf8')).toBe('committed notes');
+          expect((await stat(join(cwd, 'notes.txt'))).mode & 0o111).toBe(0);
+          expect(existsSync(join(cwd, 'unrelated.txt'))).toBe(false);
+          expect(await readFile(join(cwd, '.dotagents.json'), 'utf8')).toBe(
+            JSON.stringify(settings),
+          );
           expect(input).not.toContain('CAPTURE_OUTPUT');
           expect(input).not.toContain('Close video contexts');
           expect(input).toContain('If the agreed Issue needs media, return needs_human');
@@ -681,9 +706,79 @@ for (const mode of [
       }
       expect(await git(repo, 'rev-parse', 'HEAD')).toBe(original);
       expect(await readFile(join(repo, 'result.txt'), 'utf8')).toBe('old');
-      if (mode === 'dirty') {
-        expect(await readFile(join(repo, 'unrelated.txt'), 'utf8')).toBe('retain');
+      if (pending) {
+        expect(await pendingWork(repo)).toEqual(pending);
       }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
+async function startInputFixture(root: string) {
+  const repo = join(root, 'repo');
+  const dir = join(root, 'run');
+  const settings = { ...targetConfig, setup: [['fixture-setup']] };
+  await mkdir(repo);
+  await initializeTarget(repo, settings);
+  const beforeReport = await git(repo, 'rev-parse', 'HEAD');
+  const blob = await commitReport(repo);
+  const base = await git(repo, 'rev-parse', 'HEAD');
+  const args = [
+    '99',
+    '--repo',
+    repo,
+    '--run-dir',
+    dir,
+    '--no-publish',
+    '--report',
+    `${reportPath}=${blob}`,
+  ];
+  const hooks: {
+    setups: number;
+    changeDuring?: (event: 'target' | 'issue' | 'setup', cwd: string) => Promise<void>;
+  } = { setups: 0 };
+  const io = {
+    command: async (argv: string[], cwd: string, input: string, timeout: number) => {
+      const reply = githubTarget(argv, settings);
+      if (reply !== undefined) {
+        if (argv[2] === 'user') {
+          await hooks.changeDuring?.('target', cwd);
+        }
+        return ok(reply);
+      }
+      if (argv[0] === 'git') {
+        return command(argv, cwd, input, timeout);
+      }
+      if (argv[0] === 'gh' && argv[1] === 'issue') {
+        await hooks.changeDuring?.('issue', cwd);
+        return ok(issue);
+      }
+      if (argv[0] === 'fixture-setup') {
+        hooks.setups++;
+        await hooks.changeDuring?.('setup', cwd);
+        return ok();
+      }
+      throw Error(`Implementation must not start: ${argv[0]}`);
+    },
+    verify: async (): Promise<State> => {
+      throw Error('Verification must not start');
+    },
+    publish: async (): Promise<string> => {
+      throw Error('Publication must not start');
+    },
+  };
+  return { repo, dir, beforeReport, blob, base, args, hooks, io };
+}
+
+function testStartInput(
+  name: string,
+  run: (fixture: Awaited<ReturnType<typeof startInputFixture>>) => Promise<void>,
+) {
+  test(name, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'development-input-'));
+    try {
+      await run(await startInputFixture(root));
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -701,97 +796,124 @@ const handoffFailures = {
 };
 
 for (const [mode, reason] of Object.entries(handoffFailures)) {
-  test(`development stops incomplete research handoff: ${mode}`, async () => {
-    const root = await mkdtemp(join(tmpdir(), 'development-handoff-'));
-    const repo = join(root, 'repo');
-    const dir = join(root, 'run');
-    await mkdir(repo);
-    try {
-      const settings = { ...targetConfig, setup: [['fixture-setup']] };
-      await initializeTarget(repo, settings);
-      const beforeReport = await git(repo, 'rev-parse', 'HEAD');
-      const blob = await commitReport(repo);
-      const reviewed = await git(repo, 'rev-parse', 'HEAD');
-      if (mode === 'missing' || mode === 'uncommitted') {
-        await git(repo, 'reset', '--hard', beforeReport);
-        if (mode === 'uncommitted') {
-          await mkdir(join(repo, 'research'));
-          await writeFile(join(repo, reportPath), reportContent);
-        }
+  testStartInput(`development stops incomplete research handoff: ${mode}`, async (fixture) => {
+    const { repo, dir, beforeReport, base, args, hooks, io } = fixture;
+    if (mode === 'missing' || mode === 'uncommitted') {
+      await git(repo, 'reset', '--hard', beforeReport);
+      if (mode === 'uncommitted') {
+        await mkdir(join(repo, 'research'));
+        await writeFile(join(repo, reportPath), reportContent);
       }
-      if (mode === 'modified') {
-        await writeFile(join(repo, reportPath), 'Unchecked working report.\n');
-      }
-      if (mode === 'different_blob') {
-        await writeFile(join(repo, reportPath), 'A different committed report.\n');
-        await git(repo, 'add', '--', reportPath);
-        await git(repo, 'commit', '-m', 'changed report');
-      }
-      if (mode !== 'setup_modified') {
-        await writeFile(join(repo, 'unrelated.txt'), 'Preserve other work');
-      }
-      const head = await git(repo, 'rev-parse', 'HEAD');
-      const status = await git(repo, 'status', '--porcelain');
-      let setups = 0;
-      const io = {
-        command: async (argv: string[], cwd: string, input: string, timeout: number) => {
-          const reply = githubTarget(argv, settings);
-          if (reply !== undefined) {
-            return ok(reply);
-          }
-          if (argv[0] === 'git') {
-            return command(argv, cwd, input, timeout);
-          }
-          if (argv[0] === 'gh' && argv[1] === 'issue') {
-            return ok(issue);
-          }
-          if (argv[0] === 'fixture-setup') {
-            setups++;
-            await writeFile(join(cwd, reportPath), 'Setup replaced the reviewed content.\n');
-            return ok();
-          }
-          throw Error(`Implementation must not start: ${argv[0]}`);
-        },
-        verify: async (): Promise<State> => {
-          throw Error('Verification must not start');
-        },
-        publish: async (): Promise<string> => {
-          throw Error('Publication must not start');
-        },
-      };
-      const args = [
-        '99',
-        '--repo',
-        repo,
-        '--run-dir',
-        dir,
-        '--no-publish',
-        '--report',
-        `${reportPath}=${blob}`,
-      ];
-      if (mode === 'different_blob') {
-        args.unshift(
-          '--report',
-          `${secondReport}=${await git(repo, 'rev-parse', `HEAD:${secondReport}`)}`,
-        );
-      }
-      if (mode !== 'no_start') {
-        args.push('--start-commit', mode === 'different_start' ? beforeReport : head);
-      }
-      await assert.rejects(() => develop(args, io), reason);
-      expect(setups).toBe(mode === 'setup_modified' ? 1 : 0);
-      expect(existsSync(join(dir, 'checkout'))).toBe(mode === 'setup_modified');
-      expect(await git(repo, 'rev-parse', 'HEAD')).toBe(head);
-      expect(await git(repo, 'status', '--porcelain')).toBe(status);
-      if (mode !== 'setup_modified') {
-        expect(await readFile(join(repo, 'unrelated.txt'), 'utf8')).toBe('Preserve other work');
-      } else {
-        expect(head).toBe(reviewed);
-        expect(await readFile(join(repo, reportPath), 'utf8')).toBe(reportContent);
-      }
-    } finally {
-      await rm(root, { recursive: true, force: true });
     }
+    if (mode === 'modified') {
+      await writeFile(join(repo, reportPath), 'Unchecked working report.\n');
+    }
+    if (mode === 'different_blob') {
+      await writeFile(join(repo, reportPath), 'A different committed report.\n');
+      await git(repo, 'add', '--', reportPath);
+      await git(repo, 'commit', '-m', 'changed report');
+      args.unshift(
+        '--report',
+        `${secondReport}=${await git(repo, 'rev-parse', `HEAD:${secondReport}`)}`,
+      );
+    }
+    if (mode !== 'setup_modified') {
+      await writeFile(join(repo, 'unrelated.txt'), 'Preserve other work');
+    }
+    const head = await git(repo, 'rev-parse', 'HEAD');
+    const status = await git(repo, 'status', '--porcelain');
+    hooks.changeDuring = async (event, cwd) => {
+      if (event === 'setup') {
+        await writeFile(join(cwd, reportPath), 'Setup replaced the reviewed content.\n');
+      }
+    };
+    if (mode !== 'no_start') {
+      args.push('--start-commit', mode === 'different_start' ? beforeReport : head);
+    }
+    await assert.rejects(() => develop(args, io), reason);
+    expect(hooks.setups).toBe(mode === 'setup_modified' ? 1 : 0);
+    expect(existsSync(join(dir, 'checkout'))).toBe(mode === 'setup_modified');
+    expect(await git(repo, 'rev-parse', 'HEAD')).toBe(head);
+    expect(await git(repo, 'status', '--porcelain')).toBe(status);
+    if (mode !== 'setup_modified') {
+      expect(await readFile(join(repo, 'unrelated.txt'), 'utf8')).toBe('Preserve other work');
+    } else {
+      expect(head).toBe(base);
+      expect(await readFile(join(repo, reportPath), 'utf8')).toBe(reportContent);
+    }
+  });
+}
+
+const startChanges = {
+  config: async (repo: string) => {
+    const path = join(repo, '.dotagents.json');
+    await writeFile(path, (await readFile(path, 'utf8')) + '\n');
+  },
+  config_index: async (repo: string) => {
+    const path = join(repo, '.dotagents.json');
+    const original = await readFile(path, 'utf8');
+    await writeFile(path, original + '\n');
+    await git(repo, 'add', '--', '.dotagents.json');
+    await writeFile(path, original);
+  },
+  report: async (repo: string) => {
+    await writeFile(join(repo, reportPath), 'Unreviewed report.\n');
+  },
+  report_index: async (repo: string) => {
+    await writeFile(join(repo, reportPath), 'Unreviewed report.\n');
+    await git(repo, 'add', '--', reportPath);
+    await writeFile(join(repo, reportPath), reportContent);
+  },
+  report_missing: async (repo: string) => {
+    await rm(join(repo, reportPath));
+  },
+  head: async (repo: string) => {
+    await git(repo, 'commit', '--allow-empty', '-m', 'concurrent HEAD change');
+  },
+  push: async (repo: string) => {
+    await git(
+      repo,
+      'remote',
+      'set-url',
+      '--push',
+      targetConfig.remote,
+      'https://github.com/other/repo.git',
+    );
+  },
+};
+
+for (const [phase, change, reason] of [
+  ['initial', 'config', /Target configuration differs from start commit/],
+  ['initial', 'config_index', /Required start inputs have uncommitted changes/],
+  ['initial', 'report_index', /Required start inputs have uncommitted changes/],
+  ['initial', 'report_missing', /Required report is missing or not a regular checkout file/],
+  ['target', 'head', /Start HEAD changed during preparation/],
+  ['issue', 'head', /Start HEAD changed during preparation/],
+  ['setup', 'config', /Target configuration differs from start commit/],
+  ['setup', 'report', /Required report has uncommitted content/],
+  ['setup', 'head', /Start HEAD changed during preparation/],
+  ['setup', 'push', /Remote\/repository mismatch/],
+  ['checkout_setup', 'config', /Target configuration or GitHub actor changed/],
+] as const) {
+  testStartInput(`development rejects changed start input: ${phase} ${change}`, async (fixture) => {
+    const { repo, dir, base, args, hooks, io } = fixture;
+    await writeFile(join(repo, 'unrelated.txt'), 'Preserve other work');
+    if (phase === 'initial') {
+      await startChanges[change](repo);
+    }
+    hooks.changeDuring = async (event, cwd) => {
+      if (phase === event) {
+        await startChanges[change](repo);
+      }
+      if (phase === 'checkout_setup' && event === 'setup') {
+        await startChanges[change](cwd);
+      }
+    };
+    args.push('--start-commit', base);
+    await assert.rejects(() => develop(args, io), reason);
+    expect(hooks.setups).toBe(phase.endsWith('setup') ? 1 : 0);
+    expect(existsSync(join(dir, 'checkout'))).toBe(phase.endsWith('setup'));
+    expect(await readFile(join(repo, 'unrelated.txt'), 'utf8')).toBe('Preserve other work');
   });
 }
 

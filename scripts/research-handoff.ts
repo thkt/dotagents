@@ -55,13 +55,7 @@ export function researchContext(startCommit: string, reports: ReportReference[] 
   ].join('\n');
 }
 
-export async function researchHandoff(
-  repo: string,
-  base: string,
-  startCommit: string | undefined,
-  inputs: string[],
-  git: Git,
-) {
+export function researchHandoff(base: string, startCommit: string | undefined, inputs: string[]) {
   assert(inputs.length === 0 || startCommit, 'Required reports need --start-commit');
   if (startCommit !== undefined) {
     assert(
@@ -69,7 +63,5 @@ export async function researchHandoff(
       'Start commit differs from handoff; reconcile the reviewed references',
     );
   }
-  const reports = reportReferences(inputs);
-  await verifyReports(repo, base, reports, git);
-  return reports;
+  return reportReferences(inputs);
 }

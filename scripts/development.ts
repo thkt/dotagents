@@ -19,6 +19,7 @@ import { publish } from './publish.ts';
 import { waitForCi, confirmCiTarget, confirmCiPublication } from './ci.ts';
 import { readTarget, issueNumber, targetCommand, pushArguments } from './target.ts';
 import { researchContext, researchHandoff, verifyReports } from './research-handoff.ts';
+import type { ReportReference } from './input.ts';
 
 const runtime = { command, verify: run, publish };
 const modelTimeMs = 1200000;
@@ -47,6 +48,39 @@ function issueValue(text: string) {
   return { title: value.title };
 }
 
+async function verifyStartInputs(
+  repo: string,
+  base: string,
+  targetText: string,
+  reports: ReportReference[],
+  io: typeof runtime,
+) {
+  const git = (...args: string[]) => checked(io, ['git', ...args], repo);
+  assert((await git('rev-parse', 'HEAD')) === base, 'Start HEAD changed during preparation');
+  const entry = await git('ls-tree', base, '--', '.dotagents.json');
+  assert(
+    /^100(?:644|755) blob /.test(entry) &&
+      (await git('hash-object', '--no-filters', '--', '.dotagents.json')) ===
+        entry.split(/\s/)[2] &&
+      (await readFile(join(repo, '.dotagents.json'), 'utf8')) === targetText,
+    'Target configuration differs from start commit',
+  );
+  await verifyReports(repo, base, reports, git);
+  assert(
+    (
+      await git(
+        'status',
+        '--porcelain',
+        '--',
+        '.dotagents.json',
+        ...reports.map(({ path }) => path),
+      )
+    ).length === 0,
+    'Required start inputs have uncommitted changes',
+  );
+  assert((await git('rev-parse', 'HEAD')) === base, 'Start HEAD changed during preparation');
+}
+
 async function prepare(args: string[], io: typeof runtime) {
   const parsed = parseArgs({
     args,
@@ -65,6 +99,7 @@ async function prepare(args: string[], io: typeof runtime) {
   );
   const repo = await realpath(parsed.values.repo ?? process.cwd());
   const git = (...argv: string[]) => checked(io, ['git', ...argv], repo);
+  const base = await git('rev-parse', 'HEAD');
   const localOnly = parsed.values['no-publish'] ?? false;
   const target = await readTarget(repo, (argv, cwd) => checked(io, argv, cwd), !localOnly);
   assert(localOnly || target.config.ciChecks.length > 0, 'Publishing requires expected CI checks');
@@ -72,18 +107,8 @@ async function prepare(args: string[], io: typeof runtime) {
   const input = parsed.positionals[0];
   assert(input);
   const number = issueNumber(input, repository);
-  const base = await git('rev-parse', 'HEAD');
-  const reports = await researchHandoff(
-    repo,
-    base,
-    parsed.values['start-commit'],
-    parsed.values.report ?? [],
-    git,
-  );
-  assert(
-    (await git('status', '--porcelain')).length === 0,
-    'Commit or preserve pending work before development; the entry uses committed HEAD',
-  );
+  const reports = researchHandoff(base, parsed.values['start-commit'], parsed.values.report ?? []);
+  await verifyStartInputs(repo, base, target.text, reports, io);
   const issue = [
     'gh',
     'issue',
@@ -122,6 +147,7 @@ async function prepare(args: string[], io: typeof runtime) {
   assert((await git('rev-parse', 'HEAD')) === base, 'Start HEAD changed during preparation');
   await git('worktree', 'add', '-b', branch, cwd, base);
   return {
+    repo,
     number,
     issue,
     original,
@@ -166,6 +192,7 @@ async function implement(context: Context, io: typeof runtime) {
   await verifyReports(cwd, context.base, context.reports, (...args) =>
     checked(io, ['git', ...args], cwd),
   );
+  await verifyStartInputs(context.repo, context.base, context.target.text, context.reports, io);
   const prompt = [
     'Implement the complete agreed Issue using existing code and verification assets. Follow applicable repository instructions; consult the target README and development policy sections relevant to this change.',
     'Prepare the tests and documentation needed for the agreed behavior; reuse sufficient existing verification. Complete the implementation and targeted checks needed to prepare it for host verification without pausing for approval of routine choices within scope. The host runs the configured verification; do not launch browsers or servers in your sandbox.',
