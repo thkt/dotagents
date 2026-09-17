@@ -1,9 +1,20 @@
 import assert from 'node:assert/strict';
 import { setTimeout } from 'node:timers/promises';
 import { join } from 'node:path';
+import { writeFile } from 'node:fs/promises';
 import type { command } from './correction.ts';
 import { assertRunning } from './correction.ts';
 import { isRecord } from './input.ts';
+
+type Target = {
+  cwd: string;
+  repository: string;
+  url: string;
+  commit: string;
+  baseBranch: string;
+  dir: string;
+  ciChecks: string[];
+};
 
 function checkStatus(values: unknown[], required: string[]) {
   const checks = values.map((value) => {
@@ -18,77 +29,223 @@ function checkStatus(values: unknown[], required: string[]) {
     assert(typeof name === 'string' && typeof state === 'string', 'Invalid CI check status');
     return { name, state };
   });
-  if (
-    checks.some(
-      ({ name, state }) =>
-        !['SUCCESS', 'SKIPPED', 'NEUTRAL', 'PENDING'].includes(state) ||
-        (required.includes(name) && ['SKIPPED', 'NEUTRAL'].includes(state)),
-    )
-  ) {
-    return 'failed';
-  }
-  return required.some((name) => !checks.some((check) => check.name === name)) ||
-    checks.some((check) => check.state === 'PENDING')
-    ? 'pending'
-    : 'passed';
+  const failed = checks.filter(
+    ({ name, state }) =>
+      !['SUCCESS', 'SKIPPED', 'NEUTRAL', 'PENDING'].includes(state) ||
+      (required.includes(name) && ['SKIPPED', 'NEUTRAL'].includes(state)),
+  );
+  const missing = required.filter((name) => !checks.some((check) => check.name === name));
+  const running = checks.filter((check) => check.state === 'PENDING');
+  const unmet = required.filter(
+    (name) =>
+      missing.includes(name) ||
+      checks.some((check) => check.name === name && check.state !== 'SUCCESS'),
+  );
+  const status = failed.length
+    ? 'failed'
+    : missing.length
+      ? 'missing'
+      : running.length
+        ? 'running'
+        : 'passed';
+  return { status, checks, missing, running, failed, unmet };
 }
 
-export async function waitForCi(
-  target: {
-    cwd: string;
-    repository: string;
-    url: string;
-    commit: string;
-    baseBranch: string;
-    dir: string;
-    ciChecks: string[];
-  },
+export type CiResult = {
+  status: 'passed' | 'failed' | 'timed_out' | 'unavailable' | 'target_changed';
+  timedOut: boolean;
+  lastObservation: ReturnType<typeof checkStatus> | null;
+  reason: string;
+  nextAction: string;
+  logs: string[];
+};
+
+const actions = {
+  passed:
+    'CI confirmed for the published commit; proceed to human review and any rendered media check.',
+  failed:
+    'Inspect failing check logs and fix the cause; required SKIPPED or NEUTRAL checks must run successfully.',
+  timed_out:
+    'Inspect missing registrations and running checks on this PR commit; confirm CI manually without resuming this run or extending its budget.',
+  unavailable:
+    'Check gh authentication, permissions, connectivity and the raw retrieval logs; CI is unconfirmed, not a code failure.',
+  target_changed:
+    'Reconcile the current PR URL, head, base, OPEN state and Issue reference with the published target before assessing CI; another target cannot confirm this commit.',
+};
+
+function finish(result: CiResult, status: CiResult['status'], reason: string): CiResult {
+  return { ...result, status, reason, nextAction: actions[status] };
+}
+
+async function readTarget(
+  target: Target,
   execute: typeof command,
-  budgetMs: number,
-  clock = { now: () => performance.now(), sleep: (ms: number) => setTimeout(ms) },
+  timeout: number,
+  log: string,
+  fields: string,
+  publicationIssue?: string,
 ) {
-  assert(target.ciChecks.length > 0, 'Expected CI checks required');
-  const deadline = clock.now() + budgetMs;
-  let attempt = 0;
-  while (clock.now() < deadline) {
-    assertRunning();
+  try {
     const view = await execute(
-      [
-        'gh',
-        'pr',
-        'view',
-        target.url,
-        '--repo',
-        target.repository,
-        '--json',
-        'headRefOid,baseRefName,state,statusCheckRollup',
-      ],
+      ['gh', 'pr', 'view', target.url, '--repo', target.repository, '--json', fields],
       target.cwd,
       '',
-      Math.max(1, deadline - clock.now()),
-      join(target.dir, `ci-registration-${++attempt}`),
+      timeout,
+      log,
     );
     assertRunning();
-    assert(view.code === 0 && !view.timedOut, 'Cannot confirm CI registration');
+    if (publicationIssue !== undefined) {
+      await writeFile(join(target.dir, 'pr.json'), view.stdout);
+    }
+    assert(
+      view.code === 0 && !view.timedOut,
+      `Cannot retrieve PR/CI (exit ${view.code}, timedOut ${view.timedOut}); inspect ${log}.stderr`,
+    );
     const pr: unknown = JSON.parse(view.stdout);
     assert(
       isRecord(pr) &&
-        pr.headRefOid === target.commit &&
-        pr.baseRefName === target.baseBranch &&
-        pr.state === 'OPEN',
-      'PR target changed while waiting for CI registration',
+        typeof pr.headRefOid === 'string' &&
+        typeof pr.baseRefName === 'string' &&
+        typeof pr.state === 'string',
+      'Invalid PR target response',
     );
-    assert(Array.isArray(pr.statusCheckRollup), 'Missing CI registration status');
-    const remaining = deadline - clock.now();
-    if (remaining <= 0) {
-      return undefined;
+    if (
+      pr.headRefOid !== target.commit ||
+      pr.baseRefName !== target.baseBranch ||
+      pr.state !== 'OPEN'
+    ) {
+      return {
+        status: 'target_changed' as const,
+        reason: `PR target changed: head=${pr.headRefOid}, base=${pr.baseRefName}, state=${pr.state}; expected ${target.commit}, ${target.baseBranch}, OPEN`,
+      };
     }
-    const status = checkStatus(pr.statusCheckRollup, target.ciChecks);
-    if (status !== 'pending') {
-      return { ...view, code: status === 'passed' ? 0 : 1 };
+    if (publicationIssue !== undefined) {
+      assert(
+        typeof pr.url === 'string' && typeof pr.body === 'string',
+        'Invalid PR publication response',
+      );
+      if (pr.url !== target.url || !pr.body.includes(`Closes #${publicationIssue}`)) {
+        return {
+          status: 'target_changed' as const,
+          reason: `Published PR URL or Issue reference changed; expected ${target.url}, Closes #${publicationIssue}`,
+        };
+      }
+    }
+    return { status: 'observed' as const, pr };
+  } catch (error) {
+    assertRunning();
+    return {
+      status: 'unavailable' as const,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function confirmCiPublication(
+  target: Target,
+  issue: string,
+  execute: typeof command,
+  timeout: number,
+): Promise<CiResult | null> {
+  const log = join(target.dir, 'pr-publication');
+  const view = await readTarget(
+    target,
+    execute,
+    timeout,
+    log,
+    'url,headRefOid,baseRefName,state,body',
+    issue,
+  );
+  if (view.status === 'observed') {
+    return null;
+  }
+  return {
+    status: view.status,
+    timedOut: false,
+    lastObservation: null,
+    reason: view.reason,
+    nextAction: actions[view.status],
+    logs: [log],
+  };
+}
+
+export async function confirmCiTarget(
+  target: Target,
+  result: CiResult,
+  execute: typeof command,
+  timeout: number,
+) {
+  const log = join(target.dir, 'ci-final-target');
+  const latest = await readTarget(target, execute, timeout, log, 'headRefOid,baseRefName,state');
+  const recorded = { ...result, logs: [...result.logs, log] };
+  return latest.status === 'observed' ? recorded : finish(recorded, latest.status, latest.reason);
+}
+
+export async function waitForCi(
+  target: Target,
+  execute: typeof command,
+  budgetMs: number,
+  clock = { now: () => performance.now(), sleep: (ms: number) => setTimeout(ms) },
+): Promise<CiResult> {
+  assert(target.ciChecks.length > 0, 'Expected CI checks required');
+  const deadline = clock.now() + budgetMs;
+  const result: CiResult = {
+    status: 'timed_out',
+    timedOut: false,
+    lastObservation: null,
+    reason: '',
+    nextAction: actions.timed_out,
+    logs: [],
+  };
+  while (clock.now() < deadline) {
+    assertRunning();
+    const log = join(target.dir, `ci-registration-${result.logs.length + 1}`);
+    result.logs.push(log);
+    const view = await readTarget(
+      target,
+      execute,
+      Math.max(1, deadline - clock.now()),
+      log,
+      'headRefOid,baseRefName,state,statusCheckRollup',
+    );
+    result.timedOut = clock.now() >= deadline;
+    if (view.status !== 'observed') {
+      return finish(result, view.status, view.reason);
+    }
+    try {
+      assert(Array.isArray(view.pr.statusCheckRollup), 'Missing CI registration status');
+      result.lastObservation = checkStatus(view.pr.statusCheckRollup, target.ciChecks);
+    } catch (error) {
+      return finish(result, 'unavailable', error instanceof Error ? error.message : String(error));
+    }
+    const remaining = deadline - clock.now();
+    const status = result.lastObservation.status;
+    result.timedOut = remaining <= 0;
+    // A failure observed at the deadline must not become a waiting result.
+    if (status === 'failed') {
+      return finish(
+        result,
+        'failed',
+        'Registered checks failed or required checks did not conclude SUCCESS.',
+      );
+    }
+    if (remaining <= 0) {
+      break;
+    }
+    if (status === 'passed') {
+      return finish(
+        result,
+        'passed',
+        'All required checks succeeded and no registered check is failing or pending.',
+      );
     }
     await clock.sleep(Math.min(1000, remaining));
   }
   assertRunning();
-  return undefined;
+  result.timedOut = true;
+  return finish(
+    result,
+    'timed_out',
+    `CI wait budget exhausted; last observed state: ${result.lastObservation?.status ?? 'unobserved'}.`,
+  );
 }
