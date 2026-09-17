@@ -1,0 +1,295 @@
+import assert from 'node:assert/strict';
+import { test, expect } from 'bun:test';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import {
+  knowledgeReferences,
+  selectKnowledge,
+  renderKnowledge,
+  generateKnowledge,
+  parseKnowledge,
+} from '../knowledge.ts';
+import { develop } from '../development.ts';
+import { command, run } from '../correction.ts';
+import { isRecord, isArray } from '../input.ts';
+import type { Config } from '../input.ts';
+import { initializeTarget, githubTarget, git, targetConfig } from './support/target.ts';
+import { reviewReplySource } from './support/correction.ts';
+
+const modelPath = 'docs/knowledge/implementation-start.json';
+const content = await readFile(resolve(import.meta.dir, '../..', modelPath), 'utf8');
+const model = () => parseKnowledge(JSON.parse(content));
+const ids = [
+  'preserve-work',
+  'start-objects',
+  'start-identity',
+  'index-counterexample',
+  'less-rework',
+];
+const reference = { path: modelPath, blob: 'a'.repeat(40), ids };
+const issueBody = (references: unknown) =>
+  `Required behavior: preserve work.\n\n\`\`\`dotagents-knowledge\n${JSON.stringify(references)}\n\`\`\``;
+
+test('one model produces human and AI definitions while preserving selection and unverified status', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'knowledge-render-'));
+  try {
+    const path = join(root, 'model.json');
+    await writeFile(path, content);
+    await generateKnowledge(path, false);
+    const original = await readFile(join(root, 'model.md'), 'utf8');
+    const changed = model();
+    const goal = changed.nodes.find(({ id }) => id === 'preserve-work');
+    assert(goal);
+    goal.statement = 'Changed purpose: preserve the other developer’s work.';
+    await writeFile(path, JSON.stringify(changed));
+    await assert.rejects(() => generateKnowledge(path, true), /Knowledge Markdown is stale/);
+    await generateKnowledge(path, false);
+    await generateKnowledge(path, true);
+    const explanation = await readFile(join(root, 'model.md'), 'utf8');
+    const selected = selectKnowledge(changed, reference);
+    const ai = renderKnowledge(selected);
+    expect(original).not.toContain(goal.statement);
+    expect(explanation).toContain(goal.statement);
+    expect(ai).toContain(goal.statement);
+    expect(ai).toContain('teleology / hypothesis / unverified');
+    expect(ai).toContain('config_index・report_index');
+    expect(ai).toContain('765adbb29c51747b2d4ada473ca03a3e40ed7651');
+    expect(ai).toContain('適用条件:');
+    expect(selected.nodes.map(({ id }) => id)).toEqual(ids);
+    expect(ai).not.toContain('## revisit-identity');
+    expect(ai).not.toContain('本文一致だけを開始可能と説明する資料が見つかった場合');
+    expect(ai).toContain('→ revisit-identity'); // Traceable relation without importing its proposal.
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Issue selection is optional but malformed, duplicate and unsafe selections are rejected', () => {
+  const table = '| Rule | Scope |\n| --- | --- |\n| preserve | work |';
+  expect(knowledgeReferences(`Existing Issue without a model\n\n${table}`)).toEqual([]);
+  expect(
+    knowledgeReferences(
+      JSON.stringify({ body: `${table}\n\n${issueBody([reference])}\n\n${table}` }),
+    ),
+  ).toEqual([reference]);
+  for (const [selection, error] of [
+    [[{ ...reference, ids: ['start-identity', 'start-identity'] }], 'Duplicate knowledge'],
+    [[reference, reference], 'Duplicate knowledge'],
+    [[{ ...reference, path: '../model.json' }], 'repo-relative'],
+    [[{ ...reference, blob: 'latest' }], 'Git blob'],
+    [[{ ...reference, ids: [] }], 'nonempty knowledge list'],
+  ] as const) {
+    expect(() => knowledgeReferences(issueBody(selection))).toThrow(error);
+  }
+  expect(() => knowledgeReferences('```dotagents-knowledge\n[]')).toThrow('complete');
+  for (const fence of [
+    ' ```dotagents-knowledge',
+    '````dotagents-knowledge',
+    '~~~dotagents-knowledge',
+  ]) {
+    expect(
+      knowledgeReferences(
+        `${fence}\n${JSON.stringify([reference])}\n${fence.split('dotagents')[0]}`,
+      ),
+    ).toEqual([reference]);
+  }
+  expect(() => knowledgeReferences(issueBody([reference]) + '\n' + issueBody([reference]))).toThrow(
+    'one complete',
+  );
+});
+
+test('only an active selection is used; examples, quotations and HTML are not selections', () => {
+  const block = issueBody([reference]).split('\n\n')[1] ?? assert.fail();
+  const examples = [
+    `\`\`\`\`markdown\n${block}\n\`\`\`\``,
+    `~~~markdown\n${block}\n~~~`,
+    `<!--\n${block}\n-->`,
+    `<!--\n${block}`, // An unfinished comment still hides its contents.
+    `<pre>\n${block}\n</pre>`,
+    block
+      .split('\n')
+      .map((line) => `> ${line}`)
+      .join('\n'),
+    block
+      .split('\n')
+      .map((line) => `    ${line}`)
+      .join('\n'),
+    block
+      .split('\n')
+      .map((line, index) => `${index === 0 ? '- ' : '  '}${line}`)
+      .join('\n'),
+  ];
+  for (const example of examples) {
+    expect(knowledgeReferences(example)).toEqual([]);
+    expect(knowledgeReferences(`${block}\n\n${example}`)).toEqual([reference]);
+  }
+  expect(knowledgeReferences(`<!-- example -->\n\n${block}`)).toEqual([reference]);
+  expect(() => knowledgeReferences(block.replace(/\n```$/, ''))).toThrow('complete');
+  const literal = { ...reference, path: 'docs/<!--literal-->.json' };
+  expect(() => knowledgeReferences(issueBody([literal]))).toThrow('repo-relative');
+});
+
+test('model structure rejects unresolved identities, references and promotion of unverified effects', () => {
+  expect(() => selectKnowledge(model(), { ...reference, ids: ['missing'] })).toThrow(
+    'Unknown selected',
+  );
+  for (const [mutate, reason] of [
+    [
+      (value: ReturnType<typeof model>) => value.nodes.push(value.nodes[0] ?? assert.fail()),
+      'Duplicate knowledge',
+    ],
+    [
+      (value: ReturnType<typeof model>) => {
+        value.sources = [];
+      },
+      'nonempty knowledge list',
+    ],
+    [
+      (value: ReturnType<typeof model>) => {
+        value.sources.pop();
+      },
+      'Missing knowledge source',
+    ],
+    [
+      (value: ReturnType<typeof model>) => {
+        value.nodes[0]?.relations.push({ to: 'missing', meaning: 'invalid reference' });
+      },
+      'Unknown knowledge relation',
+    ],
+    [
+      (value: ReturnType<typeof model>) => {
+        const node = value.nodes.find(({ kind }) => kind === 'hypothesis');
+        assert(node);
+        node.status = 'observed';
+      },
+      'not a verified effect',
+    ],
+  ] as const) {
+    const value = model();
+    mutate(value);
+    expect(() => selectKnowledge(value, reference)).toThrow(reason);
+  }
+});
+
+test('Issue-selected #85 knowledge reaches implementation, correction and independent review at the same base version', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'knowledge-flow-'));
+  const repo = join(root, 'repo');
+  const dir = join(root, 'run');
+  const ok = (stdout = '') => ({ code: 0, timedOut: false, ms: 1, stdout, stderr: '' });
+  try {
+    await mkdir(repo);
+    await initializeTarget(repo);
+    await mkdir(join(repo, 'docs/knowledge'), { recursive: true });
+    await writeFile(join(repo, modelPath), content);
+    git(repo, 'add', modelPath);
+    git(repo, 'commit', '-m', 'reviewed knowledge');
+    const base = git(repo, 'rev-parse', 'HEAD');
+    const blob = git(repo, 'rev-parse', `HEAD:${modelPath}`);
+    const issue = JSON.stringify({
+      title: 'Preserve work',
+      body: issueBody([{ ...reference, blob }]),
+      state: 'OPEN',
+    });
+    await writeFile(join(repo, 'result.txt'), 'Unrelated work must survive');
+    await writeFile(join(repo, 'untracked.txt'), 'Other developer’s notes');
+    const helper = join(root, 'actor.js');
+    await writeFile(
+      helper,
+      `
+import {readFileSync, writeFileSync} from 'node:fs';
+const role = process.argv[2];
+${reviewReplySource}
+if(role === 'repair') {
+  writeFileSync('result.txt', 'implemented');
+  const model = JSON.parse(readFileSync(${JSON.stringify(modelPath)}, 'utf8'));
+  model.nodes[0].statement = 'Proposed revision during repair';
+  writeFileSync(${JSON.stringify(modelPath)}, JSON.stringify(model));
+  console.log(JSON.stringify({status:'repaired',findings:'Index observation affects start-identity; investigate before adopting changes.'}));
+}
+if(role === 'review') {
+  const response = reviewReply('accepted', 'Simulated transport only; no semantic review claim.');
+  response.documents = [{path:${JSON.stringify(modelPath)},role:'current',reason:'Compare base rule with current proposed revision'}];
+  console.log(JSON.stringify(response));
+}
+`,
+    );
+    let verification: Config | undefined;
+    const io = {
+      command: async (argv: string[], cwd: string, input: string, timeout: number) => {
+        const target = githubTarget(argv, targetConfig);
+        if (target !== undefined) {
+          return ok(target);
+        }
+        if (argv[0] === 'git') {
+          return command(argv, cwd, input, timeout);
+        }
+        if (argv[0] === 'gh' && argv[1] === 'issue') {
+          return ok(issue);
+        }
+        expect(input).toContain(`Git blob: ${blob}`);
+        expect(input).toContain('## start-identity');
+        expect(await readFile(join(cwd, 'result.txt'), 'utf8')).toBe('old');
+        return ok(
+          JSON.stringify({ status: 'repaired', findings: 'Prepared for host verification' }),
+        );
+      },
+      verify: async (config: Config) => {
+        verification = {
+          ...config,
+          issue: [process.execPath, '-e', `console.log(${JSON.stringify(issue)})`],
+          check: [
+            process.execPath,
+            '-e',
+            "process.exit(require('fs').readFileSync('result.txt','utf8') === 'implemented' ? 0 : 1)",
+          ],
+          repair: [process.execPath, helper, 'repair'],
+          review: [process.execPath, helper, 'review'],
+        };
+        return run(verification);
+      },
+      publish: async () => assert.fail('No publication authorized'),
+    };
+    await develop(['99', '--repo', repo, '--run-dir', dir, '--no-publish'], io);
+    const initial = await readFile(join(dir, 'implementation.prompt'), 'utf8');
+    const repaired = await readFile(join(dir, 'verification/repair-1.prompt'), 'utf8');
+    const reviewed = await readFile(join(dir, 'verification/review-1.prompt'), 'utf8');
+    for (const prompt of [initial, repaired, reviewed]) {
+      expect(prompt).toContain(base);
+      expect(prompt).toContain(`Git blob: ${blob}`);
+      expect(prompt).toContain('config_index・report_index');
+      expect(prompt).toContain('teleology / hypothesis / unverified');
+      expect(prompt).not.toContain('Proposed revision during repair');
+      expect(prompt).not.toContain('## revisit-identity');
+    }
+    const target: unknown = JSON.parse(
+      await readFile(join(dir, 'verification/review-1.target.json'), 'utf8'),
+    );
+    assert(isRecord(target));
+    assert(isArray(target.knowledge) && target.knowledge.length === 1);
+    const snapshot = target.knowledge[0];
+    assert(isRecord(snapshot));
+    expect({ path: snapshot.path, blob: snapshot.blob, ids: snapshot.ids }).toEqual({
+      path: modelPath,
+      blob,
+      ids,
+    });
+    assert(isArray(snapshot.nodes));
+    const rule = snapshot.nodes.find((value) => isRecord(value) && value.id === 'start-identity');
+    assert(isRecord(rule));
+    expect(rule.status).toBe('agreed');
+    expect(rule.statement).toContain('indexやモードを含む未commit差分がない');
+    const hypothesis = snapshot.nodes.find(
+      (value) => isRecord(value) && value.id === 'less-rework',
+    );
+    assert(isRecord(hypothesis));
+    expect(hypothesis.status).toBe('unverified');
+    expect(await readFile(join(repo, 'result.txt'), 'utf8')).toBe('Unrelated work must survive');
+    expect(await readFile(join(repo, 'untracked.txt'), 'utf8')).toBe('Other developer’s notes');
+    assert(verification);
+    await writeFile(join(verification.cwd, modelPath), content + '\n');
+    expect((await run(verification)).result).toBe('target_changed_after_stop');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 20000);
