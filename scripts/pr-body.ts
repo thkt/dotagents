@@ -56,7 +56,7 @@ export function prBody(input: {
         `- [${doc.path}](https://github.com/${repository}/blob/${commit}/${doc.path.split('/').map(encodeURIComponent).join('/')}) (${doc.role}): ${text(doc.reason)}`,
     ),
     '## 残作業と担当',
-    'ローカルcheckと独立評価は完了していますが、本文作成時点では公開・CI・公開後確認・人の承認は未完了です。後続のCLI結果と同じPR headの結果を照合してください。',
+    '本文作成時点では公開・CI・公開後確認・人の承認は未完了です。後続のCLI結果と同じPR headの結果を照合してください。',
     `- CLI: PRを公開し、同じheadのCI（${ciChecks.join('・')}）の登録と成功を確認する。`,
     ...(media.length
       ? [
