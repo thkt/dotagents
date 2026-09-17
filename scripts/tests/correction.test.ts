@@ -193,24 +193,22 @@ test('evidence directory boundary: symlink resolving into the worktree', async (
   expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
 });
 
-for (const mode of ['writing_success', 'writing_failure']) {
-  test(`writing before check and after repair: ${mode}`, async () => {
-    const fixture = await trial(mode);
-    expect(fixture.execute().status).toBe(mode === 'writing_success' ? 0 : 1);
-    const state = await fixture.state();
-    expect(state.result).toBe(
-      mode === 'writing_success' ? 'ready_for_human_review' : 'writing_failed',
+test('retired writing input is rejected before execution and preserves prior evidence', async () => {
+  const t = await trial('normal');
+  await mkdir(t.config.runDir);
+  const prior = '{"result":"writing_failed","active":{"role":"writing"}}';
+  const stateFile = join(t.config.runDir, 'state.json');
+  await writeFile(stateFile, prior);
+  for (const writing of [[process.execPath, 'old-writing.js'], null]) {
+    await writeFile(t.configFile, JSON.stringify({ ...t.config, writing }));
+    const result = t.execute();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      'writing is no longer supported; remove writing from correction input',
     );
-    if (mode === 'writing_success') {
-      expect(await readFile(join(fixture.config.cwd, 'README.md'), 'utf8')).toBe(
-        'reviewed correct',
-      );
-      expect(await readFile(join(fixture.root, 'checked-documents'), 'utf8')).toBe(
-        'reviewed broken\nreviewed correct\n',
-      );
-    } else {
-      expect(state.checks).toBe(0);
-      expect(state.review).toBe(0);
-    }
-  });
-}
+    expect(await readFile(stateFile, 'utf8')).toBe(prior);
+    expect(await Bun.file(join(t.config.runDir, 'check-1.stdout')).exists()).toBe(false);
+    expect(await Bun.file(join(t.config.runDir, 'repair-1.stdout')).exists()).toBe(false);
+    expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
+  }
+});

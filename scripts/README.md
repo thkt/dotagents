@@ -15,17 +15,17 @@
 bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to/target-checkout
 ```
 
-番号または対象repoのIssue URLを渡します。実行前に対象のREADME、開発方針、適用される指示、下記の設定を確認してください。ハーネスはBun、Git、gh、Codex CLIとホストの日本語確認環境を使います。対象repoの言語やテストツールは設定に従います。
+番号または対象repoのIssue URLを渡します。実行前に対象のREADME、開発方針、適用される指示、下記の設定を確認してください。ハーネスはBun、Git、gh、Codex CLIを使います。対象repoの言語やテストツールは設定に従います。
 
-開始時にcheckout、設定、fetch/push remote、GitHub repo ID、base branch、ghの主体、push権限を照合します。公開する実行ではユーザー認証の対象アクセスも実装前に確認します。元checkoutがdirtyな場合、run保存先がすでに存在する場合、同名branchが存在する場合は作業を始めません。要求全文を保存し、元checkoutのcommitted HEADから `codex/development-N` の隔離worktreeを作ります。設定のsetupを隔離先で順に実行し、初回実装、文章確認、必要な撮影、対象のcheck、独立評価へ進みます。要求の変更、対象・設定・主体の変更、上限超過が発生した場合は停止します。
+開始時にcheckout、設定、fetch/push remote、GitHub repo ID、base branch、ghの主体、push権限を照合します。公開する実行ではユーザー認証の対象アクセスも実装前に確認します。元checkoutがdirtyな場合、run保存先がすでに存在する場合、同名branchが存在する場合は作業を始めません。要求全文を保存し、元checkoutのcommitted HEADから `codex/development-N` の隔離worktreeを作ります。設定のsetupを隔離先で順に実行し、初回実装、必要な撮影、対象のcheck、独立評価へ進みます。要求の変更、対象・設定・主体の変更、上限超過が発生した場合は停止します。
 
 scopingの共有用調査報告は対象repoのresearch/へ保存します。必要な報告は[引き継ぎ引数](#調査報告を指定した実装開始)で指定し、確認済みの本文が開始元のHEADと実装worktreeに含まれることを照合します。未commitの報告を退避してcheckoutをcleanにしただけでは、その報告は実装worktreeに入りません。セッション状態、評価、lockはGit管理外に残します。
 
-新規実行の上限は初回実装・修正・独立評価のモデル累計20分、追加修正2回、独立評価2回、各checkとCI待機がそれぞれ9分です。初回実装の消費時間はcorrectionへ渡す残り時間から差し引きます。[文章確認](#日本語の確認と修正)のGeminiと忠実性評価は別枠です。予算拡大や途中実行の自動復旧は行いません。
+新規実行の上限は初回実装・修正・独立評価のモデル累計20分、追加修正2回、独立評価2回、各checkとCI待機がそれぞれ9分です。初回実装の消費時間はcorrectionへ渡す残り時間から差し引きます。通常コマンドと公開直後・CI待機後の対象照合は各11分で打ち切ります。予算拡大や途中実行の自動復旧は行いません。
 
 保存先は `~/.local/share/dotagents/development/<Git管理ディレクトリの識別値>/<Issue番号>/` です。`--run-dir DIRECTORY` でcheckoutやGit管理領域の外を指定できます。`target.json` に対象設定、repo ID、gh主体を残し、ほかに要求、指示と結果、検証ログ、作業checkout、PR本文とURL、CI結果を残します。既存の保存先は再実行に使いません。中断後は記録、実プロセス、GitHubの状態を照合し、保存先の削除や別名での自動再試行は行いません。
 
-`--no-publish` は独立評価までで止め、commit、push、PR作成を行いません。push権限の確認も不要です。通常実行は検証済み対象を再照合し、commit、PR本文の文章確認、ユーザー認証と権限の再確認、gh主体の資格情報を明示したpush、ユーザー認証によるPR作成へ進みます。pushにはコマンド内だけで定義するHTTPSの公開先を使い、GitのURL書き換え後も対象が一致することを確認します。SSHへの切り替えや別repoへの書き換えは拒否します。`push.followTags`の設定にかかわらず、タグを同時に公開しません。設定した保存先から生成媒体の変更を添付します。
+`--no-publish` は独立評価までで止め、commit、push、PR作成を行いません。push権限の確認も不要です。通常実行は検証済み対象を再照合し、commit、acceptedな評価からのPR本文生成、ユーザー認証と権限の再確認、gh主体の資格情報を明示したpush、ユーザー認証によるPR作成へ進みます。pushにはコマンド内だけで定義するHTTPSの公開先を使い、GitのURL書き換え後も対象が一致することを確認します。SSHへの切り替えや別repoへの書き換えは拒否します。`push.followTags`の設定にかかわらず、タグを同時に公開しません。設定した保存先から生成媒体の変更を添付します。
 
 `ciChecks`に指定した全checkの登録とSUCCESSを、9分のCI待機時間内で待ちます。同時にPRのhead、base、OPEN状態を照合します。必要なcheckのSKIPPEDやNEUTRALは成功と扱わず、同名checkが複数ある場合は全件の成功を求めます。他の登録済みcheckに失敗や保留がある場合も完了にしません。各取得時の応答と診断は`ci-registration-N.stdout`および`.stderr`へ、最後の対象照合は`ci-final-target.stdout`および`.stderr`へ保存します。公開直後の取得ログは`pr-publication.stdout`および`.stderr`へ残します。CLIは最新CIとPRのhead・base・OPEN状態を照合し、表示・再生・配置の確認は `rendered_media_check` として担当AIへ渡します。CI未確認時もPR URL、取得済みの公開結果、取得ログを保持して非zeroコードで終了します。担当AIは公開本文と根拠、添付後の実画面を照合し、人が要求・権限の変更、レビュー、承認、マージを判断します。
 
@@ -206,7 +206,7 @@ PR作成と添付はCLI、PR内の表示確認と本文・根拠の照合は担�
 
 公開用の`pr.md`は、CLIが最新のaccepted評価から変更と理由、要求との対応、検証の内容と限界、指摘の現在の判断・対応、文書の役割と選択理由、残作業を選んで生成します。評価担当AIは既存のassessments・reason・handoffへこれらの具体的な説明を記し、生ログと内部記録への参照はevidenceなどに分けます。CLIは内部要約全体や生のevidenceを転記せず、選んだ文章内の実行ディレクトリや既知のローカルパスは省略表記に置き換え、周囲の事実と公開URL・ルートの説明を残します。文書は対象commitの公開リンクで示し、適用条件、過去の観測、未合意の提案、未確認事項を区別します。共有が必要な証拠は秘密情報や生ログを除き、対象repoの合意した保存先へ要約します。
 
-CLIは検証済み成果物と公開するcommitの同一性を照合し、Issue参照、対象commit、検証コマンド、必要な添付と担当別の残作業を本文へ加えます。追加のモデル呼び出しやレビュー工程は設けず、既存の日本語確認・意味照合へ渡します。担当AIは生成本文とIssue・根拠の意味の一致を確認します。文章の選択やパスの置換だけでは、意味の正しさや機密情報の除去を保証しません。
+CLIは検証済み成果物と公開するcommitの同一性を照合し、Issue参照、対象commit、検証コマンド、必要な添付と担当別の残作業を本文へ加えます。本文専用のモデル生成・校正は行いません。担当AIは生成本文とIssue・根拠の意味の一致を確認します。文章の選択やパスの置換だけでは、意味の正しさや機密情報の除去を保証しません。
 
 PR本文の公開・CI・公開後確認は本文作成時点の未完了事項として記します。公開後のCLI結果は`result.json`で確認し、CI成功を媒体表示確認や人の承認へ読み替えません。`remaining`の`ci`はCLI結果と同じheadのCIを担当AIが確認する作業、`rendered_media_check`は担当AIによる実画面確認、`human_review`は人のレビューと承認・マージ判断です。`--no-publish`の`verified_local`も公開完了ではなく、`publication`・`human_review`と、CIが設定されていれば`ci`を残します。公開する際は必要な添付と実画面確認も引き継ぎます。
 
@@ -256,9 +256,6 @@ SIGKILLやOS停止は捕捉できません。CLIだけが強制終了すると�
 | 制御プロセスの中断・timeout・ログ | [correction-process.test.ts](tests/correction-process.test.ts) |
 | 撮影設定の解決・実行判定・外部出力 | [capture.test.ts](tests/capture.test.ts)、[capture-browser-errors.test.ts](tests/capture-browser-errors.test.ts) |
 | 撮影・媒体の保持と再利用 | [correction-capture.test.ts](tests/correction-capture.test.ts) |
-| 文章候補の検証・忠実性評価・採用判断 | [writing.test.ts](tests/writing.test.ts) |
-| 作業ツリーへの文書反映・再評価・中断時の保全 | [writing-review.test.ts](tests/writing-review.test.ts) |
-| 文書レビュープロセスの失敗分類・停止・ログ | [writing-process.test.ts](tests/writing-process.test.ts) |
 | テスト実行完了の判定 | [test-runner.test.ts](tests/test-runner.test.ts) |
 
 撮影アダプターの実動作はホスト専用の一時fixtureでも確認できます。既存のPlaywright依存と導入済みブラウザーを持つ対象repoを明示します。依存の導入や対象repoへの書き込みは行わず、OSの一時ディレクトリにfixture、媒体、ログを保持します。ブラウザーを起動するためsandbox内では実行しません。
@@ -293,44 +290,22 @@ OSの一時ディレクトリに公開可能な小さなページ分割関数の
 
 Issue #66の試行結果は[2026-09-15の実モデル検証記録](../docs/evidence/review-foundation-66.json)にあります。実行時のコードのhash、fixture、指摘の裁定、時間、使用量と未確認範囲を保持した過去の証拠です。後続の変更に対する検証成功を示すものではありません。
 
-## 日本語の確認と修正
+## 専用校正の廃止と切替
 
-Antigravity CLIの`agy`と既存のCodex CLIを使います。初回利用前に`agy models`で`gemini-3.8-flash-high`を確認し、ログインはホストの既存設定を使います。CIにモデル認証は追加しません。
+文書の作成・評価は[日本語確認の方針](../.codex/DEVELOPMENT.md#pr本文人向け文書の日本語確認)に従い、執筆、既存の独立評価、公開前後の確認で行います。`writing-review.ts`の`file`・`documents`、Gemini校正、Codexの`review-text`は提供しません。設定未指定時の自動校正も終了します。`agy`の導入・実行・認証はハーネスの前提ではありません。利用者のCLIや認証情報は削除しません。
 
-直接作成・更新するPR本文や、人向けの単独Markdownは、本文案と事実・合意・出典のファイルを分けて準備します。対象に含まれない秘密や非公開ログを入力へ混ぜないでください。
+対象repoの`.dotagents.json`またはstandalone correction入力に`writing`があれば、空の指定や`null`も含めてモデル実行・公開前に拒否します。対象の文書方針を確認し、専用校正の廃止がそのrepoの運用に与える変更を説明した上で、`writing`キーを削除してください。互換実行や任意の校正モードはありません。専用校正が必要な利用先は切替前に方針を決め、未解決なら旧版を保持します。他repoの設定・方針を一括で書き換えません。
 
-```sh
-bun /absolute/path/trusted-checkout/scripts/writing-review.ts file \
-  --input /absolute/path/draft.md --facts /absolute/path/facts.md \
-  --output /absolute/path/reviewed.md --run-dir /absolute/path/outside-checkout/writing-run
-```
+採用版からの新規実行だけに新しい契約を使います。実行中の旧版を差し替えず、保存済みの原文・候補・評価・失敗記録・runは削除、変換、再開しません。新しい保存先を使うことも、旧runの停止理由や上限を迂回する許可にはなりません。
 
-確認に成功すると、新しいoutputファイルへ確認済み候補を書き出します。Antigravity CLIを利用できない理由を確認できた場合は、原文をoutputへ保持します。その上で`skipped.json`へモデル名、理由、入力hashを記録し、通常の確認へ進みます。未実施の理由はPRの説明、または完了報告に記載し、確認済みとは報告しません。PRではこのファイルを`publish.ts`または`gh pr edit --body-file`へ渡します。タイトルや機械的な識別子の生成はこの本文修正とは分けます。公開後は実際の本文、リンク、添付を読み直します。配置や説明を変更した場合も、その最新本文に同じ確認を適用します。
+切替の受入確認はホストが次の手順で行います。通常のcheckとは別の確認であり、この手順の記載だけでは実施済みになりません。
 
-`development.ts`は下記の設定で選んだ変更済みの人向けMarkdownを対象に、ホストの共通check・独立評価の前と修正後に`documents`モードを実行します。変更のない文書は対象外です。候補の採用前に対象選択の設定、対象文書の集合、内容、根拠を再照合し、確認中に新たな文書が対象になった場合も停止します。同じ対象選択・文書・根拠に対する成功記録を再利用します。利用不能の記録は成功記録と分けて保持します。同じ保存先で入力が同じ場合は再試行せず、未実施の理由を通知します。入力が変わった場合は確認を試みます。PR本文は検証結果から作成し、確認を通してからpush・公開します。`--no-publish`も文書の確認は行いますが、PR本文作成と公開は行いません。`correction.ts`を単独で使う場合は、設定の`writing`に同CLIの`--worker documents --facts FILE --run-dir DIRECTORY`呼び出しを指定します。
+1. 合意した対象repo・Issue・許可範囲で、文書変更を含む新しいタスクを選びます。変更後のハーネスを隔離先に固定し、その実体パス、HEAD、未commit差分を含むファイルhashを実行前後に記録します。固定した実体の`development.ts`から新しい保存先へ開始し、生成された`verification-config.json`のrepair・reviewが同じ版の`codex-actor.ts`を参照し、`writing`を含まないことを確認します。登録済みの旧入口や進行中のrunは差し替えません。
+2. 担当AIは、`verification/review-N.target.json`、同じ番号の`.diff`・`.additions.json`・`.json`、checkログを照合します。変更文書が評価対象に含まれることに加え、実モデルの評価が原資料・Issue・変更文書・check結果の内容と整合するかを読みます。具体的な内容不備があれば修正へ戻し、変更後のcheckと独立評価を確認します。単なるファイル名の掲載やaccepted応答だけを意味の確認とは扱いません。
+3. PR本文は、そのタスクのacceptedな評価と検証済みcommitから生成された`pr.md`を使います。Issue番号、対象commit、要求との対応、検証結果、未確認事項、文書リンクを評価記録・対象ソース・checkログと照合します。`--no-publish`はcommitと本文生成の前に停止するため、文書評価までの部分的な証拠です。本文確認のために公開禁止を外したり、仮のcommitや固定応答で完了扱いにしたりしません。公開が許可されたタスクでは公開前後の本文と同じPR headのCIも確認します。対象・権限の変更が必要なら人の判断へ戻します。
+4. 既存のcheckout外の証拠保存先に、対象版、実行コマンド、対象Issue、評価・check・本文の記録への参照と担当AIの照合結果、未実施範囲を残します。共有する根拠だけを対象repoの合意した保存先へ置き、再評価へ渡します。実行結果や過去の受入記録を現行の操作説明へ混ぜず、旧runや旧版での成功を新しい版の証拠に流用しません。
 
-対象repoの`.dotagents.json`に`writing`を指定できます。`documents`は既定値を置き換え、`exclude`は選択から除くパスです。repo相対のファイル名、または末尾に`/`を付けたディレクトリを指定します。ディレクトリを指定した場合は配下のファイルも含めます。大文字・小文字を区別し、glob、絶対パス、`..`は使えません。`writing`未指定時はルートの`README.md`と`docs/`だけを候補にします。`documents: []`は一括確認の対象なしを表します。研究記録や独自配置の操作説明は用途を確認して明示してください。変更されていないファイルは設定に含まれていても送信しません。
-
-```json
-"writing": {
-  "documents": ["README.md", "docs/", "research/", "manual/", "scripts/README.md"],
-  "exclude": ["docs/request-draft.md", "research/pending-requests/"]
-}
-```
-
-既知のAI向けファイル名（`AGENTS.md`、`AGENTS.override.md`、`SKILL.md`、`CLAUDE.md`、`GEMINI.md`、`copilot-instructions.md`、`*.prompt.md`、`*.instructions.md`）、指示配置（`.agents/`、`.claude/`、`.cursor/`、`.gemini/`、`skills/`、`agents/`、`prompts/`、`instructions/`、`rules/`）、テスト・fixture配置（`test/`、`tests/`、`__tests__/`、`fixture/`、`fixtures/`、`__fixtures__/`）、およびMarkdown以外のファイルは、明示したパスに含まれていても対象外です。これらの名前の判定は大文字・小文字を区別しません。任意の名前のAI指示や試験データは`exclude`へ指定します。
-
-Issue本文と下書きは標準対象外です。`issue.md`、`issue-59.md`など`issue`または`issues`に`-`・`_`・`.`が続くMarkdown名、`issues/`、`issue-drafts/`、`.github/ISSUE_TEMPLATE/`は除外します。任意の名前で保存する場合は`exclude`に指定するか、frontmatterに`writing-purpose: issue`を記載してください。調査記録とIssue案を兼ねる文書もIssue用途として扱います。通常のIssue作成・更新は[scopingのIssue反映手順](../skills/scoping/references/issue.md)に従い、Gemini校正と校正候補の意味照合を起動しません。要求の抜け・矛盾・曖昧さ、合意・根拠との一致、必要な独立評価と人の合意は引き続き確認します。
-
-`file`モードは人向けMarkdownやPR本文を明示して確認する入口です。`documents`の選択パスには制限されませんが、既知の対象外パス、Issue用途のfrontmatter、Markdown以外のファイルはモデル起動前に拒否します。シンボリックリンクも受け付けません。任意名のIssue案やAI指示をこの入口へ渡さないでください。外部送信の許可は用途による対象選択とは別に確認します。対象外だけの変更では両モデルを起動せず、対象外と通知します。校正成功や利用不能によるスキップ記録は作りません。
-
-Geminiは修正候補を作成し、別の読み取り専用Codexは原文、根拠、候補の間で意味の一致を評価します。モデルID、完了結果、JSONを確認し、frontmatter、既存のコード（インデントやリスト内を含む）、リンクや画像の参照先（相対や参照形式を含む）、URL、hash、Issue参照の変更を拒否します。元の保護対象の順序と個数も保持します。
-
-インラインコード装飾の追加は、原文と候補に一度だけ現れる同じ文字列で、既存の保護対象を変えず、対応する位置を確認できる場合に許容します。たとえば原文の`reviewHistory`にバッククォートを付ける変更は、周囲の文章の校正と併存できます。識別子の変更や一部の切り出し、複数の出現箇所からの曖昧な対応、保護対象をまたぐ移動は拒否します。書式検査を通っても、数量・否定・条件・範囲・権限・参照先の変更や説明の欠落が意味照合で指摘された候補は採用しません。意味の評価はモデルによる判断であり、事実の正しさや完全な一致を保証するものではありません。元資料の確認と人間によるレビューも必要です。
-
-各モデル呼び出しの上限は5分、1回の処理全体の制限時間は11分です。文書処理は既存の修正サイクルごと、PR本文は公開前に1回行い、自動の再試行はありません。この時間は従来の実装・独立評価のモデル時間枠とは別枠として扱い、ログへ残します。入力が大きすぎる場合は情報を捨てずに停止します。必要に応じて対象を分割して確認した上で、再開方法を判断します。
-
-記録はcheckout外に保存し、原文、根拠、執筆指示、Gemini候補、意味確認、成功記録を残します。利用不能のスキップ記録は成功と分けて保持します。原因不明の失敗や中断した記録を削除してやり直しません。`writing_failed`ではログを確認し、入力の修正、実行環境の復旧、または必要な人の判断へ戻します。CLI外からのGitHub操作自体を禁止する仕組みではなく、担当者も確認済み本文を使用する責任を持ちます。
+制御テストによる受け渡し、実モデルの意味判断、実際のGitHub公開は別の確認です。模擬応答が通っただけで文章の意味が正しいとは扱いません。文体統一・保護対象の機械比較・校正前後の別モデル照合は廃止しており、既存評価が同じ検査を代替すると説明しません。
 
 ## PRの公開
 

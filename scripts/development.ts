@@ -17,7 +17,6 @@ import {
 import { isRecord, outside } from './input.ts';
 import { publish } from './publish.ts';
 import { waitForCi, confirmCiTarget, confirmCiPublication } from './ci.ts';
-import { writingHostTimeoutMs } from './writing.ts';
 import { readTarget, issueNumber, targetCommand, pushArguments } from './target.ts';
 import { researchContext, researchHandoff, verifyReports } from './research-handoff.ts';
 
@@ -25,9 +24,11 @@ const runtime = { command, verify: run, publish };
 const modelTimeMs = 1200000;
 // The full check and the CI run of the same check share one budget.
 const checkTimeMs = 540000;
+// General commands and post-publication target checks retain their 11-minute limit.
+const hostCommandTimeMs = 660000;
 
 async function checked(io: typeof runtime, argv: string[], cwd: string, prefix?: string) {
-  const result = await io.command(argv, cwd, '', writingHostTimeoutMs, prefix);
+  const result = await io.command(argv, cwd, '', hostCommandTimeMs, prefix);
   assert(result.code === 0 && !result.timedOut, `Command failed: ${argv[0]}; ${result.stderr}`);
   return result.stdout.trim();
 }
@@ -169,7 +170,7 @@ async function implement(context: Context, io: typeof runtime) {
     'Implement the complete agreed Issue using existing code and verification assets. Follow applicable repository instructions; consult the target README and development policy sections relevant to this change.',
     'Prepare the tests and documentation needed for the agreed behavior; reuse sufficient existing verification. Complete the implementation and targeted checks needed to prepare it for host verification without pausing for approval of routine choices within scope. The host runs the configured verification; do not launch browsers or servers in your sandbox.',
     testInstructions,
-    'Documentation-only Issues use the same flow. Apply the target documentation policy when present; keep current operating instructions accurate and place historical results in evidence; add tests or code only when the agreed requirements need them.',
+    'Documentation-only Issues use the same flow. Apply the target documentation policy when present; keep current operating instructions accurate and place historical results in evidence; add tests or code only when the agreed requirements need them. When writing documents, compare facts, quantities, conditions, scope, authority, unverified claims and references with the original sources; include changed documents in the existing independent review.',
     captureInstructions(context.target.config.capture),
     `Target setup/check/capture contract (do not weaken or replace): ${JSON.stringify(context.target.config)}`,
     'Do not commit, push, publish, change the Issue or weaken acceptance criteria. Do not run the full check; the host will do it after implementation.',
@@ -214,16 +215,6 @@ async function implement(context: Context, io: typeof runtime) {
     runDir: join(dir, 'verification'),
     issue: context.issue,
     check: targetCommand(context.target.config.check),
-    writing: [
-      process.execPath,
-      resolve(import.meta.dir, 'writing-review.ts'),
-      '--worker',
-      'documents',
-      '--facts',
-      join(dir, 'issue.json'),
-      '--run-dir',
-      join(dir, 'writing-documents'),
-    ],
     ...(context.target.config.capture
       ? {
           capture: targetCommand(context.target.config.capture.command),
@@ -293,34 +284,11 @@ async function ship(
       localRoots: [cwd, dir],
     }),
   );
-  const reviewedBody = join(dir, 'pr-reviewed.md');
-  await checked(
-    io,
-    [
-      process.execPath,
-      resolve(import.meta.dir, 'writing-review.ts'),
-      '--worker',
-      'file',
-      '--input',
-      body,
-      '--facts',
-      join(dir, 'issue.json'),
-      '--output',
-      reviewedBody,
-      '--run-dir',
-      join(dir, 'writing-pr'),
-    ],
-    cwd,
-    join(dir, 'writing-pr-command'),
-  );
   assert(
-    (await readFile(reviewedBody, 'utf8')).includes(`Closes #${number}`),
-    'Reviewed PR lost Issue reference',
+    (await readFile(body, 'utf8')).includes(`Closes #${number}`),
+    'Generated PR lost Issue reference',
   );
-  assert(
-    (await readFile(reviewedBody, 'utf8')).includes(commit),
-    'Reviewed PR lost verified commit',
-  );
+  assert((await readFile(body, 'utf8')).includes(commit), 'Generated PR lost verified commit');
   assert(
     (await io.verify(config)).result === 'ready_for_human_review',
     'Target changed before push',
@@ -341,7 +309,7 @@ async function ship(
     '--title',
     requirements.title,
     '--body-file',
-    reviewedBody,
+    body,
   ]);
   await writeFile(join(dir, 'pr-url.txt'), url);
   if (media.length) {
@@ -370,10 +338,10 @@ async function ship(
     dir,
     ciChecks: context.target.config.ciChecks,
   };
-  let ci = await confirmCiPublication(ciTarget, number, io.command, writingHostTimeoutMs);
+  let ci = await confirmCiPublication(ciTarget, number, io.command, hostCommandTimeMs);
   if (!ci) {
     const observedCi = await waitForCi(ciTarget, io.command, checkTimeMs);
-    ci = await confirmCiTarget(ciTarget, observedCi, io.command, writingHostTimeoutMs);
+    ci = await confirmCiTarget(ciTarget, observedCi, io.command, hostCommandTimeMs);
   }
   const result = {
     url,

@@ -31,16 +31,9 @@ async function expectInvocation(root: string, role: string) {
   );
 }
 
-for (const mode of [
-  'normal',
-  'repair',
-  'review-text',
-  'nonzero',
-  'missing',
-  'write_error',
-] as const) {
-  const role = mode === 'repair' || mode === 'review-text' ? mode : 'review';
-  const succeeds = ['normal', 'repair', 'review-text'].includes(mode);
+for (const mode of ['normal', 'repair', 'nonzero', 'missing', 'write_error'] as const) {
+  const role = mode === 'repair' ? mode : 'review';
+  const succeeds = ['normal', 'repair'].includes(mode);
   test(`Codex actor logs: ${mode}`, async () => {
     const root = await mkdtemp(join(tmpdir(), 'actor-stream-'));
     try {

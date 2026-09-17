@@ -4,7 +4,6 @@ import type { Review } from './review.ts';
 import { researchContext, verifyReportBase } from './research-handoff.ts';
 import { assertConfig, assertState, outside } from './input.ts';
 import type { Config, State, ActorRole, StopReason, CaptureDecision } from './input.ts';
-import { writingHostTimeoutMs } from './writing.ts';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -308,7 +307,7 @@ export function captureInstructions(capture: { destination: string } | null) {
 async function hostCommand(
   config: Config,
   state: State,
-  role: 'capture' | 'check' | 'writing',
+  role: 'capture' | 'check',
   argv: string[],
   persist: Persist,
   captureDecision?: CaptureDecision,
@@ -320,13 +319,7 @@ async function hostCommand(
   const prefix = resolve(config.runDir, `${role}-${attempt}`);
   state.active = { role, prefix };
   await persist();
-  const result = await command(
-    argv,
-    config.cwd,
-    '',
-    role === 'writing' ? writingHostTimeoutMs : config.checkTimeMs,
-    prefix,
-  );
+  const result = await command(argv, config.cwd, '', config.checkTimeMs, prefix);
   state.active = null;
   state.events.push({
     role,
@@ -520,27 +513,11 @@ async function plainMarkdownFile(cwd: string, path: string, deleted: boolean) {
   }
 }
 
-async function verifyWriting(config: Config, state: State, persist: Persist) {
-  if (!config.writing) {
-    return undefined;
-  }
-  const writing = await hostCommand(config, state, 'writing', config.writing, persist);
-  state.findings = `Writing logs: ${writing.prefix}.stdout and ${writing.prefix}.stderr`;
-  if (digest(await readIssue(config)) !== state.issueHash) {
-    return 'requirements_changed' as const;
-  }
-  return writing.code !== 0 || writing.timedOut ? ('writing_failed' as const) : undefined;
-}
-
 async function verifyHost(
   config: Config,
   state: State,
   persist: Persist,
 ): Promise<{ stop?: StopReason; findings?: string }> {
-  const writingStop = await verifyWriting(config, state, persist);
-  if (writingStop) {
-    return { stop: writingStop };
-  }
   state.source = await snapshot(config.cwd);
   const decision = await captureDecision(config, state.source, state.captureSource);
   if (config.capture && decision.outcome === 'execute') {
@@ -775,7 +752,7 @@ async function cycle(
   const prompt = [
     'Repair only within these agreed requirements. Read the current files and fix the root cause.',
     testInstructions,
-    'Apply the target documentation policy when present to documentation-only changes and accompanying updates; keep current operating instructions accurate and historical results in evidence.',
+    'Apply the target documentation policy when present to documentation-only changes and accompanying updates; keep current operating instructions accurate and historical results in evidence. Compare document facts, quantities, conditions, scope, authority, unverified claims and references with original sources; return content defects to repair and renew affected checks and independent review.',
     'Preserve agreed acceptance criteria and the verification needed to protect required behavior. Removing or consolidating unnecessary tests is allowed; making checks pass by hiding a realistic regression is not. Do not commit, push or publish.',
     'Run only targeted checks needed to diagnose or validate your repair; leave the full check command to the host.',
     'The host runs the configured verification after your changes; do not launch browsers or servers in the actor sandbox.',

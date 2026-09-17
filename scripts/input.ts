@@ -43,7 +43,6 @@ export function assertReportReferences(value: unknown): asserts value is ReportR
   }
 }
 const stopReasons = [
-  'writing_failed',
   'execution_limit',
   'repair_failed',
   'review_failed',
@@ -70,7 +69,6 @@ export interface Config {
   capture?: string[];
   captureDestination?: string;
   captureRequired?: boolean;
-  writing?: string[];
   repair: string[];
   review: string[];
   repairLimit: number;
@@ -86,7 +84,7 @@ export interface CaptureDecision {
 }
 interface Event {
   captureDecision?: CaptureDecision;
-  role: ActorRole | 'check' | 'capture' | 'writing';
+  role: ActorRole | 'check' | 'capture';
   source?: string;
   code: number | null;
   timedOut: boolean;
@@ -103,7 +101,7 @@ export interface State {
   review: number;
   checks: number;
   modelMs: number;
-  active: { role: ActorRole | 'check' | 'capture' | 'writing'; prefix: string } | null;
+  active: { role: ActorRole | 'check' | 'capture'; prefix: string } | null;
   events: Event[];
   source?: string;
   captureSource?: string;
@@ -122,11 +120,7 @@ const nonnegative = (value: unknown): value is number =>
 const count = (value: unknown): value is number => nonnegative(value) && Number.isInteger(value);
 const optionalString = (value: unknown) => value === undefined || typeof value === 'string';
 const role = (value: unknown) =>
-  value === 'writing' ||
-  value === 'check' ||
-  value === 'repair' ||
-  value === 'review' ||
-  value === 'capture';
+  value === 'check' || value === 'repair' || value === 'review' || value === 'capture';
 const command = (value: unknown) =>
   isArray(value) &&
   typeof value[0] === 'string' &&
@@ -135,6 +129,10 @@ const command = (value: unknown) =>
 
 export function assertConfig(value: unknown): asserts value is Config {
   assert(isRecord(value), 'Invalid configuration object');
+  assert(
+    !('writing' in value),
+    'writing is no longer supported; remove writing from correction input and review the documentation policy before starting a new run. Preserve existing runs.',
+  );
   assert(optionalString(value.baseCommit), 'Invalid base commit');
   if (value.reports !== undefined) {
     assertReportReferences(value.reports);
@@ -153,7 +151,6 @@ export function assertConfig(value: unknown): asserts value is Config {
   for (const key of ['issue', 'check', 'repair', 'review']) {
     assert(command(value[key]), `Invalid ${key} command`);
   }
-  assert(value.writing === undefined || command(value.writing), 'Invalid writing command');
   assert(value.capture === undefined || command(value.capture), 'Invalid capture command');
   assert(
     value.captureRequired !== true || command(value.capture),
