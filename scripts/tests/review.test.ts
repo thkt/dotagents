@@ -171,7 +171,7 @@ test('host combines reordered judgments and new findings, reopens resolved findi
     updates: [],
     newItems: [finding],
     documents: [],
-    handoff: ['Human review remains'],
+    handoff: [],
   };
   const first = parseReview(JSON.stringify(response), 'target-1', 1);
   expect(first.status).toBe('needs_changes');
@@ -242,21 +242,25 @@ test('host combines reordered judgments and new findings, reopens resolved findi
   expect(first.items).toEqual([finding]);
   expect(second.items[0]?.disposition).toBe('fixed');
   expect(third.status).toBe('needs_changes');
-  expect(() =>
-    prBody({
-      review: third,
-      repository: 'owner/repo',
-      number: '82',
-      commit: 'head',
-      check: ['check'],
-      ciChecks: [],
-      media: [],
-      localRoots: [],
-    }),
-  ).toThrow('requires an accepted review');
-  expect(parseReview(JSON.stringify({ ...response, newItems: [] }), 'target-1', 1).status).toBe(
-    'accepted',
-  );
+  const input = {
+    review: third,
+    repository: 'owner/repo',
+    number: '82',
+    commit: 'head',
+    check: ['check'],
+    ciChecks: ['checks'],
+    media: [],
+    localRoots: [],
+  };
+  expect(() => prBody(input)).toThrow('requires an accepted review');
+  const body = prBody({
+    ...input,
+    review: parseReview(JSON.stringify({ ...response, newItems: [] }), 'target-1', 1),
+  });
+  expect(body).not.toContain('## 指摘への対応');
+  expect(body).toContain('## 残作業と担当');
+  expect(body).toContain('CLI: PRを公開し、同じheadのCI（checks）');
+  expect(body).toContain('人: 要求や権限の変更を判断');
 });
 
 test('repair after a failed check retains prior review findings and current failure evidence', async () => {
@@ -348,7 +352,7 @@ reply.documents=[{path:'README.md',role:'current',reason:'Operating instructions
     expect(additions.find((file) => file.path === 'README.md')?.content).toBe(
       Buffer.from('Current operating instructions').toString('base64'),
     );
-    expect(state.findings).toContain('Human review and publication remain');
+    expect(state.findings).toContain('担当AI: 未計測の実サービス応答時間を報告する');
   });
 }
 
