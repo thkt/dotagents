@@ -19,7 +19,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to
 
 開始時にcheckout、設定、fetch/push remote、GitHub repo ID、base branch、ghの主体、push権限を照合します。公開する実行ではユーザー認証の対象アクセスも実装前に確認します。元checkoutがdirtyな場合、run保存先がすでに存在する場合、同名branchが存在する場合は作業を始めません。要求全文を保存し、元checkoutのcommitted HEADから `codex/development-N` の隔離worktreeを作ります。設定のsetupを隔離先で順に実行し、初回実装、必要な撮影、対象のcheck、独立評価へ進みます。要求の変更、対象・設定・主体の変更、上限超過が発生した場合は停止します。
 
-scopingの共有用調査報告は対象repoのresearch/へ保存します。必要な報告は[引き継ぎ引数](#調査報告を指定した実装開始)で指定し、確認済みの本文が開始元のHEADと実装worktreeに含まれることを照合します。未commitの報告を退避してcheckoutをcleanにしただけでは、その報告は実装worktreeに入りません。旧セッション状態、保存済み評価、lockはそのまま保全し、移行入力にしません。
+必要な調査報告がある場合は[引き継ぎ引数](#調査報告を指定した実装開始)で指定します。旧セッション状態、保存済み評価、lockはそのまま保全し、移行入力にしません。
 
 新規実行の上限は初回実装・修正・独立評価のモデル累計20分、追加修正2回、独立評価2回、各checkとCI待機がそれぞれ9分です。初回実装の消費時間はcorrectionへ渡す残り時間から差し引きます。通常コマンドと公開直後・CI待機後の対象照合は各11分で打ち切ります。予算拡大や途中実行の自動復旧は行いません。
 
@@ -31,9 +31,9 @@ scopingの共有用調査報告は対象repoのresearch/へ保存します。必
 
 ## 調査報告を指定した実装開始
 
-担当者は[scopingの引き継ぎ手順](../skills/scoping/references/session.md#調査成果の引き継ぎ)で、対象Issue、今回必要な報告の参照、開始commit、保存・commit・共有の状態を確認します。判断に必要な報告だけを選び、必要な報告がない場合はその判断を明示します。報告本文やIssue本文を引き継ぎ用の別文書へ複製しません。
+必要な報告の選択と共有状態の確認は[scopingの引き継ぎ手順](../skills/scoping/references/session.md#調査成果の引き継ぎ)に従います。この節では、確認済みの報告を実装へ渡すGit操作とCLIの検証条件を説明します。
 
-報告が必要な実装では、確認済みの値を次のように指定します。`START_COMMIT`は開始するHEADの完全なcommit ID、`REVIEWED_BLOB`は内容を確認した時点の`git hash-object --no-filters -- research/reset-behavior.md`の出力です。記号は実際の値に置き換えてください。
+報告の内容を確認した時点で、`git hash-object --no-filters -- research/reset-behavior.md`の出力を`REVIEWED_BLOB`として記録します。報告をcommitした後、`git rev-parse HEAD`で開始commitを取得し、`git rev-parse HEAD:research/reset-behavior.md`が確認済みblobと一致することを確かめます。次の`START_COMMIT`と`REVIEWED_BLOB`を、それぞれの完全なIDに置き換えて指定してください。
 
 ```sh
 bun /absolute/path/to/trusted/scripts/development.ts 99 \
@@ -44,7 +44,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
 
 `--report`は必要な報告ごとに繰り返します。報告を指定するときは`--start-commit`も必須です。CLIは開始HEADとの一致、報告がそのcommitの通常ファイルであること、確認済みblobとの一致、checkoutの本文との一致を実装前に検証します。worktreeは照合済みcommitから作り、setup後にも報告を照合してから担当AIを起動します。担当AIにはIssue URL、開始commit、報告パスとblob IDを渡し、worktreeの本文を読むよう指示します。
 
-欠落、未commit、版や内容の違いがあれば、その不足を表示して停止します。確認せず現在のIDへ差し替えて進めないでください。元checkoutの未追跡ファイルを含む作業差分も従来どおり停止対象とし、自動削除・退避・commitは行いません。必要な報告がなく、開始commitも指定しない通常のIssueは、現在のcleanなHEADから開始します。必要報告の選択や内容の十分性、人の合意をCLIが判定するものではありません。
+欠落、未commit、版や内容の違いがあれば、その不足を表示して停止します。確認せず現在のIDへ差し替えて進めないでください。未commitの報告を退避してcheckoutをcleanにしただけでは、実装worktreeに報告が入らず引き継げません。元checkoutの未追跡ファイルを含む作業差分も停止対象とし、自動削除・退避・commitは行いません。必要な報告がなく、開始commitも指定しない通常のIssueは、現在のcleanなHEADから開始します。必要報告の選択や内容の十分性、人の合意をCLIが判定するものではありません。
 
 選んだ報告のパスとblob IDは、同じ実行の検証設定の`reports`へ自動で渡します。初回実装、修正、独立評価は同じ開始commitと参照一覧を受け取り、Issueや報告から出典、適用条件、合意状態を確認します。対象repoの`.dotagents.json`や別の引き継ぎ文書に報告本文を転記する必要はありません。必要な報告がない場合も、Issueが参照する今回関連する資料を担当者が選びます。
 
@@ -52,7 +52,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
 
 判断を左右する参照の欠落や古さ、矛盾がある場合は、影響する判断と戻り先を示します。事実不足は調査し、要求・許容範囲・権限の変更は人の合意へ戻します。独立評価では判断を妨げる不足を必須の未解決指摘として扱い、公開後の作業へ送ってacceptedにはしません。参照した文書の役割と理由、各観点の評価、残る確認は構造化評価から[公開用のPR説明](#レビュー対象と参照記録)へ渡します。検証結果の再利用条件とCI分類の再設計は、この参照引き継ぎでは扱いません。
 
-ローカルの報告とcommitの一致は、GitHubで共有済みであることの証明にはなりません。共有先のcommitへのリンクはIssueから辿れるようにし、保存済み、commit済み、共有済みの状態を分けて報告します。未共有でも既存の許可範囲で`--no-publish`の実装は可能です。共有や必要なcommitの許可が不足する場合は、それに依存する作業だけを保留します。参照の機械的な照合は人の合意や実装許可を代替しません。
+未共有の報告でも、確認済みの本文を含むcleanなHEADから、既存の許可範囲で`--no-publish`の実装を開始できます。共有・commitの許可と状態の扱いは[引き継ぎ手順](../skills/scoping/references/session.md#調査成果の引き継ぎ)に従います。参照の機械的な照合は人の合意や実装許可を代替しません。
 
 ## 対象repoの設定
 
@@ -118,7 +118,6 @@ correctionを単独で設定する場合も、capture commandに加えて `captu
 
 | 工程 | 入力と記録 | 変更時の処理 |
 | --- | --- | --- |
-| 文章確認 | 対象選択、変更文書集合、本文、根拠と`done-*.json`・原文・採用記録 | 変更後の入力を再確認。確認中・再利用照合中の変更は古い候補や成功を採用せず停止 |
 | 撮影 | 設定とIssueの必要証拠を照合し、`captureSource`で対象・媒体を比較 | 対象コード、定義、媒体、モード、symlinkの変更は再撮影。要求変更は停止 |
 | 共通check | 設定したコマンド、文書・媒体を含むソースと`check-N`ログ | 修正後は毎回実行。実行中の要求・ソース変更は停止 |
 | 独立評価 | 要求、ソース、成功したcheck、モデル設定と`review-N.target.json` | 修正後のcheck成功を受けて再評価。評価中の対象変更は停止 |
@@ -126,7 +125,7 @@ correctionを単独で設定する場合も、capture commandに加えて `captu
 
 `state.json`のcapture・checkイベントには`captureDecision`として実行予定（`execute`）、同一入力の再利用（`reused`）、対象外による不要（`not_required`）と理由・比較対象を残します。`execute`だけでは成功を意味せず、撮影の終了結果、媒体取り込みと後続checkの記録を確認します。撮影未設定による不要は、Issueで媒体不要と合意していることが前提です。利用不能・時間切れは停止理由と撮影ログに残し、不要や成功へ読み替えません。
 
-文章確認は実行・成功記録の再利用・対象外・利用不能による未実施をコマンドログで通知します。利用不能の同一入力はスキップ記録を保持して理由を再通知し、成功とは扱いません。文章確認や撮影を再利用しても、修正後の共通checkと独立評価、同じPR headのCI確認は維持します。失敗・中断のログ、旧state、消費時間と回数は削除・変換しません。
+撮影を再利用しても、修正後の共通checkと独立評価、同じPR headのCI確認は維持します。失敗・中断のログ、旧state、消費時間と回数は削除・変換しません。
 
 ## 準備と実行
 
