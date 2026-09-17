@@ -17,7 +17,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to
 
 番号または対象repoのIssue URLを渡します。実行前に対象のREADME、開発方針、適用される指示、下記の設定を確認してください。ハーネスはBun、Git、gh、Codex CLIを使います。対象repoの言語やテストツールは設定に従います。
 
-開始時にcheckout、設定、fetch/push remote、GitHub repo ID、base branch、ghの主体、push権限を照合します。公開する実行ではユーザー認証の対象アクセスも実装前に確認します。元checkoutがdirtyな場合、run保存先がすでに存在する場合、同名branchが存在する場合は作業を始めません。要求全文を保存し、元checkoutのcommitted HEADから `codex/development-N` の隔離worktreeを作ります。設定のsetupを隔離先で順に実行し、初回実装、必要な撮影、対象のcheck、独立評価へ進みます。要求の変更、対象・設定・主体の変更、上限超過が発生した場合は停止します。
+開始時にcheckout、設定、fetch/push remote、GitHub repo ID、base branch、ghの主体、push権限を照合します。公開する実行ではユーザー認証の対象アクセスも実装前に確認します。開始commitの `.dotagents.json` と元checkoutの設定が一致しない場合、run保存先がすでに存在する場合、同名branchが存在する場合は作業を始めません。無関係な追跡ファイルの差分や未追跡ファイルがあっても開始できます。元checkoutの内容・モード・追跡状態を保ち、stash、reset、clean、一括addは行いません。要求全文を保存し、確定した開始commitから `codex/development-N` の隔離worktreeを作ります。作業中の差分は隔離先へ移しません。設定のsetupを隔離先で順に実行し、元checkoutのHEAD・設定・必要報告、および隔離先の設定・報告を再照合してから、初回実装、必要な撮影、対象のcheck、独立評価へ進みます。要求の変更、対象・設定・主体の変更、上限超過が発生した場合は停止します。
 
 必要な調査報告がある場合は[引き継ぎ引数](#調査報告を指定した実装開始)で指定します。旧セッション状態、保存済み評価、lockはそのまま保全し、移行入力にしません。
 
@@ -44,7 +44,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
 
 `--report`は必要な報告ごとに繰り返します。報告を指定するときは`--start-commit`も必須です。CLIは開始HEADとの一致、報告がそのcommitの通常ファイルであること、確認済みblobとの一致、checkoutの本文との一致を実装前に検証します。worktreeは照合済みcommitから作り、setup後にも報告を照合してから担当AIを起動します。担当AIにはIssue URL、開始commit、報告パスとblob IDを渡し、worktreeの本文を読むよう指示します。
 
-欠落、未commit、版や内容の違いがあれば、その不足を表示して停止します。確認せず現在のIDへ差し替えて進めないでください。未commitの報告を退避してcheckoutをcleanにしただけでは、実装worktreeに報告が入らず引き継げません。元checkoutの未追跡ファイルを含む作業差分も停止対象とし、自動削除・退避・commitは行いません。必要な報告がなく、開始commitも指定しない通常のIssueは、現在のcleanなHEADから開始します。必要報告の選択や内容の十分性、人の合意をCLIが判定するものではありません。
+欠落、未commit、版や内容の違いがあれば、その不足を表示して停止します。確認せず現在のIDへ差し替えて進めないでください。必要な報告は開始commitに含める必要があり、未commitの本文を自動で取り込むことはありません。設定と選択した報告は、本文が一致していてもstage済みの差分やモード変更があれば停止します。無関係な差分や未追跡ファイルの整理・退避・commitは開始条件ではありません。必要な報告がなく、開始commitも指定しない通常のIssueは、起動時のHEADを開始commitとして確定します。準備中に元checkoutのHEAD・設定・必要報告が変わった場合も、担当AIの起動前に停止します。必要報告の選択や内容の十分性、人の合意をCLIが判定するものではありません。
 
 選んだ報告のパスとblob IDは、同じ実行の検証設定の`reports`へ自動で渡します。初回実装、修正、独立評価は同じ開始commitと参照一覧を受け取り、Issueや報告から出典、適用条件、合意状態を確認します。対象repoの`.dotagents.json`や別の引き継ぎ文書に報告本文を転記する必要はありません。必要な報告がない場合も、Issueが参照する今回関連する資料を担当者が選びます。
 
@@ -52,7 +52,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
 
 判断を左右する参照の欠落や古さ、矛盾がある場合は、影響する判断と戻り先を示します。事実不足は調査し、要求・許容範囲・権限の変更は人の合意へ戻します。独立評価では判断を妨げる不足を必須の未解決指摘として扱い、公開後の作業へ送ってacceptedにはしません。参照した文書の役割と理由、各観点の評価、残る確認は構造化評価から[公開用のPR説明](#レビュー対象と参照記録)へ渡します。検証結果の再利用条件とCI分類の再設計は、この参照引き継ぎでは扱いません。
 
-未共有の報告でも、確認済みの本文を含むcleanなHEADから、既存の許可範囲で`--no-publish`の実装を開始できます。共有・commitの許可と状態の扱いは[引き継ぎ手順](../skills/scoping/references/session.md#調査成果の引き継ぎ)に従います。参照の機械的な照合は人の合意や実装許可を代替しません。
+未共有の報告でも、確認済みの本文を含む確定した開始commitと、元checkoutのHEAD・設定・選択した報告が上記の条件を満たして一致すれば、既存の許可範囲で`--no-publish`の実装を開始できます。無関係な差分や未追跡ファイルは残せます。共有・commitの許可と状態の扱いは[引き継ぎ手順](../skills/scoping/references/session.md#調査成果の引き継ぎ)に従います。参照の機械的な照合は人の合意や実装許可を代替しません。
 
 ## 対象repoの設定
 
