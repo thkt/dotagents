@@ -17,7 +17,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to
 
 番号または対象repoのIssue URLを渡します。実行前に対象のREADME、開発方針、適用される指示、下記の設定を確認してください。ハーネスはBun、Git、gh、Codex CLIを使います。対象repoの言語やテストツールは設定に従います。
 
-開始時にcheckout、設定、fetch/push remote、GitHub repo ID、base branch、ghの主体、push権限を照合します。公開する実行ではユーザー認証の対象アクセスも実装前に確認します。開始commitの `.dotagents.json` と元checkoutの設定が一致しない場合、run保存先がすでに存在する場合、同名branchが存在する場合は作業を始めません。無関係な追跡ファイルの差分や未追跡ファイルがあっても開始できます。元checkoutの内容・モード・追跡状態を保ち、stash、reset、clean、一括addは行いません。要求全文を保存し、確定した開始commitから `codex/development-N` の隔離worktreeを作ります。作業中の差分は隔離先へ移しません。設定のsetupを隔離先で順に実行し、元checkoutのHEAD・設定・必要報告、および隔離先の設定・報告を再照合してから、初回実装、必要な撮影、対象のcheck、独立評価へ進みます。要求の変更、対象・設定・主体の変更、上限超過が発生した場合は停止します。
+開始時にcheckout、remote、GitHub repo ID、base branch、gh主体、必要なpush権限を照合します。開始commit・元checkout・必要入力・隔離worktree・setup後照合の定義は、[共有モデルから生成した実装開始の説明](../docs/knowledge/implementation-start.md)を参照してください（`start-objects`、`start-identity`、`isolation`、`setup-recheck`）。run保存先や同名branchが既にある場合は開始せず、要求・対象・設定・主体の変更や上限超過では停止します。照合後は初回実装、必要な撮影、対象のcheck、独立評価へ進みます。
 
 必要な調査報告がある場合は[引き継ぎ引数](#調査報告を指定した実装開始)で指定します。旧セッション状態、保存済み評価、lockはそのまま保全し、移行入力にしません。
 
@@ -44,9 +44,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
   --report research/reset-behavior.md=REVIEWED_BLOB
 ```
 
-`--report`は必要な報告ごとに繰り返します。報告を指定するときは`--start-commit`も必須です。CLIは開始HEADとの一致、報告がそのcommitの通常ファイルであること、確認済みblobとの一致、checkoutの本文との一致を実装前に検証します。worktreeは照合済みcommitから作り、setup後にも報告を照合してから担当AIを起動します。担当AIにはIssue URL、開始commit、報告パスとblob IDを渡し、worktreeの本文を読むよう指示します。
-
-欠落、未commit、版や内容の違いがあれば、その不足を表示して停止します。確認せず現在のIDへ差し替えて進めないでください。必要な報告は開始commitに含める必要があり、未commitの本文を自動で取り込むことはありません。設定と選択した報告は、本文が一致していてもstage済みの差分やモード変更があれば停止します。無関係な差分や未追跡ファイルの整理・退避・commitは開始条件ではありません。必要な報告がなく、開始commitも指定しない通常のIssueは、起動時のHEADを開始commitとして確定します。準備中に元checkoutのHEAD・設定・必要報告が変わった場合も、担当AIの起動前に停止します。必要報告の選択や内容の十分性、人の合意をCLIが判定するものではありません。
+`--report`は必要な報告ごとに繰り返し、`--start-commit`も指定します。開始・停止の条件は[生成説明のstart-identityとsetup-recheck](../docs/knowledge/implementation-start.md)を参照してください。初回実装にはIssue URL、開始commit、報告パスとblobを渡します。報告本文を読み、内容の十分性と合意・共有状態を確認する責任は担当者に残ります。
 
 選んだ報告のパスとblob IDは、同じ実行の検証設定の`reports`へ自動で渡します。初回実装、修正、独立評価は同じ開始commitと参照一覧を受け取り、Issueや報告から出典、適用条件、合意状態を確認します。対象repoの`.dotagents.json`や別の引き継ぎ文書に報告本文を転記する必要はありません。必要な報告がない場合も、Issueが参照する今回関連する資料を担当者が選びます。
 
@@ -55,6 +53,28 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
 判断を左右する参照の欠落や古さ、矛盾がある場合は、影響する判断と戻り先を示します。事実不足は調査し、要求・許容範囲・権限の変更は人の合意へ戻します。独立評価では判断を妨げる不足を必須の未解決指摘として扱い、公開後の作業へ送ってacceptedにはしません。参照した文書の役割と理由、各観点の評価、残る確認は構造化評価から[公開用のPR説明](#レビュー対象と参照記録)へ渡します。検証結果の再利用条件とCI分類の再設計は、この参照引き継ぎでは扱いません。
 
 上記の開始条件を満たす未共有の報告でも、既存の許可範囲で`--no-publish`の実装を開始できます。共有・commitの許可と状態の扱いは[引き継ぎ手順](../skills/scoping/references/session.md#調査成果の引き継ぎ)に従います。参照の機械的な照合は人の合意や実装許可を代替しません。
+
+## 共有知識の選択
+
+対象repoに関連するモデルがある場合、scoping担当は通常の要求整理の中で必要なIDと選択理由・適用条件を選び、今回の要求との関係をIssueへ記します。モデルのないrepoは既存のIssue・報告だけで開始できます。dotagentsの初回モデルは[実装開始のJSON正本](../docs/knowledge/implementation-start.json)です。[人向け説明](../docs/knowledge/implementation-start.md)は同じ抽出処理の生成物なので直接編集しません。
+
+内容を確認したモデルのパス・Git blob・IDをIssue本文の独立した一つの`dotagents-knowledge`コードブロックへ記します。Markdownのバッククォートまたはチルダの囲みを使えます。閉じていない囲みや複数の選択は停止します。説明用の外側のコード囲み、引用・リスト、HTML内の例は選択しません。これは既存Issueの参照欄であり、別の台帳や追加のCLI引数は作りません。下の`REVIEWED_BLOB`は`git hash-object --no-filters -- docs/knowledge/implementation-start.json`で内容確認時に取得した完全なIDへ置き換えます。公開範囲・共有状態は既存の報告と同様に確認してください。
+
+````markdown
+```dotagents-knowledge
+[{"path":"docs/knowledge/implementation-start.json","blob":"REVIEWED_BLOB","ids":["preserve-work","start-objects","authority","start-identity","isolation","setup-recheck","less-rework","index-counterexample"]}]
+```
+````
+
+一つの配列へ複数モデルを指定できます。選ぶIDはモデル内のnode IDです。関係先は参照として残し、その本文を自動で追加しません。例のIDも毎回すべて必要という意味ではありません。未合意の案を選んでも提案のまま、仮説は未確認のまま渡し、Issueの要求やホストの必須ゲートへ昇格させません。
+
+ホストはIssueから選択を読み、既存の`verifyStartInputs`・`verifyReportBase`で開始commitのファイルとblobを照合します。[抽出処理](knowledge.ts)は形式、重複・未知ID、モデル内の関係先・根拠ID、空の参照や状態を検査します。初回実装・修正・独立評価は開始blobの同じ選択内容を`researchContext`から受け取ります。参照はIssueと既存の評価対象記録に残り、`.dotagents.json`や別の引き継ぎファイルへ転記しません。選択されたファイル・版が欠けた場合は停止します。外部URLの到達性・内容や意味上の適用性は形式検証では確認しません。
+
+モデルの改訂は通常の差分です。実装・評価担当は固定した開始版と現在の差分を比べ、観測→影響するnode ID・根拠→今回のIssue判断を既存のfindings/assessmentsへ記します。不一致なら必要な調査や人の判断と変更案を示し、自動承認せず、変更後のcheckと評価へ戻します。独立評価者は追加根拠や矛盾を調べられます。参照一致は内容・合意・公開許可の保証ではありません。
+
+正本の`nodes`は`id`、三概念を示す`facet`、`kind`、`status`、文章の`statement`・`question`・`scope`、`sources`、`relations`を持ちます。`sources`はURL、対象版、適用範囲、状態を持ち、各nodeから結びます。定義した形式は[parseKnowledge](knowledge.ts)が正本です。規則の実行や予算・権限の設定項目はありません。
+
+正本を変更したら`bun run knowledge:generate`で説明を更新します。`bun run knowledge:check`は正本と生成物の不一致を検出し、通常の`bun run check`にも含まれます。出力には正本パスとGit blobを載せます。生成例のblobは本文の同一性であり、commit済み・共有済み・合意済みを意味しません。意味と日本語の確認は既存の独立評価に含めます。
 
 ## 対象repoの設定
 

@@ -751,6 +751,7 @@ async function startInputFixture(root: string) {
   ];
   const hooks: {
     setups: number;
+    issue?: string;
     changeDuring?: (event: 'target' | 'issue' | 'setup', cwd: string) => Promise<void>;
   } = { setups: 0 };
   const io = {
@@ -767,7 +768,7 @@ async function startInputFixture(root: string) {
       }
       if (argv[0] === 'gh' && argv[1] === 'issue') {
         await hooks.changeDuring?.('issue', cwd);
-        return ok(issue);
+        return ok(hooks.issue ?? issue);
       }
       if (argv[0] === 'fixture-setup') {
         hooks.setups++;
@@ -879,6 +880,10 @@ const startChanges = {
     await git(repo, 'add', '--', reportPath);
     await writeFile(join(repo, reportPath), reportContent);
   },
+  report_mode: async (repo: string) => {
+    await git(repo, 'config', 'core.filemode', 'false');
+    await chmod(join(repo, reportPath), 0o755);
+  },
   report_missing: async (repo: string) => {
     await rm(join(repo, reportPath));
   },
@@ -901,6 +906,7 @@ for (const [phase, change, reason] of [
   ['initial', 'config', /Target configuration differs from start commit/],
   ['initial', 'config_index', /Required start inputs have uncommitted changes/],
   ['initial', 'report_index', /Required start inputs have uncommitted changes/],
+  ['initial', 'report_mode', /Required start inputs have uncommitted changes/],
   ['initial', 'report_missing', /Required report is missing or not a regular checkout file/],
   ['target', 'head', /Start HEAD changed during preparation/],
   ['issue', 'head', /Start HEAD changed during preparation/],
@@ -909,6 +915,8 @@ for (const [phase, change, reason] of [
   ['setup', 'head', /Start HEAD changed during preparation/],
   ['setup', 'push', /Remote\/repository mismatch/],
   ['checkout_setup', 'config', /Target configuration or GitHub actor changed/],
+  ['checkout_setup', 'report_index', /Required start inputs have uncommitted changes/],
+  ['checkout_setup', 'report_mode', /Required start inputs have uncommitted changes/],
 ] as const) {
   testStartInput(`development rejects changed start input: ${phase} ${change}`, async (fixture) => {
     const { repo, dir, base, args, hooks, io } = fixture;
@@ -945,4 +953,58 @@ function ciAction(mode: string) {
     : mode.endsWith('target_changed')
       ? 'Reconcile'
       : 'Check gh';
+}
+
+for (const [change, expected] of [
+  ['content', /Required report has uncommitted content/],
+  ['index', /Required start inputs have uncommitted changes/],
+  ['setup', /Required report has uncommitted content/],
+  ['blob', /Required report differs from reviewed version/],
+  ['missing', /Required report is missing from start commit/],
+] as const) {
+  testStartInput(`selected knowledge is a required start input: ${change}`, async (fixture) => {
+    const { repo, args, hooks, io, dir } = fixture;
+    const path = 'model.json';
+    const content = await readFile(
+      new URL('../../docs/knowledge/implementation-start.json', import.meta.url),
+      'utf8',
+    );
+    await writeFile(join(repo, path), content);
+    await git(repo, 'add', path);
+    await git(repo, 'commit', '-m', 'knowledge');
+    const base = await git(repo, 'rev-parse', 'HEAD');
+    const blob = await git(repo, 'rev-parse', `HEAD:${path}`);
+    hooks.issue = JSON.stringify({
+      title: 'Selected knowledge',
+      state: 'OPEN',
+      body:
+        '```dotagents-knowledge\n' +
+        JSON.stringify([
+          {
+            path: change === 'missing' ? 'absent.json' : path,
+            blob: change === 'blob' ? 'a'.repeat(40) : blob,
+            ids: ['start-identity'],
+          },
+        ]) +
+        '\n```',
+    });
+    if (change === 'content' || change === 'index') {
+      await writeFile(join(repo, path), content + '\n');
+      if (change === 'index') {
+        await git(repo, 'add', path);
+        await writeFile(join(repo, path), content);
+      }
+    }
+    if (change === 'setup') {
+      hooks.changeDuring = async (event, cwd) => {
+        if (event === 'setup') {
+          await writeFile(join(cwd, path), content + '\n');
+        }
+      };
+    }
+    args.push('--start-commit', base);
+    await assert.rejects(() => develop(args, io), expected);
+    expect(hooks.setups).toBe(change === 'setup' ? 1 : 0);
+    expect(existsSync(join(dir, 'implementation.prompt'))).toBe(false);
+  });
 }

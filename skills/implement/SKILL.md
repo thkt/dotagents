@@ -17,7 +17,7 @@ description: 合意済みGitHub Issueの実装依頼で、文書変更を含め�
 bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to/target-checkout
 ```
 
-開始前に[調査成果の引き継ぎ](../scoping/references/session.md#調査成果の引き継ぎ)で必要な報告と共有状態を確認する。報告が必要な場合は[CLIの引き継ぎ手順](../../scripts/README.md#調査報告を指定した実装開始)に従い、`--start-commit`と各`--report`を必ず渡す。不足があれば依存する実装を止める。
+開始前に[調査成果の引き継ぎ](../scoping/references/session.md#調査成果の引き継ぎ)で必要な根拠の内容・版・共有状態と合意範囲を確認し、[CLIの引き継ぎ手順](../../scripts/README.md#調査報告を指定した実装開始)へ渡す。Issueで選んだ共有モデルは[同じCLIの抽出経路](../../scripts/README.md#共有知識の選択)から初回実装・修正・独立評価へ渡るため、本文や選択を別ファイルへ転記しない。担当者は開始版と現在の差分の意味を評価し、判断に影響する不足を解消する。
 
 執筆担当・独立評価担当・公開担当は、文書の作成・評価・公開前後の本文確認で[日本語確認の方針](../../.codex/DEVELOPMENT.md#pr本文人向け文書の日本語確認)に従う。利用先の旧設定と方針は[切替手順](../../scripts/README.md#専用校正の廃止と切替)で確認する。
 

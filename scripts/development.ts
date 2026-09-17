@@ -20,6 +20,7 @@ import { waitForCi, confirmCiTarget, confirmCiPublication } from './ci.ts';
 import { readTarget, issueNumber, targetCommand, pushArguments } from './target.ts';
 import { researchContext, researchHandoff, verifyReports } from './research-handoff.ts';
 import type { ReportReference } from './input.ts';
+import { knowledgeReferences, readKnowledge } from './knowledge.ts';
 
 const runtime = { command, verify: run, publish };
 // The full check and the CI run of the same check share one budget.
@@ -68,6 +69,8 @@ async function verifyStartInputs(
   assert(
     (
       await git(
+        '-c',
+        'core.filemode=true',
         'status',
         '--porcelain',
         '--',
@@ -107,7 +110,6 @@ async function prepare(args: string[], io: typeof runtime) {
   assert(input);
   const number = issueNumber(input, repository);
   const reports = researchHandoff(base, parsed.values['start-commit'], parsed.values.report ?? []);
-  await verifyStartInputs(repo, base, target.text, reports, io);
   const issue = [
     'gh',
     'issue',
@@ -120,6 +122,10 @@ async function prepare(args: string[], io: typeof runtime) {
   ];
   const original = await checked(io, issue, repo);
   const requirements = issueValue(original);
+  const references = knowledgeReferences(original);
+  const inputs = [...reports, ...references];
+  await verifyStartInputs(repo, base, target.text, inputs, io);
+  const knowledge = await readKnowledge(references, git);
   const common = await realpath(
     await git('rev-parse', '--path-format=absolute', '--git-common-dir'),
   );
@@ -159,6 +165,8 @@ async function prepare(args: string[], io: typeof runtime) {
     localOnly,
     target,
     reports,
+    inputs,
+    knowledge,
   };
 }
 type Context = Awaited<ReturnType<typeof prepare>>;
@@ -188,10 +196,8 @@ async function implement(context: Context, io: typeof runtime) {
     await checked(io, targetCommand(argv), cwd, join(dir, `setup-${index + 1}`));
   }
   await unchangedTarget(context, io);
-  await verifyReports(cwd, context.base, context.reports, (...args) =>
-    checked(io, ['git', ...args], cwd),
-  );
-  await verifyStartInputs(context.repo, context.base, context.target.text, context.reports, io);
+  await verifyStartInputs(cwd, context.base, context.target.text, context.inputs, io);
+  await verifyStartInputs(context.repo, context.base, context.target.text, context.inputs, io);
   const prompt = [
     'Implement the complete agreed Issue using existing code and verification assets. Follow applicable repository instructions; consult the target README and development policy sections relevant to this change.',
     'Prepare the tests and documentation needed for the agreed behavior; reuse sufficient existing verification. Complete the implementation and targeted checks needed to prepare it for host verification without pausing for approval of routine choices within scope. The host runs the configured verification; do not launch browsers or servers in your sandbox.',
@@ -203,7 +209,7 @@ async function implement(context: Context, io: typeof runtime) {
     'Do not edit control scripts or credentials outside this checkout. If scope or authorization must change, return needs_human with the concrete decision and its impact. If an instruction file caused that stop, identify the file actually read, quote the relevant instruction and distinguish its explicit requirement from your interpretation. Otherwise return repaired with a concrete summary.',
     `Requirements:\n${original}`,
     `Issue: https://github.com/${context.target.config.repository}/issues/${context.number}`,
-    researchContext(context.base, context.reports),
+    researchContext(context.base, context.reports, context.knowledge),
   ].join('\n');
   await writeFile(join(dir, 'implementation.prompt'), prompt);
   const actor = [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'repair', dir];
