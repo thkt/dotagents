@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { develop } from '../development.ts';
 import { command } from '../correction.ts';
 import type { Config, State } from '../input.ts';
+import { isRecord } from '../input.ts';
 import { reviewSummary } from '../review.ts';
 import type { Review } from '../review.ts';
 import { initializeTarget, githubTarget, targetConfig } from './support/target.ts';
@@ -41,7 +42,19 @@ const stopReasons = {
   review_failure: /Verification stopped: review_failed/,
   requirements_changed: /Requirements changed during implementation/,
   source_changed: /Verified source or requirements changed/,
-  ci_failure: /PR created but CI is not confirmed/,
+  ci_publication_unavailable: /PR created but CI is not confirmed \(unavailable\)/,
+  ci_publication_timeout: /PR created but CI is not confirmed \(unavailable\)/,
+  ci_publication_invalid_json: /PR created but CI is not confirmed \(unavailable\)/,
+  ci_publication_head_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
+  ci_publication_base_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
+  ci_publication_state_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
+  ci_publication_url_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
+  ci_publication_body_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
+  ci_failure: /PR created but CI is not confirmed \(failed\)/,
+  ci_unavailable: /PR created but CI is not confirmed \(unavailable\)/,
+  ci_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
+  ci_final_unavailable: /PR created but CI is not confirmed \(unavailable\)/,
+  ci_final_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
   writing_failure: /Command failed: .*; Writing review failed in fixture/,
   wrong_repo: /GitHub repository mismatch/,
   missing_check: /Verification command is required/,
@@ -207,6 +220,121 @@ async function changeTarget(mode: string, config: Config, settings: typeof targe
   }
 }
 
+const publicationChanges: Record<string, Record<string, string>> = {
+  ci_publication_head_target_changed: { headRefOid: 'another-commit' },
+  ci_publication_base_target_changed: { baseRefName: 'other-base' },
+  ci_publication_state_target_changed: { state: 'CLOSED' },
+  ci_publication_url_target_changed: { url: 'https://github.com/other/repo/pull/100' },
+  ci_publication_body_target_changed: { body: 'Different Issue' },
+};
+
+function publicationView(mode: string, stdout: string) {
+  if (mode === 'ci_publication_unavailable') {
+    return { ...ok(stdout), code: 1, stderr: 'API unavailable in fixture' };
+  }
+  if (mode === 'ci_publication_timeout') {
+    return { ...ok(stdout), timedOut: true };
+  }
+  return ok(mode === 'ci_publication_invalid_json' ? 'not JSON' : stdout);
+}
+
+async function prView(mode: string, argv: string[], cwd: string, settings: typeof targetConfig) {
+  const polling = argv.at(-1)?.includes('statusCheckRollup');
+  const finalRead = argv.at(-1) === 'headRefOid,baseRefName,state';
+  const publication = argv.at(-1)?.includes('body');
+  if ((mode === 'ci_unavailable' && polling) || (mode === 'ci_final_unavailable' && finalRead)) {
+    return { ...ok('raw API response'), code: 1, stderr: 'API unavailable in fixture' };
+  }
+  const changed =
+    (mode === 'ci_target_changed' && polling) || (mode === 'ci_final_target_changed' && finalRead);
+  const stdout = JSON.stringify({
+    url: `https://github.com/${settings.repository}/pull/100`,
+    headRefOid: changed ? 'another-commit' : await git(cwd, 'rev-parse', 'HEAD'),
+    baseRefName: settings.baseBranch,
+    state: 'OPEN',
+    body: 'Closes #99',
+    statusCheckRollup: [
+      {
+        name: 'checks',
+        status: 'COMPLETED',
+        conclusion: mode === 'ci_failure' ? 'FAILURE' : 'SUCCESS',
+      },
+    ],
+    ...(publication ? publicationChanges[mode] : {}),
+  });
+  return publication ? publicationView(mode, stdout) : ok(stdout);
+}
+
+async function checkPublicationEvidence(
+  mode: string,
+  dir: string,
+  details: Record<string, unknown>,
+) {
+  const log = join(dir, 'pr-publication');
+  expect(details.logs).toEqual([log]);
+  expect(details.lastObservation).toBeNull();
+  expect(details.timedOut).toBe(false); // The CI wait budget has not started.
+  expect(existsSync(join(dir, 'ci-registration-1.stdout'))).toBe(false);
+  expect(existsSync(join(dir, 'ci-final-target.stdout'))).toBe(false);
+  expect(await readFile(join(dir, 'pr.json'), 'utf8')).toBe(
+    await readFile(`${log}.stdout`, 'utf8'),
+  );
+  const reasons: Record<string, string> = {
+    ci_publication_unavailable: 'exit 1',
+    ci_publication_timeout: 'timedOut true',
+    ci_publication_invalid_json: 'JSON',
+    ci_publication_head_target_changed: 'head=another-commit',
+    ci_publication_base_target_changed: 'base=other-base',
+    ci_publication_state_target_changed: 'state=CLOSED',
+    ci_publication_url_target_changed: 'URL or Issue reference changed',
+    ci_publication_body_target_changed: 'URL or Issue reference changed',
+  };
+  expect(details.reason).toContain(reasons[mode] ?? 'unexpected publication mode');
+  if (mode.endsWith('unavailable')) {
+    expect(await readFile(`${log}.stderr`, 'utf8')).toBe('API unavailable in fixture');
+  }
+}
+
+async function checkCiEvidence(mode: string, dir: string) {
+  if (!mode.startsWith('ci_')) {
+    return;
+  }
+  expect(await readFile(join(dir, 'pr-url.txt'), 'utf8')).toContain('/pull/100');
+  const body = await readFile(join(dir, 'pr.md'), 'utf8');
+  expect(body).toContain('公開・CI・公開後確認は未完了');
+  expect(body).toContain('今回の新規添付対象はありません');
+  expect(body).not.toContain('rendered_media_check');
+  const saved: unknown = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'));
+  assert(isRecord(saved) && isRecord(saved.ciDetails));
+  expect(saved.url).toBe(await readFile(join(dir, 'pr-url.txt'), 'utf8'));
+  expect(saved).toMatchObject({
+    publication: 'published',
+    requiredChecks: ['checks'],
+    ci: ciStatus(mode),
+    remaining: ['ci', 'human_review'],
+  });
+  expect(saved.commit).toBe(await git(join(dir, 'checkout'), 'rev-parse', 'HEAD'));
+  expect(saved.nextAction).toContain(ciAction(mode));
+  if (mode.startsWith('ci_publication_')) {
+    await checkPublicationEvidence(mode, dir, saved.ciDetails);
+    return;
+  }
+  const published: unknown = JSON.parse(await readFile(join(dir, 'pr.json'), 'utf8'));
+  assert(isRecord(published));
+  expect(published.headRefOid).toBe(saved.commit);
+  const log = join(dir, mode.startsWith('ci_final_') ? 'ci-final-target' : 'ci-registration-1');
+  expect(saved.ciDetails.logs).toContain(log);
+  expect(await readFile(`${log}.stdout`, 'utf8')).toContain(
+    mode.endsWith('unavailable') ? 'raw API response' : 'headRefOid',
+  );
+  if (mode.startsWith('ci_final_')) {
+    expect(saved.ciDetails.lastObservation).toMatchObject({ status: 'passed' });
+  }
+  if (mode.endsWith('unavailable')) {
+    expect(await readFile(`${log}.stderr`, 'utf8')).toBe('API unavailable in fixture');
+  }
+}
+
 for (const mode of [
   'success',
   'no_ci',
@@ -222,7 +350,19 @@ for (const mode of [
   'review_failure',
   'requirements_changed',
   'source_changed',
+  'ci_publication_unavailable',
+  'ci_publication_timeout',
+  'ci_publication_invalid_json',
+  'ci_publication_head_target_changed',
+  'ci_publication_base_target_changed',
+  'ci_publication_state_target_changed',
+  'ci_publication_url_target_changed',
+  'ci_publication_body_target_changed',
   'ci_failure',
+  'ci_unavailable',
+  'ci_target_changed',
+  'ci_final_unavailable',
+  'ci_final_target_changed',
   'writing_failure',
   'wrong_repo',
   'dirty',
@@ -352,22 +492,7 @@ for (const mode of [
         case 'pr/edit':
           return ok();
         case 'pr/view':
-          return ok(
-            JSON.stringify({
-              url: `https://github.com/${settings.repository}/pull/100`,
-              headRefOid: await git(cwd, 'rev-parse', 'HEAD'),
-              baseRefName: settings.baseBranch,
-              state: 'OPEN',
-              body: 'Closes #99',
-              statusCheckRollup: [
-                {
-                  name: 'checks',
-                  status: 'COMPLETED',
-                  conclusion: mode === 'ci_failure' ? 'FAILURE' : 'SUCCESS',
-                },
-              ],
-            }),
-          );
+          return prView(mode, argv, cwd, settings);
         default:
           throw Error('Unexpected gh call');
       }
@@ -395,7 +520,12 @@ for (const mode of [
           return command(argv, cwd, input, timeout, prefix);
         }
         if (argv[0] === 'gh') {
-          return github(argv, cwd);
+          const response = await github(argv, cwd);
+          if (prefix) {
+            await writeFile(`${prefix}.stdout`, response.stdout);
+            await writeFile(`${prefix}.stderr`, response.stderr);
+          }
+          return response;
         }
         implementations++;
         if (mode === 'other_repo') {
@@ -544,21 +674,11 @@ for (const mode of [
       } else {
         await assert.rejects(() => develop(args, io), stopReasons[mode]);
         expect(publications).toBe(
-          ['ci_failure', 'attachment_actor_changed'].includes(mode) ? 1 : 0,
+          mode.startsWith('ci_') || mode === 'attachment_actor_changed' ? 1 : 0,
         );
-        expect(pushes).toBe(['ci_failure', 'attachment_actor_changed'].includes(mode) ? 1 : 0);
+        expect(pushes).toBe(mode.startsWith('ci_') || mode === 'attachment_actor_changed' ? 1 : 0);
         await checkStop(mode, dir, reviews, implementations);
-        if (mode === 'ci_failure') {
-          expect(await readFile(join(dir, 'pr-url.txt'), 'utf8')).toContain('/pull/100');
-          const body = await readFile(join(dir, 'pr.md'), 'utf8');
-          expect(body).toContain('公開・CI・公開後確認は未完了');
-          expect(body).toContain('今回の新規添付対象はありません');
-          expect(body).not.toContain('rendered_media_check');
-          expect(JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'))).toMatchObject({
-            ci: 'pending_or_failed',
-            remaining: ['ci', 'human_review'],
-          });
-        }
+        await checkCiEvidence(mode, dir);
       }
       expect(await git(repo, 'rev-parse', 'HEAD')).toBe(original);
       expect(await readFile(join(repo, 'result.txt'), 'utf8')).toBe('old');
@@ -674,4 +794,19 @@ for (const [mode, reason] of Object.entries(handoffFailures)) {
       await rm(root, { recursive: true, force: true });
     }
   });
+}
+
+function ciStatus(mode: string) {
+  return mode === 'ci_failure'
+    ? 'failed'
+    : mode.endsWith('target_changed')
+      ? 'target_changed'
+      : 'unavailable';
+}
+function ciAction(mode: string) {
+  return mode === 'ci_failure'
+    ? 'Inspect failing'
+    : mode.endsWith('target_changed')
+      ? 'Reconcile'
+      : 'Check gh';
 }

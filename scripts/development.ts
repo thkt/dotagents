@@ -16,7 +16,7 @@ import {
 } from './correction.ts';
 import { isRecord, outside } from './input.ts';
 import { publish } from './publish.ts';
-import { waitForCi } from './ci.ts';
+import { waitForCi, confirmCiTarget, confirmCiPublication } from './ci.ts';
 import { writingHostTimeoutMs } from './writing.ts';
 import { readTarget, issueNumber, targetCommand, pushArguments } from './target.ts';
 import { researchContext, researchHandoff, verifyReports } from './research-handoff.ts';
@@ -361,64 +361,40 @@ async function ship(
       join(dir, 'attachments'),
     );
   }
-  const view = await checked(
-    io,
-    [
-      'gh',
-      'pr',
-      'view',
-      url,
-      '--repo',
-      repository,
-      '--json',
-      'url,headRefOid,baseRefName,state,body',
-    ],
+  const ciTarget = {
     cwd,
-  );
-  const pr: unknown = JSON.parse(view);
-  assert(
-    isRecord(pr) &&
-      pr.url === url &&
-      pr.headRefOid === commit &&
-      pr.baseRefName === baseBranch &&
-      pr.state === 'OPEN' &&
-      typeof pr.body === 'string' &&
-      pr.body.includes(`Closes #${number}`),
-    'Published PR does not match the verified commit',
-  );
-  await writeFile(join(dir, 'pr.json'), view);
-  const ci = await waitForCi(
-    { cwd, repository, url, commit, baseBranch, dir, ciChecks: context.target.config.ciChecks },
-    io.command,
-    checkTimeMs,
-  );
-  const latest: unknown = JSON.parse(
-    await checked(
-      io,
-      ['gh', 'pr', 'view', url, '--repo', repository, '--json', 'headRefOid,baseRefName,state'],
-      cwd,
-    ),
-  );
-  assert(
-    isRecord(latest) &&
-      latest.headRefOid === commit &&
-      latest.baseRefName === baseBranch &&
-      latest.state === 'OPEN',
-    'PR target changed during CI',
-  );
+    repository,
+    url,
+    commit,
+    baseBranch,
+    dir,
+    ciChecks: context.target.config.ciChecks,
+  };
+  let ci = await confirmCiPublication(ciTarget, number, io.command, writingHostTimeoutMs);
+  if (!ci) {
+    const observedCi = await waitForCi(ciTarget, io.command, checkTimeMs);
+    ci = await confirmCiTarget(ciTarget, observedCi, io.command, writingHostTimeoutMs);
+  }
   const result = {
     url,
     commit,
     evidence: dir,
-    ci: ci?.code === 0 && !ci.timedOut ? 'passed' : 'pending_or_failed',
+    publication: 'published',
+    requiredChecks: ciTarget.ciChecks,
+    ci: ci.status,
+    ciDetails: ci,
+    nextAction: ci.nextAction,
     remaining: [
-      ...(ci?.code === 0 && !ci.timedOut ? [] : ['ci']),
+      ...(ci.status === 'passed' ? [] : ['ci']),
       'human_review',
       ...(media.length ? ['rendered_media_check'] : []),
     ],
   };
   await writeFile(join(dir, 'result.json'), JSON.stringify(result, null, 2));
-  assert(result.ci === 'passed', `PR created but CI is not confirmed: ${url}; inspect ${dir}`);
+  assert(
+    result.ci === 'passed',
+    `PR created but CI is not confirmed (${ci.status}): ${url}; ${ci.reason} Next: ${ci.nextAction}; inspect ${dir}`,
+  );
   return result;
 }
 

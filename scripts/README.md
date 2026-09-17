@@ -27,7 +27,7 @@ scopingの共有用調査報告は対象repoのresearch/へ保存します。必
 
 `--no-publish` は独立評価までで止め、commit、push、PR作成を行いません。push権限の確認も不要です。通常実行は検証済み対象を再照合し、commit、PR本文の文章確認、ユーザー認証と権限の再確認、gh主体の資格情報を明示したpush、ユーザー認証によるPR作成へ進みます。pushにはコマンド内だけで定義するHTTPSの公開先を使い、GitのURL書き換え後も対象が一致することを確認します。SSHへの切り替えや別repoへの書き換えは拒否します。`push.followTags`の設定にかかわらず、タグを同時に公開しません。設定した保存先から生成媒体の変更を添付します。
 
-`ciChecks`に指定した全checkの登録とSUCCESSを、9分のCI待機時間内で待ちます。同時にPRのhead、base、OPEN状態を照合します。必要なcheckのSKIPPEDやNEUTRALは成功と扱わず、同名checkが複数ある場合は全件の成功を求めます。他の登録済みcheckに失敗や保留がある場合も完了にしません。各取得時の応答と診断は`ci-registration-N.stdout`および`.stderr`へ保存します。CLIは最新CIとPRのhead・baseを照合し、表示・再生・配置の確認は `rendered_media_check` として担当AIへ渡します。CI未確認時はPR URLと記録を保持して非zeroコードで終了します。担当AIは公開本文と根拠、添付後の実画面を照合し、人が要求・権限の変更、レビュー、承認、マージを判断します。
+`ciChecks`に指定した全checkの登録とSUCCESSを、9分のCI待機時間内で待ちます。同時にPRのhead、base、OPEN状態を照合します。必要なcheckのSKIPPEDやNEUTRALは成功と扱わず、同名checkが複数ある場合は全件の成功を求めます。他の登録済みcheckに失敗や保留がある場合も完了にしません。各取得時の応答と診断は`ci-registration-N.stdout`および`.stderr`へ、最後の対象照合は`ci-final-target.stdout`および`.stderr`へ保存します。公開直後の取得ログは`pr-publication.stdout`および`.stderr`へ残します。CLIは最新CIとPRのhead・base・OPEN状態を照合し、表示・再生・配置の確認は `rendered_media_check` として担当AIへ渡します。CI未確認時もPR URL、取得済みの公開結果、取得ログを保持して非zeroコードで終了します。担当AIは公開本文と根拠、添付後の実画面を照合し、人が要求・権限の変更、レビュー、承認、マージを判断します。
 
 ## 調査報告を指定した実装開始
 
@@ -213,6 +213,20 @@ PR本文の公開・CI・公開後確認は本文作成時点の未完了事項�
 旧形式の保存状態は変換・再開しません。停止理由とログを保持し、回数や時間枠をリセットしません。対象変更、不正応答、評価失敗時に以前のacceptedへ戻す処理はありません。
 
 ## 結果と再実行
+
+公開後のCI結果は`result.json`の`ci`で確認します。`url`、`commit`、`evidence`から対象PR、公開commit、記録を辿れます。`publication: published`はPR公開を示し、CI成功、人のレビュー、媒体表示確認の完了とは別です。`ciDetails.lastObservation`には最後に対象commitで確認できたcheck名と状態（同名checkも全件）、必要checkの未登録（`missing`）、実行中（`running`）、失敗（`failed`）、未達の必要check（`unmet`）を残します。取得前なら`null`です。`requiredChecks`には必要checkの一覧を残すため、初回取得ができない場合も未確認の対象を辿れます。`ciDetails.reason`は失敗・未確認の理由、`ciDetails.logs`は取得ログの接頭辞、`nextAction`は次に必要な対応です。
+
+| `ci` | 意味と担当AIの次の対応 |
+| --- | --- |
+| `passed` | 必要checkが全件SUCCESSで、他の登録済みcheckにも失敗・保留がなく、最後の対象照合も一致。人のレビューと必要な媒体表示確認へ引き継ぐ。 |
+| `failed` | 実行失敗、または必要checkがSKIPPED・NEUTRALなどで未達。checkのログから原因を確認して修正する。 |
+| `timed_out` | 待機上限に到達。最後の観測から未登録・実行中を確認し、同じPR commitのCIを手動で確認する。コードの失敗とは扱わない。 |
+| `unavailable` | API失敗、取得の時間切れ、不正な応答などで確認不能。認証・権限・接続と取得ログを確認する。最後の対象取得だけが失敗した場合も、先に観測した成功だけでCI成功としない。 |
+| `target_changed` | head、base、OPEN状態、または公開直後に照合するURL・Issue参照が対象と不一致。公開commitと現在のPRを照合し、変更理由と確認すべき対象を判断する。別commitの成功を今回の成功にしない。 |
+
+公開直後の初回取得も同じ分類で`result.json`へ保存します。取得失敗・取得の時間切れ・不正な応答は`unavailable`、対象不一致は`target_changed`として終了し、CI待機や再公開へ進みません。PR URLは`pr-url.txt`、返された応答は`pr.json`、取得ログは`pr-publication.stdout`および`.stderr`に保持します。取得不能時の`pr.json`は有効なJSONとは限らないため、生の応答として確認してください。
+
+`ciDetails.timedOut`はCI待機上限への到達を示し、最後の観測を消しません。期限時点で失敗を取得した場合は`failed`として残します。取得不能や対象変更で終了した場合も、それ以前のcheck観測は履歴として保持し、現在の対象での成功とは扱いません。待機の再開、自動再実行、予算延長は行いません。`remaining`の`ci`と`nextAction`を担当AIへ、`human_review`を人へ引き継ぎ、媒体がある場合の`rendered_media_check`も別に確認します。
 
 - `ready_for_human_review`で終了コード0、それ以外は未達として終了コード1です。人の承認やマージ完了を意味しません。
 - `state.json`に消費回数、モデル累計時間、各check・モデルの対象と結果を残します。checkの時間はモデル累計時間に含めません。
