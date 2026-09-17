@@ -23,7 +23,7 @@ import type { ReportReference } from './input.ts';
 import { knowledgeReferences, readKnowledge } from './knowledge.ts';
 
 const runtime = { command, verify: run, publish };
-// The full check and the CI run of the same check share one budget.
+// Applied separately to each local verification command and the CI wait.
 const checkTimeMs = 540000;
 // General commands and post-publication target checks retain their 11-minute limit.
 const hostCommandTimeMs = 660000;
@@ -200,12 +200,11 @@ async function implement(context: Context, io: typeof runtime) {
   await verifyStartInputs(context.repo, context.base, context.target.text, context.inputs, io);
   const prompt = [
     'Implement the complete agreed Issue using existing code and verification assets. Follow applicable repository instructions; consult the target README and development policy sections relevant to this change.',
-    'Prepare the tests and documentation needed for the agreed behavior; reuse sufficient existing verification. Complete the implementation and targeted checks needed to prepare it for host verification without pausing for approval of routine choices within scope. The host runs the configured verification; do not launch browsers or servers in your sandbox.',
+    'Complete the agreed implementation, needed tests and documentation, and targeted checks needed to prepare it for host verification without pausing for approval of routine choices within scope; reuse sufficient existing verification. Leave configured full verification to the host after implementation. Do not commit, push, publish, change the Issue, weaken acceptance criteria, or launch browsers or servers in your sandbox.',
     testInstructions,
     'Documentation-only Issues use the same flow. Apply the target documentation policy when present; keep current operating instructions accurate and place historical results in evidence; add tests or code only when the agreed requirements need them. When writing documents, compare facts, quantities, conditions, scope, authority, unverified claims and references with the original sources; include changed documents in the existing independent review.',
     captureInstructions(context.target.config.capture),
     `Target setup/check/capture contract (do not weaken or replace): ${JSON.stringify(context.target.config)}`,
-    'Do not commit, push, publish, change the Issue or weaken acceptance criteria. Do not run the full check; the host will do it after implementation.',
     'Do not edit control scripts or credentials outside this checkout. If scope or authorization must change, return needs_human with the concrete decision and its impact. If an instruction file caused that stop, identify the file actually read, quote the relevant instruction and distinguish its explicit requirement from your interpretation. Otherwise return repaired with a concrete summary.',
     `Requirements:\n${original}`,
     `Issue: https://github.com/${context.target.config.repository}/issues/${context.number}`,
@@ -314,11 +313,9 @@ async function ship(
       localRoots: [cwd, dir],
     }),
   );
-  assert(
-    (await readFile(body, 'utf8')).includes(`Closes #${number}`),
-    'Generated PR lost Issue reference',
-  );
-  assert((await readFile(body, 'utf8')).includes(commit), 'Generated PR lost verified commit');
+  const bodyText = await readFile(body, 'utf8');
+  assert(bodyText.includes(`Closes #${number}`), 'Generated PR lost Issue reference');
+  assert(bodyText.includes(commit), 'Generated PR lost verified commit');
   assert(
     (await io.verify(config)).result === 'ready_for_human_review',
     'Target changed before push',
