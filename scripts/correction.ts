@@ -3,7 +3,7 @@ import { parseReview, reviewInstructions, reviewSummary } from './review.ts';
 import type { Review } from './review.ts';
 import { researchContext, verifyReportBase } from './research-handoff.ts';
 import { assertConfig, assertState, outside } from './input.ts';
-import type { Config, State, ActorRole, StopReason } from './input.ts';
+import type { Config, State, ActorRole, StopReason, CaptureDecision } from './input.ts';
 import { writingHostTimeoutMs } from './writing.ts';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -19,7 +19,7 @@ import {
   cp,
   realpath,
 } from 'node:fs/promises';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, relative } from 'node:path';
 
 interface CommandResult {
   code: number | null;
@@ -166,7 +166,12 @@ function isCaptureRecord(name: string, destination: string) {
   );
 }
 
-async function sourceFiles(cwd: string, captureOnly = false, destination = '') {
+async function sourceFiles(
+  cwd: string,
+  captureOnly = false,
+  destination = '',
+  definitions: string[] = [],
+) {
   const list = await command(
     ['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
     cwd,
@@ -179,25 +184,28 @@ async function sourceFiles(cwd: string, captureOnly = false, destination = '') {
   const entries: [string, number, string][] = [];
   for (const name of [...new Set(list.stdout.split('\0').filter(Boolean))].sort()) {
     const path = resolve(cwd, name);
-    try {
-      const stat = await lstat(path);
-      if (
-        captureOnly &&
-        stat.isFile() &&
-        !(stat.mode & 0o111) &&
-        isCaptureRecord(name, destination)
-      ) {
-        continue;
-      }
-      const bytes = stat.isSymbolicLink() ? await readlink(path) : await readFile(path);
-      entries.push([name, stat.mode, digest(bytes)]);
-    } catch (error) {
+    const stat = await lstat(path).catch((error: unknown) => {
       if (!isMissing(error)) {
         throw error;
       }
-      // Identity is the materialized worktree, independent of index/HEAD bookkeeping.
-      // A missing path contributes nothing both before and after staging its deletion.
+      return undefined;
+    });
+    if (!stat) {
+      // Materialized deletion has the same identity before and after staging.
+      continue;
     }
+    if (
+      captureOnly &&
+      !definitions.includes(path) &&
+      stat.isFile() &&
+      !(stat.mode & 0o111) &&
+      isCaptureRecord(name, destination)
+    ) {
+      continue;
+    }
+    // A path disappearing after lstat is an unknown read, not an identified deletion.
+    const bytes = stat.isSymbolicLink() ? await readlink(path) : await readFile(path);
+    entries.push([name, stat.mode, digest(bytes)]);
   }
   return entries;
 }
@@ -303,6 +311,7 @@ async function hostCommand(
   role: 'capture' | 'check' | 'writing',
   argv: string[],
   persist: Persist,
+  captureDecision?: CaptureDecision,
 ) {
   const attempt =
     role !== 'check'
@@ -321,6 +330,7 @@ async function hostCommand(
   state.active = null;
   state.events.push({
     role,
+    captureDecision,
     source: state.source,
     code: result.code,
     timedOut: result.timedOut,
@@ -355,21 +365,104 @@ async function installMedia(config: Config, output: string) {
   await cp(output, destination, { recursive: true });
 }
 
-async function needsCapture(config: Config, source: string, previousSource?: string) {
-  const { cwd } = config;
-  if (previousSource !== undefined) {
-    return (
-      previousSource !==
-      (config.captureRequired ? source : await snapshot(cwd, true, config.captureDestination))
-    );
-  }
-  if (config.captureRequired) {
-    return true;
-  }
-  return !(await onlyPlainMarkdown(cwd));
+function captureDefinitions(config: Config) {
+  const command = config.capture ?? [];
+  const directories = command.flatMap((argument, index) =>
+    argument === '--cwd'
+      ? [command[index + 1] ?? '']
+      : argument.startsWith('--cwd=')
+        ? [argument.slice('--cwd='.length)]
+        : [],
+  );
+  const bases = [
+    config.cwd,
+    ...directories.filter(Boolean).map((path) => resolve(config.cwd, path)),
+  ];
+  return command.flatMap((argument) => {
+    const separator = argument.startsWith('-') ? argument.indexOf('=') : -1;
+    const paths = separator > 0 ? [argument, argument.slice(separator + 1)] : [argument];
+    return paths.filter(Boolean).flatMap((path) => bases.map((base) => resolve(base, path)));
+  });
 }
 
-async function onlyPlainMarkdown(cwd: string) {
+async function captureIdentity(config: Config, source: string) {
+  assert(config.captureDestination);
+  const definitions = captureDefinitions(config);
+  const ignored = await command(
+    [
+      'git',
+      '--literal-pathspecs',
+      'ls-files',
+      '-z',
+      '--others',
+      '--ignored',
+      '--exclude-standard',
+      '--',
+      config.captureDestination,
+      ...definitions
+        .filter((path) => !outside(config.cwd, path))
+        .map((path) => relative(config.cwd, path) || '.'),
+    ],
+    config.cwd,
+    '',
+    10000,
+  );
+  assert(ignored.code === 0 && !ignored.timedOut, 'Cannot identify capture media or definitions');
+  const ignoredPaths = ignored.stdout
+    .split('\0')
+    .filter(Boolean)
+    .map((path) => resolve(config.cwd, path));
+  assert(
+    !ignoredPaths.some((path) => definitions.includes(path)),
+    'Capture definitions must not be excluded from source identity by Git ignore rules',
+  );
+  const destination = resolve(config.cwd, config.captureDestination);
+  assert(
+    !ignoredPaths.some((path) => !outside(destination, path)),
+    'Capture media must not be excluded from source identity by Git ignore rules',
+  );
+  return config.captureRequired
+    ? source
+    : digest(
+        JSON.stringify(await sourceFiles(config.cwd, true, config.captureDestination, definitions)),
+      );
+}
+
+async function captureDecision(
+  config: Config,
+  source: string,
+  previousSource?: string,
+): Promise<CaptureDecision> {
+  if (!config.capture) {
+    return {
+      outcome: 'not_required',
+      reason: 'Capture is not configured; Issue media requirements must agree',
+    };
+  }
+  const current = await captureIdentity(config, source);
+  if (previousSource !== undefined) {
+    return {
+      outcome: previousSource === current ? 'reused' : 'execute',
+      reason:
+        previousSource === current
+          ? 'Same capture inputs and media in this run'
+          : 'Capture inputs or media changed',
+      source: current,
+      previousSource,
+    };
+  }
+  const unnecessary =
+    !config.captureRequired && (await onlyPlainMarkdown(config.cwd, captureDefinitions(config)));
+  return {
+    outcome: unnecessary ? 'not_required' : 'execute',
+    reason: unnecessary
+      ? 'Only plain Markdown changed; configured as non-rendering input'
+      : 'No matching capture in this run',
+    source: current,
+  };
+}
+
+async function onlyPlainMarkdown(cwd: string, definitions: string[]) {
   const tracked = await command(
     ['git', '-c', 'core.filemode=true', 'diff', '--raw', '--no-renames', '-z', 'HEAD'],
     cwd,
@@ -405,7 +498,10 @@ async function onlyPlainMarkdown(cwd: string) {
     return false;
   }
   for (const [path, deleted] of paths) {
-    if (!(await plainMarkdownFile(cwd, path, deleted))) {
+    if (
+      definitions.includes(resolve(cwd, path)) ||
+      !(await plainMarkdownFile(cwd, path, deleted))
+    ) {
       return false;
     }
   }
@@ -446,7 +542,8 @@ async function verifyHost(
     return { stop: writingStop };
   }
   state.source = await snapshot(config.cwd);
-  if (config.capture && (await needsCapture(config, state.source, state.captureSource))) {
+  const decision = await captureDecision(config, state.source, state.captureSource);
+  if (config.capture && decision.outcome === 'execute') {
     state.captureSource = undefined;
     const output = resolve(
       config.runDir,
@@ -459,6 +556,7 @@ async function verifyHost(
       'capture',
       [...config.capture, output],
       persist,
+      decision,
     );
     const changed = await targetChange(config, state);
     if (changed) {
@@ -476,21 +574,20 @@ async function verifyHost(
     }
     await installMedia(config, output);
     state.source = await snapshot(config.cwd);
-    state.captureSource = config.captureRequired
-      ? state.source
-      : await snapshot(config.cwd, true, config.captureDestination);
+    state.captureSource = await captureIdentity(config, state.source);
     await persist();
   }
-  return verifyCheck(config, state, persist);
+  return verifyCheck(config, state, persist, decision);
 }
 
 async function verifyCheck(
   config: Config,
   state: State,
   persist: Persist,
+  decision: CaptureDecision,
 ): Promise<{ stop?: StopReason; findings?: string }> {
   state.checks++;
-  const checked = await hostCommand(config, state, 'check', config.check, persist);
+  const checked = await hostCommand(config, state, 'check', config.check, persist, decision);
   const changed = await targetChange(config, state);
   if (changed) {
     return { stop: changed };

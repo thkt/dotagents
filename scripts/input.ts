@@ -78,7 +78,14 @@ export interface Config {
   modelTimeMs: number;
   checkTimeMs: number;
 }
+export interface CaptureDecision {
+  outcome: 'execute' | 'reused' | 'not_required';
+  reason: string;
+  source?: string;
+  previousSource?: string;
+}
 interface Event {
+  captureDecision?: CaptureDecision;
   role: ActorRole | 'check' | 'capture' | 'writing';
   source?: string;
   code: number | null;
@@ -165,12 +172,23 @@ export function assertConfig(value: unknown): asserts value is Config {
     assert(nonnegative(limit) && limit > 0, `Invalid ${key}`);
   }
 }
+function isCaptureDecision(value: unknown): value is CaptureDecision {
+  return (
+    isRecord(value) &&
+    typeof value.outcome === 'string' &&
+    ['execute', 'reused', 'not_required'].includes(value.outcome) &&
+    typeof value.reason === 'string' &&
+    optionalString(value.source) &&
+    optionalString(value.previousSource)
+  );
+}
 function isEvent(value: unknown): value is Event {
   if (!isRecord(value)) {
     return false;
   }
   return (
     role(value.role) &&
+    (value.captureDecision === undefined || isCaptureDecision(value.captureDecision)) &&
     optionalString(value.source) &&
     (value.code === null || count(value.code)) &&
     typeof value.timedOut === 'boolean' &&

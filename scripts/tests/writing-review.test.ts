@@ -425,3 +425,33 @@ for (const kind of ['new', 'tracked'] as const) {
     expect(await readFile(join(t.dir, 'active.json'), 'utf8')).toContain('reviewing');
   });
 }
+
+for (const change of ['facts', 'set'] as const) {
+  test(`cached writing result is rejected when ${change} changes during reuse`, async () => {
+    const t = await documentTrial();
+    await reviewDocuments(t.cwd, '4件', t.dir, rewriter(t.file));
+    const receipts = (await readdir(t.dir)).filter((name) => name.startsWith('done-'));
+    await assert.rejects(
+      () =>
+        reviewDocuments(
+          t.cwd,
+          '4件',
+          t.dir,
+          async () => {
+            throw Error('Same input must not start another model');
+          },
+          async () => {
+            if (change === 'set') {
+              await put(t.cwd, 'docs/added.md', '新たな説明。');
+            }
+            return change === 'facts' ? '5件' : '4件';
+          },
+        ),
+      change === 'facts'
+        ? /Writing facts changed during reuse/
+        : /Writing target changed during reuse/,
+    );
+    expect(await readFile(t.file, 'utf8')).toBe('短い文。4件です。');
+    expect((await readdir(t.dir)).filter((name) => name.startsWith('done-'))).toEqual(receipts);
+  });
+}

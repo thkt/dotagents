@@ -53,10 +53,7 @@ async function cachedReview(
         typeof skipped.reason === 'string',
       'Invalid writing skip',
     );
-    console.error(
-      `Gemini確認: 未実施 (${skipped.reason}); 同じ入力のスキップ記録: ${dir}/${record.review}/skipped.json`,
-    );
-    return true;
+    return `Gemini確認: 未実施 (${skipped.reason}); 同じ入力のスキップ記録: ${dir}/${record.review}/skipped.json`;
   }
   const accepted: unknown = JSON.parse(
     await readFile(join(dir, record.review, 'accepted.json'), 'utf8'),
@@ -71,7 +68,7 @@ async function cachedReview(
       original.facts === facts,
     'Stale writing receipt',
   );
-  return true;
+  return `Gemini確認: 再利用 (本文・根拠・対象選択が同一); ${dir}/${record.review}/accepted.json`;
 }
 
 async function changedDocuments(cwd: string, dir: string) {
@@ -118,7 +115,15 @@ export async function reviewDocuments(
     return;
   }
   const key = writingHash(JSON.stringify({ facts, ...snapshot }));
-  if (await cachedReview(dir, key, facts, input)) {
+  const cached = await cachedReview(dir, key, facts, input);
+  if (cached) {
+    assert((await currentFacts()) === facts, 'Writing facts changed during reuse');
+    assert.deepEqual(
+      await changedDocuments(cwd, dir),
+      snapshot,
+      'Writing target changed during reuse',
+    );
+    console.error(cached);
     return;
   }
   await writeFile(
@@ -126,6 +131,7 @@ export async function reviewDocuments(
     JSON.stringify({ key, selection: snapshot.selection, phase: 'reviewing' }),
     { flag: 'wx' },
   );
+  console.error(`Gemini確認: 実行 (同一入力の完了記録なし); ${dir}/${key}`);
   const result = await reviewWriting(input, facts, join(dir, key), runner);
   assert((await currentFacts()) === facts, 'Writing facts changed during review');
   assert.deepEqual(
