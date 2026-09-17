@@ -852,6 +852,16 @@ async function execute(config: Config): Promise<State> {
     return result.stdout.trim();
   };
   await verifyReportBase(base, [...(config.reports ?? []), ...references], git);
+  if (state?.result) {
+    // The unchanged selection and immutable base blobs were validated during preparation.
+    // ls-tree alone does not detect a missing blob object; check availability without extraction.
+    for (const { blob } of references) {
+      await git('cat-file', '-e', `${blob}^{blob}`);
+    }
+    const unchanged =
+      state.issueHash === digest(issue) && state.source === (await snapshot(config.cwd));
+    return { ...state, result: unchanged ? state.result : 'target_changed_after_stop' };
+  }
   const knowledge = await readKnowledge(references, git);
   state ??= {
     reviewFormat: 2,
@@ -867,11 +877,6 @@ async function execute(config: Config): Promise<State> {
     events: [],
   };
   const persist = () => save(path, state);
-  if (state.result) {
-    const unchanged =
-      state.issueHash === digest(issue) && state.source === (await snapshot(config.cwd));
-    return { ...state, result: unchanged ? state.result : 'target_changed_after_stop' };
-  }
   await persist();
   while (!state.result) {
     state.result = await cycle(config, state, issue, persist, knowledge);

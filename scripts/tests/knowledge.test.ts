@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { test, expect } from 'bun:test';
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { test, expect, spyOn } from 'bun:test';
+import { mkdtemp, mkdir, readFile, writeFile, rm, rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -10,6 +10,7 @@ import {
   generateKnowledge,
   parseKnowledge,
 } from '../knowledge.ts';
+import * as knowledge from '../knowledge.ts';
 import { develop } from '../development.ts';
 import { command, run } from '../correction.ts';
 import { isRecord, isArray } from '../input.ts';
@@ -191,6 +192,8 @@ test('Issue-selected #85 knowledge reaches implementation, correction and indepe
       body: issueBody([{ ...reference, blob }]),
       state: 'OPEN',
     });
+    const issueFile = join(root, 'issue.json');
+    await writeFile(issueFile, issue);
     await writeFile(join(repo, 'result.txt'), 'Unrelated work must survive');
     await writeFile(join(repo, 'untracked.txt'), 'Other developer’s notes');
     const helper = join(root, 'actor.js');
@@ -237,7 +240,11 @@ if(role === 'review') {
       verify: async (config: Config) => {
         verification = {
           ...config,
-          issue: [process.execPath, '-e', `console.log(${JSON.stringify(issue)})`],
+          issue: [
+            process.execPath,
+            '-e',
+            `process.stdout.write(require('fs').readFileSync(${JSON.stringify(issueFile)}, 'utf8'))`,
+          ],
           check: [
             process.execPath,
             '-e',
@@ -287,8 +294,48 @@ if(role === 'review') {
     expect(await readFile(join(repo, 'result.txt'), 'utf8')).toBe('Unrelated work must survive');
     expect(await readFile(join(repo, 'untracked.txt'), 'utf8')).toBe('Other developer’s notes');
     assert(verification);
+    const stateFile = join(verification.runDir, 'state.json');
+    const saved = await readFile(stateFile, 'utf8');
+    const extraction = spyOn(knowledge, 'readKnowledge');
+    try {
+      expect((await run(verification)).result).toBe('ready_for_human_review');
+      expect(extraction).not.toHaveBeenCalled();
+      expect(await readFile(stateFile, 'utf8')).toBe(saved);
+    } finally {
+      extraction.mockRestore();
+    }
+
+    // A tree entry can survive loss of its object. The checkout still has the model,
+    // so source identity alone cannot protect the selected base-version reference.
+    const blobPath = join(repo, '.git/objects', blob.slice(0, 2), blob.slice(2));
+    const heldBlob = join(root, 'held-knowledge-blob');
+    await rename(blobPath, heldBlob);
+    try {
+      expect(git(repo, 'ls-tree', base, '--', modelPath)).toContain(blob);
+      await assert.rejects(run(verification), /Cannot verify report base/);
+      expect(await readFile(stateFile, 'utf8')).toBe(saved);
+    } finally {
+      await rename(heldBlob, blobPath);
+    }
+
+    for (const [selection, reason] of [
+      [{ ...reference, blob: 'invalid' }, 'Expected reviewed knowledge Git blob'],
+      [{ ...reference, blob: 'a'.repeat(40) }, 'Required report differs from reviewed version'],
+      [{ ...reference, blob, path: 'absent.json' }, 'Required report is missing from start commit'],
+    ] as const) {
+      await writeFile(issueFile, issueBody([selection]));
+      await assert.rejects(run(verification), new RegExp(reason));
+      expect(await readFile(stateFile, 'utf8')).toBe(saved);
+    }
+    // Unknown IDs are rejected initially by extraction. At a terminal run the
+    // changed Issue is enough to refuse the old result without reconstructing it.
+    await writeFile(issueFile, issueBody([{ ...reference, blob, ids: ['missing'] }]));
+    expect((await run(verification)).result).toBe('target_changed_after_stop');
+    expect(await readFile(stateFile, 'utf8')).toBe(saved);
+    await writeFile(issueFile, issue);
     await writeFile(join(verification.cwd, modelPath), content + '\n');
     expect((await run(verification)).result).toBe('target_changed_after_stop');
+    expect(await readFile(stateFile, 'utf8')).toBe(saved);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
