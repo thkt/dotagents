@@ -211,25 +211,31 @@ test('model time requires explicit null or a positive finite number; check time 
     expect(() => assertConfig({ ...config, checkTimeMs })).toThrow('Invalid checkTimeMs');
   }
 });
-for (const change of [
-  { repair: -1 },
-  { active: { role: 'repair' } },
-  { events: [{}] },
-  { result: 'unrecognized_success' },
-  { captureSource: 42 },
-]) {
-  test(`invalid saved state is retained and rejected: ${JSON.stringify(change)}`, async () => {
-    const t = await trial('normal');
-    expect(t.execute().status).toBe(0);
-    const stateFile = join(t.config.runDir, 'state.json');
-    const invalid = JSON.stringify({ ...(await t.state()), ...change });
+test('invalid saved state is retained and rejected before execution', async () => {
+  const t = await trial('normal');
+  expect(t.execute().status).toBe(0);
+  const stateFile = join(t.config.runDir, 'state.json');
+  const saved = await t.state();
+  const review = object(events(saved.reviewHistory)[0]);
+  for (const [change, reason] of [
+    [{ repair: -1 }, 'Invalid saved usage'],
+    [{ active: { role: 'repair' } }, 'Invalid active reservation'],
+    [{ events: [{}] }, 'Invalid saved events'],
+    [{ result: 'unrecognized_success' }, 'Invalid saved result'],
+    [{ captureSource: 42 }, 'Invalid saved capture source'],
+    [
+      { reviewHistory: [{ ...review, status: 'unrecognized_success' }] },
+      'Invalid saved review history',
+    ],
+  ] as const) {
+    const invalid = JSON.stringify({ ...saved, ...change });
     await writeFile(stateFile, invalid);
     const result = t.execute();
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('Invalid');
+    expect(result.stderr).toContain(reason);
     expect(await readFile(stateFile, 'utf8')).toBe(invalid);
-  });
-}
+  }
+});
 test('missing CLI configuration argument fails with usage', () => {
   const result = spawnSync(process.execPath, [controller], { encoding: 'utf8' });
   expect(result.status).toBe(1);

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test, expect } from 'bun:test';
 import { waitForCi, confirmCiTarget } from '../ci.ts';
-import { withInterrupts } from '../correction.ts';
+import { withInterrupts } from '../process.ts';
 
 const target = {
   cwd: '/tmp',

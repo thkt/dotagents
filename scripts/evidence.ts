@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
-import { isArray, isRecord } from './input.ts';
+import { isArray, isRecord } from './values.ts';
 
 function record(value: unknown) {
   assert(isRecord(value), 'Expected an evidence object');

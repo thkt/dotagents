@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { command, run, snapshot, withInterrupts } from './correction.ts';
-import { isRecord } from './input.ts';
+import { run, snapshot } from './correction.ts';
+import { command, withInterrupts } from './process.ts';
+import { isRecord } from './values.ts';
 import { reviewModel } from './review.ts';
 
 const requirements = {

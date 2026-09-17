@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
-import { isArray, isRecord, relativeDirectory } from './input.ts';
+import { isArray, isRecord, relativeDirectory } from './values.ts';
 import type { ReportReference } from './input.ts';
 
 type Git = (...args: string[]) => Promise<string>;

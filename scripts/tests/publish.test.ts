@@ -4,7 +4,7 @@ import { realpath, mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { withInterrupts } from '../correction.ts';
+import { withInterrupts } from '../process.ts';
 import { publish } from '../publish.ts';
 import { readTarget } from '../target.ts';
 import { initializeTarget, githubTarget, git } from './support/target.ts';

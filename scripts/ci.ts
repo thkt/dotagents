@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { setTimeout } from 'node:timers/promises';
 import { join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
-import type { command } from './correction.ts';
-import { assertRunning } from './correction.ts';
-import { isRecord } from './input.ts';
+import type { command } from './process.ts';
+import { assertRunning } from './process.ts';
+import { isRecord } from './values.ts';
 
 type Target = {
   cwd: string;

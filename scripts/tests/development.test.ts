@@ -5,9 +5,9 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, chmod, stat } from 'node:fs/pr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { develop } from '../development.ts';
-import { command } from '../correction.ts';
+import { command } from '../process.ts';
 import type { Config, State } from '../input.ts';
-import { isRecord } from '../input.ts';
+import { isRecord } from '../values.ts';
 import { reviewSummary } from '../review.ts';
 import type { Review } from '../review.ts';
 import { initializeTarget, githubTarget, targetConfig } from './support/target.ts';
