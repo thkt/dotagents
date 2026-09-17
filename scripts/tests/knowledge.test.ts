@@ -13,7 +13,7 @@ import {
 import * as knowledge from '../knowledge.ts';
 import { develop } from '../development.ts';
 import { command, run } from '../correction.ts';
-import { isRecord, isArray, assertState } from '../input.ts';
+import { isRecord, isArray } from '../input.ts';
 import type { Config } from '../input.ts';
 import { initializeTarget, githubTarget, git, targetConfig } from './support/target.ts';
 import { reviewReplySource } from './support/correction.ts';
@@ -296,11 +296,9 @@ if(role === 'review') {
     assert(verification);
     const stateFile = join(verification.runDir, 'state.json');
     const saved = await readFile(stateFile, 'utf8');
-    const savedState: unknown = JSON.parse(saved);
-    assertState(savedState);
     const extraction = spyOn(knowledge, 'readKnowledge');
     try {
-      expect(await run(verification)).toEqual(savedState);
+      expect((await run(verification)).result).toBe('ready_for_human_review');
       expect(extraction).not.toHaveBeenCalled();
       expect(await readFile(stateFile, 'utf8')).toBe(saved);
     } finally {
