@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { isRecord, relativeDirectory } from './input.ts';
+import { isRecord, relativeDirectory } from './values.ts';
 
 export type Reader = (argv: string[], cwd: string) => Promise<string>;
 export interface TargetConfig {
@@ -161,7 +161,7 @@ export function targetCommand(command: string[]) {
 
 if (import.meta.main) {
   try {
-    const { command } = await import('./correction.ts');
+    const { command } = await import('./process.ts');
     const { positionals, values } = parseArgs({
       args: process.argv.slice(2),
       allowPositionals: true,

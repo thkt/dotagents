@@ -12,8 +12,9 @@ import {
 } from '../knowledge.ts';
 import * as knowledge from '../knowledge.ts';
 import { develop } from '../development.ts';
-import { command, run } from '../correction.ts';
-import { isRecord, isArray } from '../input.ts';
+import { run } from '../correction.ts';
+import { command } from '../process.ts';
+import { isRecord, isArray } from '../values.ts';
 import type { Config } from '../input.ts';
 import { initializeTarget, githubTarget, git, targetConfig } from './support/target.ts';
 import { reviewReplySource } from './support/correction.ts';

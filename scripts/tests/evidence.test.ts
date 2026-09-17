@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { generateEvidence } from '../evidence.ts';
-import { isRecord } from '../input.ts';
+import { isRecord } from '../values.ts';
 
 const roots: string[] = [];
 afterEach(async () => {

@@ -4,7 +4,7 @@ import { resolve, isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
-import { isRecord, outside } from './input.ts';
+import { isRecord, outside } from './values.ts';
 
 // A fixed-browser probe could reject a working target that uses a different browser.
 export function captureUnavailable(report: unknown) {

@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { isRecord } from './input.ts';
+import { isRecord } from './values.ts';
 import { readTarget } from './target.ts';
-import { command as runCommand, assertRunning, withInterrupts } from './correction.ts';
+import { command as runCommand, assertRunning, withInterrupts } from './process.ts';
 
 async function command(argv: string[], cwd: string) {
   const env = { ...process.env };

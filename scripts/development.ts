@@ -6,15 +6,9 @@ import { resolve, join } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { parseArgs } from 'node:util';
-import {
-  command,
-  run,
-  withInterrupts,
-  parseReply,
-  captureInstructions,
-  testInstructions,
-} from './correction.ts';
-import { isRecord, outside } from './input.ts';
+import { run, parseReply, captureInstructions, testInstructions } from './correction.ts';
+import { command, withInterrupts } from './process.ts';
+import { isRecord, outside } from './values.ts';
 import { publish } from './publish.ts';
 import { waitForCi, confirmCiTarget, confirmCiPublication } from './ci.ts';
 import { readTarget, issueNumber, targetCommand, pushArguments } from './target.ts';

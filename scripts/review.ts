@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { isArray, isRecord } from './input.ts';
+import { isArray, isRecord } from './values.ts';
 
 export const reviewModel = { model: 'gpt-6-astra', reasoningEffort: 'high' };
 const reviewStatuses = ['accepted', 'needs_changes'] as const;

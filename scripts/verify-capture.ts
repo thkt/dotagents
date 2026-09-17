@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { createServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
-import { command, withInterrupts } from './correction.ts';
+import { command, withInterrupts } from './process.ts';
 import { validateCaptureMedia } from './capture.ts';
 
 async function availablePort() {

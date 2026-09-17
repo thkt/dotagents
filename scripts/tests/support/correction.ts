@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { Config } from '../../input.ts';
-import { isRecord, isArray } from '../../input.ts';
+import { isRecord, isArray } from '../../values.ts';
 
 export function object(value: unknown) {
   assert(isRecord(value));
