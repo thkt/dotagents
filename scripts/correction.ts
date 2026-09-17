@@ -769,7 +769,7 @@ async function cycle(
     'Repair only within these agreed requirements. Read the current files and fix the root cause.',
     testInstructions,
     'Apply the target documentation policy when present to documentation-only changes and accompanying updates; keep current operating instructions accurate and historical results in evidence. Compare document facts, quantities, conditions, scope, authority, unverified claims and references with original sources; return content defects to repair and renew affected checks and independent review.',
-    'Preserve agreed acceptance criteria and the verification needed to protect required behavior. Removing or consolidating unnecessary tests is allowed; making checks pass by hiding a realistic regression is not. Do not commit, push or publish.',
+    'Preserve agreed acceptance criteria and verification of required behavior; never hide realistic regressions to make checks pass. Do not commit, push or publish.',
     'Run only targeted checks needed to diagnose or validate your repair; leave the full check command to the host.',
     'The host runs the configured verification after your changes; do not launch browsers or servers in the actor sandbox.',
     captureInstructions(
