@@ -17,7 +17,7 @@ description: 合意済みGitHub Issueの実装依頼で、文書変更を含め�
 bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to/target-checkout
 ```
 
-開始前に[調査成果の引き継ぎ](../scoping/references/session.md#調査成果の引き継ぎ)を確認し、対象Issue、今回必要な報告、開始commit、保存・commit・共有の状態を揃える。報告が必要な場合は[引き継ぎ引数](../../scripts/README.md#調査報告を指定した実装開始)の`--start-commit`と各`--report`を必ず渡す。必要な報告がない場合はその判断を明示する。未commitの報告を退避しただけで開始せず、内容・版の不一致を現在のIDへの置換で回避しない。不足があれば依存する実装を止め、未追跡の他作業は保全する。gateの成功は人の合意や実装許可を代替しない。
+開始前に[調査成果の引き継ぎ](../scoping/references/session.md#調査成果の引き継ぎ)を確認し、対象Issue、今回必要な報告、開始commit、保存・commit・共有の状態を揃える。報告が必要な場合は[引き継ぎ引数](../../scripts/README.md#調査報告を指定した実装開始)の`--start-commit`と各`--report`を必ず渡す。必要な報告がない場合はその判断を明示する。未commitの報告を退避しただけで開始せず、内容・版の不一致を現在のIDへの置換で回避しない。不足があれば依存する実装を止め、未追跡の他作業は保全する。参照の機械的な照合は人の合意や実装許可を代替しない。
 
 執筆担当・独立評価担当・公開担当は、文書の作成・評価・公開前後の本文確認で[日本語確認の方針](../../.codex/DEVELOPMENT.md#pr本文人向け文書の日本語確認)に従う。利用先の旧設定と方針は[切替手順](../../scripts/README.md#専用校正の廃止と切替)で確認する。
 
