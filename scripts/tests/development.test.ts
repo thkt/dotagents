@@ -74,12 +74,8 @@ async function checkStop(
   reviews: number,
   implementations: number,
 ) {
-  if (mode === 'denied_start' || mode === 'no_ci' || mode === 'retired_writing') {
-    expect(implementations).toBe(0);
-    expect(existsSync(join(dir, 'checkout'))).toBe(false);
-  }
   if (
-    ![
+    [
       'denied_start',
       'no_ci',
       'wrong_repo',
@@ -90,22 +86,16 @@ async function checkStop(
       'wrong_push',
     ].includes(mode)
   ) {
-    expect(await readFile(join(dir, 'stopped.txt'), 'utf8')).toMatch(stopReasons[mode]);
+    expect(implementations).toBe(0);
+    expect(reviews).toBe(0);
+    expect(existsSync(join(dir, 'checkout'))).toBe(false);
+    return;
   }
+  expect(await readFile(join(dir, 'stopped.txt'), 'utf8')).toMatch(stopReasons[mode]);
   if (
-    [
-      'initial_failure',
-      'needs_human',
-      'invalid_reply',
-      'timeout',
-      'requirements_changed',
-      'wrong_repo',
-      'dirty',
-      'missing_check',
-      'retired_writing',
-      'wrong_issue',
-      'wrong_push',
-    ].includes(mode)
+    ['initial_failure', 'needs_human', 'invalid_reply', 'timeout', 'requirements_changed'].includes(
+      mode,
+    )
   ) {
     expect(reviews).toBe(0);
   }

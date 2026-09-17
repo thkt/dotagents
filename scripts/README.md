@@ -167,7 +167,7 @@ bun scripts/correction.ts /absolute/path/config.json
 
 ### 修正・独立評価の担当
 
-`repair`と`review`は、要求と失敗の根拠を標準入力で受け取り、結果のJSONだけを標準出力へ返します。修正の`status: repaired | needs_human`と文字列`findings`、文章の意味照合の形式はそのまま使います。最終`review`は[review.ts](review.ts)の専用schemaに従います。独自のreviewコマンドにも同じ形式が必要です。
+`repair`と`review`は、要求と失敗の根拠を標準入力で受け取り、結果のJSONだけを標準出力へ返します。`repair`は`status: repaired | needs_human`と文字列`findings`を返します。`review`は[review.ts](review.ts)の専用schemaに従います。独自のreviewコマンドにも同じ形式が必要です。
 
 最終評価は、`status: accepted | needs_changes`、概要の`findings`、ホストが指定した`targetId`、4観点の`assessments`、指摘の`items`、参照文書の`documents`、後続担当の作業を示す`handoff`を返します。各観点には判断理由と未確認範囲を記し、適用しない観点についてもその理由を説明します。
 
