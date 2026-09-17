@@ -835,7 +835,7 @@ async function execute(config: Config): Promise<State> {
     return result.stdout.trim();
   });
   state ??= {
-    reviewFormat: 1,
+    reviewFormat: 2,
     baseCommit: base,
     reviewHistory: [],
     configHash,

@@ -17,11 +17,11 @@ const object = (properties: Record<string, unknown>) => ({
 const choice = (values: readonly string[]) => ({ type: 'string', enum: values });
 const list = (items: unknown) => ({ type: 'array', items });
 export const reviewSchema = object({
-  status: choice(reviewStatuses),
   findings: text,
   targetId: text,
   assessments: object({ code: text, requirements: text, tests: text, documentation: text }),
-  items: list(
+  updates: list(object({ id: text, disposition: choice(dispositions), reason: text })),
+  newItems: list(
     object({
       id: text,
       introducedIn: text,
@@ -36,7 +36,7 @@ export const reviewSchema = object({
       impact: text,
       evidence: text,
       action: text,
-      disposition: choice(dispositions),
+      disposition: choice(['open']),
       reason: text,
     }),
   ),
@@ -123,9 +123,25 @@ function document(value: unknown): value is Review['documents'][number] {
     oneOf(value.role, documentRoles)
   );
 }
+type ReviewResponse = Omit<Review, 'status' | 'items'> & {
+  updates: Pick<ReviewItem, 'id' | 'disposition' | 'reason'>[];
+  newItems: ReviewItem[];
+};
+function reviewDetails(value: Record<string, unknown>) {
+  return (
+    nonempty(value.findings) &&
+    nonempty(value.targetId) &&
+    fields(value.assessments, ['code', 'requirements', 'tests', 'documentation']) &&
+    Object.values(value.assessments).every(nonempty) &&
+    isArray(value.documents) &&
+    value.documents.every(document) &&
+    isArray(value.handoff) &&
+    value.handoff.every(nonempty)
+  );
+}
 export function isReview(value: unknown): value is Review {
-  if (
-    !fields(value, [
+  return (
+    fields(value, [
       'status',
       'findings',
       'targetId',
@@ -133,27 +149,36 @@ export function isReview(value: unknown): value is Review {
       'items',
       'documents',
       'handoff',
-    ])
-  ) {
-    return false;
-  }
-  return (
+    ]) &&
     oneOf(value.status, reviewStatuses) &&
-    nonempty(value.findings) &&
-    nonempty(value.targetId) &&
-    fields(value.assessments, ['code', 'requirements', 'tests', 'documentation']) &&
-    Object.values(value.assessments).every(nonempty) &&
+    reviewDetails(value) &&
     isArray(value.items) &&
-    value.items.every(item) &&
-    isArray(value.documents) &&
-    value.documents.every(document) &&
-    isArray(value.handoff) &&
-    value.handoff.every(nonempty)
+    value.items.every(item)
   );
 }
-function original(item: ReviewItem) {
-  const { disposition: _disposition, reason: _reason, ...details } = item;
-  return details;
+function isReviewResponse(value: unknown): value is ReviewResponse {
+  return (
+    fields(value, [
+      'findings',
+      'targetId',
+      'assessments',
+      'updates',
+      'newItems',
+      'documents',
+      'handoff',
+    ]) &&
+    reviewDetails(value) &&
+    isArray(value.newItems) &&
+    value.newItems.every(item) &&
+    isArray(value.updates) &&
+    value.updates.every(
+      (update) =>
+        fields(update, ['id', 'disposition', 'reason']) &&
+        nonempty(update.id) &&
+        oneOf(update.disposition, dispositions) &&
+        nonempty(update.reason),
+    )
+  );
 }
 export function parseReview(
   stdout: string,
@@ -162,38 +187,46 @@ export function parseReview(
   previous?: Review,
 ): Review {
   const value: unknown = JSON.parse(stdout);
-  assert(isReview(value), 'Missing or invalid review fields');
+  assert(isReviewResponse(value), 'Missing or invalid review fields');
   assert(value.targetId === targetId, 'Review target mismatch');
-  const ids = new Set(value.items.map((item) => item.id));
-  assert(ids.size === value.items.length, 'Duplicate finding ID');
-  const old = new Map(previous?.items.map((item) => [item.id, item]));
-  for (const finding of value.items) {
-    const prior = old.get(finding.id);
-    if (prior) {
-      assert.deepEqual(original(finding), original(prior), 'Prior finding details changed');
-    } else {
-      assert(
-        finding.id.startsWith(`R${attempt}-`) &&
-          finding.introducedIn === targetId &&
-          finding.disposition === 'open',
-        'Invalid new finding identity or disposition',
-      );
-    }
+  const priorItems = previous?.items ?? [];
+  const ids = new Set(priorItems.map((item) => item.id));
+  const updates = new Map(value.updates.map((update) => [update.id, update]));
+  assert(updates.size === value.updates.length, 'Duplicate finding update ID');
+  assert(
+    value.updates.every((update) => ids.has(update.id)),
+    'Unknown finding update ID',
+  );
+  const items = priorItems.map((prior) => {
+    const update = updates.get(prior.id);
+    assert(update, 'Prior finding omitted');
+    return { ...prior, disposition: update.disposition, reason: update.reason };
+  });
+  for (const finding of value.newItems) {
+    assert(!ids.has(finding.id), 'Duplicate finding ID');
+    ids.add(finding.id);
+    const prefix = `R${attempt}-`;
+    assert(
+      finding.id.startsWith(prefix) &&
+        nonempty(finding.id.slice(prefix.length)) &&
+        finding.introducedIn === targetId &&
+        finding.disposition === 'open',
+      'Invalid new finding identity or disposition',
+    );
+    items.push(finding);
   }
-  assert(
-    [...old.keys()].every((id) => ids.has(id)),
-    'Prior finding omitted',
-  );
-  const unresolved = value.items.some((item) => item.required && item.disposition === 'open');
-  assert(
-    (value.status === 'needs_changes') === unresolved,
-    'Review status contradicts required findings',
-  );
   assert(
     new Set(value.documents.map((doc) => doc.path)).size === value.documents.length,
     'Duplicate document reference',
   );
-  return value;
+  const { updates: _updates, newItems: _newItems, ...details } = value;
+  return {
+    ...details,
+    items,
+    status: items.some((item) => item.required && item.disposition === 'open')
+      ? 'needs_changes'
+      : 'accepted',
+  };
 }
 
 export const reviewInstructions = [
@@ -204,10 +237,10 @@ export const reviewInstructions = [
   'Apply the target documentation policy, including documentation-only changes. Compare changed documents with the Issue, original sources, code and check results, including facts, quantities, conditions, scope, authority, unverified claims and references. Assess whether readers can make the required decisions; return concrete content defects to repair. Distinguish current policy, historical evidence and unadopted proposals. Do not require new code or tests without a relevant requirement.',
   'Compare implementation premises with the selected Issue/report references and their handoff versions in the host context. In requirements/documentation assessments, explain relevant applicability, agreement and changed evidence; use document reasons for source selection. A decision-blocking gap or contradiction is a required open finding with the affected decision and return path in action, not an accepted handoff task. Human decisions cannot be resolved by the reviewer.',
   'Do not edit files or run the full check. The host check result is in the target record. Use current artifacts and necessary targeted verification to adjudicate findings; do not trust repair self-reports.',
-  'Return the review JSON schema. Echo targetId from the host context. Give substantive reasons in all four assessments, including applicability and unverified limits. findings is the overall summary.',
-  'The existing PR generator selects assessments, item condition/impact/reason (and action for open items), document reasons and handoff for public readers. In code assessment explain the concrete change and why it is needed; in requirements map it to the agreed behavior; in tests state actual verification and limits, distinguishing simulated tests from live execution; in documentation explain applicable sources, versions, agreement and changed premises. Use concise factual prose, not generic all-passed claims. Keep raw logs and host-local record references in evidence/findings and the internal records, not these public-facing fields. Preserve every original item field on re-evaluation; reason should explain its current resolution without copying raw evidence.',
-  'Each item needs a stable ID R<attempt>-<name>, introducedIn equal to this targetId, kind defect or concern, area code/requirements/tests/documentation, required, location, condition, impact, evidence, action, disposition open, and reason. Use null path/line when no real code location exists, including missing documentation. Never invent locations or reproduction runs.',
-  'Carry EVERY previous item forward with its original details; update only disposition (open, fixed, not_applicable) and reason based on the current artifacts and verification. Explain concrete evidence for fixes or non-applicability, not merely an implementer claim. Reopen when needed. Keep unresolved required items open; accepted cannot contain them.',
+  'Return the review JSON schema. Echo targetId from the host context. Give substantive reasons in all four assessments, including applicability and unverified limits. findings is the overall summary. Return updates and newItems, not status or items; the host reconstructs the complete record and computes status from required open findings.',
+  'The existing PR generator selects assessments, item condition/impact/reason (and action for open items), document reasons and handoff for public readers. In code assessment explain the concrete change and why it is needed; in requirements map it to the agreed behavior; in tests state actual verification and limits, distinguishing simulated tests from live execution; in documentation explain applicable sources, versions, agreement and changed premises. Use concise factual prose, not generic all-passed claims. Keep raw logs and host-local record references in evidence/findings and the internal records, not these public-facing fields. For prior findings, reason should explain the current resolution without copying raw evidence.',
+  'Each newItems entry needs a stable ID R<attempt>-<name>, introducedIn equal to this targetId, kind defect or concern, area code/requirements/tests/documentation, required, location, condition, impact, evidence, action, disposition open, and reason. Use null path/line when no real code location exists, including missing documentation. Never invent locations or reproduction runs.',
+  'Return exactly one updates entry for EVERY previous item ID, including already resolved items; use only id, disposition (open, fixed, not_applicable) and reason based on the current artifacts and verification. The host preserves the original details. Do not repeat them or place prior IDs in newItems. On the first review updates is empty. Explain concrete evidence for fixes or non-applicability, not merely an implementer claim. Reopen when needed. Keep unresolved required items open.',
   'List principal repository documents actually consulted with their exact repository-relative path, role current/historical/proposal and reference reason. The host binds their versions; this is not proof of sufficient reading or a whole-document index.',
   'Publisher PR creation, upload and rendered-media checks, and human review/approval are handoff actions, not implementation defects. List pending actions in handoff; do not waive them or claim completion.',
   'For each handoff action name its owner and concrete pending check: CLI for publication/upload/CI execution; responsible AI for evidence comparison and actual PR rendered-media/layout checks; human for requirement/authority decisions, review, approval and merge. Accepted is not completion of those actions.',

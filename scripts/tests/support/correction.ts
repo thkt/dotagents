@@ -20,9 +20,10 @@ export const reviewReplySource = `
 const reviewContext=role==='review'?JSON.parse(readFileSync(0,'utf8').split('Host context: ')[1].split('\\n')[0]):null;
 function reviewReply(status,findings) {
  const previous=reviewContext.previous?.items??[];
- return {status,findings,targetId:reviewContext.targetId,
+ return {findings,targetId:reviewContext.targetId,
  assessments:{code:'Source behavior inspected',requirements:'Compared agreed deliverables',tests:'Existing check covers source',documentation:'Documentation inspected'},
- items: previous.length ? previous.map(item=>({...item,disposition:status==='accepted'?'fixed':'open',reason:status==='accepted'?'Current README contains the required instructions':'Documentation remains absent'})) : status==='accepted'?[]:[{
+ updates: previous.map(item=>({id:item.id,disposition:status==='accepted'?'fixed':'open',reason:status==='accepted'?'Current README contains the required instructions':'Documentation remains absent'})),
+ newItems: previous.length || status==='accepted'?[]:[{
  id:'R'+reviewContext.attempt+'-docs',introducedIn:reviewContext.targetId,kind:'defect',area:'documentation',required:true,location:{path:null,line:null},condition:'Reader needs setup instructions',impact:'Cannot operate the change',evidence:'Required README is absent',action:'Add current instructions',disposition:'open',reason:'Missing documentation confirmed'}],
  documents:[],handoff:['Human review and publication remain']};
 }

@@ -92,7 +92,7 @@ interface Event {
   prefix: string;
 }
 export interface State {
-  reviewFormat: 1;
+  reviewFormat: 2;
   baseCommit: string;
   reviewHistory: Review[];
   configHash: string;
@@ -214,7 +214,10 @@ export function assertState(value: unknown): asserts value is State {
     'Invalid active reservation',
   );
   assert(isArray(value.events) && value.events.every(isEvent), 'Invalid saved events');
-  assert(value.reviewFormat === undefined || value.reviewFormat === 1, 'Invalid review format');
+  assert(
+    value.reviewFormat === undefined || value.reviewFormat === 1 || value.reviewFormat === 2,
+    'Invalid review format',
+  );
   assert(optionalString(value.baseCommit), 'Invalid saved base commit');
   assert(
     value.reviewHistory === undefined ||
@@ -225,7 +228,7 @@ export function assertState(value: unknown): asserts value is State {
   assert(optionalString(value.captureSource), 'Invalid saved capture source');
   assert(optionalString(value.source) && validResult(value.result), 'Invalid saved result');
   assert(
-    value.reviewFormat === 1 && value.baseCommit && value.reviewHistory,
+    value.reviewFormat === 2 && value.baseCommit && value.reviewHistory,
     'Historical review format cannot be converted or resumed; preserve existing run',
   );
 }

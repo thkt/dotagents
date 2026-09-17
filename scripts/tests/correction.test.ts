@@ -60,6 +60,12 @@ for (const [mode, result, repairs, reviews] of [
     expect(state.result).toBe(result);
     expect(state.repair).toBe(repairs);
     expect(state.review).toBe(reviews);
+    if (reviews && result !== 'ready_for_human_review') {
+      expect(state.reviewHistory).toEqual([]);
+      expect(await Bun.file(join(t.config.runDir, 'review-1.stdout')).exists()).toBe(true);
+      expect(await Bun.file(join(t.config.runDir, 'review-1.target.json')).exists()).toBe(true);
+      expect(await Bun.file(join(t.config.runDir, 'review-1.json')).exists()).toBe(false);
+    }
     if (result === 'ready_for_human_review') {
       expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('correct');
     }

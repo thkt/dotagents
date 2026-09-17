@@ -22,13 +22,21 @@ async function expectInvocation(root: string, role: string) {
   const schema = object(invocation.schema);
   expect(sortedStrings(schema.required)).toEqual(
     (role === 'review'
-      ? ['status', 'findings', 'targetId', 'assessments', 'items', 'documents', 'handoff']
+      ? ['findings', 'targetId', 'assessments', 'updates', 'newItems', 'documents', 'handoff']
       : ['status', 'findings']
     ).toSorted(),
   );
-  expect(sortedStrings(object(object(schema.properties).status).enum)).toEqual(
-    (role === 'repair' ? ['repaired', 'needs_human'] : ['accepted', 'needs_changes']).toSorted(),
-  );
+  const properties = object(schema.properties);
+  if (role === 'repair') {
+    expect(sortedStrings(object(properties.status).enum)).toEqual(['needs_human', 'repaired']);
+  } else {
+    expect(properties).not.toHaveProperty('status');
+    expect(sortedStrings(object(object(properties.updates).items).required)).toEqual([
+      'disposition',
+      'id',
+      'reason',
+    ]);
+  }
 }
 
 for (const mode of ['normal', 'repair', 'nonzero', 'missing', 'write_error'] as const) {
