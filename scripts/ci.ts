@@ -239,7 +239,7 @@ export async function waitForCi(
         'All required checks succeeded and no registered check is failing or pending.',
       );
     }
-    await clock.sleep(Math.min(1000, remaining));
+    await clock.sleep(Math.min(5000, remaining));
   }
   assertRunning();
   result.timedOut = true;

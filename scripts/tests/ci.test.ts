@@ -26,11 +26,13 @@ const scenarios: {
   frames: unknown[];
   status?: string;
   observed?: string;
-  elapsed?: number;
+  elapsed?: number[];
+  starts?: number[];
+  sleeps?: number[];
   unavailable?: boolean;
   invalidJson?: boolean;
   error?: RegExp;
-  interrupt?: boolean;
+  interrupt?: 'read' | 'sleep';
   budget?: number;
 }[] = [
   {
@@ -38,20 +40,27 @@ const scenarios: {
     frames: [
       frame([check('labels')]),
       frame([check('checks'), { name: 'verify', status: 'IN_PROGRESS' }]),
-      frame(required),
+      frame([...required, check('verify')]),
     ],
+    elapsed: [100, 100, 100],
+    starts: [0, 5100, 10200],
+    sleeps: [5000, 5000],
     status: 'passed',
   },
   {
     name: 'unrelated success never replaces missing required checks',
     frames: [frame([check('labels')])],
-    budget: 20,
+    budget: 12000,
+    starts: [0, 5000, 10000],
+    sleeps: [5000, 5000, 2000],
     status: 'timed_out',
     observed: 'missing',
   },
   {
     name: 'head changes while waiting',
     frames: [frame([]), frame(required, 'different')],
+    budget: 7000,
+    elapsed: [0, 2000],
     status: 'target_changed',
     observed: 'missing',
   },
@@ -99,7 +108,7 @@ const scenarios: {
     name: 'running at deadline retains duplicate pending and missing registrations',
     frames: [frame([check('checks'), { name: 'checks', status: 'IN_PROGRESS' }])],
     budget: 20,
-    elapsed: 20,
+    elapsed: [20],
     status: 'timed_out',
     observed: 'missing',
   },
@@ -112,23 +121,33 @@ const scenarios: {
   },
   {
     name: 'failure returned at deadline remains failure',
-    frames: [frame([check('checks'), check('verify', 'FAILURE')])],
-    budget: 20,
-    elapsed: 20,
+    frames: [frame([]), frame([check('checks'), check('verify', 'FAILURE')])],
+    budget: 7000,
+    elapsed: [0, 2000],
     status: 'failed',
     observed: 'failed',
   },
   {
-    name: 'success after deadline does not extend wait budget',
-    frames: [frame(required)],
-    budget: 20,
-    elapsed: 20,
+    name: 'success just before deadline',
+    frames: [frame([]), frame(required)],
+    budget: 7000,
+    elapsed: [0, 1999],
+    status: 'passed',
+    observed: 'passed',
+  },
+  {
+    name: 'success at deadline does not extend wait budget',
+    frames: [frame([]), frame(required)],
+    budget: 7000,
+    elapsed: [0, 2000],
     status: 'timed_out',
     observed: 'passed',
   },
   {
     name: 'API unavailable preserves last observation',
     frames: [frame([check('checks')]), frame(required)],
+    budget: 7000,
+    elapsed: [0, 2000],
     unavailable: true,
     status: 'unavailable',
     observed: 'missing',
@@ -157,35 +176,34 @@ const scenarios: {
     invalidJson: true,
     status: 'unavailable',
   },
-  {
-    name: 'all duplicate required checks succeed',
-    frames: [frame([...required, check('verify')])],
-    status: 'passed',
-  },
-  {
-    name: 'interrupted',
-    frames: [frame(required)],
-    interrupt: true,
+  ...(['read', 'sleep'] as const).map((interrupt) => ({
+    name: `interrupted during ${interrupt}`,
+    frames: [frame([])],
+    interrupt,
     error: /Interrupted execution/,
-  },
+  })),
 ];
 for (const scenario of scenarios) {
   test(`CI execution: ${scenario.name}`, async () => {
     let views = 0;
-    const budget = scenario.budget ?? 3500;
+    const budget = scenario.budget ?? 15000;
     let now = 0;
+    const starts: number[] = [];
+    const sleeps: number[] = [];
+    const timeouts: (number | null)[] = [];
     try {
       const action = () =>
         waitForCi(
           target,
           async (argv, _cwd, _input, timeout) => {
             expect(argv[2]).toBe('view');
-            expect(timeout).toBeLessThanOrEqual(budget);
+            starts.push(now);
+            timeouts.push(timeout);
             const current = scenario.frames[Math.min(views++, scenario.frames.length - 1)];
-            if (scenario.interrupt) {
+            if (scenario.interrupt === 'read') {
               process.emit('SIGINT');
             }
-            now += scenario.elapsed ?? 0;
+            now += scenario.elapsed?.[views - 1] ?? 0;
             if (scenario.unavailable && views > 1) {
               return { ...ok('API error'), code: 1, stderr: 'offline' };
             }
@@ -195,21 +213,25 @@ for (const scenario of scenarios) {
           {
             now: () => now,
             sleep: async (ms) => {
+              sleeps.push(ms);
               now += ms;
+              if (scenario.interrupt === 'sleep') {
+                process.emit('SIGINT');
+              }
             },
           },
         );
       if (scenario.error) {
         await assert.rejects(() => withInterrupts(action), scenario.error);
+        expect(views).toBe(1);
       } else {
         const result = await withInterrupts(action);
         expect(String(result.status)).toBe(scenario.status ?? '');
         if (scenario.observed) {
           expect(result.lastObservation?.status).toBe(scenario.observed);
         }
-        if (scenario.budget) {
-          expect(result.timedOut).toBe(true);
-        }
+        expect(result.timedOut).toBe(now >= budget);
+        expect(result.logs).toHaveLength(views);
         expect(result.reason.length).toBeGreaterThan(0);
         expect(result.nextAction).toContain(
           {
@@ -237,6 +259,14 @@ for (const scenario of scenarios) {
         if (scenario.status === 'passed') {
           expect(views).toBe(scenario.frames.length);
         }
+      }
+      expect(starts[0]).toBe(0);
+      expect(timeouts).toEqual(starts.map((start) => budget - start));
+      if (scenario.starts) {
+        expect(starts).toEqual(scenario.starts);
+      }
+      if (scenario.sleeps) {
+        expect(sleeps).toEqual(scenario.sleeps);
       }
     } finally {
       await withInterrupts(async () => {});

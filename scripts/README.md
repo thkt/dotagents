@@ -31,6 +31,8 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to
 
 `ciChecks`に指定した全checkの登録とSUCCESSを、9分のCI待機時間内で待ちます。同時にPRのhead、base、OPEN状態を照合します。必要なcheckのSKIPPEDやNEUTRALは成功と扱わず、同名checkが複数ある場合は全件の成功を求めます。他の登録済みcheckに失敗や保留がある場合も完了にしません。各取得時の応答と診断は`ci-registration-N.stdout`および`.stderr`へ、最後の対象照合は`ci-final-target.stdout`および`.stderr`へ保存します。公開直後の取得ログは`pr-publication.stdout`および`.stderr`へ残します。CLIは最新CIとPRのhead・base・OPEN状態を照合し、表示・再生・配置の確認は `rendered_media_check` として担当AIへ渡します。CI未確認時もPR URL、取得済みの公開結果、取得ログを保持して非zeroコードで終了します。担当AIは公開本文と根拠、添付後の実画面を照合し、人が要求・権限の変更、レビュー、承認、マージを判断します。
 
+CI待機の初回取得は直ちに行い、未登録・実行中の応答後は原則5秒待って再取得します。残り時間が5秒未満ならその時間だけ待ち、期限後は再取得しません。各取得コマンドも残り時間で制限します。従来の1秒待機より状態変化の検知が数秒遅くなり得るため、即時の確認が必要ならPR上のcheckを確認してください。取得と同じ状態のログの繰り返しを抑えるための間隔であり、実際のGitHub負荷の削減量は未測定です。
+
 ## 調査報告を指定した実装開始
 
 必要な報告の選択と共有状態の確認は[scopingの引き継ぎ手順](../skills/scoping/references/session.md#調査成果の引き継ぎ)に従います。この節では、確認済みの報告を実装へ渡すGit操作とCLIの検証条件を説明します。
