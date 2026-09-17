@@ -87,6 +87,7 @@ async function prepareInitialMediaInput(cwd: string, kind: string) {
 
 for (const kind of [
   'tracked-doc',
+  'command-doc',
   'staged-doc',
   'new-doc',
   'deleted-doc',
@@ -122,7 +123,15 @@ for (const kind of [
     if (kind === 'staged-doc') {
       git('add', 'README.md');
     }
-    t.config.capture = [process.execPath, join(t.root, 'helper.js'), 'capture'];
+    t.config.capture =
+      kind === 'command-doc'
+        ? [
+            process.execPath,
+            '-e',
+            "require('node:fs').writeFileSync(require('node:path').join(process.argv.at(-1), 'desktop.png'), 'correct')",
+            'README.md',
+          ]
+        : [process.execPath, join(t.root, 'helper.js'), 'capture'];
     await writeFile(t.configFile, JSON.stringify(t.config));
     expect(t.execute().status).toBe(0);
     const state = await t.state();
@@ -159,6 +168,11 @@ test('documentation repair keeps media unchanged through both checks and reviews
   expect(state.checks).toBe(2);
   expect(state.review).toBe(2);
   expect(state.repair).toBe(1);
+  const checked = events(state.events)
+    .map(object)
+    .find((event) => event.role === 'check');
+  expect(object(checked?.captureDecision).outcome).toBe('not_required');
+  expect(object(checked?.captureDecision).reason).toContain('Only plain Markdown');
   expect(await readFile(join(cwd, 'README.md'), 'utf8')).toBe('current');
   expect(await readFile(media, 'utf8')).toBe('retained');
 });
@@ -168,6 +182,8 @@ for (const change of [
   'required-records',
   'source',
   'definition',
+  'option-definition',
+  'cwd-definition',
   'media',
   'symlink',
   'executable',
@@ -175,9 +191,11 @@ for (const change of [
   test(`successful capture reuse after review repair: ${change}`, async () => {
     const t = await trial('reuse', { captureRequired: change === 'required-records' });
     const helper = join(t.root, 'reuse.js');
+    const definition = 'trial/evidence/capture.json';
     await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
     await mkdir(join(t.config.cwd, 'trial/evidence'), { recursive: true });
     await writeFile(join(t.config.cwd, 'trial/evidence/old.json'), '{}');
+    await writeFile(join(t.config.cwd, definition), '{}');
     await writeFile(
       helper,
       `
@@ -188,14 +206,17 @@ const role=process.argv[2], change=${JSON.stringify(change)};
 ${reviewReplySource}
 const media='trial/evidence/generated/demo.webm', record='trial/evidence/provenance.json';
 const hash=()=>createHash('sha256').update(readFileSync(media)).digest('hex');
-if(role==='capture') writeFileSync(join(process.argv[3],'demo.webm'),crypto.randomUUID());
+if(role==='capture') {
+ if(change==='cwd-definition') readFileSync('capture.json');
+ writeFileSync(join(process.argv.at(-1),'demo.webm'),crypto.randomUUID());
+}
 if(role==='repair') {
  writeFileSync('README.md','updated explanation');
  writeFileSync(record,JSON.stringify({hash:hash()}));
  writeFileSync('trial/evidence/check.stdout','passed');
  if(change==='records') rmSync('trial/evidence/old.json');
  if(change==='source') writeFileSync('app.js','changed app');
- if(change==='definition') writeFileSync('trial/capture.spec.js','changed capture');
+ if(['definition','option-definition','cwd-definition'].includes(change)) writeFileSync('trial/evidence/capture.json','{"viewport":"mobile"}');
  if(change==='media') writeFileSync(media,'altered');
  if(change==='symlink') symlinkSync('../source.txt','trial/input.md');
  if(change==='executable') {writeFileSync('trial/evidence/command.txt','executable');chmodSync('trial/evidence/command.txt',0o755);}
@@ -211,7 +232,17 @@ if(role==='review') {
 }
 `,
     );
-    t.config.capture = [process.execPath, helper, 'capture'];
+    t.config.capture = [
+      process.execPath,
+      ...(change === 'cwd-definition' ? ['--cwd', 'trial/evidence'] : []),
+      helper,
+      'capture',
+      change === 'cwd-definition'
+        ? '--config=capture.json'
+        : change === 'option-definition'
+          ? `--config=${definition}`
+          : definition,
+    ];
     t.config.repair = [process.execPath, helper, 'repair'];
     t.config.review = [process.execPath, helper, 'review'];
     await writeFile(t.configFile, JSON.stringify(t.config));
@@ -221,6 +252,15 @@ if(role==='review') {
     expect(state.checks).toBe(2);
     expect(state.review).toBe(2);
     expect(state.repair).toBe(1);
+    const checks = events(state.events)
+      .map(object)
+      .filter((event) => event.role === 'check');
+    expect(object(checks[1]?.captureDecision).outcome).toBe(
+      change === 'records' ? 'reused' : 'execute',
+    );
+    expect(object(checks[1]?.captureDecision).reason).toContain(
+      change === 'records' ? 'Same capture inputs' : 'changed',
+    );
     expect(events(state.events).filter((event) => object(event).role === 'capture')).toHaveLength(
       change === 'records' ? 1 : 2,
     );
@@ -294,3 +334,78 @@ test('Playwright capture rejects a missing spec before attempting browser or ser
   expect(result.stderr).toContain(spec);
   expect(result.stderr).not.toContain('Host cannot start');
 });
+
+test('capture directory arguments tolerate unrelated ignored dependencies', async () => {
+  const t = await trial('media_scope', { captureRequired: true });
+  await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
+  await writeFile(join(t.config.cwd, '.gitignore'), 'node_modules/\n');
+  await mkdir(join(t.config.cwd, 'node_modules/dependency'), { recursive: true });
+  const dependency = join(t.config.cwd, 'node_modules/dependency/index.js');
+  await writeFile(dependency, 'installed dependency');
+  t.config.capture = [process.execPath, '--cwd', '.', join(t.root, 'helper.js'), 'capture'];
+  await writeFile(t.configFile, JSON.stringify(t.config));
+  const result = t.execute();
+  expect(result.stderr).toBe('');
+  expect(result.status).toBe(0);
+  const state = await t.state();
+  expect(state.result).toBe('ready_for_human_review');
+  expect(state.checks).toBe(1);
+  expect(state.review).toBe(1);
+  expect(await readFile(join(t.config.cwd, 'trial/evidence/generated/desktop.png'), 'utf8')).toBe(
+    'correct',
+  );
+  expect(await readFile(dependency, 'utf8')).toBe('installed dependency');
+});
+
+test('ignored generated media stops before check or review and retains capture evidence', async () => {
+  const t = await trial('capture_success');
+  await writeFile(join(t.config.cwd, '.gitignore'), 'trial/evidence/generated/\n');
+  const result = t.execute();
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('Capture media must not be excluded from source identity');
+  const state = await t.state();
+  expect(state.checks).toBe(0);
+  expect(state.review).toBe(0);
+  expect(state.captureSource).toBeUndefined();
+  expect(await readFile(join(t.config.runDir, 'capture-1-media/desktop.png'), 'utf8')).toBe(
+    'broken',
+  );
+  expect(await readFile(join(t.config.cwd, 'trial/evidence/generated/desktop.png'), 'utf8')).toBe(
+    'broken',
+  );
+});
+
+for (const required of [false, true]) {
+  test(`ignored capture definition stops without replacing media (required: ${required})`, async () => {
+    const t = await trial('media_scope', { captureRequired: required });
+    const definition = 'trial/evidence/capture.json';
+    const media = join(t.config.cwd, 'trial/evidence/generated/desktop.png');
+    await mkdir(join(t.config.cwd, 'trial/evidence/generated'), { recursive: true });
+    await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
+    await writeFile(join(t.config.cwd, '.gitignore'), `${definition}\n`);
+    await writeFile(join(t.config.cwd, definition), '{"viewport":"mobile"}');
+    await writeFile(media, 'prior capture');
+    t.config.capture = [
+      process.execPath,
+      ...(required ? ['--cwd=trial/evidence'] : []),
+      '-e',
+      "require('node:fs').writeFileSync(require('node:path').join(process.argv.at(-1), 'desktop.png'), 'new capture')",
+      required ? 'capture.json' : definition,
+    ];
+    await writeFile(t.configFile, JSON.stringify(t.config));
+    const result = t.execute();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      'Capture definitions must not be excluded from source identity',
+    );
+    const state = await t.state();
+    expect(state.checks).toBe(0);
+    expect(state.review).toBe(0);
+    expect(state.captureSource).toBeUndefined();
+    expect(events(state.events).filter((event) => object(event).role === 'capture')).toHaveLength(
+      0,
+    );
+    expect(await readFile(media, 'utf8')).toBe('prior capture');
+    expect(await readFile(join(t.config.cwd, definition), 'utf8')).toBe('{"viewport":"mobile"}');
+  });
+}
