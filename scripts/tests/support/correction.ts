@@ -25,7 +25,7 @@ function reviewReply(status,findings) {
  updates: previous.map(item=>({id:item.id,disposition:status==='accepted'?'fixed':'open',reason:status==='accepted'?'Current README contains the required instructions':'Documentation remains absent'})),
  newItems: previous.length || status==='accepted'?[]:[{
  id:'R'+reviewContext.attempt+'-docs',introducedIn:reviewContext.targetId,kind:'defect',area:'documentation',required:true,location:{path:null,line:null},condition:'Reader needs setup instructions',impact:'Cannot operate the change',evidence:'Required README is absent',action:'Add current instructions',disposition:'open',reason:'Missing documentation confirmed'}],
- documents:[],handoff:['Human review and publication remain']};
+ documents:[],handoff:['担当AI: 未計測の実サービス応答時間を報告する']};
 }
 `;
 

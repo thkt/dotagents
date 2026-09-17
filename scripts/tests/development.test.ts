@@ -309,9 +309,8 @@ async function checkCiEvidence(mode: string, dir: string) {
   }
   expect(await readFile(join(dir, 'pr-url.txt'), 'utf8')).toContain('/pull/100');
   const body = await readFile(join(dir, 'pr.md'), 'utf8');
-  expect(body).toContain('公開・CI・公開後確認は未完了');
-  expect(body).toContain('今回の新規添付対象はありません');
-  expect(body).not.toContain('rendered_media_check');
+  expect(body).toContain('公開・CI・公開後確認・人の承認は未完了');
+  expect(body).not.toMatch(/媒体を添付|rendered_media_check|新規添付対象/);
   const saved: unknown = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'));
   assert(isRecord(saved) && isRecord(saved.ciDetails));
   expect(saved.url).toBe(await readFile(join(dir, 'pr-url.txt'), 'utf8'));
@@ -458,7 +457,8 @@ for (const mode of [
         },
       ],
       handoff: [
-        `担当AI: Compare the public explanation with Issue #99; live service timing remains unverified (${dir}/verification/check-2.stdout).`,
+        `担当AI: 実サービスAの応答が遅い場合、結果の保持時間を計測する。現時点では未計測（${dir}/verification/check-2.stdout）。`,
+        '運用担当: 実サービスBの応答が遅い場合、結果の保持時間を計測する。現時点では未計測。',
       ],
     };
     const firstItem = review.items[0];
@@ -688,10 +688,18 @@ for (const mode of [
         expect(body).toContain('its success does not establish live service behavior');
         expect(body).toContain('対象commit: ' + result.commit);
         expect(body).toContain('Closes #99');
-        expect(body).toContain('公開・CI・公開後確認は未完了');
-        expect(body).toContain('CLI: 対象commitの媒体を添付する（review/media/view.png）');
-        expect(body).toContain('担当AI: 添付後の実際のPR画面');
-        expect(body).toContain('人: 要求や権限の変更を判断');
+        [
+          'CLI: PRを公開し、同じheadのCI（checks）',
+          'CLI: 対象commitの媒体を添付する（review/media/view.png）',
+          '担当AI: 添付後の実際のPR画面',
+          '担当AI: 公開本文をIssue・対象commit・検証結果と照合',
+          '人: 要求や権限の変更を判断',
+          '公開・CI・公開後確認・人の承認は未完了',
+          '担当AI: 実サービスAの応答が遅い場合、結果の保持時間を計測する。現時点では未計測（（内部パス省略））。',
+          '運用担当: 実サービスBの応答が遅い場合、結果の保持時間を計測する。現時点では未計測。',
+        ].forEach((task) => {
+          expect(body.split(task)).toHaveLength(2);
+        });
         expect(result.remaining).toEqual(['human_review', 'rendered_media_check']);
         [
           dir,
