@@ -9,6 +9,7 @@ import {
   object,
   events,
 } from './support/correction.ts';
+import { parseRepairReply } from '../repair.ts';
 import { assertConfig } from '../input.ts';
 import { git } from './support/target.ts';
 
@@ -49,9 +50,35 @@ for (const mutation of ['delete', 'rename'] as const) {
   });
 }
 
+async function checkRepairEvidence(mode: string, runDir: string, findings: unknown) {
+  if (mode === 'invalid_repair' || mode === 'human') {
+    expect(findings).toBe(mode === 'human' ? 'Need changed requirements' : 'Unrecognized outcome');
+    expect(await readFile(join(runDir, 'repair-1.stdout'), 'utf8')).toContain(String(findings));
+  }
+  if (mode === 'normal') {
+    const prompt = await readFile(join(runDir, 'repair-1.prompt'), 'utf8');
+    for (const instruction of [
+      'Repair only within these agreed requirements',
+      'Run only targeted checks needed to diagnose or validate your repair',
+      'Explain any lost detection conditions and the remaining verification',
+      'Compare document facts, quantities, conditions, scope, authority, unverified claims and references with original sources',
+      'Return document content defects to repair and renew affected checks and independent review',
+      'never hide realistic regressions to make checks pass',
+      'Do not commit, push or publish',
+      'Leave configured full verification to the host after your changes',
+      'do not launch browsers or servers in your sandbox',
+      'If requirements, permissions or execution limits must change, report needs_human without changing them',
+      'Requirements:\nAgreed requirement: correct source and docs',
+      'Failure evidence:',
+    ]) {
+      expect(prompt).toContain(instruction);
+    }
+  }
+}
+
 for (const [mode, result, repairs, reviews] of [
   ['normal', 'ready_for_human_review', 1, 1],
-  ['null_repair', 'invalid_repair', 1, 0],
+  ['invalid_repair', 'invalid_repair', 1, 0],
   ['null_review', 'invalid_review', 1, 1],
   ['human', 'human_decision_required', 1, 0],
   ['issue_changed', 'requirements_changed', 1, 1],
@@ -67,6 +94,7 @@ for (const [mode, result, repairs, reviews] of [
     expect(state.result).toBe(result);
     expect(state.repair).toBe(repairs);
     expect(state.review).toBe(reviews);
+    await checkRepairEvidence(mode, t.config.runDir, state.findings);
     if (reviews && result !== 'ready_for_human_review') {
       expect(state.reviewHistory).toEqual([]);
       expect(await Bun.file(join(t.config.runDir, 'review-1.stdout')).exists()).toBe(true);
@@ -290,5 +318,30 @@ test('retired writing input is rejected before execution and preserves prior evi
     expect(await Bun.file(join(t.config.runDir, 'check-1.stdout')).exists()).toBe(false);
     expect(await Bun.file(join(t.config.runDir, 'repair-1.stdout')).exists()).toBe(false);
     expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
+  }
+});
+
+// Response boundaries run without another repository or actor process per malformed value.
+test('repair reply contract rejects malformed values and preserves diagnostic findings', () => {
+  for (const stdout of [
+    'not JSON',
+    'null',
+    '[]',
+    '{}',
+    '{"status":1,"findings":"detail"}',
+    '{"status":"repaired"}',
+    '{"status":"repaired","findings":1}',
+  ]) {
+    expect(parseRepairReply(stdout)).toEqual({ status: 'invalid' });
+  }
+  expect(parseRepairReply('{"status":"accepted","findings":"detail"}')).toEqual({
+    status: 'invalid',
+    findings: 'detail',
+  });
+  for (const status of ['repaired', 'needs_human'] as const) {
+    expect(parseRepairReply(JSON.stringify({ status, findings: '', extra: true }))).toEqual({
+      status,
+      findings: '',
+    });
   }
 });

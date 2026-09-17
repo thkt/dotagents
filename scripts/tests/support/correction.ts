@@ -100,7 +100,7 @@ if(role==='repair') {
   if(expected!=='source must be correct'||failure!=='validation failed: source is broken') process.exit(4);
   if(prompt.includes(expected)||prompt.includes(failure)) process.exit(5);
  }
- if(mode==='null_repair') {console.log('null');process.exit(0);}
+ if(mode==='invalid_repair') {console.log(JSON.stringify({status:'accepted',findings:'Unrecognized outcome'}));process.exit(0);}
  if(mode==='timeout') await new Promise(r=>setTimeout(r,10000));
  if(mode==='human') {console.log(JSON.stringify({status:'needs_human',findings:'Need changed requirements'}));process.exit(0);}
  if(mode!=='exhaust') writeFileSync('source.txt','correct');
