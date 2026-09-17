@@ -215,8 +215,8 @@ if(role === 'review') {
 `,
     );
     let verification: Config | undefined;
-    const io = {
-      command: async (argv: string[], cwd: string, input: string, timeout: number) => {
+    const io: Parameters<typeof develop>[1] = {
+      command: async (argv, cwd, input, timeout) => {
         const target = githubTarget(argv, targetConfig);
         if (target !== undefined) {
           return ok(target);

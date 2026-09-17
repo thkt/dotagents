@@ -167,8 +167,7 @@ export function knowledgeReferences(issue: string): KnowledgeReference[] {
   return references;
 }
 
-export function selectKnowledge(value: unknown, reference: KnowledgeReference) {
-  const model = parseKnowledge(value);
+function selectModel(model: ReturnType<typeof parseKnowledge>, reference: KnowledgeReference) {
   unique(reference.ids);
   const nodes = reference.ids.map((id) => {
     const node = model.nodes.find((node) => node.id === id);
@@ -184,6 +183,9 @@ export function selectKnowledge(value: unknown, reference: KnowledgeReference) {
       nodes.some((node) => node.sources.includes(source.id)),
     ),
   };
+}
+export function selectKnowledge(value: unknown, reference: KnowledgeReference) {
+  return selectModel(parseKnowledge(value), reference);
 }
 export type SelectedKnowledge = ReturnType<typeof selectKnowledge>;
 
@@ -238,7 +240,7 @@ export function knowledgeContext(selected: SelectedKnowledge[]) {
 export async function generateKnowledge(path: string, check: boolean) {
   const content = await readFile(path, 'utf8');
   const model = parseKnowledge(JSON.parse(content));
-  const selected = selectKnowledge(model, {
+  const selected = selectModel(model, {
     path: basename(path),
     blob: gitBlob(content),
     ids: model.nodes.map(({ id }) => id),

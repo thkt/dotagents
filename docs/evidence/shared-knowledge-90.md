@@ -67,7 +67,7 @@
 
 | 区分 | 追加行 | 削除行 | 差引 | 範囲 |
 | --- | ---: | ---: | ---: | --- |
-| 実装コード | 311 | 17 | +294 | scripts/{knowledge,development,correction,research-handoff,review}.ts |
+| 実装コード | 313 | 17 | +296 | scripts/{knowledge,development,correction,research-handoff,review}.ts |
 | テスト | 358 | 1 | +357 | scripts/tests/{knowledge,development}.test.ts |
 | 手書きの現行文書 | 32 | 9 | +23 | 開発方針、README、CLI手順、scoping参照、implementスキル |
 | 構造化した知識正本 | 274 | 0 | +274 | docs/knowledge/implementation-start.json |
