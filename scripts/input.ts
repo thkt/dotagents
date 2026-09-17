@@ -73,7 +73,8 @@ export interface Config {
   review: string[];
   repairLimit: number;
   reviewLimit: number;
-  modelTimeMs: number;
+  // null explicitly disables only the model elapsed-time limit.
+  modelTimeMs: number | null;
   checkTimeMs: number;
 }
 export interface CaptureDecision {
@@ -164,10 +165,11 @@ export function assertConfig(value: unknown): asserts value is Config {
     const limit: unknown = value[key];
     assert(count(limit) && limit > 0, `Invalid ${key}`);
   }
-  for (const key of ['modelTimeMs', 'checkTimeMs']) {
-    const limit: unknown = value[key];
-    assert(nonnegative(limit) && limit > 0, `Invalid ${key}`);
-  }
+  assert(
+    value.modelTimeMs === null || (nonnegative(value.modelTimeMs) && value.modelTimeMs > 0),
+    'Invalid modelTimeMs',
+  );
+  assert(nonnegative(value.checkTimeMs) && value.checkTimeMs > 0, 'Invalid checkTimeMs');
 }
 function isCaptureDecision(value: unknown): value is CaptureDecision {
   return (

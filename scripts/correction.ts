@@ -71,7 +71,7 @@ export async function command(
   argv: string[],
   cwd: string,
   input: string,
-  timeoutMs: number,
+  timeoutMs: number | null,
   files?: string,
   env?: NodeJS.ProcessEnv,
 ): Promise<CommandResult> {
@@ -99,10 +99,13 @@ export async function command(
   child.stderr.setEncoding('utf8').on('data', (data) => {
     stderr += data;
   });
-  const timer = setTimeout(() => {
-    timedOut = true;
-    killGroup(child.pid);
-  }, timeoutMs);
+  const timer =
+    timeoutMs === null
+      ? undefined
+      : setTimeout(() => {
+          timedOut = true;
+          killGroup(child.pid);
+        }, timeoutMs);
   const code = await new Promise<number | null>((done) => {
     // Bun 1.4.2 can drop 'close', or the whole exit notification, for a child that
     // the timeout or an interrupt killed. Finish on exit plus ended pipes as well,
@@ -257,8 +260,8 @@ async function runModel(
   prompt: string,
   persist: Persist,
 ): Promise<ModelResult> {
-  const remaining = config.modelTimeMs - state.modelMs;
-  if (state[role] >= config[`${role}Limit`] || remaining <= 0) {
+  const remaining = config.modelTimeMs === null ? null : config.modelTimeMs - state.modelMs;
+  if (state[role] >= config[`${role}Limit`] || (remaining !== null && remaining <= 0)) {
     return { stop: 'execution_limit' };
   }
   state[role]++;
@@ -670,7 +673,10 @@ async function evaluate(
   persist: Persist,
 ): Promise<{ stop?: StopReason; findings?: string }> {
   // Do not create an apparent attempt if the existing execution budget is exhausted.
-  if (state.review >= config.reviewLimit || state.modelMs >= config.modelTimeMs) {
+  if (
+    state.review >= config.reviewLimit ||
+    (config.modelTimeMs !== null && state.modelMs >= config.modelTimeMs)
+  ) {
     return { stop: 'execution_limit' };
   }
   const target = await reviewTarget(config, state, issue);

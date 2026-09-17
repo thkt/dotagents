@@ -22,7 +22,6 @@ import { researchContext, researchHandoff, verifyReports } from './research-hand
 import type { ReportReference } from './input.ts';
 
 const runtime = { command, verify: run, publish };
-const modelTimeMs = 1200000;
 // The full check and the CI run of the same check share one budget.
 const checkTimeMs = 540000;
 // General commands and post-publication target checks retain their 11-minute limit.
@@ -208,7 +207,7 @@ async function implement(context: Context, io: typeof runtime) {
   ].join('\n');
   await writeFile(join(dir, 'implementation.prompt'), prompt);
   const actor = [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'repair', dir];
-  const result = await io.command(actor, cwd, prompt, modelTimeMs, join(dir, 'implementation'));
+  const result = await io.command(actor, cwd, prompt, null, join(dir, 'implementation'));
   await writeFile(
     join(dir, 'implementation.json'),
     JSON.stringify({ code: result.code, timedOut: result.timedOut, ms: result.ms }),
@@ -228,8 +227,6 @@ async function implement(context: Context, io: typeof runtime) {
     reply.status !== 'needs_human',
     `Human decision required: ${reply.findings}; evidence: ${dir}`,
   );
-  const remaining = modelTimeMs - result.ms;
-  assert(remaining > 0, 'Model time limit reached');
   assert(
     (await checked(io, context.issue, cwd)) === original,
     'Requirements changed during implementation',
@@ -253,7 +250,7 @@ async function implement(context: Context, io: typeof runtime) {
     review: [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'review', dir],
     repairLimit: 2,
     reviewLimit: 2,
-    modelTimeMs: remaining,
+    modelTimeMs: null,
     checkTimeMs,
   };
   await writeFile(join(dir, 'verification-config.json'), JSON.stringify(config, null, 2));

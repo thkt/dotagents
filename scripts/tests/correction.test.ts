@@ -2,7 +2,8 @@ import { test, expect, afterEach } from 'bun:test';
 import { mkdir, symlink, writeFile, readFile, rm, rename, chmod } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { correctionFixture, controller, object } from './support/correction.ts';
+import { correctionFixture, controller, object, events } from './support/correction.ts';
+import { assertConfig } from '../input.ts';
 import { git } from './support/target.ts';
 
 const { trial, cleanup } = correctionFixture();
@@ -54,7 +55,7 @@ for (const [mode, result, repairs, reviews] of [
   ['exhaust', 'execution_limit', 2, 0],
 ] as const) {
   test(mode, async () => {
-    const t = await trial(mode);
+    const t = await trial(mode, { modelTimeMs: null });
     expect(t.execute().status).toBe(result === 'ready_for_human_review' ? 0 : 1);
     const state = await t.state();
     expect(state.result).toBe(result);
@@ -68,6 +69,21 @@ for (const [mode, result, repairs, reviews] of [
     }
     if (result === 'ready_for_human_review') {
       expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('correct');
+      const models = events(state.events)
+        .map(object)
+        .filter((event) => event.role !== 'check');
+      expect(models.map((event) => event.role)).toEqual(['repair', 'review']);
+      let total = 0;
+      for (const event of models) {
+        expect(event.timedOut).toBe(false);
+        expect(typeof event.ms).toBe('number');
+        if (typeof event.ms !== 'number') {
+          throw Error('Missing model elapsed time');
+        }
+        expect(event.ms).toBeGreaterThan(0);
+        total += event.ms;
+      }
+      expect(state.modelMs).toBe(total);
     }
     if (mode === 'normal' || mode === 'exhaust') {
       const before = await t.state();
@@ -77,18 +93,23 @@ for (const [mode, result, repairs, reviews] of [
   });
 }
 
-test('changed limits cannot reset an existing trial', async () => {
+test('changed limits cannot reset an existing finite trial', async () => {
   const t = await trial('exhaust');
-  t.execute();
-  await writeFile(t.configFile, JSON.stringify({ ...t.config, repairLimit: 10 }));
-  const result = t.execute();
-  expect(result.status).toBe(1);
-  expect(result.stderr).toContain('configuration changed');
-  expect((await t.state()).repair).toBe(2);
+  expect(t.execute().status).toBe(1);
+  const stateFile = join(t.config.runDir, 'state.json');
+  const before = await readFile(stateFile, 'utf8');
+  expect(await t.state()).toMatchObject({ repair: 2, result: 'execution_limit' });
+  for (const change of [{ repairLimit: 10 }, { modelTimeMs: null }]) {
+    await writeFile(t.configFile, JSON.stringify({ ...t.config, ...change }));
+    const result = t.execute();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('configuration changed');
+    expect(await readFile(stateFile, 'utf8')).toBe(before);
+  }
 });
 
 test('review limit prevents a third-party evaluator from being called again', async () => {
-  const t = await trial('docs', { reviewLimit: 1 });
+  const t = await trial('docs', { reviewLimit: 1, modelTimeMs: null });
   t.execute();
   const state = await t.state();
   expect(state.result).toBe('execution_limit');
@@ -116,6 +137,7 @@ for (const [name, change, reason] of [
   ['missing cwd', { cwd: undefined }, 'Invalid cwd'],
   ['empty command', { repair: [] }, 'Invalid repair command'],
   ['invalid limit', { reviewLimit: -1 }, 'Invalid reviewLimit'],
+  ['missing model time', { modelTimeMs: undefined }, 'Invalid modelTimeMs'],
   [
     'report without base',
     { reports: [{ path: 'research/reset.md', blob: 'a'.repeat(40) }] },
@@ -143,6 +165,18 @@ for (const [name, change, reason] of [
     expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
   });
 }
+
+test('model time requires explicit null or a positive finite number; check time stays finite', async () => {
+  const t = await trial('normal');
+  for (const modelTimeMs of [undefined, 0, -1, NaN, Infinity, 'unlimited', '1200000', false]) {
+    expect(() => assertConfig({ ...t.config, modelTimeMs })).toThrow('Invalid modelTimeMs');
+  }
+  expect(() => assertConfig({ ...t.config, modelTimeMs: null })).not.toThrow();
+  expect(() => assertConfig({ ...t.config, modelTimeMs: 1200000 })).not.toThrow();
+  for (const checkTimeMs of [null, undefined, 0, -1, NaN, Infinity]) {
+    expect(() => assertConfig({ ...t.config, checkTimeMs })).toThrow('Invalid checkTimeMs');
+  }
+});
 for (const change of [
   { repair: -1 },
   { active: { role: 'repair' } },

@@ -38,7 +38,6 @@ const stopReasons = {
   initial_failure: /Initial implementation process failed/,
   needs_human: /Human decision required: Need agreement on scope/,
   invalid_reply: /Invalid implementation reply/,
-  timeout: /Initial implementation timed out/,
   review_failure: /Verification stopped: review_failed/,
   requirements_changed: /Requirements changed during implementation/,
   source_changed: /Verified source or requirements changed/,
@@ -90,18 +89,13 @@ async function checkStop(
     return;
   }
   expect(await readFile(join(dir, 'stopped.txt'), 'utf8')).toMatch(stopReasons[mode]);
-  if (
-    ['initial_failure', 'needs_human', 'invalid_reply', 'timeout', 'requirements_changed'].includes(
-      mode,
-    )
-  ) {
+  if (['initial_failure', 'needs_human', 'invalid_reply', 'requirements_changed'].includes(mode)) {
     expect(reviews).toBe(0);
   }
 }
 
 const implementationResults: Record<string, Partial<Awaited<ReturnType<typeof command>>>> = {
   initial_failure: { code: 1 },
-  timeout: { timedOut: true },
   invalid_reply: { stdout: 'not JSON' },
   needs_human: {
     stdout: JSON.stringify({ status: 'needs_human', findings: 'Need agreement on scope' }),
@@ -112,7 +106,7 @@ function implementationResult(mode: string) {
     ...ok(
       JSON.stringify({ status: 'repaired', findings: 'Implementation claim, not verification' }),
     ),
-    ms: 500,
+    ms: mode === 'success' ? 1200001 : 500,
     ...implementationResults[mode],
   };
 }
@@ -248,7 +242,7 @@ async function prView(
   argv: string[],
   cwd: string,
   settings: typeof targetConfig,
-  timeout: number,
+  timeout: number | null,
 ) {
   const polling = argv.at(-1)?.includes('statusCheckRollup');
   if (!polling) {
@@ -360,7 +354,6 @@ for (const mode of [
   'initial_failure',
   'needs_human',
   'invalid_reply',
-  'timeout',
   'review_failure',
   'requirements_changed',
   'source_changed',
@@ -496,7 +489,7 @@ for (const mode of [
       reviews = 0,
       pushes = 0,
       publications = 0;
-    async function github(argv: string[], cwd: string, timeout: number) {
+    async function github(argv: string[], cwd: string, timeout: number | null) {
       const targetReply = githubTarget(argv, settings);
       if (targetReply !== undefined) {
         return ok(targetResponse(mode, targetReply, settings.repository, reviews, publications));
@@ -521,7 +514,7 @@ for (const mode of [
         argv: string[],
         cwd: string,
         input: string,
-        timeout: number,
+        timeout: number | null,
         prefix?: string,
       ) => {
         if (argv[0] === 'git' && argv.includes('push')) {
@@ -548,6 +541,7 @@ for (const mode of [
           new URL('../codex-actor.ts', import.meta.url).pathname,
           'repair',
         ]);
+        expect(timeout).toBeNull();
         implementations++;
         if (mode === 'other_repo') {
           expect(await git(cwd, 'rev-parse', 'HEAD')).toBe(original);
@@ -576,6 +570,10 @@ for (const mode of [
       },
       verify: async (config: Config): Promise<State> => {
         expect(config).not.toHaveProperty('writing');
+        expect(config.modelTimeMs).toBeNull();
+        expect(config.repairLimit).toBe(2);
+        expect(config.reviewLimit).toBe(2);
+        expect(config.checkTimeMs).toBe(540000);
         reviews++;
         if (reviews === 1) {
           await changeTarget(mode, config, settings);
@@ -599,7 +597,6 @@ for (const mode of [
         }
         if (mode === 'success') {
           expect(config.capture?.length).toBeGreaterThan(0);
-          expect(config.modelTimeMs).toBe(1200000 - 500);
         }
         expect(await readFile(join(config.cwd, 'result.txt'), 'utf8')).toBe('implemented');
         return {
@@ -659,6 +656,19 @@ for (const mode of [
         const result = await develop(args, io);
         assert('ci' in result);
         expect(result.ci).toBe('passed');
+        expect(JSON.parse(await readFile(join(dir, 'implementation.json'), 'utf8'))).toEqual({
+          code: 0,
+          timedOut: false,
+          ms: 1200001,
+        });
+        expect(
+          JSON.parse(await readFile(join(dir, 'verification-config.json'), 'utf8')),
+        ).toMatchObject({
+          modelTimeMs: null,
+          repairLimit: 2,
+          reviewLimit: 2,
+          checkTimeMs: 540000,
+        });
         expect(result.url).toContain('/pull/100');
         expect(publications).toBe(1);
         const body = await readFile(join(dir, 'pr.md'), 'utf8');
@@ -744,7 +754,7 @@ async function startInputFixture(root: string) {
     changeDuring?: (event: 'target' | 'issue' | 'setup', cwd: string) => Promise<void>;
   } = { setups: 0 };
   const io = {
-    command: async (argv: string[], cwd: string, input: string, timeout: number) => {
+    command: async (argv: string[], cwd: string, input: string, timeout: number | null) => {
       const reply = githubTarget(argv, settings);
       if (reply !== undefined) {
         if (argv[2] === 'user') {

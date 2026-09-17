@@ -1,4 +1,5 @@
 import { test, expect, afterEach } from 'bun:test';
+import assert from 'node:assert/strict';
 import { writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -26,7 +27,7 @@ test('time limit terminates actor and keeps consumed reservation', async () => {
 });
 
 test('check timeout is unavailable evidence and does not start a model', async () => {
-  const t = await trial('check_timeout', { checkTimeMs: 100 });
+  const t = await trial('check_timeout', { checkTimeMs: 100, modelTimeMs: null });
   t.execute();
   const state = await t.state();
   expect(state.result).toBe('check_unavailable');
@@ -68,7 +69,7 @@ for (const role of ['check', 'repair', 'review', 'capture'] as const) {
     ? (['SIGINT', 'SIGTERM', 'SIGKILL'] as const)
     : (['SIGTERM'] as const)) {
     test(`${signal} during ${role} preserves reservation and blocks duplicate execution`, async () => {
-      const t = await trial('normal', { checkTimeMs: 15000 });
+      const t = await trial('normal', { checkTimeMs: 15000, modelTimeMs: null });
       if (role === 'review') {
         await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
       }
@@ -82,6 +83,8 @@ import {spawn} from 'node:child_process';
 import {writeFileSync} from 'node:fs';
 const [heartbeat, pidFile] = process.argv.slice(2);
 if (pidFile) {
+  console.log('actor started');
+  console.error('actor diagnostic');
   spawn(process.execPath, [process.argv[1], heartbeat], {stdio:'inherit'});
   writeFileSync(pidFile, String(process.pid));
 } else {
@@ -114,6 +117,10 @@ if (pidFile) {
           const stopped = await readFile(heartbeat, 'utf8');
           await Bun.sleep(150);
           expect(await readFile(heartbeat, 'utf8')).toBe(stopped);
+          const prefix = object(state.active).prefix;
+          assert(typeof prefix === 'string');
+          expect(await readFile(`${prefix}.stdout`, 'utf8')).toContain('actor started');
+          expect(await readFile(`${prefix}.stderr`, 'utf8')).toContain('actor diagnostic');
         }
         expect(await readFile(stateFile, 'utf8')).toBe(before);
         const retry = t.execute();
