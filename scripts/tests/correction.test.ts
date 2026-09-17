@@ -2,7 +2,13 @@ import { test, expect, afterEach } from 'bun:test';
 import { mkdir, symlink, writeFile, readFile, rm, rename, chmod } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { correctionFixture, controller, object, events } from './support/correction.ts';
+import {
+  correctionConfig,
+  correctionFixture,
+  controller,
+  object,
+  events,
+} from './support/correction.ts';
 import { assertConfig } from '../input.ts';
 import { git } from './support/target.ts';
 
@@ -166,15 +172,15 @@ for (const [name, change, reason] of [
   });
 }
 
-test('model time requires explicit null or a positive finite number; check time stays finite', async () => {
-  const t = await trial('normal');
+test('model time requires explicit null or a positive finite number; check time stays finite', () => {
+  const config = correctionConfig('/correction-config');
   for (const modelTimeMs of [undefined, 0, -1, NaN, Infinity, 'unlimited', '1200000', false]) {
-    expect(() => assertConfig({ ...t.config, modelTimeMs })).toThrow('Invalid modelTimeMs');
+    expect(() => assertConfig({ ...config, modelTimeMs })).toThrow('Invalid modelTimeMs');
   }
-  expect(() => assertConfig({ ...t.config, modelTimeMs: null })).not.toThrow();
-  expect(() => assertConfig({ ...t.config, modelTimeMs: 1200000 })).not.toThrow();
+  expect(() => assertConfig({ ...config, modelTimeMs: null })).not.toThrow();
+  expect(() => assertConfig({ ...config, modelTimeMs: 1200000 })).not.toThrow();
   for (const checkTimeMs of [null, undefined, 0, -1, NaN, Infinity]) {
-    expect(() => assertConfig({ ...t.config, checkTimeMs })).toThrow('Invalid checkTimeMs');
+    expect(() => assertConfig({ ...config, checkTimeMs })).toThrow('Invalid checkTimeMs');
   }
 });
 for (const change of [

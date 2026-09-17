@@ -31,6 +31,25 @@ function reviewReply(status,findings) {
 
 export const controller = resolve(import.meta.dir, '../../correction.ts');
 
+export function correctionConfig(root: string, mode = 'normal'): Config {
+  const helper = join(root, 'helper.js');
+  return {
+    cwd: join(root, 'work'),
+    runDir: join(root, 'evidence'),
+    issue: [process.execPath, helper, 'issue'],
+    check: [process.execPath, helper, 'check'],
+    ...(mode.startsWith('capture_') ? { capture: [process.execPath, helper, 'capture'] } : {}),
+    captureDestination: 'trial/evidence/generated',
+    captureRequired: false,
+    repair: [process.execPath, helper, 'repair'],
+    review: [process.execPath, helper, 'review'],
+    repairLimit: 2,
+    reviewLimit: 2,
+    modelTimeMs: 15000,
+    checkTimeMs: 1000,
+  };
+}
+
 export function correctionFixture() {
   const roots: string[] = [];
   async function trial(mode: string, overrides: Partial<Config> = {}) {
@@ -102,22 +121,7 @@ if(role==='review') {
 }
 `,
     );
-    const config: Config = {
-      cwd,
-      runDir: join(root, 'evidence'),
-      issue: [process.execPath, helper, 'issue'],
-      check: [process.execPath, helper, 'check'],
-      ...(mode.startsWith('capture_') ? { capture: [process.execPath, helper, 'capture'] } : {}),
-      captureDestination: 'trial/evidence/generated',
-      captureRequired: false,
-      repair: [process.execPath, helper, 'repair'],
-      review: [process.execPath, helper, 'review'],
-      repairLimit: 2,
-      reviewLimit: 2,
-      modelTimeMs: 15000,
-      checkTimeMs: 1000,
-      ...overrides,
-    };
+    const config = { ...correctionConfig(root, mode), ...overrides };
     const configFile = join(root, 'config.json');
     await writeFile(configFile, JSON.stringify(config));
     const execute = () =>
