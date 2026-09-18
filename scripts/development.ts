@@ -1,20 +1,21 @@
 import assert from 'node:assert/strict';
 import { reviewModel } from './review.ts';
 import { prBody } from './pr-body.ts';
-import { mkdir, readFile, writeFile, realpath } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, realpath, rename } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { parseArgs } from 'node:util';
 import { run } from './correction.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
-import { command, withInterrupts } from './process.ts';
+import { command, assertRunning, withInterrupts } from './process.ts';
 import { isRecord, outside } from './values.ts';
 import { publish } from './publish.ts';
 import { waitForCi } from './ci.ts';
+import type { CiResult } from './ci.ts';
 import { readTarget, issueNumber, targetCommand, pushArguments } from './target.ts';
 import { researchContext, researchHandoff, verifyReports } from './research-handoff.ts';
-import type { ReportReference } from './input.ts';
+import type { Config, State, ReportReference } from './input.ts';
 import { knowledgeReferences, readKnowledge } from './knowledge.ts';
 
 const runtime = { command, verify: run, publish };
@@ -22,6 +23,29 @@ const runtime = { command, verify: run, publish };
 const checkTimeMs = 540000;
 // General commands and post-publication target checks retain their 11-minute limit.
 const hostCommandTimeMs = 660000;
+
+type DevelopmentResult = {
+  status: 'stopped' | 'verified_local' | 'ready_for_human_review';
+  phase: 'preparation' | 'implementation' | 'verification' | 'publication' | 'ci';
+  operation: string;
+  reason: string;
+  reasonCode?: string;
+  nextAction: string;
+  repository: string;
+  issue: string;
+  startCommit: string;
+  branch: string;
+  checkout: string;
+  evidence: string;
+  details: string;
+  publication: 'not_attempted' | 'unconfirmed' | 'published';
+  url?: string;
+  commit?: string;
+  requiredChecks: string[];
+  ci?: CiResult['status'];
+  ciDetails?: CiResult;
+  remaining: string[];
+};
 
 async function checked(io: typeof runtime, argv: string[], cwd: string, prefix?: string) {
   const result = await io.command(argv, cwd, '', hostCommandTimeMs, prefix);
@@ -78,7 +102,11 @@ async function verifyStartInputs(
   assert((await git('rev-parse', 'HEAD')) === base, 'Start HEAD changed during preparation');
 }
 
-async function prepare(args: string[], io: typeof runtime) {
+async function prepare(
+  args: string[],
+  io: typeof runtime,
+  allocated: (result: DevelopmentResult) => void,
+) {
   const parsed = parseArgs({
     args,
     allowPositionals: true,
@@ -139,9 +167,33 @@ async function prepare(args: string[], io: typeof runtime) {
     outside(repo, canonical) && outside(common, canonical),
     'Run directory resolves inside repository storage',
   );
-  const remote = await git('remote', 'get-url', target.config.remote);
   const cwd = join(canonical, 'checkout');
   const branch = `codex/development-${number}`;
+  const result: DevelopmentResult = {
+    status: 'stopped',
+    phase: 'preparation',
+    operation: 'prepare worktree',
+    reason: '',
+    nextAction:
+      'Inspect the reason and operation evidence; resolve the cause without resuming this run or resetting its limits.',
+    repository,
+    issue: `https://github.com/${repository}/issues/${number}`,
+    startCommit: base,
+    branch,
+    checkout: cwd,
+    evidence: canonical,
+    details: canonical,
+    publication: 'not_attempted',
+    requiredChecks: target.config.ciChecks,
+    remaining: [
+      'local_verification',
+      'publication',
+      ...(target.config.ciChecks.length ? ['ci'] : []),
+      'human_review',
+    ],
+  };
+  allocated(result); // Only a newly created, canonical, safe directory can own a result.
+  const remote = await git('remote', 'get-url', target.config.remote);
   await writeFile(join(dir, 'issue.json'), original);
   await writeFile(join(dir, 'target.json'), JSON.stringify(target, null, 2));
   assert((await git('rev-parse', 'HEAD')) === base, 'Start HEAD changed during preparation');
@@ -152,7 +204,8 @@ async function prepare(args: string[], io: typeof runtime) {
     issue,
     original,
     requirements,
-    dir,
+    dir: canonical,
+    result,
     cwd,
     branch,
     base,
@@ -186,13 +239,20 @@ async function unchangedTarget(context: Context, io: typeof runtime, head = cont
 }
 
 async function implement(context: Context, io: typeof runtime) {
-  const { cwd, dir, original } = context;
+  const { cwd, dir, original, result: outcome } = context;
+  outcome.phase = 'implementation';
   for (const [index, argv] of context.target.config.setup.entries()) {
-    await checked(io, targetCommand(argv), cwd, join(dir, `setup-${index + 1}`));
+    outcome.operation = `setup-${index + 1}`;
+    outcome.details = join(dir, outcome.operation);
+    await checked(io, targetCommand(argv), cwd, outcome.details);
   }
+  outcome.operation = 'check implementation inputs';
+  outcome.details = join(dir, 'target.json');
   await unchangedTarget(context, io);
   await verifyStartInputs(cwd, context.base, context.target.text, context.inputs, io);
   await verifyStartInputs(context.repo, context.base, context.target.text, context.inputs, io);
+  outcome.operation = 'initial implementation';
+  outcome.details = join(dir, 'implementation');
   const prompt = [
     'Implement the complete agreed Issue using existing code and verification assets. Follow applicable repository instructions; consult the target README and development policy sections relevant to this change.',
     'Complete the agreed implementation, needed tests and documentation, and targeted checks needed to prepare it for host verification without pausing for approval of routine choices within scope; reuse sufficient existing verification. Do not change the Issue or weaken acceptance criteria.',
@@ -222,10 +282,12 @@ async function implement(context: Context, io: typeof runtime) {
     `Invalid implementation reply; inspect ${dir}/implementation.stdout`,
   );
   await writeFile(join(dir, 'implementation-summary.md'), reply.findings);
-  assert(
-    reply.status !== 'needs_human',
-    `Human decision required: ${reply.findings}; evidence: ${dir}`,
-  );
+  if (reply.status === 'needs_human') {
+    outcome.reasonCode = 'human_decision_required';
+    outcome.nextAction =
+      'Obtain the human decision described in the implementation findings; do not automatically retry.';
+    throw Error(`Human decision required: ${reply.findings}`);
+  }
   assert(
     (await checked(io, context.issue, cwd)) === original,
     'Requirements changed during implementation',
@@ -253,11 +315,7 @@ async function implement(context: Context, io: typeof runtime) {
     checkTimeMs,
   };
   await writeFile(join(dir, 'verification-config.json'), JSON.stringify(config, null, 2));
-  const resultState = await io.verify(config);
-  assert(
-    resultState.result === 'ready_for_human_review',
-    `Verification stopped: ${resultState.result}. ${resultState.findings ?? ''} Evidence: ${config.runDir}`,
-  );
+  const resultState = await verify(context, config, io);
   await writeFile(
     join(dir, 'verification-summary.md'),
     resultState.findings ?? 'Local check and independent review accepted the current deliverables.',
@@ -265,24 +323,52 @@ async function implement(context: Context, io: typeof runtime) {
   return config;
 }
 
+async function verify(context: Context, config: Config, io: typeof runtime) {
+  const result = context.result;
+  result.phase = 'verification';
+  result.operation = 'verification and independent review';
+  result.details = join(config.runDir, 'state.json');
+  result.nextAction =
+    'Inspect verification/state.json and its referenced findings and logs; reconcile the stop without changing active reservations or limits, and obtain any required human decision.';
+  const state: State = await io.verify(config);
+  if (state.result !== 'ready_for_human_review') {
+    result.reasonCode = state.result ?? undefined;
+    if (!result.remaining.includes('local_verification')) {
+      result.remaining.unshift('local_verification');
+    }
+    throw Error(`Verification stopped: ${state.result}. ${state.findings ?? ''}`);
+  }
+  return state;
+}
+
 async function ship(
   context: Context,
   config: Awaited<ReturnType<typeof implement>>,
   io: typeof runtime,
 ) {
-  const { cwd, dir, number, branch, requirements } = context;
+  const { cwd, dir, number, branch, requirements, result } = context;
   const { repository, remote: remoteName, baseBranch } = context.target.config;
+  result.phase = 'publication';
+  result.operation = 'check publication inputs';
+  result.details = join(dir, 'target.json');
+  result.nextAction =
+    'Inspect the reason and reconcile publication inputs, permissions and the current target before any further write.';
   await unchangedTarget(context, io);
   const git = (...args: string[]) => checked(io, ['git', ...args], cwd);
   assert((await git('remote', 'get-url', remoteName)) === context.remote, 'Actor changed remote');
   const changed = await git('status', '--porcelain');
   assert(changed.length > 0, 'No implementation changes; no PR created');
   // Reuse the controller's source/Issue check immediately before publication.
-  const verified = await io.verify(config);
-  assert(verified.result === 'ready_for_human_review', 'Verified source or requirements changed');
+  const verified = await verify(context, config, io);
+  result.phase = 'publication';
+  result.operation = 'commit and prepare PR';
+  result.details = join(dir, 'pr.md');
+  result.nextAction =
+    'Inspect the reason, checkout and publication evidence; reconcile the Git and GitHub state before any further write.';
   await git('add', '--all');
   await git('commit', '-m', `${requirements.title} (#${number})`);
   const commit = await git('rev-parse', 'HEAD');
+  result.commit = commit;
   const files = (
     await git('diff-tree', '--no-commit-id', '--name-only', '--diff-filter=AM', '-z', '-r', 'HEAD')
   ).split('\0');
@@ -293,6 +379,9 @@ async function ship(
       file.startsWith(`${destination}/`) &&
       /\.(png|jpe?g|webp|mp4|webm)$/i.test(file),
   );
+  if (media.length) {
+    result.remaining.push('attachments', 'rendered_media_check');
+  }
   const body = join(dir, 'pr.md');
   await writeFile(
     body,
@@ -310,16 +399,22 @@ async function ship(
   const bodyText = await readFile(body, 'utf8');
   assert(bodyText.includes(`Closes #${number}`), 'Generated PR lost Issue reference');
   assert(bodyText.includes(commit), 'Generated PR lost verified commit');
-  assert(
-    (await io.verify(config)).result === 'ready_for_human_review',
-    'Target changed before push',
-  );
+  await verify(context, config, io);
+  result.phase = 'publication';
+  result.operation = 'push';
+  result.details = body;
+  result.nextAction =
+    'Inspect the publication evidence and GitHub branch state before any further write; PR creation has not been attempted.';
   await unchangedTarget(context, io, commit);
   await checked(
     io,
     await pushArguments(repository, branch, cwd, (argv, path) => checked(io, argv, path)),
     cwd,
   );
+  result.operation = 'publish PR';
+  result.publication = 'unconfirmed';
+  result.nextAction =
+    'Check the actual PR, author, body and branch on GitHub before any further write; do not automatically recreate the PR or repeat attachments.';
   const url = await io.publish([
     '--repo',
     cwd,
@@ -332,8 +427,15 @@ async function ship(
     '--body-file',
     body,
   ]);
+  result.url = url;
+  result.publication = 'published';
+  result.remaining = result.remaining.filter((task) => task !== 'publication');
+  result.nextAction =
+    'Inspect the existing PR and attachment state on GitHub, then confirm CI for this commit; do not automatically recreate the PR or repeat attachments.';
   await writeFile(join(dir, 'pr-url.txt'), url);
   if (media.length) {
+    result.operation = 'attach media';
+    result.details = join(dir, 'attachments');
     await unchangedTarget(context, io, commit);
     await checked(
       io,
@@ -350,6 +452,10 @@ async function ship(
       join(dir, 'attachments'),
     );
   }
+  result.remaining = result.remaining.filter((task) => task !== 'attachments');
+  result.phase = 'ci';
+  result.operation = 'confirm published target and CI';
+  result.details = dir;
   const ciTarget = {
     cwd,
     repository,
@@ -361,59 +467,109 @@ async function ship(
     issue: number,
   };
   const ci = await waitForCi(ciTarget, io.command, hostCommandTimeMs, checkTimeMs);
-  const result = {
-    url,
-    commit,
-    evidence: dir,
-    publication: 'published',
-    requiredChecks: ciTarget.ciChecks,
-    ci: ci.status,
-    ciDetails: ci,
-    nextAction: ci.nextAction,
-    remaining: [
-      ...(ci.status === 'passed' ? [] : ['ci']),
-      'human_review',
-      ...(media.length ? ['rendered_media_check'] : []),
-    ],
-  };
-  await writeFile(join(dir, 'result.json'), JSON.stringify(result, null, 2));
-  assert(
-    result.ci === 'passed',
-    `PR created but CI is not confirmed (${ci.status}): ${url}; ${ci.reason} Next: ${ci.nextAction}; inspect ${dir}`,
-  );
-  return result;
+  result.ci = ci.status;
+  result.ciDetails = ci;
+  result.reasonCode = ci.status;
+  result.reason = ci.reason;
+  result.nextAction = ci.nextAction;
+  if (ci.status === 'passed') {
+    result.status = 'ready_for_human_review';
+    result.remaining = result.remaining.filter((task) => task !== 'ci');
+  }
 }
 
 export async function develop(args: string[], io = runtime) {
-  const context = await prepare(args, io);
-  console.error(
-    `Development #${context.number}; checkout: ${context.cwd}; evidence: ${context.dir}`,
-  );
+  let result: DevelopmentResult | undefined;
+  let failure: unknown;
   try {
+    const context = await prepare(args, io, (allocated) => {
+      result = allocated;
+    });
+    const outcome = context.result;
+    console.error(
+      `Development #${context.number}; checkout: ${context.cwd}; evidence: ${context.dir}`,
+    );
     console.error('Implementing, checking and independently reviewing the Issue');
     const config = await implement(context, io);
+    outcome.remaining = outcome.remaining.filter((task) => task !== 'local_verification');
     if (context.localOnly) {
       await unchangedTarget(context, io);
-      return {
-        status: 'verified_local',
-        evidence: context.dir,
-        checkout: context.cwd,
-        remaining: [
-          'publication',
-          ...(context.target.config.ciChecks.length ? ['ci'] : []),
-          'human_review',
-        ],
-      };
+      outcome.status = 'verified_local';
+      outcome.reasonCode = 'ready_for_human_review';
+      outcome.reason = 'Local check and independent review accepted the current deliverables.';
+      outcome.nextAction =
+        'Review the verified deliverables; publication, configured CI and any required attachments and rendered media check remain before merge.';
+    } else {
+      console.error('Verified; committing, publishing and checking CI');
+      await ship(context, config, io);
     }
-    console.error('Verified; committing, publishing and checking CI');
-    return await ship(context, config, io);
   } catch (error) {
-    await writeFile(
-      join(context.dir, 'stopped.txt'),
-      error instanceof Error ? error.message : String(error),
-    );
-    throw error;
+    failure = error;
+    if (!result) {
+      throw new Error(
+        `${errorMessage(error)}; result not saved: no safe new run directory was confirmed.`,
+        { cause: error },
+      );
+    }
+    result.reason = errorMessage(error);
   }
+  assert(result);
+  await saveResult(result, failure);
+  if (result.status === 'stopped') {
+    throw new Error(
+      `${result.reasonCode ?? 'stopped'}: ${result.reason} Next: ${result.nextAction} Result: ${join(result.evidence, 'result.json')}`,
+      { cause: failure },
+    );
+  }
+  return result;
+}
+
+function recordInterruption(result: DevelopmentResult) {
+  try {
+    assertRunning();
+    return false;
+  } catch (error) {
+    const reason = errorMessage(error);
+    if (result.status !== 'stopped') {
+      result.reason = '';
+      delete result.reasonCode;
+    }
+    result.status = 'stopped';
+    if (!result.reason.includes(reason)) {
+      result.reason = [result.reason, reason].filter(Boolean).join('; ');
+      result.nextAction =
+        'Reconcile existing process, retained evidence and Git/GitHub state before any further write; do not resume this run or reset its limits. ' +
+        result.nextAction;
+    }
+    return true;
+  }
+}
+
+async function saveResult(result: DevelopmentResult, failure: unknown) {
+  const path = join(result.evidence, 'result.json');
+  const save = async () => {
+    // Like correction state, only complete JSON is renamed into the result entry point.
+    await writeFile(`${path}.tmp`, JSON.stringify(result, null, 2), { flag: 'wx' });
+    await rename(`${path}.tmp`, path);
+  };
+  const interrupted = recordInterruption(result);
+  try {
+    await save();
+    // Only a newly observed interruption needs a second terminal save, never a rerun.
+    if (!interrupted && recordInterruption(result)) {
+      await save();
+    }
+  } catch (error) {
+    recordInterruption(result);
+    throw new Error(
+      `${result.reason}; result not saved at ${path}: ${errorMessage(error)}. Inspect the retained evidence and reconcile the storage failure.`,
+      { cause: new AggregateError([failure ?? result.reason, error]) },
+    );
+  }
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 if (import.meta.main) {

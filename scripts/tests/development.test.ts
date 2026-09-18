@@ -1,11 +1,22 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { test, expect } from 'bun:test';
-import { mkdtemp, mkdir, writeFile, readFile, rm, chmod, stat } from 'node:fs/promises';
+import { test, expect, spyOn } from 'bun:test';
+import * as fs from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  writeFile,
+  readFile,
+  rm,
+  chmod,
+  stat,
+  symlink,
+  realpath,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { develop } from '../development.ts';
-import { command, interruptionMessage } from '../process.ts';
+import { command, interruptionMessage, withInterrupts } from '../process.ts';
 import type { Config, State } from '../input.ts';
 import { isRecord } from '../values.ts';
 import { reviewSummary } from '../review.ts';
@@ -31,6 +42,17 @@ async function commitReport(repo: string) {
   return git(repo, 'rev-parse', `HEAD:${reportPath}`);
 }
 const stopReasons = {
+  worktree_failure: /worktree fixture failure/,
+  setup_failure: /setup fixture failure/,
+  publication_unconfirmed: /PR author or body could not be confirmed/,
+  attachment_failure: /attachment fixture failure/,
+  ci_interruption: /Interrupted execution/,
+  save_write_interruption: /Interrupted execution.*Result:/s,
+  save_rename_interruption: /Interrupted execution.*Result:/s,
+  save_stopped_interruption: /setup fixture failure.*Interrupted execution.*Result:/s,
+  save_interruption_failure: /Interrupted execution.*result not saved.*storage fixture failure/s,
+  save_failure: /setup fixture failure.*result not saved.*EISDIR/s,
+  save_success_failure: /Local check and independent review accepted.*result not saved.*EEXIST/,
   denied_start: /GitHub push permission required/,
   no_ci: /Publishing requires expected CI checks/,
   permission_lost: /GitHub push permission required/,
@@ -43,18 +65,18 @@ const stopReasons = {
   invalid_reply: /Invalid implementation reply/,
   review_failure: /Verification stopped: review_failed/,
   requirements_changed: /Requirements changed during implementation/,
-  source_changed: /Verified source or requirements changed/,
-  ci_publication_unavailable: /PR created but CI is not confirmed \(unavailable\)/,
-  ci_publication_timeout: /PR created but CI is not confirmed \(unavailable\)/,
-  ci_publication_invalid_json: /PR created but CI is not confirmed \(unavailable\)/,
-  ci_publication_head_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
-  ci_publication_base_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
-  ci_publication_state_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
-  ci_publication_url_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
-  ci_publication_body_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
-  ci_failure: /PR created but CI is not confirmed \(failed\)/,
-  ci_final_unavailable: /PR created but CI is not confirmed \(unavailable\)/,
-  ci_final_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
+  source_changed: /Verification stopped: target_changed_after_stop/,
+  ci_publication_unavailable: /unavailable:/,
+  ci_publication_timeout: /unavailable:/,
+  ci_publication_invalid_json: /unavailable:/,
+  ci_publication_head_target_changed: /target_changed:/,
+  ci_publication_base_target_changed: /target_changed:/,
+  ci_publication_state_target_changed: /target_changed:/,
+  ci_publication_url_target_changed: /target_changed:/,
+  ci_publication_body_target_changed: /target_changed:/,
+  ci_failure: /failed:/,
+  ci_final_unavailable: /unavailable:/,
+  ci_final_target_changed: /target_changed:/,
   retired_writing: /writing is no longer supported; remove writing from .dotagents.json/,
   wrong_repo: /GitHub repository mismatch/,
   missing_check: /Verification command is required/,
@@ -86,10 +108,32 @@ async function checkStop(
   ) {
     expect(implementations).toBe(0);
     expect(reviews).toBe(0);
-    expect(existsSync(join(dir, 'checkout'))).toBe(false);
+    expect(existsSync(dir)).toBe(false);
     return;
   }
-  expect(await readFile(join(dir, 'stopped.txt'), 'utf8')).toMatch(stopReasons[mode]);
+  expect(existsSync(join(dir, 'stopped.txt'))).toBe(false);
+  if (mode.startsWith('save_')) {
+    return;
+  }
+  const saved = await savedResult(dir);
+  expect([saved.reasonCode, saved.reason].join(': ')).toMatch(stopReasons[mode]);
+  expect(saved.status).toBe('stopped');
+  expect(saved.nextAction).toBeTruthy();
+  expect(saved.evidence).toBe(dir);
+  expect(saved.issue).toContain('/issues/99');
+  expect(saved.startCommit).toMatch(/^[a-f0-9]{40}$/);
+  expect(saved.remaining).toContain('human_review');
+  await checkEarlyStop(mode, dir, saved, reviews, implementations);
+  if (
+    [
+      'publication_unconfirmed',
+      'attachment_failure',
+      'attachment_actor_changed',
+      'ci_interruption',
+    ].includes(mode)
+  ) {
+    await checkPublicationStop(mode, dir, saved);
+  }
   const initialStop =
     mode.startsWith('initial_') || ['needs_human', 'invalid_reply'].includes(mode);
   if (initialStop || mode === 'requirements_changed') {
@@ -113,6 +157,156 @@ async function checkStop(
       'Need agreement on scope',
     );
   }
+}
+
+async function checkEarlyStop(
+  mode: string,
+  dir: string,
+  saved: Record<string, unknown>,
+  reviews: number,
+  implementations: number,
+) {
+  if (['worktree_failure', 'setup_failure'].includes(mode)) {
+    expect(saved.phase).toBe(mode === 'worktree_failure' ? 'preparation' : 'implementation');
+    expect(saved.operation).toBe(mode === 'worktree_failure' ? 'prepare worktree' : 'setup-1');
+    expect(saved.publication).toBe('not_attempted');
+    expect(reviews).toBe(0);
+    expect(implementations).toBe(0);
+  }
+  if (mode === 'needs_human') {
+    expect(saved.reasonCode).toBe('human_decision_required');
+    expect(saved.nextAction).toContain('human decision');
+  }
+  if (mode === 'review_failure' || mode === 'source_changed') {
+    expect(saved.phase).toBe('verification');
+    expect(saved.reasonCode).toBe(
+      mode === 'review_failure' ? 'review_failed' : 'target_changed_after_stop',
+    );
+    expect(saved.details).toBe(join(dir, 'verification/state.json'));
+    expect(await readFile(join(dir, 'verification/state.json'), 'utf8')).toContain(
+      'ready_for_human_review',
+    );
+  }
+}
+
+async function savedResult(dir: string) {
+  const saved: unknown = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'));
+  assert(isRecord(saved));
+  return saved;
+}
+
+async function checkPublicationStop(mode: string, dir: string, saved: Record<string, unknown>) {
+  expect(saved.publication).toBe(mode === 'publication_unconfirmed' ? 'unconfirmed' : 'published');
+  expect(saved.phase).toBe(mode === 'ci_interruption' ? 'ci' : 'publication');
+  expect(saved.commit).toBe(await git(join(dir, 'checkout'), 'rev-parse', 'HEAD'));
+  expect(saved.branch).toBe('codex/development-99');
+  expect(saved.nextAction).toContain('GitHub');
+  expect(saved.ci).toBeUndefined();
+  if (mode === 'publication_unconfirmed') {
+    expect(saved.url).toBeUndefined();
+    expect(existsSync(join(dir, 'pr-url.txt'))).toBe(false);
+  } else {
+    expect(saved.url).toBe(await readFile(join(dir, 'pr-url.txt'), 'utf8'));
+    expect(saved.url).toContain('/pull/100');
+  }
+  if (mode.startsWith('attachment_')) {
+    expect(saved.remaining).toEqual(['ci', 'human_review', 'attachments', 'rendered_media_check']);
+  }
+  if (mode === 'ci_interruption') {
+    expect(await readFile(join(dir, 'pr-publication.stdout'), 'utf8')).toContain('headRefOid');
+    expect(existsSync(join(dir, 'ci-final-target.stdout'))).toBe(false);
+  }
+}
+
+async function checkSaveFailure(
+  mode: string,
+  dir: string,
+  implementations: number,
+  reviews: number,
+) {
+  if (mode === 'save_failure') {
+    expect((await stat(join(dir, 'result.json'))).isDirectory()).toBe(true);
+    expect(await readFile(join(dir, 'setup-1.stderr'), 'utf8')).toContain('setup fixture failure');
+    expect(implementations).toBe(0);
+    expect(reviews).toBe(0);
+  }
+  if (mode.startsWith('save_') && mode.includes('interruption')) {
+    const saved = await savedResult(dir);
+    if (mode === 'save_interruption_failure') {
+      // A failed replacement retains the previous complete record, not a partial JSON.
+      expect(saved.status).toBe('ready_for_human_review');
+    } else {
+      expect(saved.status).toBe('stopped');
+      expect(saved.reason).toContain(interruptionMessage);
+      expect(saved.nextAction).toContain('Reconcile');
+    }
+    if (['save_rename_interruption', 'save_interruption_failure'].includes(mode)) {
+      expect(saved.publication).toBe('published');
+      expect(saved.url).toBe(await readFile(join(dir, 'pr-url.txt'), 'utf8'));
+      expect(saved.commit).toBe(await git(join(dir, 'checkout'), 'rev-parse', 'HEAD'));
+      expect(saved.ci).toBe('passed');
+      expect(saved.ciDetails).toMatchObject({ status: 'passed' });
+      expect(saved.remaining).toEqual(['human_review']);
+    }
+    if (mode === 'save_write_interruption') {
+      expect(saved.publication).toBe('not_attempted');
+      expect(saved.reasonCode).toBeUndefined();
+      expect(saved.remaining).toEqual(['publication', 'ci', 'human_review']);
+    }
+    if (mode === 'save_stopped_interruption') {
+      expect(saved.reason).toContain('setup fixture failure');
+      expect(await readFile(join(dir, 'setup-1.stderr'), 'utf8')).toContain(
+        'setup fixture failure',
+      );
+      expect(implementations).toBe(0);
+      expect(reviews).toBe(0);
+    }
+  }
+  if (mode === 'save_success_failure') {
+    expect(await readFile(join(dir, 'result.json'), 'utf8')).toBe('previous complete record');
+    expect(await readFile(join(dir, 'result.json.tmp'), 'utf8')).toBe(
+      'retained temporary evidence',
+    );
+    expect(implementations).toBe(1);
+    expect(reviews).toBe(1);
+  }
+}
+
+// Notify the real interrupt scope at deterministic async storage boundaries.
+function interruptResultSave(mode: string, dir: string) {
+  if (!mode.startsWith('save_') || !mode.includes('interruption')) {
+    return () => {};
+  }
+  const originalWrite = fs.writeFile;
+  const originalRename = fs.rename;
+  let notified = false;
+  const write = spyOn(fs, 'writeFile').mockImplementation(async (...args) => {
+    if (args[0] === join(dir, 'result.json.tmp')) {
+      if (notified && mode === 'save_interruption_failure') {
+        throw Error('storage fixture failure');
+      }
+      if (!notified && ['save_write_interruption', 'save_stopped_interruption'].includes(mode)) {
+        notified = true;
+        process.emit('SIGINT');
+      }
+    }
+    await originalWrite(...args);
+  });
+  const rename = spyOn(fs, 'rename').mockImplementation(async (...args) => {
+    await originalRename(...args);
+    if (
+      args[1] === join(dir, 'result.json') &&
+      !notified &&
+      ['save_rename_interruption', 'save_interruption_failure'].includes(mode)
+    ) {
+      notified = true;
+      process.emit('SIGTERM');
+    }
+  });
+  return () => {
+    write.mockRestore();
+    rename.mockRestore();
+  };
 }
 
 async function implementReply(
@@ -262,7 +456,9 @@ async function developmentArguments(mode: string, repo: string, original: string
       `${secondReport}=${await git(repo, 'rev-parse', `HEAD:${secondReport}`)}`,
     ];
   }
-  return mode === 'local_actor_changed' ? ['--no-publish'] : [];
+  return ['local_actor_changed', 'save_success_failure', 'save_write_interruption'].includes(mode)
+    ? ['--no-publish']
+    : [];
 }
 async function changeTarget(mode: string, config: Config, settings: typeof targetConfig) {
   switch (mode) {
@@ -363,7 +559,7 @@ async function checkPublicationEvidence(
 }
 
 async function checkCiEvidence(mode: string, dir: string, prReads: string[]) {
-  if (!mode.startsWith('ci_')) {
+  if (!mode.startsWith('ci_') || mode === 'ci_interruption') {
     return;
   }
   expect(await readFile(join(dir, 'pr-url.txt'), 'utf8')).toContain('/pull/100');
@@ -410,6 +606,17 @@ async function checkCiEvidence(mode: string, dir: string, prReads: string[]) {
 
 for (const mode of [
   'success',
+  'worktree_failure',
+  'setup_failure',
+  'publication_unconfirmed',
+  'attachment_failure',
+  'ci_interruption',
+  'save_failure',
+  'save_success_failure',
+  'save_write_interruption',
+  'save_rename_interruption',
+  'save_stopped_interruption',
+  'save_interruption_failure',
   'no_ci',
   'local_no_ci',
   'denied_start',
@@ -449,7 +656,7 @@ for (const mode of [
   'head_changed',
 ] as const) {
   test(`development ${mode}`, async () => {
-    const root = await mkdtemp(join(tmpdir(), 'development run-'));
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'development run-')));
     const repo = join(root, 'repo');
     const dir = join(root, 'run');
     await mkdir(repo);
@@ -461,7 +668,7 @@ for (const mode of [
         '-c',
         'test "$(cat result.txt)" = implemented && test "$(cat setup.txt)" = configured',
       ],
-      capture: ['success', 'attachment_actor_changed'].includes(mode)
+      capture: ['success', 'attachment_actor_changed', 'attachment_failure'].includes(mode)
         ? {
             command: ['capture-fixture'],
             destination: 'review/media',
@@ -558,7 +765,18 @@ for (const mode of [
       reviews = 0,
       pushes = 0,
       publications = 0;
+    const expectedPublications = Number(
+      mode.startsWith('ci_') ||
+        [
+          'attachment_actor_changed',
+          'attachment_failure',
+          'publication_unconfirmed',
+          'save_rename_interruption',
+          'save_interruption_failure',
+        ].includes(mode),
+    );
     let attached = false;
+    let attachmentWrites = 0;
     const prReads: string[] = [];
     async function github(argv: string[], cwd: string, timeout: number | null) {
       const targetReply = githubTarget(argv, settings);
@@ -573,14 +791,54 @@ for (const mode of [
               : issue,
           );
         case 'pr/edit':
+          attachmentWrites++;
+          if (mode === 'attachment_failure') {
+            return { ...ok(), code: 1, stderr: 'attachment fixture failure' };
+          }
           attached = true;
           return ok();
         case 'pr/view':
           prReads.push(argv.at(-1) ?? '');
-          return prView(mode, argv, cwd, settings, timeout, attached);
+          const response = await prView(mode, argv, cwd, settings, timeout, attached);
+          if (mode === 'ci_interruption') {
+            process.emit('SIGINT');
+          }
+          return response;
         default:
           throw Error('Unexpected gh call');
       }
+    }
+    async function localCommand(
+      argv: string[],
+      cwd: string,
+      input: string,
+      timeout: number | null,
+      prefix?: string,
+    ) {
+      if (mode === 'worktree_failure' && argv[1] === 'worktree') {
+        return { ...ok(), code: 1, stderr: 'worktree fixture failure' };
+      }
+      if (
+        ['setup_failure', 'save_failure', 'save_stopped_interruption'].includes(mode) &&
+        argv[0] === 'sh'
+      ) {
+        if (mode === 'save_failure') {
+          await mkdir(join(dir, 'result.json'));
+        }
+        return command(
+          ['sh', '-c', 'echo setup fixture failure >&2; exit 1'],
+          cwd,
+          input,
+          timeout,
+          prefix,
+        );
+      }
+      if (mode === 'save_success_failure' && argv[0] === 'sh') {
+        await writeFile(join(dir, 'result.json'), 'previous complete record');
+        await writeFile(join(dir, 'result.json.tmp'), 'retained temporary evidence');
+      }
+      expect(timeout).toBe(660000);
+      return command(argv, cwd, input, timeout, prefix);
     }
     const io = {
       command: async (
@@ -599,8 +857,7 @@ for (const mode of [
           return ok();
         }
         if (['git', 'sh'].includes(argv[0] ?? '')) {
-          expect(timeout).toBe(660000);
-          return command(argv, cwd, input, timeout, prefix);
+          return localCommand(argv, cwd, input, timeout, prefix);
         }
         if (argv[0] === 'gh') {
           const response = await github(argv, cwd, timeout);
@@ -651,6 +908,10 @@ for (const mode of [
           await changeTarget(mode, config, settings);
           await mkdir(config.runDir, { recursive: true });
           await writeFile(join(config.runDir, 'review-2.stdout'), rawReview);
+          await writeFile(
+            join(config.runDir, 'state.json'),
+            JSON.stringify({ result: 'ready_for_human_review', active: null }),
+          );
           if (settings.capture) {
             const media = join(config.cwd, 'review/media');
             await mkdir(media, { recursive: true });
@@ -700,9 +961,13 @@ for (const mode of [
         const bodyPath = args[args.indexOf('--body-file') + 1];
         assert(bodyPath);
         expect(await readFile(bodyPath, 'utf8')).toBe(await readFile(join(dir, 'pr.md'), 'utf8'));
+        if (mode === 'publication_unconfirmed') {
+          throw Error('PR author or body could not be confirmed');
+        }
         return `https://github.com/${settings.repository}/pull/100`;
       },
     };
+    const restoreStorage = interruptResultSave(mode, dir);
     try {
       const args = [
         mode === 'wrong_issue'
@@ -716,7 +981,8 @@ for (const mode of [
       args.push(...(await developmentArguments(mode, repo, original)));
       if (mode === 'other_repo' || mode === 'local_denied' || mode === 'local_no_ci') {
         const result = await develop([...args, '--no-publish'], io);
-        assert('status' in result);
+        expect(await savedResult(dir)).toEqual(result);
+        expect(existsSync(join(dir, 'stopped.txt'))).toBe(false);
         expect(result.status).toBe('verified_local');
         expect(pushes).toBe(0);
         expect(publications).toBe(0);
@@ -726,7 +992,8 @@ for (const mode of [
         expect(existsSync(join(dir, 'pr.md'))).toBe(false);
       } else if (mode === 'success') {
         const result = await develop(args, io);
-        assert('ci' in result);
+        assert(result.ciDetails);
+        expect(await savedResult(dir)).toEqual(result);
         expect(result.ci).toBe('passed');
         expect(prReads).toEqual([
           'url,headRefOid,baseRefName,state,body,statusCheckRollup',
@@ -797,17 +1064,31 @@ for (const mode of [
         expect(await readFile(join(dir, 'verification/review-2.stdout'), 'utf8')).toBe(rawReview);
         expect(JSON.stringify(history)).toBe(internal);
         expect(body).not.toContain('Implementation claim, not verification');
-        await assert.rejects(() => develop(args, io), /EEXIST/);
+        const beforeCollision = await readFile(join(dir, 'result.json'), 'utf8');
+        await assert.rejects(() => develop(args, io), /EEXIST.*no safe new run directory/);
+        expect(await readFile(join(dir, 'result.json'), 'utf8')).toBe(beforeCollision);
+        expect(existsSync(join(dir, 'stopped.txt'))).toBe(false);
         expect(implementations).toBe(1);
         expect(publications).toBe(1);
       } else {
-        await assert.rejects(() => develop(args, io), stopReasons[mode]);
-        expect(publications).toBe(
-          mode.startsWith('ci_') || mode === 'attachment_actor_changed' ? 1 : 0,
-        );
-        expect(pushes).toBe(mode.startsWith('ci_') || mode === 'attachment_actor_changed' ? 1 : 0);
+        await assert.rejects(() => withInterrupts(() => develop(args, io)), stopReasons[mode]);
+        await withInterrupts(async () => {});
+        await checkSaveFailure(mode, dir, implementations, reviews);
+        expect(publications).toBe(expectedPublications);
+        expect(attachmentWrites).toBe(Number(mode === 'attachment_failure'));
+        expect(pushes).toBe(expectedPublications);
         await checkStop(mode, dir, reviews, implementations);
         await checkCiEvidence(mode, dir, prReads);
+        if (
+          ['publication_unconfirmed', 'attachment_failure', 'attachment_actor_changed'].includes(
+            mode,
+          )
+        ) {
+          expect(prReads).toEqual([]);
+        }
+        if (mode === 'ci_interruption') {
+          expect(prReads).toHaveLength(1);
+        }
       }
       expect(await git(repo, 'rev-parse', 'HEAD')).toBe(original);
       expect(await readFile(join(repo, 'result.txt'), 'utf8')).toBe('old');
@@ -815,6 +1096,8 @@ for (const mode of [
         expect(await pendingWork(repo)).toEqual(pending);
       }
     } finally {
+      restoreStorage();
+      await withInterrupts(async () => {});
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -882,7 +1165,7 @@ function testStartInput(
   run: (fixture: Awaited<ReturnType<typeof startInputFixture>>) => Promise<void>,
 ) {
   test(name, async () => {
-    const root = await mkdtemp(join(tmpdir(), 'development-input-'));
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'development-input-')));
     try {
       await run(await startInputFixture(root));
     } finally {
@@ -1097,4 +1380,36 @@ for (const [change, expected] of [
     expect(hooks.setups).toBe(change === 'setup' ? 1 : 0);
     expect(existsSync(join(dir, 'implementation.prompt'))).toBe(false);
   });
+}
+
+for (const location of ['checkout', 'git', 'symlink'] as const) {
+  testStartInput(
+    `development does not save into unsafe ${location} storage`,
+    async ({ repo, args, base, hooks, io }) => {
+      const dir = join(repo, location === 'git' ? '.git/unsafe-run' : 'unsafe-run');
+      if (location === 'git') {
+        // With a linked checkout, common Git storage lies outside the checkout guard.
+        const checkout = join(repo, '..', 'linked-checkout');
+        await git(repo, 'worktree', 'add', '-b', 'fixture-linked', checkout, base);
+        args[args.indexOf('--repo') + 1] = checkout;
+      }
+      let requested = dir;
+      if (location === 'symlink') {
+        const link = join(repo, '..', 'repository-link');
+        await symlink(repo, link);
+        requested = join(link, 'unsafe-run');
+      }
+      const index = args.indexOf('--run-dir');
+      args[index + 1] = requested;
+      args.push('--start-commit', base);
+      await assert.rejects(
+        () => develop(args, io),
+        /Run directory.*result not saved: no safe new run directory/,
+      );
+      expect(hooks.setups).toBe(0);
+      expect(existsSync(join(dir, 'result.json'))).toBe(false);
+      expect(existsSync(join(dir, 'issue.json'))).toBe(false);
+      expect(existsSync(join(dir, 'checkout'))).toBe(false);
+    },
+  );
 }
