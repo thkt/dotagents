@@ -80,14 +80,14 @@ export async function publish(args: string[], io = runtime) {
       'Revision publication target differs',
     );
     const commit = await io.command(['git', 'rev-parse', 'HEAD'], target.cwd);
-    await checkRevision(revision, target.cwd, io.command, commit.trim());
+    await checkRevision(revision, target.cwd, io.command, { head: commit.trim(), target });
     assertRunning();
     await io.command(
       ['gh', 'pr', 'edit', revision.url, '--repo', repo, '--body-file', bodyFile],
       target.cwd,
     );
     assertRunning();
-    await checkRevision(revision, target.cwd, io.command, commit.trim(), body);
+    await checkRevision(revision, target.cwd, io.command, { head: commit.trim(), body });
     return revision.url;
   }
   const existing = (

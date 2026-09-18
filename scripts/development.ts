@@ -148,14 +148,9 @@ async function prepareRevision(
       base === prior.head && (await snapshot(repo)) === prior.state.source,
       'Checkout differs from previous verified published head',
     );
-    revision.body = await checkRevision(
-      revision,
-      repo,
-      (argv, cwd) => checked(io, argv, cwd),
-      revision.head,
-      revision.body,
-      true,
-    );
+    revision.body = await checkRevision(revision, repo, (argv, cwd) => checked(io, argv, cwd), {
+      captureBody: true,
+    });
     assert(
       !(await git('-c', 'core.filemode=true', 'status', '--porcelain', '--untracked-files=all')),
       'Revision requires clean tracked and untracked work; preserve existing work',
@@ -399,8 +394,9 @@ async function implement(context: Context, io: typeof runtime) {
   outcome.operation = 'check implementation inputs';
   outcome.details = join(dir, 'target.json');
   await unchangedTarget(context, io);
-  await verifyStartInputs(cwd, context.base, context.target.text, context.inputs, io);
-  await verifyStartInputs(context.repo, context.base, context.target.text, context.inputs, io);
+  for (const checkout of new Set([cwd, context.repo])) {
+    await verifyStartInputs(checkout, context.base, context.target.text, context.inputs, io);
+  }
   await revisionUnchanged(context, io);
   if (context.revision) {
     assert(
@@ -611,13 +607,10 @@ async function ship(
     result.details = join(dir, 'attachments');
     await unchangedTarget(context, io, commit);
     if (context.revision) {
-      await checkRevision(
-        context.revision,
-        cwd,
-        (argv, path) => checked(io, argv, path),
-        commit,
-        bodyText,
-      );
+      await checkRevision(context.revision, cwd, (argv, path) => checked(io, argv, path), {
+        head: commit,
+        body: bodyText,
+      });
     }
     await checked(
       io,

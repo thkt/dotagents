@@ -147,9 +147,19 @@ export async function checkRevision(
   revision: Revision,
   cwd: string,
   read: Reader,
-  head = revision.head,
-  body = revision.body,
-  captureBody = false,
+  {
+    head = revision.head,
+    body = revision.body,
+    captureBody = false,
+    issue,
+    target,
+  }: {
+    head?: string;
+    body?: string;
+    captureBody?: boolean;
+    issue?: string;
+    target?: Awaited<ReturnType<typeof readTarget>>;
+  } = {},
 ) {
   await reconcileExecutions(revision, cwd);
   assert(
@@ -158,7 +168,8 @@ export async function checkRevision(
   );
   assert(
     (
-      await read(
+      issue ??
+      (await read(
         [
           'gh',
           'issue',
@@ -170,11 +181,11 @@ export async function checkRevision(
           'title,body,state,updatedAt',
         ],
         cwd,
-      )
+      ))
     ).trim() === revision.issueText,
     'Agreed Issue changed during revision',
   );
-  const target = await readTarget(cwd, read, !revision.localOnly);
+  target ??= await readTarget(cwd, read, !revision.localOnly);
   assert(
     target.text === revision.targetText &&
       target.actor === revision.actor &&

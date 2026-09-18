@@ -67,6 +67,8 @@ async function fixture(root: string) {
     verifications: 0,
   };
   let remoteHead = '';
+  const commands: { argv: string[]; cwd: string }[] = [];
+  const publicationCommands: string[][] = [];
   async function gitCommand(argv: string[], cwd: string, input: string, timeout: number | null) {
     if (argv.includes('push')) {
       hooks.pushes++;
@@ -155,6 +157,7 @@ async function fixture(root: string) {
   }
   const io = {
     command: async (argv: string[], cwd: string, input: string, timeout: number | null) => {
+      commands.push({ argv, cwd });
       if (argv[0] === 'git') {
         return gitCommand(argv, cwd, input, timeout);
       }
@@ -215,14 +218,26 @@ async function fixture(root: string) {
       }
       return publish(args, {
         command: async (argv, cwd) => {
+          publicationCommands.push(argv);
           const result = await io.command(argv, cwd, '', 660000);
           assert(result.code === 0, result.stderr);
+          if (hooks.mode === 'target_after_push' && argv[2] === 'repos/team/component') {
+            return JSON.stringify({
+              full_name: 'team/component',
+              id: 456,
+              permissions: { push: true },
+            });
+          }
+          if (hooks.mode === 'readback_actor_changed' && hooks.edits && argv[2] === 'user') {
+            return JSON.stringify({ login: 'another-operator' });
+          }
           return result.stdout.trim();
         },
       });
     },
   };
   await develop(['99', '--repo', repo, '--run-dir', prior], io);
+  commands.length = 0;
   const cwd = join(prior, 'checkout');
   const oldHead = pr.headRefOid;
   const oldBody = pr.body;
@@ -237,7 +252,22 @@ async function fixture(root: string) {
     '--run-dir',
     dir,
   ];
-  return { repo, cwd, prior, dir, request, args, io, hooks, pr, oldHead, oldBody, initialBase };
+  return {
+    repo,
+    cwd,
+    prior,
+    dir,
+    request,
+    args,
+    io,
+    hooks,
+    pr,
+    oldHead,
+    oldBody,
+    initialBase,
+    commands,
+    publicationCommands,
+  };
 }
 
 async function readObject(path: string) {
@@ -256,6 +286,7 @@ const failures: Record<string, RegExp> = {
   wrong_pr: /PR identity changed/,
   body_changed: /PR body changed/,
   issue_after_push: /Agreed Issue changed/,
+  target_after_push: /Revision target or actor changed/,
   unfinished_sibling: /Unfinished or uncertain execution/,
   uncertain_sibling: /Unfinished or uncertain execution/,
   unfinished: /Previous verification is unfinished/,
@@ -267,6 +298,7 @@ const failures: Record<string, RegExp> = {
   edit_failed: /body update failed fixture/,
   edit_interrupt: /Interrupted execution/,
   readback_changed: /PR body changed/,
+  readback_actor_changed: /Revision target or actor changed/,
   ci_failed: /unavailable:/,
 };
 async function successfulRevision(f: Awaited<ReturnType<typeof fixture>>, mode: string) {
@@ -283,6 +315,13 @@ async function successfulRevision(f: Awaited<ReturnType<typeof fixture>>, mode: 
   });
   expect(result.url).toBe(pr.url);
   expect(hooks.edits).toBe(mode === 'local' ? 0 : 1);
+  // Start inputs are checked at entry and after setup, once per canonical checkout.
+  expect(f.commands.filter(({ argv }) => argv[1] === 'hash-object')).toEqual(
+    Array.from({ length: 2 }, () => ({
+      argv: ['git', 'hash-object', '--no-filters', '--', '.dotagents.json'],
+      cwd: f.cwd,
+    })),
+  );
   if (mode === 'local') {
     expect(git(f.cwd, 'rev-parse', 'HEAD')).toBe(f.oldHead);
     expect(result.publication).toBe('not_attempted');
@@ -294,6 +333,8 @@ async function successfulRevision(f: Awaited<ReturnType<typeof fixture>>, mode: 
     expect(pr.body).not.toContain(f.prior);
     expect(result.ci).toBe('passed');
     expect(git(f.cwd, 'rev-parse', 'HEAD^')).toBe(f.oldHead);
+    // Read the publication target once before editing and again after the edit.
+    expect(f.publicationCommands.filter((argv) => argv[2] === 'user')).toHaveLength(2);
   }
 }
 async function stoppedRevision(f: Awaited<ReturnType<typeof fixture>>, mode: string) {
@@ -309,11 +350,13 @@ async function stoppedRevision(f: Awaited<ReturnType<typeof fixture>>, mode: str
       'edit_failed',
       'edit_interrupt',
       'readback_changed',
+      'readback_actor_changed',
       'ci_failed',
       'commit_failed',
       'request_changed',
       'body_changed',
       'issue_after_push',
+      'target_after_push',
     ].includes(mode)
   ) {
     assert(result);
@@ -327,8 +370,12 @@ async function stoppedRevision(f: Awaited<ReturnType<typeof fixture>>, mode: str
           : 'unconfirmed',
     );
     expect(result.nextAction).toBeTruthy();
-    if (mode === 'issue_after_push') {
+    if (['issue_after_push', 'target_after_push'].includes(mode)) {
       expect(hooks.edits).toBe(0);
+      expect(hooks.pushes).toBe(2);
+    }
+    if (mode === 'readback_actor_changed') {
+      expect(hooks.edits).toBe(1);
       expect(hooks.pushes).toBe(2);
     }
     if (!['request_changed', 'commit_failed', 'body_changed'].includes(mode)) {
@@ -447,76 +494,100 @@ for (const mode of ['success', 'local', ...Object.keys(failures)]) {
   });
 }
 
-test('correction evaluates the whole PR and adopted request through repair, review and terminal checks', async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-controller-')));
-  const originalPath = process.env.PATH;
-  try {
-    const f = await fixture(root);
-    await develop([...f.args, '--no-publish'], f.io);
-    const config: unknown = JSON.parse(
-      await readFile(join(f.dir, 'verification-config.json'), 'utf8'),
-    );
-    assertConfig(config);
-    assert(config.revision);
-    const request = config.revision.request;
-    const bin = join(root, 'bin');
-    await mkdir(bin);
-    const gh = join(bin, 'gh');
-    await writeFile(
-      gh,
-      `#!${process.execPath}
+for (const changedIssue of [false, true]) {
+  test(`correction evaluates the whole PR and request with live Issue checks: changed=${changedIssue}`, async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-controller-')));
+    const originalPath = process.env.PATH;
+    try {
+      const f = await fixture(root);
+      await develop([...f.args, '--no-publish'], f.io);
+      const config: unknown = JSON.parse(
+        await readFile(join(f.dir, 'verification-config.json'), 'utf8'),
+      );
+      assertConfig(config);
+      assert(config.revision);
+      const request = config.revision.request;
+      const bin = join(root, 'bin');
+      await mkdir(bin);
+      const gh = join(bin, 'gh');
+      const liveIssue = join(root, 'issue.json');
+      await writeFile(liveIssue, issue + '\n');
+      await writeFile(
+        gh,
+        `#!${process.execPath}
+import {appendFileSync,readFileSync} from 'node:fs';
 const args = process.argv.slice(2);
 const pr = ${JSON.stringify(f.pr)};
-if(args[0] === 'issue') console.log(${JSON.stringify(issue)});
+if (['issue', 'pr'].includes(args[0])) appendFileSync(${JSON.stringify(join(root, 'reads'))}, args[0]+'\\n');
+if(args[0] === 'issue') process.stdout.write(readFileSync(${JSON.stringify(liveIssue)},'utf8'));
 else if(args[0] === 'pr') console.log(JSON.stringify(pr));
 else if(args[1] === 'user') console.log('{"login":"operator"}');
 else if(args[1].includes('/git/ref/')) console.log(JSON.stringify({object:{sha:pr.headRefOid}}));
 else if(args[1].includes('/branches/')) console.log('{"name":"release"}');
 else console.log('{"full_name":"team/component","id":123,"permissions":{"push":true}}');
 `,
-    );
-    await chmod(gh, 0o755);
-    process.env.PATH = `${bin}:${originalPath ?? ''}`;
-    const helper = join(root, 'actor.js');
-    await writeFile(
-      helper,
-      `
+      );
+      await chmod(gh, 0o755);
+      process.env.PATH = `${bin}:${originalPath ?? ''}`;
+      const helper = join(root, 'actor.js');
+      await writeFile(
+        helper,
+        `
 import {readFileSync,writeFileSync} from 'node:fs';
 const role = process.argv[2];
 ${reviewReplySource}
-if(role === 'check') process.exit(readFileSync('result.txt','utf8') === 'corrected' ? 0 : 1);
+if(role === 'check') {
+ if (${changedIssue}) writeFileSync(${JSON.stringify(liveIssue)}, ${JSON.stringify(issue.replace('Keep result visible', 'Changed requirements'))});
+ process.exit(readFileSync('result.txt','utf8') === 'corrected' ? 0 : 1);
+}
 if(role === 'repair') { writeFileSync('result.txt','corrected'); console.log(JSON.stringify({status:'repaired',findings:'Reset corrected'})); }
 if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue and revision inspected')));
 `,
-    );
-    config.runDir = join(f.dir, 'controller');
-    config.check = [process.execPath, helper, 'check'];
-    config.repair = [process.execPath, helper, 'repair'];
-    config.review = [process.execPath, helper, 'review'];
-    const state = await run(config);
-    expect(state.result).toBe('ready_for_human_review');
-    expect(state.repair).toBe(1);
-    expect(state.review).toBe(1);
-    expect(await readFile(join(config.runDir, 'repair-1.prompt'), 'utf8')).toContain(request);
-    expect(await readFile(join(config.runDir, 'review-1.prompt'), 'utf8')).toContain(request);
-    expect(await readFile(join(config.runDir, 'review-1.prompt'), 'utf8')).toContain(f.oldBody);
-    expect(await readFile(join(config.runDir, 'review-1.diff'), 'utf8')).toContain(
-      'original issue deliverable',
-    );
-    const target = await readObject(join(config.runDir, 'review-1.target.json'));
-    expect(target).toMatchObject({
-      baseCommit: f.initialBase,
-      revision: { request, head: f.oldHead },
-    });
-    const saved = await readFile(join(config.runDir, 'state.json'), 'utf8');
-    await writeFile(f.request, 'Another request');
-    await assert.rejects(() => run(config), /Revision request changed/);
-    expect(await readFile(join(config.runDir, 'state.json'), 'utf8')).toBe(saved);
-  } finally {
-    process.env.PATH = originalPath;
-    await rm(root, { recursive: true, force: true });
-  }
-});
+      );
+      config.runDir = join(f.dir, 'controller');
+      config.check = [process.execPath, helper, 'check'];
+      config.repair = [process.execPath, helper, 'repair'];
+      config.review = [process.execPath, helper, 'review'];
+      if (changedIssue) {
+        await assert.rejects(() => run(config), /Agreed Issue changed during revision/);
+        expect(await readObject(join(config.runDir, 'state.json'))).toMatchObject({
+          repair: 0,
+          review: 0,
+          checks: 1,
+          active: null,
+        });
+        expect(await readFile(join(f.cwd, 'result.txt'), 'utf8')).toBe('reset corrected');
+        return;
+      }
+      const state = await run(config);
+      expect(state.result).toBe('ready_for_human_review');
+      expect(state.repair).toBe(1);
+      expect(state.review).toBe(1);
+      expect(state.issueHash).toBe(hash(issue + '\n'));
+      const reads = (await readFile(join(root, 'reads'), 'utf8')).trim().split('\n');
+      expect(reads.filter((role) => role === 'issue').length).toBeGreaterThan(1);
+      expect(reads).toEqual(reads.filter((role) => role === 'pr').flatMap(() => ['issue', 'pr']));
+      expect(await readFile(join(config.runDir, 'repair-1.prompt'), 'utf8')).toContain(request);
+      expect(await readFile(join(config.runDir, 'review-1.prompt'), 'utf8')).toContain(request);
+      expect(await readFile(join(config.runDir, 'review-1.prompt'), 'utf8')).toContain(f.oldBody);
+      expect(await readFile(join(config.runDir, 'review-1.diff'), 'utf8')).toContain(
+        'original issue deliverable',
+      );
+      const target = await readObject(join(config.runDir, 'review-1.target.json'));
+      expect(target).toMatchObject({
+        baseCommit: f.initialBase,
+        revision: { request, head: f.oldHead },
+      });
+      const saved = await readFile(join(config.runDir, 'state.json'), 'utf8');
+      await writeFile(f.request, 'Another request');
+      await assert.rejects(() => run(config), /Revision request changed/);
+      expect(await readFile(join(config.runDir, 'state.json'), 'utf8')).toBe(saved);
+    } finally {
+      process.env.PATH = originalPath;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
 
 test('a revision reserves existing result evidence before another initial actor can start', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-parallel-')));

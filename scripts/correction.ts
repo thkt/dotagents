@@ -132,16 +132,21 @@ async function validate(config: Config) {
 }
 
 async function readIssue(config: Config) {
-  if (config.revision) {
-    await checkRevision(config.revision, config.cwd, async (argv, cwd) => {
-      const result = await command(argv, cwd, '', 660000);
-      assert(result.code === 0 && !result.timedOut, 'Revision target unavailable');
-      return result.stdout.trim();
-    });
-  }
   const result = await command(config.issue, config.cwd, '', 30000);
   if (result.code !== 0 || result.timedOut || !result.stdout.trim()) {
     throw Error('Issue unavailable');
+  }
+  if (config.revision) {
+    await checkRevision(
+      config.revision,
+      config.cwd,
+      async (argv, cwd) => {
+        const result = await command(argv, cwd, '', 660000);
+        assert(result.code === 0 && !result.timedOut, 'Revision target unavailable');
+        return result.stdout.trim();
+      },
+      { issue: result.stdout },
+    );
   }
   return result.stdout;
 }
