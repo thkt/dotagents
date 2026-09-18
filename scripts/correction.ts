@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { checkRevision, revisionContext } from './revision.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
 import { parseReview, reviewInstructions, reviewSummary } from './review.ts';
 import type { Review } from './review.ts';
@@ -134,6 +135,18 @@ async function readIssue(config: Config) {
   const result = await command(config.issue, config.cwd, '', 30000);
   if (result.code !== 0 || result.timedOut || !result.stdout.trim()) {
     throw Error('Issue unavailable');
+  }
+  if (config.revision) {
+    await checkRevision(
+      config.revision,
+      config.cwd,
+      async (argv, cwd) => {
+        const result = await command(argv, cwd, '', 660000);
+        assert(result.code === 0 && !result.timedOut, 'Revision target unavailable');
+        return result.stdout.trim();
+      },
+      { issue: result.stdout },
+    );
   }
   return result.stdout;
 }
@@ -473,6 +486,7 @@ async function reviewTarget(
     issue: { hash: state.issueHash, content: issue },
     baseCommit: state.baseCommit,
     reports: config.reports ?? [],
+    revision: config.revision,
     knowledge,
     source: state.source,
     files,
@@ -546,6 +560,7 @@ async function evaluate(
   const history = state.reviewHistory;
   const prompt = [
     reviewInstructions,
+    revisionContext(config.revision),
     `Host context: ${JSON.stringify({ targetId: target.targetId, attempt: state.review + 1, targetRecord: `${target.prefix}.target.json`, diff: `${target.prefix}.diff`, additions: `${target.prefix}.additions.json`, previous: history.at(-1) ?? null })}`,
     `Requirements:\n${issue}`,
     researchContext(state.baseCommit, config.reports, knowledge),
@@ -618,6 +633,7 @@ async function cycle(
   }
   const prompt = [
     'Repair only within these agreed requirements. Read the current files and fix the root cause.',
+    revisionContext(config.revision),
     'Return document content defects to repair and renew affected checks and independent review.',
     'Preserve agreed acceptance criteria and verification of required behavior; never hide realistic regressions to make checks pass.',
     'Run only targeted checks needed to diagnose or validate your repair.',
@@ -630,6 +646,9 @@ async function cycle(
     `Requirements:\n${issue}\nFailure evidence:\n${findings}`,
     researchContext(state.baseCommit, config.reports, knowledge),
   ].join('\n');
+  if (digest(await readIssue(config)) !== state.issueHash) {
+    return 'requirements_changed';
+  }
   const repaired = await runModel(config, state, 'repair', prompt, persist);
   if ('stop' in repaired) {
     return repaired.stop;

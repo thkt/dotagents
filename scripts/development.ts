@@ -6,7 +6,9 @@ import { resolve, join } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { parseArgs } from 'node:util';
-import { run } from './correction.ts';
+import { run, snapshot } from './correction.ts';
+import { previousRun, checkRevision, revisionContext } from './revision.ts';
+import type { Revision } from './revision.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
 import { command, assertRunning, withInterrupts } from './process.ts';
 import { isRecord, outside } from './values.ts';
@@ -102,11 +104,62 @@ async function verifyStartInputs(
   assert((await git('rev-parse', 'HEAD')) === base, 'Start HEAD changed during preparation');
 }
 
-async function prepare(
-  args: string[],
+async function prepareRevision(
+  prior: Awaited<ReturnType<typeof previousRun>> | undefined,
+  requestPath: string | undefined,
+  runDirectory: string | undefined,
+  repo: string,
+  number: string,
+  base: string,
+  target: Awaited<ReturnType<typeof readTarget>>,
+  localOnly: boolean,
   io: typeof runtime,
-  allocated: (result: DevelopmentResult) => void,
 ) {
+  const repository = target.config.repository;
+  const git = (...args: string[]) => checked(io, ['git', ...args], repo);
+  let revision: Revision | undefined;
+  if (prior) {
+    assert(requestPath && runDirectory, 'Revision requires a new --run-dir beside previous run');
+    const requestFile = await realpath(requestPath);
+    const request = await readFile(requestFile, 'utf8');
+    assert(
+      request.trim(),
+      'Revision request must contain adopted findings, expected result and authorized scope',
+    );
+    revision = {
+      previousRun: prior.dir,
+      requestFile,
+      request,
+      url: prior.url,
+      body: prior.body,
+      head: prior.head,
+      branch: prior.branch,
+      baseBranch: target.config.baseBranch,
+      repository,
+      issue: number,
+      issueText: prior.original,
+      runDirectory: resolve(runDirectory),
+      actor: target.actor,
+      repositoryId: target.repositoryId,
+      targetText: target.text,
+      localOnly,
+    };
+    assert(
+      base === prior.head && (await snapshot(repo)) === prior.state.source,
+      'Checkout differs from previous verified published head',
+    );
+    revision.body = await checkRevision(revision, repo, (argv, cwd) => checked(io, argv, cwd), {
+      captureBody: true,
+    });
+    assert(
+      !(await git('-c', 'core.filemode=true', 'status', '--porcelain', '--untracked-files=all')),
+      'Revision requires clean tracked and untracked work; preserve existing work',
+    );
+  }
+  return revision;
+}
+
+async function selectStart(args: string[], io: typeof runtime) {
   const parsed = parseArgs({
     args,
     allowPositionals: true,
@@ -116,11 +169,13 @@ async function prepare(
       'no-publish': { type: 'boolean' },
       'start-commit': { type: 'string' },
       report: { type: 'string', multiple: true },
+      'previous-run': { type: 'string' },
+      'request-file': { type: 'string' },
     },
   });
   assert(
     parsed.positionals.length === 1,
-    'Usage: bun scripts/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report research/NAME.md=BLOB]',
+    'Usage: bun scripts/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report research/NAME.md=BLOB] [--previous-run DIRECTORY --request-file PATH]',
   );
   const repo = await realpath(parsed.values.repo ?? process.cwd());
   const git = (...argv: string[]) => checked(io, ['git', ...argv], repo);
@@ -132,7 +187,31 @@ async function prepare(
   const input = parsed.positionals[0];
   assert(input);
   const number = issueNumber(input, repository);
-  const reports = researchHandoff(base, parsed.values['start-commit'], parsed.values.report ?? []);
+  assert(
+    Boolean(parsed.values['previous-run']) === Boolean(parsed.values['request-file']),
+    'Revision requires --previous-run and --request-file',
+  );
+  assert(
+    !parsed.values['previous-run'] || (!parsed.values['start-commit'] && !parsed.values.report),
+    'Revision inherits references from previous run',
+  );
+  const prior = parsed.values['previous-run']
+    ? await previousRun(parsed.values['previous-run'], repo, number, target)
+    : undefined;
+  const reports =
+    prior?.config.reports ??
+    researchHandoff(base, parsed.values['start-commit'], parsed.values.report ?? []);
+  const revision = await prepareRevision(
+    prior,
+    parsed.values['request-file'],
+    parsed.values['run-dir'],
+    repo,
+    number,
+    base,
+    target,
+    localOnly,
+    io,
+  );
   const issue = [
     'gh',
     'issue',
@@ -145,10 +224,53 @@ async function prepare(
   ];
   const original = await checked(io, issue, repo);
   const requirements = issueValue(original);
+  assert(!prior || prior.original === original, 'Agreed Issue changed since previous publication');
   const references = knowledgeReferences(original);
-  const inputs = [...reports, ...references];
+  const inputs = prior ? [] : [...reports, ...references];
   await verifyStartInputs(repo, base, target.text, inputs, io);
   const knowledge = await readKnowledge(references, git);
+  return {
+    parsed,
+    repo,
+    base,
+    localOnly,
+    target,
+    repository,
+    number,
+    prior,
+    reports,
+    revision,
+    issue,
+    original,
+    requirements,
+    inputs,
+    knowledge,
+  };
+}
+
+async function prepare(
+  args: string[],
+  io: typeof runtime,
+  allocated: (result: DevelopmentResult) => void,
+) {
+  const {
+    parsed,
+    repo,
+    base,
+    localOnly,
+    target,
+    repository,
+    number,
+    prior,
+    reports,
+    revision,
+    issue,
+    original,
+    requirements,
+    inputs,
+    knowledge,
+  } = await selectStart(args, io);
+  const git = (...argv: string[]) => checked(io, ['git', ...argv], repo);
   const common = await realpath(
     await git('rev-parse', '--path-format=absolute', '--git-common-dir'),
   );
@@ -167,8 +289,12 @@ async function prepare(
     outside(repo, canonical) && outside(common, canonical),
     'Run directory resolves inside repository storage',
   );
-  const cwd = join(canonical, 'checkout');
-  const branch = `codex/development-${number}`;
+  assert(
+    !prior || outside(prior.dir, canonical),
+    'New revision evidence must be outside previous run',
+  );
+  const cwd = prior ? repo : join(canonical, 'checkout');
+  const branch = prior?.branch ?? `codex/development-${number}`;
   const result: DevelopmentResult = {
     status: 'stopped',
     phase: 'preparation',
@@ -184,6 +310,7 @@ async function prepare(
     evidence: canonical,
     details: canonical,
     publication: 'not_attempted',
+    ...(revision ? { url: revision.url } : {}),
     requiredChecks: target.config.ciChecks,
     remaining: [
       'local_verification',
@@ -193,11 +320,20 @@ async function prepare(
     ],
   };
   allocated(result); // Only a newly created, canonical, safe directory can own a result.
+  if (revision) {
+    revision.runDirectory = canonical;
+    await saveResult(result, undefined);
+    await checkRevision(revision, cwd, (argv, path) => checked(io, argv, path));
+  }
   const remote = await git('remote', 'get-url', target.config.remote);
   await writeFile(join(dir, 'issue.json'), original);
   await writeFile(join(dir, 'target.json'), JSON.stringify(target, null, 2));
   assert((await git('rev-parse', 'HEAD')) === base, 'Start HEAD changed during preparation');
-  await git('worktree', 'add', '-b', branch, cwd, base);
+  if (revision) {
+    await writeFile(join(dir, 'revision-request.md'), revision.request);
+  } else {
+    await git('worktree', 'add', '-b', branch, cwd, base);
+  }
   return {
     repo,
     number,
@@ -215,6 +351,8 @@ async function prepare(
     reports,
     inputs,
     knowledge,
+    revision,
+    reviewBase: prior?.state.baseCommit ?? base,
   };
 }
 type Context = Awaited<ReturnType<typeof prepare>>;
@@ -238,9 +376,16 @@ async function unchangedTarget(context: Context, io: typeof runtime, head = cont
   );
 }
 
+async function revisionUnchanged(context: Context, io: typeof runtime) {
+  if (context.revision) {
+    await checkRevision(context.revision, context.cwd, (argv, cwd) => checked(io, argv, cwd));
+  }
+}
+
 async function implement(context: Context, io: typeof runtime) {
   const { cwd, dir, original, result: outcome } = context;
   outcome.phase = 'implementation';
+  await revisionUnchanged(context, io);
   for (const [index, argv] of context.target.config.setup.entries()) {
     outcome.operation = `setup-${index + 1}`;
     outcome.details = join(dir, outcome.operation);
@@ -249,8 +394,20 @@ async function implement(context: Context, io: typeof runtime) {
   outcome.operation = 'check implementation inputs';
   outcome.details = join(dir, 'target.json');
   await unchangedTarget(context, io);
-  await verifyStartInputs(cwd, context.base, context.target.text, context.inputs, io);
-  await verifyStartInputs(context.repo, context.base, context.target.text, context.inputs, io);
+  for (const checkout of new Set([cwd, context.repo])) {
+    await verifyStartInputs(checkout, context.base, context.target.text, context.inputs, io);
+  }
+  await revisionUnchanged(context, io);
+  if (context.revision) {
+    assert(
+      !(await checked(
+        io,
+        ['git', '-c', 'core.filemode=true', 'status', '--porcelain', '--untracked-files=all'],
+        cwd,
+      )),
+      'Setup left work in revision checkout; preserve it',
+    );
+  }
   outcome.operation = 'initial implementation';
   outcome.details = join(dir, 'implementation');
   const prompt = [
@@ -261,8 +418,9 @@ async function implement(context: Context, io: typeof runtime) {
     `Target setup/check/capture contract (do not weaken or replace): ${JSON.stringify(context.target.config)}`,
     'Do not edit control scripts or credentials outside this checkout. If scope or authorization must change, return needs_human with the concrete decision and its impact. If an instruction file caused that stop, identify the file actually read, quote the relevant instruction and distinguish its explicit requirement from your interpretation. Otherwise return repaired with a concrete summary.',
     `Requirements:\n${original}`,
+    revisionContext(context.revision),
     `Issue: https://github.com/${context.target.config.repository}/issues/${context.number}`,
-    researchContext(context.base, context.reports, context.knowledge),
+    researchContext(context.reviewBase, context.reports, context.knowledge),
   ].join('\n');
   await writeFile(join(dir, 'implementation.prompt'), prompt);
   const actor = [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'repair', dir];
@@ -293,7 +451,8 @@ async function implement(context: Context, io: typeof runtime) {
     'Requirements changed during implementation',
   );
   const config = {
-    baseCommit: context.base,
+    baseCommit: context.reviewBase,
+    ...(context.revision ? { revision: context.revision } : {}),
     reports: context.reports,
     reviewModel,
     cwd,
@@ -330,7 +489,9 @@ async function verify(context: Context, config: Config, io: typeof runtime) {
   result.details = join(config.runDir, 'state.json');
   result.nextAction =
     'Inspect verification/state.json and its referenced findings and logs; reconcile the stop without changing active reservations or limits, and obtain any required human decision.';
+  await revisionUnchanged(context, io);
   const state: State = await io.verify(config);
+  await revisionUnchanged(context, io);
   if (state.result !== 'ready_for_human_review') {
     result.reasonCode = state.result ?? undefined;
     if (!result.remaining.includes('local_verification')) {
@@ -365,6 +526,7 @@ async function ship(
   result.details = join(dir, 'pr.md');
   result.nextAction =
     'Inspect the reason, checkout and publication evidence; reconcile the Git and GitHub state before any further write.';
+  await revisionUnchanged(context, io);
   await git('add', '--all');
   await git('commit', '-m', `${requirements.title} (#${number})`);
   const commit = await git('rev-parse', 'HEAD');
@@ -393,7 +555,7 @@ async function ship(
       check: context.target.config.check,
       ciChecks: context.target.config.ciChecks,
       media,
-      localRoots: [cwd, dir],
+      localRoots: [cwd, dir, ...(context.revision ? [context.revision.previousRun] : [])],
     }),
   );
   const bodyText = await readFile(body, 'utf8');
@@ -406,16 +568,23 @@ async function ship(
   result.nextAction =
     'Inspect the publication evidence and GitHub branch state before any further write; PR creation has not been attempted.';
   await unchangedTarget(context, io, commit);
-  await checked(
-    io,
-    await pushArguments(repository, branch, cwd, (argv, path) => checked(io, argv, path)),
-    cwd,
+  const push = await pushArguments(repository, branch, cwd, (argv, path) =>
+    checked(io, argv, path),
   );
+  await revisionUnchanged(context, io);
+  if (context.revision) {
+    result.publication = 'unconfirmed';
+    result.nextAction =
+      'Reconcile the existing PR, remote ref and body on GitHub before any further write; push or body update may have succeeded. Do not retry automatically.';
+    await saveResult(result, undefined);
+  }
+  await checked(io, push, cwd, join(dir, 'push'));
   result.operation = 'publish PR';
   result.publication = 'unconfirmed';
   result.nextAction =
     'Check the actual PR, author, body and branch on GitHub before any further write; do not automatically recreate the PR or repeat attachments.';
   const url = await io.publish([
+    ...(context.revision ? ['--revision-file', join(dir, 'verification-config.json')] : []),
     '--repo',
     cwd,
     '--actor',
@@ -437,6 +606,12 @@ async function ship(
     result.operation = 'attach media';
     result.details = join(dir, 'attachments');
     await unchangedTarget(context, io, commit);
+    if (context.revision) {
+      await checkRevision(context.revision, cwd, (argv, path) => checked(io, argv, path), {
+        head: commit,
+        body: bodyText,
+      });
+    }
     await checked(
       io,
       [
