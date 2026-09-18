@@ -105,7 +105,7 @@ function captureFiles(
   files: SourceFile[],
   cwd: string,
   destination: string,
-  definitions: string[] = [],
+  definitions: string[],
 ) {
   return files.filter(
     ([name, mode]) =>
@@ -116,9 +116,8 @@ function captureFiles(
   );
 }
 
-export async function snapshot(cwd: string, captureOnly = false, destination = '') {
-  const files = await sourceFiles(cwd);
-  return digest(JSON.stringify(captureOnly ? captureFiles(files, cwd, destination) : files));
+export async function snapshot(cwd: string) {
+  return digest(JSON.stringify(await sourceFiles(cwd)));
 }
 
 async function validate(config: Config) {

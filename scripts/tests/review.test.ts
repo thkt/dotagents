@@ -440,17 +440,16 @@ mock.module('node:fs/promises',()=>({...fs,${hooks}}));
   });
 }
 
-for (const change of ['addition', 'content', 'mode', 'symlink']) {
+for (const [change, operation] of Object.entries({
+  addition: "await fs.writeFile(cwd+'/new.txt','new')",
+  content: "await fs.writeFile(cwd+'/source.txt','changed')",
+  mode: "await fs.chmod(cwd+'/source.txt',0o755)",
+  symlink: "await fs.unlink(cwd+'/link'); await fs.symlink('missing',cwd+'/link')",
+})) {
   test(`review preparation refuses persistent ${change} changes before model launch`, async () => {
     const t = await trial('normal');
     await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
     await symlink('source.txt', join(t.config.cwd, 'link'));
-    const operations: Record<string, string> = {
-      addition: "await fs.writeFile(cwd+'/new.txt','new')",
-      content: "await fs.writeFile(cwd+'/source.txt','changed')",
-      mode: "await fs.chmod(cwd+'/source.txt',0o755)",
-      symlink: "await fs.unlink(cwd+'/link'); await fs.symlink('missing',cwd+'/link')",
-    };
     const result = await withFileHooks(
       t,
       `
@@ -458,7 +457,7 @@ writeFile: async (path,...args)=>{
  await fs.writeFile(path,...args);
  if(String(path).endsWith('review-1.diff')) {
   const cwd=${JSON.stringify(t.config.cwd)};
-  ${operations[change]};
+  ${operation};
  }
 }`,
     );
