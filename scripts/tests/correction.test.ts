@@ -240,11 +240,13 @@ test('model time requires explicit null or a positive finite number; check time 
   }
 });
 test('invalid saved state is retained and rejected before execution', async () => {
-  const t = await trial('normal');
+  const t = await trial('docs');
+  await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
   expect(t.execute().status).toBe(0);
   const stateFile = join(t.config.runDir, 'state.json');
   const saved = await t.state();
   const review = object(events(saved.reviewHistory)[0]);
+  const item = object(events(review.items)[0]);
   for (const [change, reason] of [
     [{ repair: -1 }, 'Invalid saved usage'],
     [{ active: { role: 'repair' } }, 'Invalid active reservation'],
@@ -255,6 +257,20 @@ test('invalid saved state is retained and rejected before execution', async () =
       { reviewHistory: [{ ...review, status: 'unrecognized_success' }] },
       'Invalid saved review history',
     ],
+    ...[
+      { introducedIn: undefined },
+      { introducedIn: ' ' },
+      { disposition: undefined },
+      { disposition: 'accepted' },
+      { condition: undefined },
+      { unexpected: true },
+    ].map(
+      (change) =>
+        [
+          { reviewHistory: [{ ...review, items: [{ ...item, ...change }] }] },
+          'Invalid saved review history',
+        ] as const,
+    ),
   ] as const) {
     const invalid = JSON.stringify({ ...saved, ...change });
     await writeFile(stateFile, invalid);

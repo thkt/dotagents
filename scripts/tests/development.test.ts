@@ -543,7 +543,9 @@ for (const mode of [
     const rawReview = JSON.stringify({
       ...details,
       updates: [{ id: firstItem.id, disposition: firstItem.disposition, reason: firstItem.reason }],
-      newItems: items.slice(1),
+      newItems: items
+        .slice(1)
+        .map(({ introducedIn: _introducedIn, disposition: _disposition, ...item }) => item),
     });
     const summary = reviewSummary(history, [
       join(dir, 'verification/review-1.json'),
@@ -663,7 +665,7 @@ for (const mode of [
         }
         expect(await readFile(join(config.cwd, 'result.txt'), 'utf8')).toBe('implemented');
         return {
-          reviewFormat: 2,
+          reviewFormat: 3,
           baseCommit: await git(config.cwd, 'rev-parse', 'HEAD'),
           reviewHistory: history,
           configHash: '',

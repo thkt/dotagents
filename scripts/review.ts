@@ -24,7 +24,6 @@ export const reviewSchema = object({
   newItems: list(
     object({
       id: text,
-      introducedIn: text,
       kind: choice(findingKinds),
       area: choice(reviewAreas),
       required: { type: 'boolean' },
@@ -36,7 +35,6 @@ export const reviewSchema = object({
       impact: text,
       evidence: text,
       action: text,
-      disposition: choice(['open']),
       reason: text,
     }),
   ),
@@ -85,11 +83,11 @@ function location(value: unknown) {
       (nonempty(value.path) && Number.isSafeInteger(value.line) && Number(value.line) > 0))
   );
 }
-function item(value: unknown): value is ReviewItem {
+type NewReviewItem = Omit<ReviewItem, 'introducedIn' | 'disposition'>;
+function newItem(value: unknown): value is NewReviewItem {
   if (
     !fields(value, [
       'id',
-      'introducedIn',
       'kind',
       'area',
       'required',
@@ -98,22 +96,27 @@ function item(value: unknown): value is ReviewItem {
       'impact',
       'evidence',
       'action',
-      'disposition',
       'reason',
     ])
   ) {
     return false;
   }
   return (
-    ['id', 'introducedIn', 'condition', 'impact', 'evidence', 'action', 'reason'].every((key) =>
+    ['id', 'condition', 'impact', 'evidence', 'action', 'reason'].every((key) =>
       nonempty(value[key]),
     ) &&
     oneOf(value.kind, findingKinds) &&
     oneOf(value.area, reviewAreas) &&
     typeof value.required === 'boolean' &&
-    location(value.location) &&
-    oneOf(value.disposition, dispositions)
+    location(value.location)
   );
+}
+function item(value: unknown): value is ReviewItem {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const { introducedIn, disposition, ...details } = value;
+  return nonempty(introducedIn) && oneOf(disposition, dispositions) && newItem(details);
 }
 function document(value: unknown): value is Review['documents'][number] {
   return (
@@ -125,7 +128,7 @@ function document(value: unknown): value is Review['documents'][number] {
 }
 type ReviewResponse = Omit<Review, 'status' | 'items'> & {
   updates: Pick<ReviewItem, 'id' | 'disposition' | 'reason'>[];
-  newItems: ReviewItem[];
+  newItems: NewReviewItem[];
 };
 function reviewDetails(value: Record<string, unknown>) {
   return (
@@ -169,7 +172,7 @@ function isReviewResponse(value: unknown): value is ReviewResponse {
     ]) &&
     reviewDetails(value) &&
     isArray(value.newItems) &&
-    value.newItems.every(item) &&
+    value.newItems.every(newItem) &&
     isArray(value.updates) &&
     value.updates.every(
       (update) =>
@@ -207,13 +210,10 @@ export function parseReview(
     ids.add(finding.id);
     const prefix = `R${attempt}-`;
     assert(
-      finding.id.startsWith(prefix) &&
-        nonempty(finding.id.slice(prefix.length)) &&
-        finding.introducedIn === targetId &&
-        finding.disposition === 'open',
-      'Invalid new finding identity or disposition',
+      finding.id.startsWith(prefix) && nonempty(finding.id.slice(prefix.length)),
+      'Invalid new finding identity',
     );
-    items.push(finding);
+    items.push({ ...finding, introducedIn: targetId, disposition: 'open' });
   }
   assert(
     new Set(value.documents.map((doc) => doc.path)).size === value.documents.length,
@@ -239,7 +239,7 @@ export const reviewInstructions = [
   'Do not edit files or run the full check. The host check result is in the target record. Use current artifacts and necessary targeted verification to adjudicate findings; do not trust repair self-reports.',
   'Return the review JSON schema. Echo targetId from the host context. Give substantive reasons in all four assessments, including applicability and unverified limits. findings is the overall summary. Return updates and newItems, not status or items; the host reconstructs the complete record and computes status from required open findings.',
   'The existing PR generator selects assessments, item condition/impact/reason (and action for open items), document reasons and handoff for public readers. In code assessment explain the concrete change and why it is needed; in requirements map it to the agreed behavior; in tests state actual verification and limits, distinguishing simulated tests from live execution; in documentation explain applicable sources, versions, agreement and changed premises. Use concise factual prose, not generic all-passed claims. Keep raw logs and host-local record references in evidence/findings and the internal records, not these public-facing fields. For prior findings, reason should explain the current resolution without copying raw evidence.',
-  'Each newItems entry needs a stable ID R<attempt>-<name>, introducedIn equal to this targetId, kind defect or concern, area code/requirements/tests/documentation, required, location, condition, impact, evidence, action, disposition open, and reason. Use null path/line when no real code location exists, including missing documentation. Never invent locations or reproduction runs.',
+  'Each newItems entry needs a stable ID R<attempt>-<name>, kind defect or concern, area code/requirements/tests/documentation, required, location, condition, impact, evidence, action, and reason. Omit introducedIn and disposition; the host assigns the validated targetId and open. Use null path/line when no real code location exists, including missing documentation. Never invent locations or reproduction runs.',
   'Return exactly one updates entry for EVERY previous item ID, including already resolved items; use only id, disposition (open, fixed, not_applicable) and reason based on the current artifacts and verification. The host preserves the original details. Do not repeat them or place prior IDs in newItems. On the first review updates is empty. Explain concrete evidence for fixes or non-applicability, not merely an implementer claim. Reopen when needed. Keep unresolved required items open.',
   'List principal repository documents actually consulted with their exact repository-relative path, role current/historical/proposal and reference reason. The host binds their versions; this is not proof of sufficient reading or a whole-document index.',
   'The host alone adds routine publication/upload/CI tasks, responsible-AI public evidence comparison and rendered-media/layout checks, and human review/approval/merge to the PR body according to execution conditions. Do not repeat them in handoff or other public-facing fields. Their pending status before publication is not an implementation defect; accepted does not complete or waive them. Limit handoff to Issue-specific unverified conditions, required follow-up and named owners; return [] when none remain. Keep distinct conditions and owners even when wording is similar.',

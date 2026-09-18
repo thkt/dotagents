@@ -198,11 +198,11 @@ bun scripts/correction.ts /absolute/path/config.json
 
 評価担当は、概要の`findings`、ホストが指定した`targetId`、4観点の`assessments`、過去指摘への判断の`updates`、新規指摘の`newItems`、参照文書の`documents`、後続担当の作業を示す`handoff`を返します。総合`status`と完全な`items`はホストが組み立てるため、応答には含めません。各観点には判断理由と未確認範囲を記し、適用しない観点についてもその理由を説明します。
 
-指摘は、`id`、初出対象の`introducedIn`、証明できた欠陥と未確認の懸念を分ける`kind`、指摘の観点を表す`area`（code・requirements・tests・documentation）、必須対応かを表す`required`、`location`、発生条件、影響、根拠、必要な対応を持ちます。文書不足など実在するコード位置がない場合は、pathとlineを`null`にし、架空の位置や再現実行を埋めません。新規の指摘は`newItems`に入れ、空でない識別名を持つ`R<評価回数>-<識別名>`、今回の`targetId`と同じ`introducedIn`、`disposition: open`を指定します。
+指摘は、`id`、初出対象の`introducedIn`、証明できた欠陥と未確認の懸念を分ける`kind`、指摘の観点を表す`area`（code・requirements・tests・documentation）、必須対応かを表す`required`、`location`、発生条件、影響、根拠、必要な対応を持ちます。文書不足など実在するコード位置がない場合は、pathとlineを`null`にし、架空の位置や再現実行を埋めません。新規の指摘は`newItems`に入れ、空でない識別名を持つ`R<評価回数>-<識別名>`を指定します。`newItems`の各項目に`introducedIn`と`disposition`は含めません。ホストが応答全体の`targetId`を照合した後、検証済みの対象IDと`open`をそれぞれ付与し、完全な指摘記録として保存します。
 
 ホストは以前の全指摘の内容と判断を評価担当へ渡し、元の指摘内容と初出対象を保持します。評価担当は現在の成果物と必要な検証を確認し、過去の各IDに対して`id`・`disposition`・`reason`だけを持つ判断を`updates`へちょうど1件ずつ返します。解決済みの指摘も対象です。初回の`updates`は空配列にします。`disposition`は`open`・`fixed`・`not_applicable`のいずれかにします。`reason`へは未解決、修正済み、根拠付き非該当の判断理由を記します。修正担当の自己申告だけでは解決と扱いません。再発時は`open`へ戻します。
 
-ホストは形式と必須項目、対象ID、更新IDの欠落・重複・未知ID、新規指摘のID・初出対象・初期状態を検査します。過去IDの新規指摘への再登録も拒否し、欠落を解決済みに読み替えません。不正な応答は`invalid_review`で停止します。ホストは過去の本文に現在の判断と新規指摘を合わせ、必須かつ`open`の指摘があれば`needs_changes`、それ以外は`accepted`を算出します。必須対応でない懸念はacceptedにも残せます。指摘の真偽や判断理由の十分性まで形式検査で保証するものではありません。欠落、不正、実行失敗時は停止し、指摘なしや成功には読み替えません。
+ホストは形式と必須項目、対象ID、更新IDの欠落・重複・未知ID、新規指摘のIDを検査します。新規指摘に固定二項目を含む余分な項目があれば拒否します。過去IDの新規指摘への再登録も拒否し、欠落を解決済みに読み替えません。不正な応答は`invalid_review`で停止します。ホストは過去の本文に現在の判断と新規指摘を合わせ、必須かつ`open`の指摘があれば`needs_changes`、それ以外は`accepted`を算出します。必須対応でない懸念はacceptedにも残せます。指摘の真偽や判断理由の十分性まで形式検査で保証するものではありません。欠落、不正、実行失敗時は停止し、指摘なしや成功には読み替えません。
 
 付属のCodex呼び出しはAstra/highを使います。修正はworkspace-write、評価はread-onlyで新しい実行を開始します。評価者はコード、テスト、文書を読み、ホスト側のcheck結果と分けて評価します。実行前にCodexへログインし、対象モデルが利用できるCLIを用意してください。GitHubの書き込みtokenを成果物やプロンプトへ埋め込まないでください。
 
@@ -237,7 +237,7 @@ CLIは検証済み成果物と公開するcommitの同一性を照合し、Issue
 
 PR本文の公開・CI・公開後確認は本文作成時点の未完了事項として記します。公開後のCLI結果は`result.json`で確認し、CI成功を媒体表示確認や人の承認へ読み替えません。`remaining`の`ci`はCLI結果と同じheadのCIを担当AIが確認する作業、`rendered_media_check`は担当AIによる実画面確認、`human_review`は人のレビューと承認・マージ判断です。`--no-publish`の`verified_local`も公開完了ではなく、`publication`・`human_review`と、CIが設定されていれば`ci`を残します。公開する際は必要な添付と実画面確認も引き継ぎます。
 
-この応答契約は`state.json`の`reviewFormat: 2`で識別する新規実行に適用します。`reviewFormat: 1`や識別のない旧形式の保存状態は変換・再開しません。独自のreviewコマンドも新規実行前に応答形式を合わせてください。repairの応答形式は変更しません。停止理由とログを保持し、回数や時間枠をリセットしません。対象変更、不正応答、評価失敗時に以前のacceptedへ戻す処理はありません。
+この応答契約は`state.json`の`reviewFormat: 3`で識別する新規実行に適用します。`reviewFormat: 1`・`2`や識別のない旧形式の保存状態は変換・再開しません。保存済みの完全なReviewでは引き続き`introducedIn`と`disposition`を必須とし、空の導入対象や不正な状態を拒否します。独自のreviewコマンドも新規実行前に応答形式を合わせてください。repairの応答形式は変更しません。停止理由とログを保持し、回数や時間枠をリセットしません。対象変更、不正応答、評価失敗時に以前のacceptedへ戻す処理はありません。
 
 ## 結果と再実行
 

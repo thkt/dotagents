@@ -33,9 +33,13 @@ for (const [name, mutation, reason] of [
   ['unsolicited status', "reply.status='accepted'", 'Missing or invalid'],
   ['wrong attempt', "reply.newItems[0].id='R2-docs'", 'Invalid new finding'],
   ['empty ID suffix', "reply.newItems[0].id='R1-'", 'Invalid new finding'],
-  ['resolved new finding', "reply.newItems[0].disposition='fixed'", 'Invalid new finding'],
+  ['unsolicited disposition', "reply.newItems[0].disposition='open'", 'Missing or invalid'],
   ['duplicate ID', 'reply.newItems.push(reply.newItems[0])', 'Duplicate finding'],
-  ['invented introduction', "reply.newItems[0].introducedIn='old-target'", 'Invalid new finding'],
+  [
+    'unsolicited introduction',
+    'reply.newItems[0].introducedIn=reviewContext.targetId',
+    'Missing or invalid',
+  ],
   [
     'document outside target',
     "reply.documents=[{path:'missing.md',role:'current',reason:'Policy'}]",
@@ -116,7 +120,11 @@ for (const [name, mutation, reason] of [
   ['unknown', "reply.updates[0].id='R1-unknown'", 'Unknown finding update ID'],
   ['rewritten', 'reply.updates[0].required=false', 'Missing or invalid'],
   ['empty reason', "reply.updates[0].reason=' '", 'Missing or invalid'],
-  ['reintroduced', 'reply.newItems=[reviewContext.previous.items[0]]', 'Duplicate finding ID'],
+  [
+    'reintroduced',
+    'const {introducedIn,disposition,...prior}=reviewContext.previous.items[0]; reply.newItems=[prior]',
+    'Duplicate finding ID',
+  ],
 ] as const) {
   test(`re-evaluation rejects ${name} judgment and retains the last complete review`, async () => {
     const t = await trial('docs');
@@ -159,6 +167,7 @@ test('host combines reordered judgments and new findings, reopens resolved findi
     disposition: 'open',
     reason: 'Incorrect slice end',
   };
+  const { introducedIn: _introducedIn, disposition: _disposition, ...newFinding } = finding;
   const response = {
     targetId: 'target-1',
     findings: 'Pagination review',
@@ -169,7 +178,7 @@ test('host combines reordered judgments and new findings, reopens resolved findi
       documentation: 'README inspected',
     },
     updates: [],
-    newItems: [finding],
+    newItems: [newFinding],
     documents: [],
     handoff: [],
   };
@@ -184,9 +193,8 @@ test('host combines reordered judgments and new findings, reopens resolved findi
       ],
       newItems: [
         {
-          ...finding,
+          ...newFinding,
           id: 'R2-limit',
-          introducedIn: 'target-2',
           condition: 'Invalid limit',
           reason: 'Negative limit is accepted',
         },
@@ -196,6 +204,13 @@ test('host combines reordered judgments and new findings, reopens resolved findi
     2,
     first,
   );
+  expect(second.items[1]).toEqual({
+    ...finding,
+    id: 'R2-limit',
+    introducedIn: 'target-2',
+    condition: 'Invalid limit',
+    reason: 'Negative limit is accepted',
+  });
   expect(second.status).toBe('needs_changes');
   expect(() =>
     parseReview(
@@ -356,13 +371,13 @@ reply.documents=[{path:'README.md',role:'current',reason:'Operating instructions
   });
 }
 
-for (const format of [undefined, 1]) {
-  test(`historical review format ${format} is preserved without conversion or execution`, async () => {
-    const t = await trial('normal');
-    expect(t.execute().status).toBe(0);
-    const state = await t.state();
-    expect(state.reviewFormat).toBe(2);
-    state.reviewFormat = format;
+test('historical review formats are preserved without conversion or execution', async () => {
+  const t = await trial('normal');
+  expect(t.execute().status).toBe(0);
+  const current = await t.state();
+  expect(current.reviewFormat).toBe(3);
+  for (const format of [undefined, 1, 2]) {
+    const state: Record<string, unknown> = { ...current, reviewFormat: format };
     if (format === undefined) {
       delete state.reviewHistory;
     }
@@ -372,8 +387,8 @@ for (const format of [undefined, 1]) {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Historical review format cannot be converted or resumed');
     expect(await readFile(join(t.config.runDir, 'state.json'), 'utf8')).toBe(old);
-  });
-}
+  }
+});
 
 test('selected evidence reaches repair and review with original versions and changed applicability', async () => {
   const t = await trial('normal');

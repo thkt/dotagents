@@ -31,6 +31,11 @@ async function expectInvocation(root: string, role: string) {
     expect(sortedStrings(object(properties.status).enum)).toEqual(['needs_human', 'repaired']);
   } else {
     expect(properties).not.toHaveProperty('status');
+    const newItem = object(object(properties.newItems).items);
+    for (const field of ['introducedIn', 'disposition']) {
+      expect(newItem.properties).not.toHaveProperty(field);
+      expect(sortedStrings(newItem.required)).not.toContain(field);
+    }
     expect(sortedStrings(object(object(properties.updates).items).required)).toEqual([
       'disposition',
       'id',
