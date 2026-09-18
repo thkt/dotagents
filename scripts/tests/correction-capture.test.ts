@@ -317,24 +317,6 @@ test('a successful capture command without media cannot reach review or remove p
   expect(await readFile(join(media, 'prior.png'), 'utf8')).toBe('keep');
 });
 
-test('Playwright capture rejects a missing spec before attempting browser or server startup', async () => {
-  const t = await trial('media_scope');
-  const output = join(t.root, 'output');
-  const config = join(t.config.cwd, 'capture.config.js');
-  const spec = join(t.config.cwd, 'missing.spec.js');
-  await mkdir(output);
-  await writeFile(config, 'export default {};');
-  const result = spawnSync(
-    process.execPath,
-    [join(import.meta.dir, '../capture.ts'), spec, config, output],
-    { cwd: t.config.cwd, encoding: 'utf8' },
-  );
-  expect(result.status).toBe(1);
-  expect(result.stderr).toContain('ENOENT');
-  expect(result.stderr).toContain(spec);
-  expect(result.stderr).not.toContain('Host cannot start');
-});
-
 test('capture directory arguments tolerate unrelated ignored dependencies', async () => {
   const t = await trial('media_scope', { captureRequired: true });
   await writeFile(join(t.config.cwd, 'source.txt'), 'correct');

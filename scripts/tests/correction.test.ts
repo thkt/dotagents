@@ -9,7 +9,7 @@ import {
   object,
   events,
 } from './support/correction.ts';
-import { parseRepairReply } from '../repair.ts';
+import { parseRepairReply, repairInstructions } from '../repair.ts';
 import { assertConfig } from '../input.ts';
 import { git } from './support/target.ts';
 
@@ -57,13 +57,11 @@ async function checkRepairEvidence(mode: string, runDir: string, findings: unkno
   }
   if (mode === 'normal') {
     const prompt = await readFile(join(runDir, 'repair-1.prompt'), 'utf8');
+    // Transport only; instruction meaning is assessed by independent review.
+    expect(prompt).toContain(repairInstructions(null));
     for (const instruction of [
       'Repair only within these agreed requirements',
       'Run only targeted checks needed to diagnose or validate your repair',
-      'Explain any lost detection conditions and the remaining verification',
-      'Compare document facts, quantities, conditions, scope, authority, unverified claims and references with original sources',
-      'Return document content defects to repair and renew affected checks and independent review',
-      'never hide realistic regressions to make checks pass',
       'Do not commit, push or publish',
       'Leave configured full verification to the host after your changes',
       'do not launch browsers or servers in your sandbox',

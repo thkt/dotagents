@@ -190,13 +190,17 @@ test('capture CLI fails for missing specs before checking browser availability',
       media = join(root, 'media');
     await mkdir(repo);
     await mkdir(media);
+    await writeFile(join(repo, 'config.ts'), 'export default {};');
+    const missingSpec = join(repo, 'missing.spec.ts');
     const result = spawnSync(
       process.execPath,
-      [resolve(import.meta.dir, '../capture.ts'), 'missing.spec.ts', 'config.ts', media],
+      [resolve(import.meta.dir, '../capture.ts'), missingSpec, 'config.ts', media],
       { cwd: repo, encoding: 'utf8' },
     );
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('missing.spec.ts');
+    expect(result.stderr).toContain('ENOENT');
+    expect(result.stderr).toContain(missingSpec);
+    expect(result.stderr).not.toContain('Host cannot start');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
