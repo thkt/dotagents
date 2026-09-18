@@ -241,6 +241,7 @@ test('model time requires explicit null or a positive finite number; check time 
 });
 test('invalid saved state is retained and rejected before execution', async () => {
   const t = await trial('docs');
+  await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
   expect(t.execute().status).toBe(0);
   const stateFile = join(t.config.runDir, 'state.json');
   const saved = await t.state();
