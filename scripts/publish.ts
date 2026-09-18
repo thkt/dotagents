@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { isRecord } from './values.ts';
+import { assertConfig } from './input.ts';
+import { checkRevision } from './revision.ts';
 import { readTarget } from './target.ts';
 import { command as runCommand, assertRunning, withInterrupts } from './process.ts';
 
@@ -48,6 +50,7 @@ export async function publish(args: string[], io = runtime) {
       head: { type: 'string' },
       title: { type: 'string' },
       'body-file': { type: 'string' },
+      'revision-file': { type: 'string' },
     },
     strict: true,
   });
@@ -68,6 +71,25 @@ export async function publish(args: string[], io = runtime) {
   assert(head !== base, 'Head must differ from base');
   assert(!values.actor || target.actor === values.actor, 'GitHub actor changed');
   assertRunning();
+  if (values['revision-file']) {
+    const config: unknown = JSON.parse(await readFile(values['revision-file'], 'utf8'));
+    assertConfig(config);
+    const revision = config.revision;
+    assert(
+      revision && config.cwd === target.cwd && revision.branch === head,
+      'Revision publication target differs',
+    );
+    const commit = await io.command(['git', 'rev-parse', 'HEAD'], target.cwd);
+    await checkRevision(revision, target.cwd, io.command, commit.trim());
+    assertRunning();
+    await io.command(
+      ['gh', 'pr', 'edit', revision.url, '--repo', repo, '--body-file', bodyFile],
+      target.cwd,
+    );
+    assertRunning();
+    await checkRevision(revision, target.cwd, io.command, commit.trim(), body);
+    return revision.url;
+  }
   const existing = (
     await io.command(
       [

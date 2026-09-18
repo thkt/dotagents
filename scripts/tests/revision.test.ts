@@ -1,0 +1,539 @@
+import assert from 'node:assert/strict';
+import { test, expect } from 'bun:test';
+import { mkdtemp, realpath, mkdir, readFile, writeFile, rm, chmod } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { develop } from '../development.ts';
+import { publish } from '../publish.ts';
+import { run, snapshot } from '../correction.ts';
+import { command, withInterrupts } from '../process.ts';
+import { assertConfig } from '../input.ts';
+import { reviewReplySource } from './support/correction.ts';
+import type { Config, State } from '../input.ts';
+import { isRecord } from '../values.ts';
+import { initializeTarget, githubTarget, git } from './support/target.ts';
+
+const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+const issue = JSON.stringify({
+  title: 'Visible result',
+  body: 'Keep result visible',
+  state: 'OPEN',
+});
+const ok = (stdout = '') => ({ stdout, stderr: '', code: 0, timedOut: false, ms: 1 });
+
+// Real Git and the existing development/publish entry points; only external responses are simulated.
+async function fixture(root: string) {
+  const repo = join(root, 'repo');
+  const prior = join(root, 'prior');
+  const dir = join(root, 'revision');
+  await mkdir(repo);
+  await initializeTarget(repo);
+  const initialBase = git(repo, 'rev-parse', 'HEAD');
+  // GitHub does not create closing links from the body for a non-default base.
+  const closingIssuesReferences: { url: string }[] = [];
+  const pr = {
+    url: 'https://github.com/team/component/pull/100',
+    state: 'OPEN',
+    body: '',
+    author: { login: 'operator' },
+    headRefName: 'codex/development-99',
+    headRefOid: '',
+    baseRefName: 'release',
+    headRepository: { name: 'component' },
+    headRepositoryOwner: { login: 'team' },
+    isCrossRepository: false,
+    closingIssuesReferences,
+    statusCheckRollup: [{ name: 'checks', status: 'COMPLETED', conclusion: 'SUCCESS' }],
+  };
+  const request = join(root, 'request.md');
+  await writeFile(
+    request,
+    'Adopted review: reset must clear the result. Scope: reset only. Source: human review #100.',
+  );
+  const hooks: {
+    mode: string;
+    implementations: number;
+    pushes: number;
+    edits: number;
+    verifications: number;
+    beforeVerify?: () => Promise<void>;
+    beforeActor?: () => Promise<void>;
+  } = {
+    mode: '',
+    implementations: 0,
+    pushes: 0,
+    edits: 0,
+    verifications: 0,
+  };
+  let remoteHead = '';
+  async function gitCommand(argv: string[], cwd: string, input: string, timeout: number | null) {
+    if (argv.includes('push')) {
+      hooks.pushes++;
+      if (hooks.mode === 'push_failed') {
+        return { ...ok(), code: 1, stderr: 'push rejected fixture' };
+      }
+      remoteHead = git(cwd, 'rev-parse', 'HEAD');
+      pr.headRefOid = remoteHead;
+      if (hooks.mode === 'push_interrupt') {
+        process.emit('SIGINT');
+        throw Error('Interrupted push fixture');
+      }
+      return ok();
+    }
+    if (argv.includes('commit') && hooks.mode === 'commit_failed') {
+      return { ...ok(), code: 1, stderr: 'commit rejected fixture' };
+    }
+    return command(argv, cwd, input, timeout);
+  }
+  async function editPr(argv: string[]) {
+    hooks.edits++;
+    if (hooks.mode === 'edit_failed') {
+      return { ...ok(), code: 1, stderr: 'body update failed fixture' };
+    }
+    const body = argv[argv.indexOf('--body-file') + 1];
+    assert(body);
+    pr.body = await readFile(body, 'utf8');
+    if (hooks.mode === 'edit_interrupt') {
+      process.emit('SIGTERM');
+    }
+    if (hooks.mode === 'readback_changed') {
+      pr.body = 'Concurrent edit';
+    }
+    return ok();
+  }
+  function issueReply() {
+    return ok(
+      hooks.mode === 'issue_after_push' && hooks.pushes > 1
+        ? issue.replace('Keep result visible', 'Changed requirement')
+        : issue,
+    );
+  }
+  async function githubCommand(argv: string[]) {
+    if (argv[1] === 'issue') {
+      return issueReply();
+    }
+    if (argv[1] === 'pr' && argv[2] === 'view') {
+      if (hooks.mode === 'ci_failed' && argv.at(-1)?.includes('statusCheckRollup')) {
+        return { ...ok(), code: 1, stderr: 'CI unavailable fixture' };
+      }
+      return ok(JSON.stringify(pr));
+    }
+    if (argv[2] === 'edit') {
+      return editPr(argv);
+    }
+    if (argv[2]?.includes('/git/ref/')) {
+      return ok(JSON.stringify({ object: { sha: remoteHead } }));
+    }
+    const reply = githubTarget(argv);
+    if (reply !== undefined) {
+      return ok(reply);
+    }
+    throw Error(`Unexpected GitHub fixture command: ${argv.join(' ')}`);
+  }
+  async function actor(cwd: string, input: string) {
+    hooks.implementations++;
+    if (hooks.implementations === 1) {
+      await writeFile(join(cwd, 'original-pr.txt'), 'original issue deliverable');
+    }
+    if (hooks.implementations > 1) {
+      await hooks.beforeActor?.();
+      expect(input).toContain(await readFile(request, 'utf8'));
+      expect(input).toContain(pr.body);
+    }
+    await writeFile(
+      join(cwd, 'result.txt'),
+      hooks.implementations === 1 ? 'implemented' : 'reset corrected',
+    );
+    if (hooks.mode === 'body_changed') {
+      pr.body += '\nHand edit';
+    }
+    if (hooks.mode === 'request_changed') {
+      await writeFile(request, 'Expanded scope');
+    }
+    return ok(JSON.stringify({ status: 'repaired', findings: 'Changed requested behavior' }));
+  }
+  const io = {
+    command: async (argv: string[], cwd: string, input: string, timeout: number | null) => {
+      if (argv[0] === 'git') {
+        return gitCommand(argv, cwd, input, timeout);
+      }
+      if (argv[0] === 'gh') {
+        return githubCommand(argv);
+      }
+      if (argv.includes('repair')) {
+        return actor(cwd, input);
+      }
+      throw Error(`Unexpected fixture command: ${argv.join(' ')}`);
+    },
+    verify: async (config: Config): Promise<State> => {
+      hooks.verifications++;
+      await hooks.beforeVerify?.();
+      await mkdir(config.runDir, { recursive: true });
+      const state: State = {
+        reviewFormat: 3,
+        baseCommit: config.baseCommit ?? initialBase,
+        configHash: hash(JSON.stringify(config)),
+        issueHash: hash(issue),
+        source: await snapshot(config.cwd),
+        repair: 0,
+        review: 1,
+        checks: 1,
+        modelMs: 1,
+        active: null,
+        events: [],
+        result: 'ready_for_human_review',
+        reviewHistory: [
+          {
+            status: 'accepted',
+            targetId: 'current',
+            findings: 'Verified current output',
+            assessments: {
+              code: `Current change; evidence: ${prior}/verification/check-1.stdout`,
+              requirements: 'Issue and adopted reset request satisfied',
+              tests: 'Simulated check, live update untested',
+              documentation:
+                'Current instructions compared. Prior limitation and attachment: https://example.com/media.png',
+            },
+            items: [],
+            documents: [],
+            handoff: [],
+          },
+        ],
+      };
+      await writeFile(join(config.runDir, 'state.json'), JSON.stringify(state));
+      return state;
+    },
+    publish: async (args: string[]): Promise<string> => {
+      if (!args.includes('--revision-file')) {
+        const path = args[args.indexOf('--body-file') + 1];
+        assert(path);
+        pr.body =
+          (await readFile(path, 'utf8')) +
+          '\nPrior limitation and attachment: https://example.com/media.png';
+        return pr.url;
+      }
+      return publish(args, {
+        command: async (argv, cwd) => {
+          const result = await io.command(argv, cwd, '', 660000);
+          assert(result.code === 0, result.stderr);
+          return result.stdout.trim();
+        },
+      });
+    },
+  };
+  await develop(['99', '--repo', repo, '--run-dir', prior], io);
+  const cwd = join(prior, 'checkout');
+  const oldHead = pr.headRefOid;
+  const oldBody = pr.body;
+  const args = [
+    '99',
+    '--repo',
+    cwd,
+    '--previous-run',
+    prior,
+    '--request-file',
+    request,
+    '--run-dir',
+    dir,
+  ];
+  return { repo, cwd, prior, dir, request, args, io, hooks, pr, oldHead, oldBody, initialBase };
+}
+
+async function readObject(path: string) {
+  const value: unknown = JSON.parse(await readFile(path, 'utf8'));
+  assert(isRecord(value));
+  return value;
+}
+const failures: Record<string, RegExp> = {
+  dirty: /Checkout differs|clean tracked/,
+  wrong_head: /PR identity changed/,
+  wrong_author: /PR identity changed/,
+  wrong_repo: /PR identity changed/,
+  wrong_base: /PR identity changed/,
+  wrong_issue: /PR Issue changed/,
+  wrong_body_issue: /PR Issue changed/,
+  wrong_pr: /PR identity changed/,
+  body_changed: /PR body changed/,
+  issue_after_push: /Agreed Issue changed/,
+  unfinished_sibling: /Unfinished or uncertain execution/,
+  uncertain_sibling: /Unfinished or uncertain execution/,
+  unfinished: /Previous verification is unfinished/,
+  uncertain: /Previous publication is incomplete/,
+  request_changed: /Revision request changed/,
+  commit_failed: /commit rejected fixture/,
+  push_failed: /push rejected fixture/,
+  push_interrupt: /Interrupted push fixture/,
+  edit_failed: /body update failed fixture/,
+  edit_interrupt: /Interrupted execution/,
+  readback_changed: /PR body changed/,
+  ci_failed: /unavailable:/,
+};
+async function successfulRevision(f: Awaited<ReturnType<typeof fixture>>, mode: string) {
+  const { pr, hooks } = f;
+  const result = await develop(f.args, f.io);
+  expect(result.status).toBe(mode === 'local' ? 'verified_local' : 'ready_for_human_review');
+  const config = await readObject(join(f.dir, 'verification-config.json'));
+  expect(config.baseCommit).toBe(f.initialBase);
+  expect(config).toMatchObject({
+    repairLimit: 2,
+    reviewLimit: 2,
+    modelTimeMs: null,
+    revision: { head: f.oldHead },
+  });
+  expect(result.url).toBe(pr.url);
+  expect(hooks.edits).toBe(mode === 'local' ? 0 : 1);
+  if (mode === 'local') {
+    expect(git(f.cwd, 'rev-parse', 'HEAD')).toBe(f.oldHead);
+    expect(result.publication).toBe('not_attempted');
+  } else {
+    expect(result.commit).not.toBe(f.oldHead);
+    expect(pr.body).toContain(result.commit ?? 'missing');
+    expect(pr.body).toContain('Prior limitation and attachment: https://example.com/media.png');
+    expect(pr.body).not.toContain(f.oldHead);
+    expect(pr.body).not.toContain(f.prior);
+    expect(result.ci).toBe('passed');
+    expect(git(f.cwd, 'rev-parse', 'HEAD^')).toBe(f.oldHead);
+  }
+}
+async function stoppedRevision(f: Awaited<ReturnType<typeof fixture>>, mode: string) {
+  const { pr, hooks } = f;
+  const expected = failures[mode];
+  assert(expected);
+  await assert.rejects(() => withInterrupts(() => develop(f.args, f.io)), expected);
+  const result = await readObject(join(f.dir, 'result.json')).catch(() => undefined);
+  if (
+    [
+      'push_failed',
+      'push_interrupt',
+      'edit_failed',
+      'edit_interrupt',
+      'readback_changed',
+      'ci_failed',
+      'commit_failed',
+      'request_changed',
+      'body_changed',
+      'issue_after_push',
+    ].includes(mode)
+  ) {
+    assert(result);
+    expect(result.url).toBe(pr.url);
+    expect(result.status).toBe('stopped');
+    expect(result.publication).toBe(
+      mode === 'ci_failed'
+        ? 'published'
+        : ['commit_failed', 'request_changed', 'body_changed'].includes(mode)
+          ? 'not_attempted'
+          : 'unconfirmed',
+    );
+    expect(result.nextAction).toBeTruthy();
+    if (mode === 'issue_after_push') {
+      expect(hooks.edits).toBe(0);
+      expect(hooks.pushes).toBe(2);
+    }
+    if (!['request_changed', 'commit_failed', 'body_changed'].includes(mode)) {
+      expect(result.commit).not.toBe(f.oldHead);
+    }
+  } else {
+    expect(hooks.implementations).toBe(1);
+  }
+  if (
+    [
+      'dirty',
+      'wrong_head',
+      'wrong_author',
+      'wrong_repo',
+      'wrong_base',
+      'wrong_issue',
+      'wrong_body_issue',
+      'wrong_pr',
+      'body_changed',
+      'unfinished',
+      'uncertain',
+      'request_changed',
+      'commit_failed',
+    ].includes(mode)
+  ) {
+    expect(hooks.pushes).toBe(1);
+    expect(hooks.edits).toBe(0);
+  }
+}
+for (const mode of ['success', 'local', ...Object.keys(failures)]) {
+  test(`existing PR revision: ${mode}`, async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-')));
+    try {
+      const f = await fixture(root);
+      const priorState = await readFile(join(f.prior, 'verification/state.json'), 'utf8');
+      const priorResult = await readFile(join(f.prior, 'result.json'), 'utf8');
+      const { pr, hooks } = f;
+      hooks.mode = mode;
+      const identityChanges: Record<string, () => void> = {
+        wrong_head: () => {
+          pr.headRefOid = 'a'.repeat(40);
+        },
+        wrong_author: () => {
+          pr.author.login = 'someone';
+        },
+        wrong_repo: () => {
+          pr.headRepositoryOwner.login = 'another';
+        },
+        wrong_base: () => {
+          pr.baseRefName = 'main';
+        },
+        wrong_issue: () => {
+          pr.closingIssuesReferences = [{ url: 'https://github.com/team/component/issues/98' }];
+        },
+        wrong_body_issue: () => {
+          pr.body = pr.body.replace('Closes #99', 'Closes #990');
+        },
+        wrong_pr: () => {
+          pr.url = 'https://github.com/team/component/pull/101';
+        },
+      };
+      identityChanges[mode]?.();
+      if (mode === 'dirty') {
+        await writeFile(join(f.cwd, 'untracked.txt'), 'keep me');
+      }
+      if (mode === 'unfinished') {
+        await writeFile(
+          join(f.prior, 'verification/state.json'),
+          JSON.stringify({
+            ...(await readObject(join(f.prior, 'verification/state.json'))),
+            active: { role: 'repair', prefix: 'unfinished' },
+          }),
+        );
+      }
+      if (mode === 'uncertain') {
+        await writeFile(
+          join(f.prior, 'result.json'),
+          JSON.stringify({
+            ...(await readObject(join(f.prior, 'result.json'))),
+            publication: 'unconfirmed',
+          }),
+        );
+      }
+      if (mode.endsWith('_sibling')) {
+        const sibling = join(root, 'other-revision');
+        await mkdir(sibling);
+        await writeFile(
+          join(sibling, 'result.json'),
+          JSON.stringify({
+            checkout: f.cwd,
+            reason: mode === 'unfinished_sibling' ? '' : 'Interrupted',
+            publication: mode === 'uncertain_sibling' ? 'unconfirmed' : 'not_attempted',
+          }),
+        );
+      }
+      if (mode === 'local') {
+        f.args.push('--no-publish');
+        pr.closingIssuesReferences = [{ url: 'https://github.com/team/component/issues/99' }];
+      }
+      if (mode === 'success' || mode === 'local') {
+        await successfulRevision(f, mode);
+      } else {
+        await stoppedRevision(f, mode);
+      }
+      if (!['unfinished', 'uncertain'].includes(mode)) {
+        expect(await readFile(join(f.prior, 'verification/state.json'), 'utf8')).toBe(priorState);
+        expect(await readFile(join(f.prior, 'result.json'), 'utf8')).toBe(priorResult);
+      }
+      if (mode === 'dirty') {
+        expect(await readFile(join(f.cwd, 'untracked.txt'), 'utf8')).toBe('keep me');
+      }
+    } finally {
+      await withInterrupts(async () => {});
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test('correction evaluates the whole PR and adopted request through repair, review and terminal checks', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-controller-')));
+  const originalPath = process.env.PATH;
+  try {
+    const f = await fixture(root);
+    await develop([...f.args, '--no-publish'], f.io);
+    const config: unknown = JSON.parse(
+      await readFile(join(f.dir, 'verification-config.json'), 'utf8'),
+    );
+    assertConfig(config);
+    assert(config.revision);
+    const request = config.revision.request;
+    const bin = join(root, 'bin');
+    await mkdir(bin);
+    const gh = join(bin, 'gh');
+    await writeFile(
+      gh,
+      `#!${process.execPath}
+const args = process.argv.slice(2);
+const pr = ${JSON.stringify(f.pr)};
+if(args[0] === 'issue') console.log(${JSON.stringify(issue)});
+else if(args[0] === 'pr') console.log(JSON.stringify(pr));
+else if(args[1] === 'user') console.log('{"login":"operator"}');
+else if(args[1].includes('/git/ref/')) console.log(JSON.stringify({object:{sha:pr.headRefOid}}));
+else if(args[1].includes('/branches/')) console.log('{"name":"release"}');
+else console.log('{"full_name":"team/component","id":123,"permissions":{"push":true}}');
+`,
+    );
+    await chmod(gh, 0o755);
+    process.env.PATH = `${bin}:${originalPath ?? ''}`;
+    const helper = join(root, 'actor.js');
+    await writeFile(
+      helper,
+      `
+import {readFileSync,writeFileSync} from 'node:fs';
+const role = process.argv[2];
+${reviewReplySource}
+if(role === 'check') process.exit(readFileSync('result.txt','utf8') === 'corrected' ? 0 : 1);
+if(role === 'repair') { writeFileSync('result.txt','corrected'); console.log(JSON.stringify({status:'repaired',findings:'Reset corrected'})); }
+if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue and revision inspected')));
+`,
+    );
+    config.runDir = join(f.dir, 'controller');
+    config.check = [process.execPath, helper, 'check'];
+    config.repair = [process.execPath, helper, 'repair'];
+    config.review = [process.execPath, helper, 'review'];
+    const state = await run(config);
+    expect(state.result).toBe('ready_for_human_review');
+    expect(state.repair).toBe(1);
+    expect(state.review).toBe(1);
+    expect(await readFile(join(config.runDir, 'repair-1.prompt'), 'utf8')).toContain(request);
+    expect(await readFile(join(config.runDir, 'review-1.prompt'), 'utf8')).toContain(request);
+    expect(await readFile(join(config.runDir, 'review-1.prompt'), 'utf8')).toContain(f.oldBody);
+    expect(await readFile(join(config.runDir, 'review-1.diff'), 'utf8')).toContain(
+      'original issue deliverable',
+    );
+    const target = await readObject(join(config.runDir, 'review-1.target.json'));
+    expect(target).toMatchObject({
+      baseCommit: f.initialBase,
+      revision: { request, head: f.oldHead },
+    });
+    const saved = await readFile(join(config.runDir, 'state.json'), 'utf8');
+    await writeFile(f.request, 'Another request');
+    await assert.rejects(() => run(config), /Revision request changed/);
+    expect(await readFile(join(config.runDir, 'state.json'), 'utf8')).toBe(saved);
+  } finally {
+    process.env.PATH = originalPath;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a revision reserves existing result evidence before another initial actor can start', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-parallel-')));
+  try {
+    const f = await fixture(root);
+    let reconciled = false;
+    f.hooks.beforeActor = async () => {
+      f.hooks.beforeActor = undefined;
+      const parallel = [...f.args];
+      parallel[parallel.indexOf('--run-dir') + 1] = join(root, 'parallel');
+      await assert.rejects(() => develop(parallel, f.io), /Unfinished or uncertain execution/);
+      reconciled = true;
+    };
+    await successfulRevision(f, 'success');
+    expect(reconciled).toBe(true);
+    expect(f.hooks.implementations).toBe(2);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

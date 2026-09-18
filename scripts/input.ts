@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { assertRevision } from './revision.ts';
+import type { Revision } from './revision.ts';
 import { isReview } from './review.ts';
 import type { Review } from './review.ts';
 import { isArray, isRecord, relativeDirectory } from './values.ts';
@@ -46,6 +48,7 @@ const stopReasons = [
 export type StopReason = (typeof stopReasons)[number];
 export interface Config {
   baseCommit?: string;
+  revision?: Revision;
   reports?: ReportReference[];
   reviewModel?: { model: string; reasoningEffort: string };
   cwd: string;
@@ -115,6 +118,7 @@ export function assertConfig(value: unknown): asserts value is Config {
     'writing is no longer supported; remove writing from correction input and review the documentation policy before starting a new run. Preserve existing runs.',
   );
   assert(optionalString(value.baseCommit), 'Invalid base commit');
+  assertRevision(value.revision);
   if (value.reports !== undefined) {
     assertReportReferences(value.reports);
     assert(value.reports.length === 0 || value.baseCommit, 'Required reports need baseCommit');

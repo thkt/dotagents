@@ -35,6 +35,30 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to
 
 CI未確認時もPR URLと取得済みの公開結果・ログを保持し、非zeroコードで終了します。詳細は[結果と再実行](#結果と再実行)を参照してください。担当AIは公開本文と根拠を照合し、`rendered_media_check`があれば添付後の表示・再生・配置を確認します。人が要求・権限の変更、レビュー、承認、マージを判断します。
 
+## 既存PRの修正
+
+人が採用したレビュー指摘・期待する結果・許可範囲と、必要な過去指摘・出典を一つの文章ファイルにまとめ、前回の公開runを指定します。PRコメントの自動収集・自動採用は行いません。対象は、このハーネスで検証・公開したopen PRで、現在のgh主体が作者である同一repoのbranchです。#103以降の`result.json`、対象・Issue・検証設定・state・公開対象の記録が揃うrunを使います。
+
+```sh
+bun /absolute/path/to/trusted/scripts/development.ts 99 \
+  --repo /absolute/path/to/previous-run/checkout \
+  --previous-run /absolute/path/to/previous-run \
+  --request-file /absolute/path/to/adopted-review.md \
+  --run-dir /absolute/path/to/revision-run
+```
+
+`--run-dir`は前回runと同じ親ディレクトリ内の新しい保存先を指定します。既存の`result.json`を使って同じcheckoutの未完了・公開結果不明の実行を照合するためです。新しい保存先を確保した後、setup前に結果の初期記録を置き、並行する実行も照合します。別の再開台帳は作りません。前回run・state・ログは読み取り参照に限り、修正入力・検証設定・評価・結果は新runへ保存します。
+
+前回のPR・Issue・公開commit・checkout・主体・対象設定をGit/GitHubの実状態と照合します。checkoutは記録した公開headと一致し、追跡対象・未追跡の作業差分がないことが必要です。既存本文は開始時に読み取り、固定した修正入力とともに担当者へ渡します。未完了の実行、結果不明、対象不一致、残った作業があれば開始せず、記録と作業を保ったまま原因・次の対応を返します。別checkoutの自動作成、stash、作業差分の移植、rebase、旧stateの変換・再開は行いません。
+
+初回修正1回、追加修正2回、独立評価2回を新しい明示的な修正依頼に適用します。モデル時間制限は設けず、check・capture・CI等は通常developmentの時間枠と処理を共用します。過去のaccepted・check・capture成功や指摘IDは新runへ移しません。修正入力の変更、Issue・主体・設定・PRの本文・head・baseなどの変化は工程境界で停止します。人が要求・許可範囲を変更する場合は合意へ戻します。
+
+評価の差分は前回から保持したPR全体の基点から作ります。公開headは今回の修正の開始点として別に渡し、独立評価はIssue全体と採用した修正要求の両方を確認します。既存本文の変更説明、未確認事項、添付リンクは現在も必要か評価し、必要な内容をacceptedな評価の公開用説明へ含めます。過去の生成本文を再帰的に追加せず、以前の全文は実行証拠に保持します。
+
+公開時は検証済み成果物をcommitし、通常pushと同じPRの本文更新を行います。push前から今回の`publication`を`unconfirmed`として`result.json`へ保存し、本文・ref・PR headの読戻し後に`published`とします。更新前の再照合で本文等が変わっていれば、未確認の手編集を上書きしません。更新後は既存処理で同じheadのCIを確認します。GitHubの複数操作は原子的ではなく、通信断や割込み後に自動再試行しません。push成功後の本文更新失敗でもPR URLと今回の判明状態・次の対応を残し、旧headを今回の最新成功として案内しません。
+
+`--no-publish`では修正後の独立評価までで止まり、commit・push・本文更新を行いません。自動コメント投稿、会話のresolve、承認、マージも行いません。媒体がある対象は通常の添付・公開後確認を継続します。制御テストの模擬応答、実モデルの意味判断、実際のPR更新は別の検証です。
+
 ## 調査報告を指定した実装開始
 
 必要な報告の選択と共有状態の確認は[scopingの引き継ぎ手順](../skills/scoping/references/session.md#調査成果の引き継ぎ)に従います。この節では、確認済みの報告を実装へ渡すGit操作とCLIの検証条件を説明します。
@@ -386,7 +410,7 @@ bun /absolute/path/to/trusted/scripts/publish.ts --repo /absolute/path/target-ch
 
 `target.ts CHECKOUT --write`は対象repo、base branch、remoteとghのpush権限、実効ユーザーを照合し、PRを作らず確認結果を返します。`--actor` は事前に確認したloginを指定します。developmentは開始時のloginを公開時にも渡し、不一致で停止します。PR書き込みの細かなtoken権限や組織ポリシーは読み取り確認だけで保証せず、公開失敗時は停止理由とGitHub上の実状態を確認します。
 
-同じhead・baseのopen PRがあれば作者と確認済み本文の一致を照合してURLを返します。不一致なら本文を保持して停止し、担当者が内容を照合して対応します。新規作成も同じgh認証を使い、作者と本文を確認します。旧Appや別ユーザーのPRを現在のユーザーの公開成功とは扱いません。このCLIは既存PRの本文更新、push、承認、マージを行いません。正常終了時もコマンドの所有するprocess groupの残存子を終了させます。SIGINT・SIGTERMでは実行中のコマンドと子プロセスを停止し、後続の公開操作へ進みません。通信断や強制終了時は、再試行前にPRの実状態を確認します。制御テストの模擬応答は実際のGitHubアクセスの証拠ではありません。
+同じhead・baseのopen PRがあれば作者と確認済み本文の一致を照合してURLを返します。不一致なら本文を保持して停止し、担当者が内容を照合して対応します。新規作成も同じgh認証を使い、作者と本文を確認します。旧Appや別ユーザーのPRを現在のユーザーの公開成功とは扱いません。既存PRの修正ではdevelopmentが検証設定を内部引数`--revision-file`で渡し、同じ公開処理で対象照合・本文更新・読戻しを行います。利用者は[既存PRの修正](#既存prの修正)から開始し、個別の公開スクリプトや検証設定を組み立てません。単独の通常publishはpush、承認、マージを行いません。正常終了時もコマンドの所有するprocess groupの残存子を終了させます。SIGINT・SIGTERMでは実行中のコマンドと子プロセスを停止し、後続の公開操作へ進みません。通信断や強制終了時は、再試行前にPRの実状態を確認します。制御テストの模擬応答は実際のGitHubアクセスの証拠ではありません。
 
 developmentは、publishからURLを受け取り、必要な添付を終えてから次のCI処理へ進みます。単独publishはURLを返すところまでで、CI成功を判定しません。
 
