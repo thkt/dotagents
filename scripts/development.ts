@@ -6,7 +6,8 @@ import { resolve, join } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { parseArgs } from 'node:util';
-import { run, parseReply, captureInstructions, testInstructions } from './correction.ts';
+import { run } from './correction.ts';
+import { parseRepairReply, repairInstructions } from './repair.ts';
 import { command, withInterrupts } from './process.ts';
 import { isRecord, outside } from './values.ts';
 import { publish } from './publish.ts';
@@ -194,10 +195,9 @@ async function implement(context: Context, io: typeof runtime) {
   await verifyStartInputs(context.repo, context.base, context.target.text, context.inputs, io);
   const prompt = [
     'Implement the complete agreed Issue using existing code and verification assets. Follow applicable repository instructions; consult the target README and development policy sections relevant to this change.',
-    'Complete the agreed implementation, needed tests and documentation, and targeted checks needed to prepare it for host verification without pausing for approval of routine choices within scope; reuse sufficient existing verification. Leave configured full verification to the host after implementation. Do not commit, push, publish, change the Issue, weaken acceptance criteria, or launch browsers or servers in your sandbox.',
-    testInstructions,
-    'Documentation-only Issues use the same flow. Apply the target documentation policy when present; keep current operating instructions accurate and place historical results in evidence; add tests or code only when the agreed requirements need them. When writing documents, compare facts, quantities, conditions, scope, authority, unverified claims and references with the original sources; include changed documents in the existing independent review.',
-    captureInstructions(context.target.config.capture),
+    'Complete the agreed implementation, needed tests and documentation, and targeted checks needed to prepare it for host verification without pausing for approval of routine choices within scope; reuse sufficient existing verification. Do not change the Issue or weaken acceptance criteria.',
+    'Documentation-only Issues use the same flow; add tests or code only when the agreed requirements need them. Include changed documents in the existing independent review.',
+    repairInstructions(context.target.config.capture),
     `Target setup/check/capture contract (do not weaken or replace): ${JSON.stringify(context.target.config)}`,
     'Do not edit control scripts or credentials outside this checkout. If scope or authorization must change, return needs_human with the concrete decision and its impact. If an instruction file caused that stop, identify the file actually read, quote the relevant instruction and distinguish its explicit requirement from your interpretation. Otherwise return repaired with a concrete summary.',
     `Requirements:\n${original}`,
@@ -216,9 +216,9 @@ async function implement(context: Context, io: typeof runtime) {
     result.code === 0,
     `Initial implementation process failed (${result.code}); evidence: ${dir}`,
   );
-  const reply = parseReply(result.stdout);
+  const reply = parseRepairReply(result.stdout);
   assert(
-    reply && ['repaired', 'needs_human'].includes(reply.status),
+    reply.status !== 'invalid',
     `Invalid implementation reply; inspect ${dir}/implementation.stdout`,
   );
   await writeFile(join(dir, 'implementation-summary.md'), reply.findings);

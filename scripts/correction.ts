@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { parseRepairReply, repairInstructions } from './repair.ts';
 import { parseReview, reviewInstructions, reviewSummary } from './review.ts';
 import type { Review } from './review.ts';
 import { researchContext, verifyReportBase } from './research-handoff.ts';
@@ -109,25 +110,6 @@ async function readIssue(config: Config) {
   return result.stdout;
 }
 
-export function parseReply(stdout: string): { status: string; findings: string } | null {
-  let value: unknown;
-  try {
-    value = JSON.parse(stdout);
-  } catch {
-    return null;
-  }
-  if (typeof value !== 'object' || value === null) {
-    return null;
-  }
-  if (!('status' in value) || typeof value.status !== 'string') {
-    return null;
-  }
-  if (!('findings' in value) || typeof value.findings !== 'string') {
-    return null;
-  }
-  return { status: value.status, findings: value.findings };
-}
-
 async function runModel(
   config: Config,
   state: State,
@@ -163,23 +145,6 @@ async function runModel(
     return { stop: `${role}_failed` };
   }
   return result;
-}
-
-export const testInstructions =
-  'Before creating or updating tests, apply the target test policy when present and these common test criteria. Ask what realistic bug deleting each relevant test would miss. Compare its additional assurance with runtime, flakiness and maintenance cost; actively remove or consolidate tests that do not justify that cost. Do not retain tests merely for reassurance, test counts or coverage metrics. Explain any lost detection conditions and the remaining verification.';
-
-export function captureInstructions(capture: { destination: string } | null) {
-  return [
-    ...(capture
-      ? [
-          `Prepare the configured capture command and required media for this Issue. Reference final media at ${capture.destination}/.`,
-          'The host runs capture separately from normal tests. Its command receives the absolute output directory as the final argument. Save only PNG/JPEG/WebP/MP4/WebM files directly under that directory (CAPTURE_OUTPUT for browser definitions). Close video contexts and save video there. Do not write media or reports into the checkout during capture.',
-        ]
-      : [
-          'This target declares no capture. If the agreed Issue needs media, return needs_human to configure required capture before execution.',
-        ]),
-    'Return repaired when implementation and test/capture definitions are ready; pending host execution alone is not needs_human. Actual requirement or authorization decisions still require needs_human.',
-  ].join(' ');
 }
 
 async function hostCommand(
@@ -640,17 +605,14 @@ async function cycle(
   }
   const prompt = [
     'Repair only within these agreed requirements. Read the current files and fix the root cause.',
-    testInstructions,
-    'Apply the target documentation policy when present to documentation-only changes and accompanying updates; keep current operating instructions accurate and historical results in evidence. Compare document facts, quantities, conditions, scope, authority, unverified claims and references with original sources; return content defects to repair and renew affected checks and independent review.',
-    'Preserve agreed acceptance criteria and verification of required behavior; never hide realistic regressions to make checks pass. Do not commit, push or publish.',
-    'Run only targeted checks needed to diagnose or validate your repair; leave the full check command to the host.',
-    'The host runs the configured verification after your changes; do not launch browsers or servers in the actor sandbox.',
-    captureInstructions(
+    'Return document content defects to repair and renew affected checks and independent review.',
+    'Preserve agreed acceptance criteria and verification of required behavior; never hide realistic regressions to make checks pass.',
+    'Run only targeted checks needed to diagnose or validate your repair.',
+    repairInstructions(
       config.capture && config.captureDestination
         ? { destination: config.captureDestination }
         : null,
     ),
-    'Return JSON with status repaired or needs_human, and findings explaining your changes or the necessary human decision.',
     'If requirements, permissions or execution limits must change, report needs_human without changing them.',
     `Requirements:\n${issue}\nFailure evidence:\n${findings}`,
     researchContext(state.baseCommit, config.reports, knowledge),
@@ -659,9 +621,9 @@ async function cycle(
   if ('stop' in repaired) {
     return repaired.stop;
   }
-  const value = parseReply(repaired.stdout);
-  state.findings = value?.findings;
-  if (!value || !['repaired', 'needs_human'].includes(value.status)) {
+  const value = parseRepairReply(repaired.stdout);
+  state.findings = value.findings;
+  if (value.status === 'invalid') {
     return 'invalid_repair';
   }
   return value.status === 'needs_human' ? 'human_decision_required' : null;

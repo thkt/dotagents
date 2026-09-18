@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, chmod, stat } from 'node:fs/pr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { develop } from '../development.ts';
-import { command } from '../process.ts';
+import { command, interruptionMessage } from '../process.ts';
 import type { Config, State } from '../input.ts';
 import { isRecord } from '../values.ts';
 import { reviewSummary } from '../review.ts';
@@ -36,6 +36,9 @@ const stopReasons = {
   permission_lost: /GitHub push permission required/,
   attachment_actor_changed: /Target configuration or GitHub actor changed/,
   initial_failure: /Initial implementation process failed/,
+  initial_startup_failure: /Initial implementation process failed \(null\)/,
+  initial_timeout: /Initial implementation timed out/,
+  initial_interruption: /Interrupted execution/,
   needs_human: /Human decision required: Need agreement on scope/,
   invalid_reply: /Invalid implementation reply/,
   review_failure: /Verification stopped: review_failed/,
@@ -89,14 +92,72 @@ async function checkStop(
     return;
   }
   expect(await readFile(join(dir, 'stopped.txt'), 'utf8')).toMatch(stopReasons[mode]);
-  if (['initial_failure', 'needs_human', 'invalid_reply', 'requirements_changed'].includes(mode)) {
+  const initialStop =
+    mode.startsWith('initial_') || ['needs_human', 'invalid_reply'].includes(mode);
+  if (initialStop || mode === 'requirements_changed') {
     expect(reviews).toBe(0);
   }
+  if (!initialStop) {
+    return;
+  }
+  expect(existsSync(join(dir, 'verification-config.json'))).toBe(false);
+  expect(await readFile(join(dir, 'implementation.stderr'), 'utf8')).toContain(
+    mode === 'initial_startup_failure' ? 'ENOENT' : 'Actor diagnostic',
+  );
+  expect(existsSync(join(dir, 'implementation.json'))).toBe(mode !== 'initial_interruption');
+  if (mode === 'invalid_reply' || mode === 'needs_human') {
+    expect(await readFile(join(dir, 'implementation.stdout'), 'utf8')).toBe(
+      implementationResult(mode).stdout,
+    );
+  }
+  if (mode === 'needs_human') {
+    expect(await readFile(join(dir, 'implementation-summary.md'), 'utf8')).toBe(
+      'Need agreement on scope',
+    );
+  }
+}
+
+async function implementReply(
+  mode: string,
+  cwd: string,
+  input: string,
+  timeout: number | null,
+  prefix?: string,
+) {
+  if (mode === 'success') {
+    for (const instruction of [
+      'targeted checks needed to prepare it for host verification',
+      'without pausing for approval of routine choices within scope',
+      'reuse sufficient existing verification',
+      'Do not change the Issue or weaken acceptance criteria',
+      'Explain any lost detection conditions and the remaining verification',
+      'Compare document facts, quantities, conditions, scope, authority, unverified claims and references with original sources',
+      'Include changed documents in the existing independent review',
+      'Do not commit, push or publish',
+      'Leave configured full verification to the host after your changes',
+      'do not launch browsers or servers in your sandbox',
+    ]) {
+      expect(input).toContain(instruction);
+    }
+    expect(input).not.toContain('Failure evidence:');
+  }
+  if (mode === 'initial_startup_failure') {
+    return command(['/nonexistent-implementation-test-command'], cwd, input, timeout, prefix);
+  }
+  const response = implementationResult(mode);
+  await writeFile(`${prefix}.stdout`, response.stdout);
+  await writeFile(`${prefix}.stderr`, 'Actor diagnostic');
+  if (mode === 'initial_interruption') {
+    throw Error(interruptionMessage);
+  }
+  await writeFile(join(cwd, 'result.txt'), 'implemented');
+  return response;
 }
 
 const implementationResults: Record<string, Partial<Awaited<ReturnType<typeof command>>>> = {
   initial_failure: { code: 1 },
-  invalid_reply: { stdout: 'not JSON' },
+  initial_timeout: { timedOut: true },
+  invalid_reply: { stdout: JSON.stringify({ status: 'accepted', findings: 'Unexpected status' }) },
   needs_human: {
     stdout: JSON.stringify({ status: 'needs_human', findings: 'Need agreement on scope' }),
   },
@@ -351,6 +412,9 @@ for (const mode of [
   'local_denied',
   'attachment_actor_changed',
   'initial_failure',
+  'initial_startup_failure',
+  'initial_timeout',
+  'initial_interruption',
   'needs_human',
   'invalid_reply',
   'review_failure',
@@ -565,8 +629,7 @@ for (const mode of [
           expect(input).not.toContain(reportContent.trim());
         }
         expect(input).toContain('Show the requested result.');
-        await writeFile(join(cwd, 'result.txt'), 'implemented');
-        return implementationResult(mode);
+        return implementReply(mode, cwd, input, timeout, prefix);
       },
       verify: async (config: Config): Promise<State> => {
         expect(config).not.toHaveProperty('writing');

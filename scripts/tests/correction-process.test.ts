@@ -35,15 +35,18 @@ test('check timeout is unavailable evidence and does not start a model', async (
   expect(object(events(state.events)[0]).timedOut).toBe(true);
 });
 
-test('check startup failure retains the error without starting a model', async () => {
-  const t = await trial('normal', { check: ['/nonexistent-correction-test-command'] });
-  expect(t.execute().status).toBe(1);
-  const state = await t.state();
-  expect(state.result).toBe('check_unavailable');
-  expect([state.repair, state.review]).toEqual([0, 0]);
-  const error = await readFile(join(t.config.runDir, 'check-1.stderr'), 'utf8');
-  expect(error).toContain('ENOENT');
-});
+for (const role of ['check', 'repair'] as const) {
+  test(`${role} startup failure retains the error and stops subsequent models`, async () => {
+    const t = await trial('normal', { [role]: ['/nonexistent-correction-test-command'] });
+    expect(t.execute().status).toBe(1);
+    const state = await t.state();
+    expect(state.result).toBe(role === 'check' ? 'check_unavailable' : 'repair_failed');
+    expect([state.repair, state.review]).toEqual([role === 'check' ? 0 : 1, 0]);
+    expect(state.active).toBeNull();
+    const error = await readFile(join(t.config.runDir, `${role}-1.stderr`), 'utf8');
+    expect(error).toContain('ENOENT');
+  });
+}
 
 async function waitForFile(path: string) {
   const deadline = Date.now() + 4000;
