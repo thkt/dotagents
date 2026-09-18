@@ -73,7 +73,9 @@ const actions = {
     'Reconcile the current PR URL, head, base, OPEN state and Issue reference with the published target before assessing CI; another target cannot confirm this commit.',
 };
 
-function finish(result: CiResult, status: CiResult['status'], reason: string): CiResult {
+type CiProgress = Pick<CiResult, 'timedOut' | 'lastObservation' | 'logs'>;
+
+function finish(result: CiProgress, status: CiResult['status'], reason: string): CiResult {
   return { ...result, status, reason, nextAction: actions[status] };
 }
 
@@ -153,12 +155,9 @@ export async function waitForCi(
 ): Promise<CiResult> {
   assert(target.ciChecks.length > 0, 'Expected CI checks required');
   const log = join(target.dir, 'pr-publication');
-  const result: CiResult = {
-    status: 'timed_out',
+  const result: CiProgress = {
     timedOut: false,
     lastObservation: null,
-    reason: '',
-    nextAction: actions.timed_out,
     logs: [log],
   };
   const initial = await readTarget(

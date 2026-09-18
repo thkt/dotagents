@@ -304,11 +304,8 @@ async function prView(
   timeout: number | null,
   attached: boolean,
 ) {
-  const polling = argv.at(-1)?.includes('statusCheckRollup');
   const publication = argv.at(-1)?.includes('body');
-  if (!polling || publication) {
-    expect(timeout).toBe(660000);
-  }
+  expect(timeout).toBe(660000);
   const finalRead = argv.at(-1) === 'headRefOid,baseRefName,state';
   if (mode === 'ci_final_unavailable' && finalRead) {
     return { ...ok('raw API response'), code: 1, stderr: 'API unavailable in fixture' };
