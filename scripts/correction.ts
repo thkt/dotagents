@@ -44,14 +44,25 @@ function isCaptureRecord(name: string, destination: string) {
   );
 }
 
-async function sourceFiles(
-  cwd: string,
-  captureOnly = false,
-  destination = '',
-  definitions: string[] = [],
-) {
+type SourceFile = [string, number, string];
+type Addition = { path: string; mode: number; symlink: boolean; content: string };
+
+async function sourceFiles(cwd: string, additions?: Addition[]) {
+  const untracked = new Map<string, number>();
+  if (additions) {
+    const list = await command(
+      ['git', 'ls-files', '--others', '--exclude-standard', '-z'],
+      cwd,
+      '',
+      10000,
+    );
+    assert(list.code === 0, 'Cannot record untracked files');
+    for (const name of list.stdout.split('\0').filter(Boolean)) {
+      untracked.set(name, untracked.size);
+    }
+  }
   const list = await command(
-    ['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+    ['git', 'ls-files', '-z', '--cached', ...(additions ? [] : ['--others', '--exclude-standard'])],
     cwd,
     '',
     10000,
@@ -59,11 +70,12 @@ async function sourceFiles(
   if (list.code !== 0) {
     throw Error('Cannot identify source files');
   }
-  const entries: [string, number, string][] = [];
-  for (const name of [...new Set(list.stdout.split('\0').filter(Boolean))].sort()) {
+  const entries: SourceFile[] = [];
+  const names = new Set([...list.stdout.split('\0').filter(Boolean), ...untracked.keys()]);
+  for (const name of [...names].sort()) {
     const path = resolve(cwd, name);
     const stat = await lstat(path).catch((error: unknown) => {
-      if (!isMissing(error)) {
+      if (!isMissing(error) || untracked.has(name)) {
         throw error;
       }
       return undefined;
@@ -72,24 +84,40 @@ async function sourceFiles(
       // Materialized deletion has the same identity before and after staging.
       continue;
     }
-    if (
-      captureOnly &&
-      !definitions.includes(path) &&
-      stat.isFile() &&
-      !(stat.mode & 0o111) &&
-      isCaptureRecord(name, destination)
-    ) {
-      continue;
-    }
     // A path disappearing after lstat is an unknown read, not an identified deletion.
     const bytes = stat.isSymbolicLink() ? await readlink(path) : await readFile(path);
     entries.push([name, stat.mode, digest(bytes)]);
+    const index = untracked.get(name);
+    if (index !== undefined) {
+      assert(additions);
+      additions[index] = {
+        path: name,
+        mode: stat.mode,
+        symlink: stat.isSymbolicLink(),
+        content: typeof bytes === 'string' ? bytes : bytes.toString('base64'),
+      };
+    }
   }
   return entries;
 }
 
-export async function snapshot(cwd: string, captureOnly = false, destination = '') {
-  return digest(JSON.stringify(await sourceFiles(cwd, captureOnly, destination)));
+function captureFiles(
+  files: SourceFile[],
+  cwd: string,
+  destination: string,
+  definitions: string[],
+) {
+  return files.filter(
+    ([name, mode]) =>
+      definitions.includes(resolve(cwd, name)) ||
+      (mode & 0o170000) !== 0o100000 ||
+      !!(mode & 0o111) ||
+      !isCaptureRecord(name, destination),
+  );
+}
+
+export async function snapshot(cwd: string) {
+  return digest(JSON.stringify(await sourceFiles(cwd)));
 }
 
 async function validate(config: Config) {
@@ -221,7 +249,7 @@ function captureDefinitions(config: Config) {
   });
 }
 
-async function captureIdentity(config: Config, source: string) {
+async function captureIdentity(config: Config, source: string, files: SourceFile[]) {
   assert(config.captureDestination);
   const definitions = captureDefinitions(config);
   const ignored = await command(
@@ -260,13 +288,14 @@ async function captureIdentity(config: Config, source: string) {
   return config.captureRequired
     ? source
     : digest(
-        JSON.stringify(await sourceFiles(config.cwd, true, config.captureDestination, definitions)),
+        JSON.stringify(captureFiles(files, config.cwd, config.captureDestination, definitions)),
       );
 }
 
 async function captureDecision(
   config: Config,
   source: string,
+  files: SourceFile[],
   previousSource?: string,
 ): Promise<CaptureDecision> {
   if (!config.capture) {
@@ -275,7 +304,7 @@ async function captureDecision(
       reason: 'Capture is not configured; Issue media requirements must agree',
     };
   }
-  const current = await captureIdentity(config, source);
+  const current = await captureIdentity(config, source, files);
   if (previousSource !== undefined) {
     return {
       outcome: previousSource === current ? 'reused' : 'execute',
@@ -361,8 +390,9 @@ async function verifyHost(
   state: State,
   persist: Persist,
 ): Promise<{ stop?: StopReason; findings?: string }> {
-  state.source = await snapshot(config.cwd);
-  const decision = await captureDecision(config, state.source, state.captureSource);
+  const files = await sourceFiles(config.cwd);
+  state.source = digest(JSON.stringify(files));
+  const decision = await captureDecision(config, state.source, files, state.captureSource);
   if (config.capture && decision.outcome === 'execute') {
     state.captureSource = undefined;
     const output = resolve(
@@ -393,8 +423,9 @@ async function verifyHost(
       return { findings: state.findings };
     }
     await installMedia(config, output);
-    state.source = await snapshot(config.cwd);
-    state.captureSource = await captureIdentity(config, state.source);
+    const installed = await sourceFiles(config.cwd);
+    state.source = digest(JSON.stringify(installed));
+    state.captureSource = await captureIdentity(config, state.source, installed);
     await persist();
   }
   return verifyCheck(config, state, persist, decision);
@@ -428,7 +459,8 @@ async function reviewTarget(
   knowledge: SelectedKnowledge[],
 ) {
   const prefix = resolve(config.runDir, `review-${state.review + 1}`);
-  const files = await sourceFiles(config.cwd);
+  const additions: Addition[] = [];
+  const files = await sourceFiles(config.cwd, additions);
   if (digest(JSON.stringify(files)) !== state.source) {
     return { stop: 'source_changed' as const };
   }
@@ -476,25 +508,6 @@ async function reviewTarget(
   );
   assert(diff.code === 0, 'Cannot record review diff');
   await writeFile(`${prefix}.diff`, diff.stdout, { flag: 'wx' });
-  const untracked = await command(
-    ['git', 'ls-files', '--others', '--exclude-standard', '-z'],
-    config.cwd,
-    '',
-    10000,
-  );
-  assert(untracked.code === 0, 'Cannot record untracked files');
-  const additions = [];
-  for (const path of untracked.stdout.split('\0').filter(Boolean)) {
-    const stat = await lstat(resolve(config.cwd, path));
-    additions.push({
-      path,
-      mode: stat.mode,
-      symlink: stat.isSymbolicLink(),
-      content: stat.isSymbolicLink()
-        ? await readlink(resolve(config.cwd, path))
-        : (await readFile(resolve(config.cwd, path))).toString('base64'),
-    });
-  }
   await writeFile(`${prefix}.additions.json`, JSON.stringify(additions, null, 2), { flag: 'wx' });
   return { prefix, targetId, files };
 }

@@ -1,8 +1,15 @@
 import { afterEach, expect, test } from 'bun:test';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { correctionFixture, events, object, reviewReplySource } from './support/correction.ts';
+import {
+  controller,
+  correctionFixture,
+  events,
+  object,
+  reviewReplySource,
+} from './support/correction.ts';
 import { parseReview } from '../review.ts';
 import type { ReviewItem } from '../review.ts';
 import { prBody } from '../pr-body.ts';
@@ -328,13 +335,36 @@ for (const documentsOnly of [false, true]) {
     git(t.config.cwd, 'add', 'source.txt');
     git(t.config.cwd, 'commit', '-m', 'source base');
     const base = git(t.config.cwd, 'rev-parse', 'HEAD');
+    const binary = Buffer.from([0, 255, 128, 10]);
+    // Git's UTF-8 path order differs from JavaScript sorting for these two names.
+    const binaryPath = '\uE000\tfile\n.bin';
+    const linkPath = '\u{10000}-link';
+    if (!documentsOnly) {
+      await writeFile(join(t.config.cwd, binaryPath), binary);
+      await chmod(join(t.config.cwd, binaryPath), 0o755);
+      await symlink(binaryPath, join(t.config.cwd, linkPath));
+    }
     await reviewer(
       t,
       `const reply=reviewReply('needs_changes','Ready with an unverified concern');
 reply.newItems[0].kind='concern'; reply.newItems[0].required=false;
 reply.documents=[{path:'README.md',role:'current',reason:'Operating instructions for this change'}];`,
     );
-    expect(t.execute().status).toBe(0);
+    // A file can change and be restored while records are written. The saved body
+    // must still describe the bytes that produced the target hash, not a later read.
+    const result = documentsOnly
+      ? t.execute()
+      : await withFileHooks(
+          t,
+          `
+writeFile: async (path,...args)=>{
+ await fs.writeFile(path,...args);
+ const binaryPath=${JSON.stringify(join(t.config.cwd, binaryPath))};
+ if(String(path).endsWith('review-1.target.json')) await fs.writeFile(binaryPath,'transient bytes');
+ if(String(path).endsWith('review-1.additions.json')) await fs.writeFile(binaryPath,Buffer.from([0,255,128,10]));
+}`,
+        );
+    expect(result.status).toBe(0);
     const state = await t.state();
     const target = object(
       JSON.parse(await readFile(join(t.config.runDir, 'review-1.target.json'), 'utf8')),
@@ -364,12 +394,138 @@ reply.documents=[{path:'README.md',role:'current',reason:'Operating instructions
     const additions = events(
       JSON.parse(await readFile(join(t.config.runDir, 'review-1.additions.json'), 'utf8')),
     ).map(object);
-    expect(additions.find((file) => file.path === 'README.md')?.content).toBe(
-      Buffer.from('Current operating instructions').toString('base64'),
-    );
+    const expected = [
+      { path: 'README.md', bytes: Buffer.from('Current operating instructions'), symlink: false },
+      ...(!documentsOnly
+        ? [
+            { path: binaryPath, bytes: binary, symlink: false },
+            { path: linkPath, bytes: Buffer.from(binaryPath), symlink: true },
+          ]
+        : []),
+    ];
+    expect(additions.map((file) => file.path)).toEqual(expected.map((file) => file.path));
+    for (const file of expected) {
+      const mode = (await lstat(join(t.config.cwd, file.path))).mode;
+      expect(additions.find((entry) => entry.path === file.path)).toEqual({
+        path: file.path,
+        mode,
+        symlink: file.symlink,
+        content: file.bytes.toString(file.symlink ? 'utf8' : 'base64'),
+      });
+      expect(events(target.files)).toContainEqual([
+        file.path,
+        mode,
+        createHash('sha256').update(file.bytes).digest('hex'),
+      ]);
+    }
     expect(state.findings).toContain('担当AI: 未計測の実サービス応答時間を報告する');
   });
 }
+
+// Inject filesystem changes at real I/O boundaries in an isolated controller process.
+async function withFileHooks(t: Awaited<ReturnType<typeof trial>>, hooks: string) {
+  const preload = join(t.root, 'file-hooks.js');
+  await writeFile(
+    preload,
+    `
+import {mock} from 'bun:test';
+import * as filesystem from 'node:fs/promises';
+const fs={...filesystem};
+mock.module('node:fs/promises',()=>({...fs,${hooks}}));
+`,
+  );
+  return spawnSync(process.execPath, ['--preload', preload, controller, t.configFile], {
+    encoding: 'utf8',
+    timeout: 20000,
+  });
+}
+
+for (const [change, operation] of Object.entries({
+  addition: "await fs.writeFile(cwd+'/new.txt','new')",
+  content: "await fs.writeFile(cwd+'/source.txt','changed')",
+  mode: "await fs.chmod(cwd+'/source.txt',0o755)",
+  symlink: "await fs.unlink(cwd+'/link'); await fs.symlink('missing',cwd+'/link')",
+})) {
+  test(`review preparation refuses persistent ${change} changes before model launch`, async () => {
+    const t = await trial('normal');
+    await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
+    await symlink('source.txt', join(t.config.cwd, 'link'));
+    const result = await withFileHooks(
+      t,
+      `
+writeFile: async (path,...args)=>{
+ await fs.writeFile(path,...args);
+ if(String(path).endsWith('review-1.diff')) {
+  const cwd=${JSON.stringify(t.config.cwd)};
+  ${operation};
+ }
+}`,
+    );
+    expect(result.status).toBe(1);
+    expect(await t.state()).toMatchObject({ result: 'source_changed', review: 0, repair: 0 });
+    expect(await Bun.file(join(t.config.runDir, 'review-1.additions.json')).exists()).toBe(true);
+    expect(await Bun.file(join(t.config.runDir, 'review-1.prompt')).exists()).toBe(false);
+  });
+}
+
+test('a file disappearing after lstat is not treated as an identified deletion', async () => {
+  const t = await trial('normal');
+  await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
+  const path = join(t.config.cwd, 'vanishing.txt');
+  await writeFile(path, 'must be read');
+  git(t.config.cwd, 'add', 'vanishing.txt');
+  const result = await withFileHooks(
+    t,
+    `
+lstat: async (path,...args)=>{
+ const stat=await fs.lstat(path,...args);
+ if(path===${JSON.stringify(path)}) await fs.unlink(path);
+ return stat;
+}`,
+  );
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('ENOENT');
+  expect(result.stderr).toContain('vanishing.txt');
+  expect(await t.state()).toMatchObject({ review: 0, repair: 0, checks: 0 });
+  expect(await Bun.file(join(t.config.runDir, 'review-1.prompt')).exists()).toBe(false);
+});
+
+test('an enumerated untracked file disappearing stops review without a partial success', async () => {
+  const t = await trial('normal');
+  await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
+  const path = join(t.config.cwd, 'vanishing.txt');
+  await writeFile(path, 'must be recorded');
+  const bin = join(t.root, 'bin');
+  await mkdir(bin);
+  const realGit = Bun.which('git');
+  expect(realGit).not.toBeNull();
+  await writeFile(
+    join(bin, 'git'),
+    `#!/usr/bin/env bun
+import {spawnSync} from 'node:child_process';
+import {unlinkSync} from 'node:fs';
+const args=process.argv.slice(2);
+const result=spawnSync(${JSON.stringify(realGit)},args);
+if(result.status===0 && args.includes('ls-files') && args.includes('--others') && !args.includes('--cached')) {
+ unlinkSync(${JSON.stringify(path)});
+}
+process.stdout.write(result.stdout);
+process.stderr.write(result.stderr);
+process.exit(result.status??1);
+`,
+  );
+  await chmod(join(bin, 'git'), 0o755);
+  const result = spawnSync(process.execPath, [controller, t.configFile], {
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+    encoding: 'utf8',
+    timeout: 20000,
+  });
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('ENOENT');
+  expect(result.stderr).toContain('vanishing.txt');
+  expect(await t.state()).toMatchObject({ review: 0, repair: 0, checks: 1 });
+  expect(await Bun.file(join(t.config.runDir, 'review-1.prompt')).exists()).toBe(false);
+});
 
 test('historical review formats are preserved without conversion or execution', async () => {
   const t = await trial('normal');
