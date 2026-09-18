@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
 import { test, expect } from 'bun:test';
-import { waitForCi, confirmCiTarget } from '../ci.ts';
+import { waitForCi } from '../ci.ts';
+import type { CiResult } from '../ci.ts';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { withInterrupts } from '../process.ts';
 
 const target = {
   cwd: '/tmp',
+  issue: '99',
   repository: 'team/component',
   url: 'https://github.com/team/component/pull/1',
   commit: 'verified',
@@ -16,6 +21,8 @@ const ok = (stdout = '') => ({ code: 0, stdout, stderr: '', timedOut: false, ms:
 const check = (name: string, conclusion = 'SUCCESS') => ({ name, status: 'COMPLETED', conclusion });
 const required = [check('checks'), check('verify')];
 const frame = (checks: unknown[], head = 'verified') => ({
+  url: target.url,
+  body: 'Closes #99',
   headRefOid: head,
   baseRefName: 'main',
   state: 'OPEN',
@@ -48,6 +55,15 @@ const scenarios: {
     status: 'passed',
   },
   {
+    name: 'publication retrieval does not spend the CI waiting budget',
+    frames: [frame([]), frame(required)],
+    elapsed: [650000, 100],
+    budget: 7000,
+    starts: [0, 655000],
+    sleeps: [5000],
+    status: 'passed',
+  },
+  {
     name: 'unrelated success never replaces missing required checks',
     frames: [frame([check('labels')])],
     budget: 12000,
@@ -76,7 +92,7 @@ const scenarios: {
   },
   {
     name: 'same-name failure is not hidden by success',
-    frames: [frame([...required, check('verify', 'FAILURE')])],
+    frames: [frame([...required, check('verify', 'FAILURE')]), frame(required)],
     status: 'failed',
   },
   {
@@ -183,9 +199,47 @@ const scenarios: {
     error: /Interrupted execution/,
   })),
 ];
+function checkObservation(scenario: (typeof scenarios)[number], result: CiResult, views: number) {
+  if (scenario.observed) {
+    expect(result.lastObservation?.status).toBe(scenario.observed);
+  }
+  expect(result.reason.length).toBeGreaterThan(0);
+  expect(result.nextAction).toContain(
+    {
+      passed: 'proceed to human review',
+      failed: 'Inspect failing check logs',
+      timed_out: 'confirm CI manually without resuming',
+      unavailable: 'Check gh authentication',
+      target_changed: 'Reconcile the current PR',
+    }[result.status],
+  );
+  if (scenario.name.startsWith('running at deadline')) {
+    expect(result.lastObservation).toMatchObject({
+      checks: [
+        { name: 'checks', state: 'SUCCESS' },
+        { name: 'checks', state: 'PENDING' },
+      ],
+      missing: ['verify'],
+      running: [{ name: 'checks', state: 'PENDING' }],
+      unmet: ['checks', 'verify'],
+    });
+  }
+  if (scenario.status === 'failed') {
+    expect(result.lastObservation?.failed.length).toBeGreaterThan(0);
+  }
+  if (scenario.status === 'passed') {
+    expect(views).toBe(scenario.frames.length);
+  }
+  if (scenario.name === 'same-name failure is not hidden by success') {
+    expect(views).toBe(1);
+  }
+}
+
 for (const scenario of scenarios) {
   test(`CI execution: ${scenario.name}`, async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ci-test-'));
     let views = 0;
+    let finalReads = 0;
     const budget = scenario.budget ?? 15000;
     let now = 0;
     const starts: number[] = [];
@@ -194,8 +248,13 @@ for (const scenario of scenarios) {
     try {
       const action = () =>
         waitForCi(
-          target,
+          { ...target, dir },
           async (argv, _cwd, _input, timeout) => {
+            if (argv.at(-1) === 'headRefOid,baseRefName,state') {
+              finalReads++;
+              expect(timeout).toBe(660000);
+              return ok(JSON.stringify(frame(required)));
+            }
             expect(argv[2]).toBe('view');
             starts.push(now);
             timeouts.push(timeout);
@@ -209,6 +268,7 @@ for (const scenario of scenarios) {
             }
             return ok(scenario.invalidJson ? '{' : JSON.stringify(current));
           },
+          660000,
           budget,
           {
             now: () => now,
@@ -227,41 +287,19 @@ for (const scenario of scenarios) {
       } else {
         const result = await withInterrupts(action);
         expect(String(result.status)).toBe(scenario.status ?? '');
-        if (scenario.observed) {
-          expect(result.lastObservation?.status).toBe(scenario.observed);
-        }
-        expect(result.timedOut).toBe(now >= budget);
-        expect(result.logs).toHaveLength(views);
-        expect(result.reason.length).toBeGreaterThan(0);
-        expect(result.nextAction).toContain(
-          {
-            passed: 'proceed to human review',
-            failed: 'Inspect failing check logs',
-            timed_out: 'confirm CI manually without resuming',
-            unavailable: 'Check gh authentication',
-            target_changed: 'Reconcile the current PR',
-          }[result.status],
+        expect(result.timedOut).toBe(now >= budget + (scenario.elapsed?.[0] ?? 0));
+        expect(result.logs).toHaveLength(views + finalReads);
+        expect(result.logs[0]).toBe(join(dir, 'pr-publication'));
+        expect(await readFile(join(dir, 'pr.json'), 'utf8')).toBe(
+          scenario.invalidJson ? '{' : JSON.stringify(scenario.frames[0]),
         );
-        if (scenario.name.startsWith('running at deadline')) {
-          expect(result.lastObservation).toMatchObject({
-            checks: [
-              { name: 'checks', state: 'SUCCESS' },
-              { name: 'checks', state: 'PENDING' },
-            ],
-            missing: ['verify'],
-            running: [{ name: 'checks', state: 'PENDING' }],
-            unmet: ['checks', 'verify'],
-          });
-        }
-        if (scenario.status === 'failed') {
-          expect(result.lastObservation?.failed.length).toBeGreaterThan(0);
-        }
-        if (scenario.status === 'passed') {
-          expect(views).toBe(scenario.frames.length);
-        }
+        checkObservation(scenario, result, views);
       }
       expect(starts[0]).toBe(0);
-      expect(timeouts).toEqual(starts.map((start) => budget - start));
+      expect(timeouts).toEqual([
+        660000,
+        ...starts.slice(1).map((start) => budget + (scenario.elapsed?.[0] ?? 0) - start),
+      ]);
       if (scenario.starts) {
         expect(starts).toEqual(scenario.starts);
       }
@@ -270,30 +308,37 @@ for (const scenario of scenarios) {
       }
     } finally {
       await withInterrupts(async () => {});
+      await rm(dir, { recursive: true, force: true });
     }
   });
 }
 
-// Head/base/OPEN and malformed data share the polling validator above; development
-// tests exercise its final-read wiring. These cover final retrieval failures.
+// Final-read transport failures must override success without erasing its observation.
 for (const failure of ['timeout', 'throws'] as const) {
   test(`final CI target read: ${failure}`, async () => {
-    const passed = await waitForCi(target, async () => ok(JSON.stringify(frame(required))), 1000);
-    const result = await confirmCiTarget(
-      target,
-      passed,
-      async () => {
-        if (failure === 'throws') {
-          throw Error('spawn failed');
-        }
-        return { ...ok(JSON.stringify(frame(required))), timedOut: true };
-      },
-      1000,
-    );
-    expect(result.status).toBe('unavailable');
-    expect(result.reason).toContain(failure === 'timeout' ? 'timedOut true' : 'spawn failed');
-    expect(result.lastObservation).toEqual(passed.lastObservation);
-    expect(result.logs).toContain('/tmp/ci-final-target');
-    expect(result.nextAction).toContain('Check gh');
+    const dir = await mkdtemp(join(tmpdir(), 'ci-final-test-'));
+    try {
+      const result = await waitForCi(
+        { ...target, dir },
+        async (argv) => {
+          if (argv.at(-1) !== 'headRefOid,baseRefName,state') {
+            return ok(JSON.stringify(frame(required)));
+          }
+          if (failure === 'throws') {
+            throw Error('spawn failed');
+          }
+          return { ...ok(JSON.stringify(frame(required))), timedOut: true };
+        },
+        660000,
+        1000,
+      );
+      expect(result.status).toBe('unavailable');
+      expect(result.reason).toContain(failure === 'timeout' ? 'timedOut true' : 'spawn failed');
+      expect(result.lastObservation?.status).toBe('passed');
+      expect(result.logs).toEqual([join(dir, 'pr-publication'), join(dir, 'ci-final-target')]);
+      expect(result.nextAction).toContain('Check gh');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 }

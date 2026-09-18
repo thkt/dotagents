@@ -141,35 +141,7 @@ async function readTarget(
   }
 }
 
-export async function confirmCiPublication(
-  target: Target,
-  issue: string,
-  execute: typeof command,
-  timeout: number,
-): Promise<CiResult | null> {
-  const log = join(target.dir, 'pr-publication');
-  const view = await readTarget(
-    target,
-    execute,
-    timeout,
-    log,
-    'url,headRefOid,baseRefName,state,body',
-    issue,
-  );
-  if (view.status === 'observed') {
-    return null;
-  }
-  return {
-    status: view.status,
-    timedOut: false,
-    lastObservation: null,
-    reason: view.reason,
-    nextAction: actions[view.status],
-    logs: [log],
-  };
-}
-
-export async function confirmCiTarget(
+async function confirmCiTarget(
   target: Target,
   result: CiResult,
   execute: typeof command,
@@ -182,64 +154,75 @@ export async function confirmCiTarget(
 }
 
 export async function waitForCi(
-  target: Target,
+  target: Target & { issue: string },
   execute: typeof command,
+  publicationTimeout: number,
   budgetMs: number,
   clock = { now: () => performance.now(), sleep: (ms: number) => setTimeout(ms) },
 ): Promise<CiResult> {
   assert(target.ciChecks.length > 0, 'Expected CI checks required');
-  const deadline = clock.now() + budgetMs;
+  const log = join(target.dir, 'pr-publication');
   const result: CiResult = {
     status: 'timed_out',
     timedOut: false,
     lastObservation: null,
     reason: '',
     nextAction: actions.timed_out,
-    logs: [],
+    logs: [log],
   };
-  while (clock.now() < deadline) {
+  const initial = await readTarget(
+    target,
+    execute,
+    publicationTimeout,
+    log,
+    'url,headRefOid,baseRefName,state,body,statusCheckRollup',
+    target.issue,
+  );
+  if (initial.status !== 'observed') {
+    return finish(result, initial.status, initial.reason);
+  }
+  const deadline = clock.now() + budgetMs;
+  const observed = await pollCi(target, execute, deadline, clock, initial, result);
+  return confirmCiTarget(target, observed, execute, publicationTimeout);
+}
+
+async function pollCi(
+  target: Target,
+  execute: typeof command,
+  deadline: number,
+  clock: { now: () => number; sleep: (ms: number) => Promise<unknown> },
+  initial: Awaited<ReturnType<typeof readTarget>>,
+  result: CiResult,
+): Promise<CiResult> {
+  let view = initial;
+  while (true) {
     assertRunning();
-    const log = join(target.dir, `ci-registration-${result.logs.length + 1}`);
+    result.timedOut = clock.now() >= deadline;
+    if (view.status !== 'observed') {
+      return finish(result, view.status, view.reason);
+    }
+    const classified = classifyCi(view.pr, target.ciChecks, result, deadline, clock.now);
+    if (classified) {
+      return classified;
+    }
+    const remaining = deadline - clock.now();
+    if (remaining <= 0) {
+      break;
+    }
+    await clock.sleep(Math.min(5000, remaining));
+    assertRunning();
+    if (clock.now() >= deadline) {
+      break;
+    }
+    const log = join(target.dir, `ci-registration-${result.logs.length}`);
     result.logs.push(log);
-    const view = await readTarget(
+    view = await readTarget(
       target,
       execute,
       Math.max(1, deadline - clock.now()),
       log,
       'headRefOid,baseRefName,state,statusCheckRollup',
     );
-    result.timedOut = clock.now() >= deadline;
-    if (view.status !== 'observed') {
-      return finish(result, view.status, view.reason);
-    }
-    try {
-      assert(Array.isArray(view.pr.statusCheckRollup), 'Missing CI registration status');
-      result.lastObservation = checkStatus(view.pr.statusCheckRollup, target.ciChecks);
-    } catch (error) {
-      return finish(result, 'unavailable', error instanceof Error ? error.message : String(error));
-    }
-    const remaining = deadline - clock.now();
-    const status = result.lastObservation.status;
-    result.timedOut = remaining <= 0;
-    // A failure observed at the deadline must not become a waiting result.
-    if (status === 'failed') {
-      return finish(
-        result,
-        'failed',
-        'Registered checks failed or required checks did not conclude SUCCESS.',
-      );
-    }
-    if (remaining <= 0) {
-      break;
-    }
-    if (status === 'passed') {
-      return finish(
-        result,
-        'passed',
-        'All required checks succeeded and no registered check is failing or pending.',
-      );
-    }
-    await clock.sleep(Math.min(5000, remaining));
   }
   assertRunning();
   result.timedOut = true;
@@ -248,4 +231,36 @@ export async function waitForCi(
     'timed_out',
     `CI wait budget exhausted; last observed state: ${result.lastObservation?.status ?? 'unobserved'}.`,
   );
+}
+
+function classifyCi(
+  pr: Record<string, unknown>,
+  required: string[],
+  result: CiResult,
+  deadline: number,
+  now: () => number,
+): CiResult | null {
+  try {
+    assert(Array.isArray(pr.statusCheckRollup), 'Missing CI registration status');
+    result.lastObservation = checkStatus(pr.statusCheckRollup, required);
+  } catch (error) {
+    return finish(result, 'unavailable', error instanceof Error ? error.message : String(error));
+  }
+  result.timedOut = now() >= deadline;
+  // A failure observed at the deadline must not become a waiting result.
+  if (result.lastObservation.status === 'failed') {
+    return finish(
+      result,
+      'failed',
+      'Registered checks failed or required checks did not conclude SUCCESS.',
+    );
+  }
+  if (!result.timedOut && result.lastObservation.status === 'passed') {
+    return finish(
+      result,
+      'passed',
+      'All required checks succeeded and no registered check is failing or pending.',
+    );
+  }
+  return null;
 }
