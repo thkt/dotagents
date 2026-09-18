@@ -16,6 +16,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { develop } from '../development.ts';
+import { repairInstructions } from '../repair.ts';
 import { command, interruptionMessage, withInterrupts } from '../process.ts';
 import type { Config, State } from '../input.ts';
 import { isRecord } from '../values.ts';
@@ -317,14 +318,10 @@ async function implementReply(
   prefix?: string,
 ) {
   if (mode === 'success') {
+    // Transport only; instruction meaning is assessed by independent review.
+    expect(input).toContain(repairInstructions({ destination: 'review/media' }));
     for (const instruction of [
-      'targeted checks needed to prepare it for host verification',
-      'without pausing for approval of routine choices within scope',
-      'reuse sufficient existing verification',
       'Do not change the Issue or weaken acceptance criteria',
-      'Explain any lost detection conditions and the remaining verification',
-      'Compare document facts, quantities, conditions, scope, authority, unverified claims and references with original sources',
-      'Include changed documents in the existing independent review',
       'Do not commit, push or publish',
       'Leave configured full verification to the host after your changes',
       'do not launch browsers or servers in your sandbox',

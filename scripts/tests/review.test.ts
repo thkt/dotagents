@@ -32,21 +32,116 @@ console.log(JSON.stringify(reply));`,
   await writeFile(t.configFile, JSON.stringify(t.config));
 }
 
-// Each mutation isolates an external response error with an otherwise valid response/check.
-for (const [name, mutation, reason] of [
-  ['target', "reply.targetId='different-source'", 'target mismatch'],
-  ['non-string enum', "reply.newItems[0].kind=['defect']", 'Missing or invalid'],
-  ['required field', 'delete reply.assessments.tests', 'Missing or invalid'],
-  ['unsolicited status', "reply.status='accepted'", 'Missing or invalid'],
-  ['wrong attempt', "reply.newItems[0].id='R2-docs'", 'Invalid new finding'],
-  ['empty ID suffix', "reply.newItems[0].id='R1-'", 'Invalid new finding'],
-  ['unsolicited disposition', "reply.newItems[0].disposition='open'", 'Missing or invalid'],
-  ['duplicate ID', 'reply.newItems.push(reply.newItems[0])', 'Duplicate finding'],
+// Pure response validation needs no repository or external command. Each case
+// starts with a valid control, then changes only the rejected condition.
+function reviewResponse() {
+  return {
+    targetId: 'target-1',
+    findings: 'Setup instructions are missing',
+    assessments: {
+      code: 'Source behavior inspected',
+      requirements: 'Setup instructions required',
+      tests: 'Existing source check retained; setup instructions checked independently',
+      documentation: 'README absent',
+    },
+    updates: [] as Record<string, unknown>[],
+    newItems: [
+      {
+        id: 'R1-docs',
+        kind: 'defect',
+        area: 'documentation',
+        required: true,
+        location: { path: null, line: null },
+        condition: 'Reader needs setup instructions',
+        impact: 'Cannot operate the change',
+        evidence: 'Required README is absent',
+        action: 'Add current instructions',
+        reason: 'Missing documentation confirmed',
+      },
+    ] as Record<string, unknown>[],
+    documents: [],
+    handoff: [],
+  };
+}
+
+const invalidInitial: [string, (reply: ReturnType<typeof reviewResponse>) => void, string][] = [
   [
-    'unsolicited introduction',
-    'reply.newItems[0].introducedIn=reviewContext.targetId',
+    'target',
+    (reply) => {
+      reply.targetId = 'different-source';
+    },
+    'target mismatch',
+  ],
+  [
+    'non-string enum',
+    (reply) => {
+      object(reply.newItems[0]).kind = ['defect'];
+    },
     'Missing or invalid',
   ],
+  [
+    'required field',
+    (reply) => {
+      delete object(reply.assessments).tests;
+    },
+    'Missing or invalid',
+  ],
+  [
+    'unsolicited status',
+    (reply) => {
+      object(reply).status = 'accepted';
+    },
+    'Missing or invalid',
+  ],
+  [
+    'wrong attempt',
+    (reply) => {
+      object(reply.newItems[0]).id = 'R2-docs';
+    },
+    'Invalid new finding',
+  ],
+  [
+    'empty ID suffix',
+    (reply) => {
+      object(reply.newItems[0]).id = 'R1-';
+    },
+    'Invalid new finding',
+  ],
+  [
+    'unsolicited disposition',
+    (reply) => {
+      object(reply.newItems[0]).disposition = 'open';
+    },
+    'Missing or invalid',
+  ],
+  [
+    'duplicate ID',
+    (reply) => {
+      reply.newItems.push(object(reply.newItems[0]));
+    },
+    'Duplicate finding',
+  ],
+  [
+    'unsolicited introduction',
+    (reply) => {
+      object(reply.newItems[0]).introducedIn = reply.targetId;
+    },
+    'Missing or invalid',
+  ],
+];
+for (const [name, mutate, reason] of invalidInitial) {
+  test(`parseReview rejects ${name}`, () => {
+    const reply = reviewResponse();
+    const control = parseReview(JSON.stringify(reply), 'target-1', 1);
+    expect(control.status).toBe('needs_changes');
+    mutate(reply);
+    expect(() => parseReview(JSON.stringify(reply), 'target-1', 1)).toThrow(reason);
+  });
+}
+
+// Retain orchestration coverage for parser rejection and file-version binding.
+for (const [name, mutation, reason] of [
+  ['target', "reply.targetId='different-source'", 'target mismatch'],
   [
     'document outside target',
     "reply.documents=[{path:'missing.md',role:'current',reason:'Policy'}]",
@@ -66,13 +161,26 @@ for (const [name, mutation, reason] of [
     expect(state.result).toBe('invalid_review');
     expect(state.findings).toContain(reason);
     expect(state.reviewHistory).toEqual([]);
-    expect(state.repair).toBe(0);
-    expect(await Bun.file(join(t.config.runDir, 'review-1.stdout')).exists()).toBe(true);
+    expect([state.repair, state.review]).toEqual([0, 1]);
+    const raw = object(
+      JSON.parse(await readFile(join(t.config.runDir, 'review-1.stdout'), 'utf8')),
+    );
+    if (name === 'target') {
+      expect(raw.targetId).toBe('different-source');
+    }
+    if (name === 'document outside target') {
+      expect(raw.documents).toEqual([{ path: 'missing.md', role: 'current', reason: 'Policy' }]);
+    }
     const target = object(
       JSON.parse(await readFile(join(t.config.runDir, 'review-1.target.json'), 'utf8')),
     );
     expect(target.source).toBe(state.source);
+    if (name === 'document outside target') {
+      expect(raw.targetId).toBe(target.targetId);
+    }
     expect(await Bun.file(join(t.config.runDir, 'review-1.json')).exists()).toBe(false);
+    expect(await Bun.file(join(t.config.runDir, 'repair-1.prompt')).exists()).toBe(false);
+    expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('correct');
   });
 }
 
@@ -120,44 +228,105 @@ if(reviewContext.previous) {
   });
 }
 
-// Reject each distinct way a delta could silently lose or overwrite historical findings.
-for (const [name, mutation, reason] of [
-  ['omitted', 'reply.updates=[]', 'Prior finding omitted'],
-  ['duplicate', 'reply.updates.push(reply.updates[0])', 'Duplicate finding update ID'],
-  ['unknown', "reply.updates[0].id='R1-unknown'", 'Unknown finding update ID'],
-  ['rewritten', 'reply.updates[0].required=false', 'Missing or invalid'],
-  ['empty reason', "reply.updates[0].reason=' '", 'Missing or invalid'],
+// Reject deltas that could silently lose or overwrite historical findings.
+const invalidUpdates: [string, (reply: ReturnType<typeof reviewResponse>) => void, string][] = [
+  [
+    'omitted',
+    (reply) => {
+      reply.updates = [];
+    },
+    'Prior finding omitted',
+  ],
+  [
+    'duplicate',
+    (reply) => {
+      reply.updates.push(object(reply.updates[0]));
+    },
+    'Duplicate finding update ID',
+  ],
+  [
+    'unknown',
+    (reply) => {
+      object(reply.updates[0]).id = 'R1-unknown';
+    },
+    'Unknown finding update ID',
+  ],
+  [
+    'rewritten',
+    (reply) => {
+      object(reply.updates[0]).required = false;
+    },
+    'Missing or invalid',
+  ],
+  [
+    'empty reason',
+    (reply) => {
+      object(reply.updates[0]).reason = ' ';
+    },
+    'Missing or invalid',
+  ],
   [
     'reintroduced',
-    'const {introducedIn,disposition,...prior}=reviewContext.previous.items[0]; reply.newItems=[prior]',
+    (reply) => {
+      reply.newItems = reviewResponse().newItems;
+    },
     'Duplicate finding ID',
   ],
-] as const) {
-  test(`re-evaluation rejects ${name} judgment and retains the last complete review`, async () => {
-    const t = await trial('docs');
-    await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
-    await reviewer(
-      t,
-      `
-writeFileSync(${JSON.stringify(join(t.root, 'reviewed'))},'1');
-const reply=reviewReply(reviewContext.previous?'accepted':'needs_changes','Review summary');
-if(reviewContext.previous) { ${mutation}; }`,
-    );
-    expect(t.execute().status).toBe(1);
-    const state = await t.state();
-    expect(state.result).toBe('invalid_review');
-    expect(state.findings).toContain(reason);
-    expect(events(state.reviewHistory)).toHaveLength(1);
-    const record = object(
-      JSON.parse(await readFile(join(t.config.runDir, 'review-1.json'), 'utf8')),
-    );
-    expect(events(state.reviewHistory)[0]).toEqual(record.review);
-    expect([state.repair, state.review]).toEqual([1, 2]);
-    expect(await Bun.file(join(t.config.runDir, 'review-2.stdout')).exists()).toBe(true);
-    expect(await Bun.file(join(t.config.runDir, 'review-2.target.json')).exists()).toBe(true);
-    expect(await Bun.file(join(t.config.runDir, 'review-2.json')).exists()).toBe(false);
+];
+for (const [name, mutate, reason] of invalidUpdates) {
+  test(`parseReview rejects ${name} judgment`, () => {
+    const previous = parseReview(JSON.stringify(reviewResponse()), 'target-1', 1);
+    const saved = structuredClone(previous);
+    const reply = {
+      ...reviewResponse(),
+      targetId: 'target-2',
+      newItems: [],
+      updates: [
+        { id: 'R1-docs', disposition: 'fixed', reason: 'README contains setup instructions' },
+      ],
+    };
+    expect(parseReview(JSON.stringify(reply), 'target-2', 2, previous).status).toBe('accepted');
+    mutate(reply);
+    expect(() => parseReview(JSON.stringify(reply), 'target-2', 2, previous)).toThrow(reason);
+    expect(previous).toEqual(saved);
   });
 }
+
+test('invalid re-evaluation retains the last complete review and prevents another repair', async () => {
+  const t = await trial('docs');
+  await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
+  await reviewer(
+    t,
+    `
+writeFileSync(${JSON.stringify(join(t.root, 'reviewed'))},'1');
+const reply=reviewReply(reviewContext.previous?'accepted':'needs_changes','Review summary');
+if(reviewContext.previous) { reply.updates=[]; }`,
+  );
+  expect(t.execute().status).toBe(1);
+  const state = await t.state();
+  expect(state.result).toBe('invalid_review');
+  expect(state.findings).toContain('Prior finding omitted');
+  const record = object(JSON.parse(await readFile(join(t.config.runDir, 'review-1.json'), 'utf8')));
+  expect(state.reviewHistory).toEqual([record.review]);
+  const first = object(events(object(record.review).items)[0]);
+  const target = object(
+    JSON.parse(await readFile(join(t.config.runDir, 'review-1.target.json'), 'utf8')),
+  );
+  expect(first.introducedIn).toBe(target.targetId);
+  expect(first.disposition).toBe('open');
+  expect([state.repair, state.review]).toEqual([1, 2]);
+  const raw = object(JSON.parse(await readFile(join(t.config.runDir, 'review-2.stdout'), 'utf8')));
+  expect(raw.updates).toEqual([]);
+  const latestTarget = object(
+    JSON.parse(await readFile(join(t.config.runDir, 'review-2.target.json'), 'utf8')),
+  );
+  expect(raw.targetId).toBe(latestTarget.targetId);
+  expect(latestTarget.source).toBe(state.source);
+  expect(await Bun.file(join(t.config.runDir, 'review-2.json')).exists()).toBe(false);
+  expect(await Bun.file(join(t.config.runDir, 'repair-2.prompt')).exists()).toBe(false);
+  expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('correct');
+  expect(await readFile(join(t.config.cwd, 'README.md'), 'utf8')).toBe('current');
+});
 
 test('host combines reordered judgments and new findings, reopens resolved findings and blocks PR text', () => {
   const finding: ReviewItem = {
@@ -181,7 +350,8 @@ test('host combines reordered judgments and new findings, reopens resolved findi
     assessments: {
       code: 'Bounds inspected',
       requirements: 'Pagination contract',
-      tests: 'Nonzero offset missing',
+      tests:
+        'Retained nonzero-offset regression: zero-offset cases miss an incorrect slice end. Consolidated duplicate zero-offset cases; no distinct detection lost. Direct checks avoid Git setup; live execution remains unverified.',
       documentation: 'README inspected',
     },
     updates: [],
@@ -279,6 +449,7 @@ test('host combines reordered judgments and new findings, reopens resolved findi
     ...input,
     review: parseReview(JSON.stringify({ ...response, newItems: [] }), 'target-1', 1),
   });
+  expect(body).toContain(response.assessments.tests);
   expect(body).not.toContain('## 指摘への対応');
   expect(body).toContain('## 残作業と担当');
   expect(body).toContain('CLI: PRを公開し、同じheadのCI（checks）');
