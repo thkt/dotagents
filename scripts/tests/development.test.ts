@@ -283,7 +283,7 @@ const publicationChanges: Record<string, Record<string, string>> = {
   ci_publication_base_target_changed: { baseRefName: 'other-base' },
   ci_publication_state_target_changed: { state: 'CLOSED' },
   ci_publication_url_target_changed: { url: 'https://github.com/other/repo/pull/100' },
-  ci_publication_body_target_changed: { body: 'Different Issue' },
+  ci_publication_body_target_changed: { body: 'Closes #990' },
 };
 
 function publicationView(mode: string, stdout: string) {
@@ -391,6 +391,7 @@ async function checkCiEvidence(mode: string, dir: string, prReads: string[]) {
     ]);
   }
   if (mode.startsWith('ci_publication_')) {
+    expect(prReads).toEqual(['url,headRefOid,baseRefName,state,body,statusCheckRollup']);
     await checkPublicationEvidence(mode, dir, saved.ciDetails);
     return;
   }

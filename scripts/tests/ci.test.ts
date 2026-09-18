@@ -41,6 +41,8 @@ const scenarios: {
   error?: RegExp;
   interrupt?: 'read' | 'sleep';
   budget?: number;
+  finalFailure?: 'timeout' | 'throws';
+  reason?: string;
 }[] = [
   {
     name: 'waits for required registration and execution',
@@ -192,6 +194,14 @@ const scenarios: {
     invalidJson: true,
     status: 'unavailable',
   },
+  ...(['timeout', 'throws'] as const).map((finalFailure) => ({
+    name: `final target read ${finalFailure} overrides success`,
+    frames: [frame(required)],
+    finalFailure,
+    status: 'unavailable',
+    observed: 'passed',
+    reason: finalFailure === 'timeout' ? 'timedOut true' : 'spawn failed',
+  })),
   ...(['read', 'sleep'] as const).map((interrupt) => ({
     name: `interrupted during ${interrupt}`,
     frames: [frame([])],
@@ -204,6 +214,9 @@ function checkObservation(scenario: (typeof scenarios)[number], result: CiResult
     expect(result.lastObservation?.status).toBe(scenario.observed);
   }
   expect(result.reason.length).toBeGreaterThan(0);
+  if (scenario.reason) {
+    expect(result.reason).toContain(scenario.reason);
+  }
   expect(result.nextAction).toContain(
     {
       passed: 'proceed to human review',
@@ -235,6 +248,13 @@ function checkObservation(scenario: (typeof scenarios)[number], result: CiResult
   }
 }
 
+function finalResponse(failure?: 'timeout' | 'throws') {
+  if (failure === 'throws') {
+    throw Error('spawn failed');
+  }
+  return { ...ok(JSON.stringify(frame(required))), timedOut: failure === 'timeout' };
+}
+
 for (const scenario of scenarios) {
   test(`CI execution: ${scenario.name}`, async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ci-test-'));
@@ -253,7 +273,7 @@ for (const scenario of scenarios) {
             if (argv.at(-1) === 'headRefOid,baseRefName,state') {
               finalReads++;
               expect(timeout).toBe(660000);
-              return ok(JSON.stringify(frame(required)));
+              return finalResponse(scenario.finalFailure);
             }
             expect(argv[2]).toBe('view');
             starts.push(now);
@@ -290,6 +310,9 @@ for (const scenario of scenarios) {
         expect(result.timedOut).toBe(now >= budget + (scenario.elapsed?.[0] ?? 0));
         expect(result.logs).toHaveLength(views + finalReads);
         expect(result.logs[0]).toBe(join(dir, 'pr-publication'));
+        if (finalReads) {
+          expect(result.logs.at(-1)).toBe(join(dir, 'ci-final-target'));
+        }
         expect(await readFile(join(dir, 'pr.json'), 'utf8')).toBe(
           scenario.invalidJson ? '{' : JSON.stringify(scenario.frames[0]),
         );
@@ -308,36 +331,6 @@ for (const scenario of scenarios) {
       }
     } finally {
       await withInterrupts(async () => {});
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-}
-
-// Final-read transport failures must override success without erasing its observation.
-for (const failure of ['timeout', 'throws'] as const) {
-  test(`final CI target read: ${failure}`, async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'ci-final-test-'));
-    try {
-      const result = await waitForCi(
-        { ...target, dir },
-        async (argv) => {
-          if (argv.at(-1) !== 'headRefOid,baseRefName,state') {
-            return ok(JSON.stringify(frame(required)));
-          }
-          if (failure === 'throws') {
-            throw Error('spawn failed');
-          }
-          return { ...ok(JSON.stringify(frame(required))), timedOut: true };
-        },
-        660000,
-        1000,
-      );
-      expect(result.status).toBe('unavailable');
-      expect(result.reason).toContain(failure === 'timeout' ? 'timedOut true' : 'spawn failed');
-      expect(result.lastObservation?.status).toBe('passed');
-      expect(result.logs).toEqual([join(dir, 'pr-publication'), join(dir, 'ci-final-target')]);
-      expect(result.nextAction).toContain('Check gh');
-    } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
