@@ -53,8 +53,6 @@ const stopReasons = {
   ci_publication_url_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
   ci_publication_body_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
   ci_failure: /PR created but CI is not confirmed \(failed\)/,
-  ci_unavailable: /PR created but CI is not confirmed \(unavailable\)/,
-  ci_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
   ci_final_unavailable: /PR created but CI is not confirmed \(unavailable\)/,
   ci_final_target_changed: /PR created but CI is not confirmed \(target_changed\)/,
   retired_writing: /writing is no longer supported; remove writing from .dotagents.json/,
@@ -285,7 +283,7 @@ const publicationChanges: Record<string, Record<string, string>> = {
   ci_publication_base_target_changed: { baseRefName: 'other-base' },
   ci_publication_state_target_changed: { state: 'CLOSED' },
   ci_publication_url_target_changed: { url: 'https://github.com/other/repo/pull/100' },
-  ci_publication_body_target_changed: { body: 'Different Issue' },
+  ci_publication_body_target_changed: { body: 'Closes #990' },
 };
 
 function publicationView(mode: string, stdout: string) {
@@ -304,29 +302,29 @@ async function prView(
   cwd: string,
   settings: typeof targetConfig,
   timeout: number | null,
+  attached: boolean,
 ) {
-  const polling = argv.at(-1)?.includes('statusCheckRollup');
-  if (!polling) {
-    expect(timeout).toBe(660000);
-  }
-  const finalRead = argv.at(-1) === 'headRefOid,baseRefName,state';
   const publication = argv.at(-1)?.includes('body');
-  if ((mode === 'ci_unavailable' && polling) || (mode === 'ci_final_unavailable' && finalRead)) {
+  expect(timeout).toBe(660000);
+  const finalRead = argv.at(-1) === 'headRefOid,baseRefName,state';
+  if (mode === 'ci_final_unavailable' && finalRead) {
     return { ...ok('raw API response'), code: 1, stderr: 'API unavailable in fixture' };
   }
-  const changed =
-    (mode === 'ci_target_changed' && polling) || (mode === 'ci_final_target_changed' && finalRead);
+  const changed = mode === 'ci_final_target_changed' && finalRead;
   const stdout = JSON.stringify({
     url: `https://github.com/${settings.repository}/pull/100`,
     headRefOid: changed ? 'another-commit' : await git(cwd, 'rev-parse', 'HEAD'),
     baseRefName: settings.baseBranch,
     state: 'OPEN',
-    body: 'Closes #99',
+    body: attached ? 'Closes #99\nAttached media' : 'Closes #99',
     statusCheckRollup: [
       {
         name: 'checks',
         status: 'COMPLETED',
-        conclusion: mode === 'ci_failure' ? 'FAILURE' : 'SUCCESS',
+        conclusion:
+          (mode === 'ci_failure' && publication) || (mode === 'success' && !attached)
+            ? 'FAILURE'
+            : 'SUCCESS',
       },
     ],
     ...(publication ? publicationChanges[mode] : {}),
@@ -364,7 +362,7 @@ async function checkPublicationEvidence(
   }
 }
 
-async function checkCiEvidence(mode: string, dir: string) {
+async function checkCiEvidence(mode: string, dir: string, prReads: string[]) {
   if (!mode.startsWith('ci_')) {
     return;
   }
@@ -383,14 +381,21 @@ async function checkCiEvidence(mode: string, dir: string) {
   });
   expect(saved.commit).toBe(await git(join(dir, 'checkout'), 'rev-parse', 'HEAD'));
   expect(saved.nextAction).toContain(ciAction(mode));
+  if (mode === 'ci_failure') {
+    expect(prReads).toEqual([
+      'url,headRefOid,baseRefName,state,body,statusCheckRollup',
+      'headRefOid,baseRefName,state',
+    ]);
+  }
   if (mode.startsWith('ci_publication_')) {
+    expect(prReads).toEqual(['url,headRefOid,baseRefName,state,body,statusCheckRollup']);
     await checkPublicationEvidence(mode, dir, saved.ciDetails);
     return;
   }
   const published: unknown = JSON.parse(await readFile(join(dir, 'pr.json'), 'utf8'));
   assert(isRecord(published));
   expect(published.headRefOid).toBe(saved.commit);
-  const log = join(dir, mode.startsWith('ci_final_') ? 'ci-final-target' : 'ci-registration-1');
+  const log = join(dir, mode.startsWith('ci_final_') ? 'ci-final-target' : 'pr-publication');
   expect(saved.ciDetails.logs).toContain(log);
   expect(await readFile(`${log}.stdout`, 'utf8')).toContain(
     mode.endsWith('unavailable') ? 'raw API response' : 'headRefOid',
@@ -429,8 +434,6 @@ for (const mode of [
   'ci_publication_url_target_changed',
   'ci_publication_body_target_changed',
   'ci_failure',
-  'ci_unavailable',
-  'ci_target_changed',
   'ci_final_unavailable',
   'ci_final_target_changed',
   'retired_writing',
@@ -555,6 +558,8 @@ for (const mode of [
       reviews = 0,
       pushes = 0,
       publications = 0;
+    let attached = false;
+    const prReads: string[] = [];
     async function github(argv: string[], cwd: string, timeout: number | null) {
       const targetReply = githubTarget(argv, settings);
       if (targetReply !== undefined) {
@@ -568,9 +573,11 @@ for (const mode of [
               : issue,
           );
         case 'pr/edit':
+          attached = true;
           return ok();
         case 'pr/view':
-          return prView(mode, argv, cwd, settings, timeout);
+          prReads.push(argv.at(-1) ?? '');
+          return prView(mode, argv, cwd, settings, timeout, attached);
         default:
           throw Error('Unexpected gh call');
       }
@@ -721,6 +728,16 @@ for (const mode of [
         const result = await develop(args, io);
         assert('ci' in result);
         expect(result.ci).toBe('passed');
+        expect(prReads).toEqual([
+          'url,headRefOid,baseRefName,state,body,statusCheckRollup',
+          'headRefOid,baseRefName,state',
+        ]);
+        expect(result.ciDetails.logs).toEqual([
+          join(dir, 'pr-publication'),
+          join(dir, 'ci-final-target'),
+        ]);
+        expect(await readFile(join(dir, 'pr.json'), 'utf8')).toContain('Attached media');
+        expect(existsSync(join(dir, 'ci-registration-1.stdout'))).toBe(false);
         expect(JSON.parse(await readFile(join(dir, 'implementation.json'), 'utf8'))).toEqual({
           code: 0,
           timedOut: false,
@@ -790,7 +807,7 @@ for (const mode of [
         );
         expect(pushes).toBe(mode.startsWith('ci_') || mode === 'attachment_actor_changed' ? 1 : 0);
         await checkStop(mode, dir, reviews, implementations);
-        await checkCiEvidence(mode, dir);
+        await checkCiEvidence(mode, dir, prReads);
       }
       expect(await git(repo, 'rev-parse', 'HEAD')).toBe(original);
       expect(await readFile(join(repo, 'result.txt'), 'utf8')).toBe('old');

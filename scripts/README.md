@@ -29,9 +29,11 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to
 
 `--no-publish` は独立評価までで止め、commit、push、PR作成を行いません。push権限の確認も不要です。通常実行は検証済み対象を再照合し、commit、acceptedな評価からのPR本文生成、ユーザー認証と権限の再確認、gh主体の資格情報を明示したpush、ユーザー認証によるPR作成へ進みます。pushにはコマンド内だけで定義するHTTPSの公開先を使い、GitのURL書き換え後も対象が一致することを確認します。SSHへの切り替えや別repoへの書き換えは拒否します。`push.followTags`の設定にかかわらず、タグを同時に公開しません。設定した保存先から生成媒体の変更を添付します。
 
-`ciChecks`に指定した全checkの登録とSUCCESSを、9分のCI待機時間内で待ちます。同時にPRのhead、base、OPEN状態を照合します。必要なcheckのSKIPPEDやNEUTRALは成功と扱わず、同名checkが複数ある場合は全件の成功を求めます。他の登録済みcheckに失敗や保留がある場合も完了にしません。各取得時の応答と診断は`ci-registration-N.stdout`および`.stderr`へ、最後の対象照合は`ci-final-target.stdout`および`.stderr`へ保存します。公開直後の取得ログは`pr-publication.stdout`および`.stderr`へ残します。CLIは最新CIとPRのhead・base・OPEN状態を照合し、表示・再生・配置の確認は `rendered_media_check` として担当AIへ渡します。CI未確認時もPR URL、取得済みの公開結果、取得ログを保持して非zeroコードで終了します。担当AIは公開本文と根拠、添付後の実画面を照合し、人が要求・権限の変更、レビュー、承認、マージを判断します。
+`ciChecks`に指定した全checkの登録とSUCCESSを待ち、取得ごとにPRのhead・base・OPEN状態を照合します。必要なcheckのSKIPPEDやNEUTRALは成功と扱わず、同名checkが複数ある場合は全件の成功を求めます。他の登録済みcheckに失敗や保留がある場合も完了にしません。
 
-CI待機の初回取得は直ちに行い、未登録・実行中の応答後は原則5秒待って再取得します。残り時間が5秒未満ならその時間だけ待ち、期限後は再取得しません。各取得コマンドも残り時間で制限します。従来の1秒待機より状態変化の検知が数秒遅くなり得るため、即時の確認が必要ならPR上のcheckを確認してください。取得と同じ状態のログの繰り返しを抑えるための間隔であり、実際のGitHub負荷の削減量は未測定です。
+最後の公開操作（媒体があれば添付）の後に、URL・head・base・OPEN・Issue参照とcheck群を一度に取得します。初回取得は11分を上限とし、公開対象の一致を確認してから9分のCI待機時間を開始します。同じ初回応答のcheckを直ちに判定し、未登録・実行中なら最大5秒と残り時間の短い方だけ待って再取得します。後続の取得コマンドも残り時間で制限し、期限後は再取得しません。待機間隔により状態変化の検知に数秒かかる場合があるため、即時の確認が必要ならPR上のcheckを確認してください。実際のGitHub負荷の削減量は未測定です。
+
+CI未確認時もPR URLと取得済みの公開結果・ログを保持し、非zeroコードで終了します。詳細は[結果と再実行](#結果と再実行)を参照してください。担当AIは公開本文と根拠を照合し、`rendered_media_check`があれば添付後の表示・再生・配置を確認します。人が要求・権限の変更、レビュー、承認、マージを判断します。
 
 ## 調査報告を指定した実装開始
 
@@ -241,7 +243,7 @@ PR本文の公開・CI・公開後確認は本文作成時点の未完了事項�
 
 ## 結果と再実行
 
-公開後のCI結果は`result.json`の`ci`で確認します。`url`、`commit`、`evidence`から対象PR、公開commit、記録を辿れます。`publication: published`はPR公開を示し、CI成功、人のレビュー、媒体表示確認の完了とは別です。`ciDetails.lastObservation`には最後に対象commitで確認できたcheck名と状態（同名checkも全件）、必要checkの未登録（`missing`）、実行中（`running`）、失敗（`failed`）、未達の必要check（`unmet`）を残します。取得前なら`null`です。`requiredChecks`には必要checkの一覧を残すため、初回取得ができない場合も未確認の対象を辿れます。`ciDetails.reason`は失敗・未確認の理由、`ciDetails.logs`は取得ログの接頭辞、`nextAction`は次に必要な対応です。
+公開後のCI結果は`result.json`の`ci`で確認します。`url`、`commit`、`evidence`から対象PR、公開commit、記録を辿れます。`publication: published`はPR公開を示し、CI成功、人のレビュー、媒体表示確認の完了とは別です。`ciDetails.lastObservation`には最後に対象commitで確認できたcheck名と状態（同名checkも全件）、必要checkの未登録（`missing`）、実行中（`running`）、失敗（`failed`）、未達の必要check（`unmet`）を残します。初回の公開対象が未確認・不一致、または有効なcheck観測がない場合は`null`です。`requiredChecks`には必要checkの一覧を残すため、初回取得ができない場合も未確認の対象を辿れます。`ciDetails.reason`は失敗・未確認の理由、`ciDetails.logs`は使用した取得ログの接頭辞、`nextAction`は次に必要な対応です。
 
 | `ci` | 意味と担当AIの次の対応 |
 | --- | --- |
@@ -251,7 +253,7 @@ PR本文の公開・CI・公開後確認は本文作成時点の未完了事項�
 | `unavailable` | API失敗、取得の時間切れ、不正な応答などで確認不能。認証・権限・接続と取得ログを確認する。最後の対象取得だけが失敗した場合も、先に観測した成功だけでCI成功としない。 |
 | `target_changed` | head、base、OPEN状態、または公開直後に照合するURL・Issue参照が対象と不一致。公開commitと現在のPRを照合し、変更理由と確認すべき対象を判断する。別commitの成功を今回の成功にしない。 |
 
-公開直後の初回取得も同じ分類で`result.json`へ保存します。取得失敗・取得の時間切れ・不正な応答は`unavailable`、対象不一致は`target_changed`として終了し、CI待機や再公開へ進みません。PR URLは`pr-url.txt`、返された応答は`pr.json`、取得ログは`pr-publication.stdout`および`.stderr`に保持します。取得不能時の`pr.json`は有効なJSONとは限らないため、生の応答として確認してください。
+公開直後の初回取得も同じ分類で`result.json`へ保存します。公開対象の取得失敗・時間切れ・不正な応答は`unavailable`、対象不一致は`target_changed`として終了し、その応答のcheck判定・CI待機・最終対象照合へ進みません。公開対象が一致してもCIデータが欠落・不正なら`unavailable`とし、成功にはしません。CI判定・待機を終えた後は、11分を上限に対象を再照合します。PR URLは`pr-url.txt`、初回の生応答は`pr.json`と`pr-publication.stdout`、診断は`pr-publication.stderr`に保持し、CI初回ログとして複製しません。後続取得は`ci-registration-N.stdout`および`.stderr`（Nは1から）、最終対象照合は`ci-final-target.stdout`および`.stderr`へ保存します。取得不能時の`pr.json`は有効なJSONとは限らないため、生の応答として確認してください。
 
 `ciDetails.timedOut`はCI待機上限への到達を示し、最後の観測を消しません。期限時点で失敗を取得した場合は`failed`として残します。取得不能や対象変更で終了した場合も、それ以前のcheck観測は履歴として保持し、現在の対象での成功とは扱いません。待機の再開、自動再実行、予算延長は行いません。`remaining`の`ci`と`nextAction`を担当AIへ、`human_review`を人へ引き継ぎ、媒体がある場合の`rendered_media_check`も別に確認します。
 
@@ -367,6 +369,24 @@ bun /absolute/path/to/trusted/scripts/publish.ts --repo /absolute/path/target-ch
 `target.ts CHECKOUT --write`は対象repo、base branch、remoteとghのpush権限、実効ユーザーを照合し、PRを作らず確認結果を返します。`--actor` は事前に確認したloginを指定します。developmentは開始時のloginを公開時にも渡し、不一致で停止します。PR書き込みの細かなtoken権限や組織ポリシーは読み取り確認だけで保証せず、公開失敗時は停止理由とGitHub上の実状態を確認します。
 
 同じhead・baseのopen PRがあれば作者と確認済み本文の一致を照合してURLを返します。不一致なら本文を保持して停止し、担当者が内容を照合して対応します。新規作成も同じgh認証を使い、作者と本文を確認します。旧Appや別ユーザーのPRを現在のユーザーの公開成功とは扱いません。このCLIは既存PRの本文更新、push、承認、マージを行いません。正常終了時もコマンドの所有するprocess groupの残存子を終了させます。SIGINT・SIGTERMでは実行中のコマンドと子プロセスを停止し、後続の公開操作へ進みません。通信断や強制終了時は、再試行前にPRの実状態を確認します。制御テストの模擬応答は実際のGitHubアクセスの証拠ではありません。
+
+developmentは、publishからURLを受け取り、必要な添付を終えてから次のCI処理へ進みます。単独publishはURLを返すところまでで、CI成功を判定しません。
+
+```mermaid
+flowchart TD
+  A[公開・必要な添付の完了] --> P22[公開対象とCIの取得]
+  P22 -->|初回の公開対象不一致・取得異常| S[停止・記録を保持]
+  P22 -->|対象一致| P24[CI判定]
+  P22 -->|後続の対象不一致・取得異常| P25[最終対象照合]
+  P24 -->|未登録・実行中かつ時間あり| W[最大5秒と残り時間の短い方だけ待機]
+  W -->|時間あり| P22
+  W -->|期限| P25
+  P24 -->|成功・失敗・期限・CIデータ不正| P25
+  P25 -->|CI未確認・最終対象不一致・取得異常| S
+  P25 -->|CI成功・対象一致| H[担当AIの公開後確認と人のレビューへ]
+```
+
+「公開対象とCIの取得」は初回だけURL・Issue参照も照合します。初回対象が不正ならcheck判定へ進まず、[結果と再実行](#結果と再実行)の分類と証拠を残します。
 
 ### PRへの画像・動画の添付
 

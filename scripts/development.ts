@@ -11,7 +11,7 @@ import { parseRepairReply, repairInstructions } from './repair.ts';
 import { command, withInterrupts } from './process.ts';
 import { isRecord, outside } from './values.ts';
 import { publish } from './publish.ts';
-import { waitForCi, confirmCiTarget, confirmCiPublication } from './ci.ts';
+import { waitForCi } from './ci.ts';
 import { readTarget, issueNumber, targetCommand, pushArguments } from './target.ts';
 import { researchContext, researchHandoff, verifyReports } from './research-handoff.ts';
 import type { ReportReference } from './input.ts';
@@ -358,12 +358,9 @@ async function ship(
     baseBranch,
     dir,
     ciChecks: context.target.config.ciChecks,
+    issue: number,
   };
-  let ci = await confirmCiPublication(ciTarget, number, io.command, hostCommandTimeMs);
-  if (!ci) {
-    const observedCi = await waitForCi(ciTarget, io.command, checkTimeMs);
-    ci = await confirmCiTarget(ciTarget, observedCi, io.command, hostCommandTimeMs);
-  }
+  const ci = await waitForCi(ciTarget, io.command, hostCommandTimeMs, checkTimeMs);
   const result = {
     url,
     commit,
