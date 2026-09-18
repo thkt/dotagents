@@ -92,11 +92,28 @@ async function checkStop(
     return;
   }
   expect(await readFile(join(dir, 'stopped.txt'), 'utf8')).toMatch(stopReasons[mode]);
-  if (
-    mode.startsWith('initial_') ||
-    ['needs_human', 'invalid_reply', 'requirements_changed'].includes(mode)
-  ) {
+  const initialStop =
+    mode.startsWith('initial_') || ['needs_human', 'invalid_reply'].includes(mode);
+  if (initialStop || mode === 'requirements_changed') {
     expect(reviews).toBe(0);
+  }
+  if (!initialStop) {
+    return;
+  }
+  expect(existsSync(join(dir, 'verification-config.json'))).toBe(false);
+  expect(await readFile(join(dir, 'implementation.stderr'), 'utf8')).toContain(
+    mode === 'initial_startup_failure' ? 'ENOENT' : 'Actor diagnostic',
+  );
+  expect(existsSync(join(dir, 'implementation.json'))).toBe(mode !== 'initial_interruption');
+  if (mode === 'invalid_reply' || mode === 'needs_human') {
+    expect(await readFile(join(dir, 'implementation.stdout'), 'utf8')).toBe(
+      implementationResult(mode).stdout,
+    );
+  }
+  if (mode === 'needs_human') {
+    expect(await readFile(join(dir, 'implementation-summary.md'), 'utf8')).toBe(
+      'Need agreement on scope',
+    );
   }
 }
 
@@ -135,26 +152,6 @@ async function implementReply(
   }
   await writeFile(join(cwd, 'result.txt'), 'implemented');
   return response;
-}
-
-async function checkImplementationStop(mode: string, dir: string) {
-  if (mode.startsWith('initial_') || mode === 'invalid_reply' || mode === 'needs_human') {
-    expect(existsSync(join(dir, 'verification-config.json'))).toBe(false);
-    expect(await readFile(join(dir, 'implementation.stderr'), 'utf8')).toContain(
-      mode === 'initial_startup_failure' ? 'ENOENT' : 'Actor diagnostic',
-    );
-    expect(existsSync(join(dir, 'implementation.json'))).toBe(mode !== 'initial_interruption');
-    if (mode === 'invalid_reply' || mode === 'needs_human') {
-      expect(await readFile(join(dir, 'implementation.stdout'), 'utf8')).toBe(
-        implementationResult(mode).stdout,
-      );
-    }
-    if (mode === 'needs_human') {
-      expect(await readFile(join(dir, 'implementation-summary.md'), 'utf8')).toBe(
-        'Need agreement on scope',
-      );
-    }
-  }
 }
 
 const implementationResults: Record<string, Partial<Awaited<ReturnType<typeof command>>>> = {
@@ -791,7 +788,6 @@ for (const mode of [
         );
         expect(pushes).toBe(mode.startsWith('ci_') || mode === 'attachment_actor_changed' ? 1 : 0);
         await checkStop(mode, dir, reviews, implementations);
-        await checkImplementationStop(mode, dir);
         await checkCiEvidence(mode, dir);
       }
       expect(await git(repo, 'rev-parse', 'HEAD')).toBe(original);
