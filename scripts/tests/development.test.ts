@@ -16,6 +16,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { develop } from '../development.ts';
+import type { PublishInput } from '../publish.ts';
 import { repairInstructions } from '../repair.ts';
 import { command, interruptionMessage, withInterrupts } from '../process.ts';
 import type { Config, State } from '../input.ts';
@@ -1017,13 +1018,12 @@ for (const mode of [
         }
         return state;
       },
-      publish: async (args: string[]) => {
-        expect(args).toContain('--repo');
-        expect(args[args.indexOf('--actor') + 1]).toBe('operator');
+      publish: async (input: PublishInput) => {
+        expect(input.cwd).toBe(join(dir, 'checkout'));
+        expect(input.actor).toBe('operator');
         publications++;
         expect(pushes).toBe(1);
-        const bodyPath = args[args.indexOf('--body-file') + 1];
-        assert(bodyPath);
+        const bodyPath = input.bodyFile;
         expect(await readFile(bodyPath, 'utf8')).toBe(await readFile(join(dir, 'pr.md'), 'utf8'));
         if (mode === 'publication_unconfirmed') {
           throw Error('PR author or body could not be confirmed');

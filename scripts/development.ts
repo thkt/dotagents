@@ -374,11 +374,14 @@ async function unchangedTarget(context: Context, io: typeof runtime, head = cont
       current.actor === context.target.actor,
     'Target configuration or GitHub actor changed',
   );
+  return current;
 }
 
-async function revisionUnchanged(context: Context, io: typeof runtime) {
+async function revisionUnchanged(context: Context, io: typeof runtime, target?: Context['target']) {
   if (context.revision) {
-    await checkRevision(context.revision, context.cwd, (argv, cwd) => checked(io, argv, cwd));
+    await checkRevision(context.revision, context.cwd, (argv, cwd) => checked(io, argv, cwd), {
+      target,
+    });
   }
 }
 
@@ -594,11 +597,11 @@ async function ship(
   result.details = body;
   result.nextAction =
     'Inspect the publication evidence and GitHub branch state before any further write; PR creation has not been attempted.';
-  await unchangedTarget(context, io, commit);
+  const target = await unchangedTarget(context, io, commit);
   const push = await pushArguments(repository, branch, cwd, (argv, path) =>
     checked(io, argv, path),
   );
-  await revisionUnchanged(context, io);
+  await revisionUnchanged(context, io, target);
   if (context.revision) {
     result.publication = 'unconfirmed';
     result.nextAction =
@@ -610,19 +613,14 @@ async function ship(
   result.publication = 'unconfirmed';
   result.nextAction =
     'Check the actual PR, author, body and branch on GitHub before any further write; do not automatically recreate the PR or repeat attachments.';
-  const url = await io.publish([
-    ...(context.revision ? ['--revision-file', join(dir, 'verification-config.json')] : []),
-    '--repo',
+  const url = await io.publish({
     cwd,
-    '--actor',
-    context.target.actor,
-    '--head',
-    branch,
-    '--title',
-    requirements.title,
-    '--body-file',
-    body,
-  ]);
+    actor: context.target.actor,
+    head: branch,
+    title: requirements.title,
+    bodyFile: body,
+    revision: context.revision,
+  });
   result.url = url;
   result.publication = 'published';
   result.remaining = result.remaining.filter((task) => task !== 'publication');
@@ -632,11 +630,12 @@ async function ship(
   if (media.length) {
     result.operation = 'attach media';
     result.details = join(dir, 'attachments');
-    await unchangedTarget(context, io, commit);
+    const target = await unchangedTarget(context, io, commit);
     if (context.revision) {
       await checkRevision(context.revision, cwd, (argv, path) => checked(io, argv, path), {
         head: commit,
         body: bodyText,
+        target,
       });
     }
     await checked(
