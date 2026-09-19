@@ -23,7 +23,6 @@ export const reviewSchema = object({
   updates: list(object({ id: text, disposition: choice(dispositions), reason: text })),
   newItems: list(
     object({
-      id: text,
       kind: choice(findingKinds),
       area: choice(reviewAreas),
       required: { type: 'boolean' },
@@ -83,11 +82,10 @@ function location(value: unknown) {
       (nonempty(value.path) && Number.isSafeInteger(value.line) && Number(value.line) > 0))
   );
 }
-type NewReviewItem = Omit<ReviewItem, 'introducedIn' | 'disposition'>;
+type NewReviewItem = Omit<ReviewItem, 'id' | 'introducedIn' | 'disposition'>;
 function newItem(value: unknown): value is NewReviewItem {
   if (
     !fields(value, [
-      'id',
       'kind',
       'area',
       'required',
@@ -102,9 +100,7 @@ function newItem(value: unknown): value is NewReviewItem {
     return false;
   }
   return (
-    ['id', 'condition', 'impact', 'evidence', 'action', 'reason'].every((key) =>
-      nonempty(value[key]),
-    ) &&
+    ['condition', 'impact', 'evidence', 'action', 'reason'].every((key) => nonempty(value[key])) &&
     oneOf(value.kind, findingKinds) &&
     oneOf(value.area, reviewAreas) &&
     typeof value.required === 'boolean' &&
@@ -115,8 +111,10 @@ function item(value: unknown): value is ReviewItem {
   if (!isRecord(value)) {
     return false;
   }
-  const { introducedIn, disposition, ...details } = value;
-  return nonempty(introducedIn) && oneOf(disposition, dispositions) && newItem(details);
+  const { id, introducedIn, disposition, ...details } = value;
+  return (
+    nonempty(id) && nonempty(introducedIn) && oneOf(disposition, dispositions) && newItem(details)
+  );
 }
 function document(value: unknown): value is Review['documents'][number] {
   return (
@@ -205,15 +203,13 @@ export function parseReview(
     assert(update, 'Prior finding omitted');
     return { ...prior, disposition: update.disposition, reason: update.reason };
   });
-  for (const finding of value.newItems) {
-    assert(!ids.has(finding.id), 'Duplicate finding ID');
-    ids.add(finding.id);
-    const prefix = `R${attempt}-`;
-    assert(
-      finding.id.startsWith(prefix) && nonempty(finding.id.slice(prefix.length)),
-      'Invalid new finding identity',
-    );
-    items.push({ ...finding, introducedIn: targetId, disposition: 'open' });
+  for (const [index, finding] of value.newItems.entries()) {
+    items.push({
+      ...finding,
+      id: `R${attempt}-${index + 1}`,
+      introducedIn: targetId,
+      disposition: 'open',
+    });
   }
   assert(
     new Set(value.documents.map((doc) => doc.path)).size === value.documents.length,
@@ -243,7 +239,7 @@ export const reviewInstructions = [
   'Do not edit files or run the full check. The host check result is in the target record. Use current artifacts and necessary targeted verification to adjudicate findings; do not trust repair self-reports.',
   'Return the review JSON schema. Echo targetId from the host context. Give substantive reasons in all four assessments, including applicability and unverified limits. findings is the overall summary. Return updates and newItems, not status or items; the host reconstructs the complete record and computes status from required open findings.',
   'The existing PR generator selects assessments, item condition/impact/reason (and action for open items), document reasons and handoff for public readers. In code assessment explain the concrete change and why it is needed; in requirements map it to the agreed behavior; in tests state actual verification and limits, distinguishing simulated tests from live execution; in documentation explain applicable sources, versions, agreement and changed premises. Use concise factual prose, not generic all-passed claims. Keep raw logs and host-local record references in evidence/findings and the internal records, not these public-facing fields. For prior findings, reason should explain the current resolution without copying raw evidence.',
-  'Each newItems entry needs a stable ID R<attempt>-<name>, kind defect or concern, area code/requirements/tests/documentation, required, location, condition, impact, evidence, action, and reason. Omit introducedIn and disposition; the host assigns the validated targetId and open. Use null path/line when no real code location exists, including missing documentation. Never invent locations or reproduction runs.',
+  'Each newItems entry needs kind defect or concern, area code/requirements/tests/documentation, required, location, condition, impact, evidence, action, and reason. Omit id, introducedIn and disposition; the host assigns identity, the validated targetId and open. IDs carry no meaning about finding content or the need for human judgment. Use null path/line when no real code location exists, including missing documentation. Never invent locations or reproduction runs.',
   'Return exactly one updates entry for EVERY previous item ID, including already resolved items; use only id, disposition (open, fixed, not_applicable) and reason based on the current artifacts and verification. The host preserves the original details. Do not repeat them or place prior IDs in newItems. On the first review updates is empty. Explain concrete evidence for fixes or non-applicability, not merely an implementer claim. Reopen when needed. Keep unresolved required items open.',
   'List principal repository documents actually consulted with their exact repository-relative path, role current/historical/proposal and reference reason. The host binds their versions; this is not proof of sufficient reading or a whole-document index.',
   'The host alone adds routine publication/upload/CI tasks, responsible-AI public evidence comparison and rendered-media/layout checks, and human review/approval/merge to the PR body according to execution conditions. Do not repeat them in handoff or other public-facing fields. Their pending status before publication is not an implementation defect; accepted does not complete or waive them. Limit handoff to Issue-specific unverified conditions, required follow-up and named owners; return [] when none remain. Keep distinct conditions and owners even when wording is similar.',

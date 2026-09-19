@@ -327,6 +327,8 @@ test('invalid saved state is retained and rejected before execution', async () =
       'Invalid saved review history',
     ],
     ...[
+      { id: undefined },
+      { id: ' ' },
       { introducedIn: undefined },
       { introducedIn: ' ' },
       { disposition: undefined },

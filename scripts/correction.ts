@@ -737,7 +737,7 @@ async function execute(config: Config): Promise<State> {
   }
   const knowledge = await readKnowledge(references, git);
   state ??= {
-    reviewFormat: 3,
+    reviewFormat: 4,
     baseCommit: base,
     reviewHistory: [],
     configHash,

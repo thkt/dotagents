@@ -47,7 +47,6 @@ function reviewResponse() {
     updates: [] as Record<string, unknown>[],
     newItems: [
       {
-        id: 'R1-docs',
         kind: 'defect',
         area: 'documentation',
         required: true,
@@ -63,6 +62,23 @@ function reviewResponse() {
     handoff: [],
   };
 }
+
+test('host assigns stable IDs by attempt and response order, independently of finding content', () => {
+  const reply = reviewResponse();
+  reply.newItems.push({
+    ...object(reply.newItems[0]),
+    kind: 'concern',
+    required: false,
+    condition: 'Setup command has not been exercised on the deployment host',
+  });
+  const raw = JSON.stringify(reply);
+  const review = parseReview(raw, 'target-1', 1);
+  expect(review.items).toMatchObject([
+    { ...reply.newItems[0], id: 'R1-1', introducedIn: 'target-1', disposition: 'open' },
+    { ...reply.newItems[1], id: 'R1-2', introducedIn: 'target-1', disposition: 'open' },
+  ]);
+  expect(parseReview(raw, 'target-1', 1)).toEqual(review);
+});
 
 const invalidInitial: [string, (reply: ReturnType<typeof reviewResponse>) => void, string][] = [
   [
@@ -94,18 +110,11 @@ const invalidInitial: [string, (reply: ReturnType<typeof reviewResponse>) => voi
     'Missing or invalid',
   ],
   [
-    'wrong attempt',
+    'model-supplied ID',
     (reply) => {
       object(reply.newItems[0]).id = 'R2-docs';
     },
-    'Invalid new finding',
-  ],
-  [
-    'empty ID suffix',
-    (reply) => {
-      object(reply.newItems[0]).id = 'R1-';
-    },
-    'Invalid new finding',
+    'Missing or invalid',
   ],
   [
     'unsolicited disposition',
@@ -113,13 +122,6 @@ const invalidInitial: [string, (reply: ReturnType<typeof reviewResponse>) => voi
       object(reply.newItems[0]).disposition = 'open';
     },
     'Missing or invalid',
-  ],
-  [
-    'duplicate ID',
-    (reply) => {
-      reply.newItems.push(object(reply.newItems[0]));
-    },
-    'Duplicate finding',
   ],
   [
     'unsolicited introduction',
@@ -265,13 +267,6 @@ const invalidUpdates: [string, (reply: ReturnType<typeof reviewResponse>) => voi
     },
     'Missing or invalid',
   ],
-  [
-    'reintroduced',
-    (reply) => {
-      reply.newItems = reviewResponse().newItems;
-    },
-    'Duplicate finding ID',
-  ],
 ];
 for (const [name, mutate, reason] of invalidUpdates) {
   test(`parseReview rejects ${name} judgment`, () => {
@@ -281,9 +276,7 @@ for (const [name, mutate, reason] of invalidUpdates) {
       ...reviewResponse(),
       targetId: 'target-2',
       newItems: [],
-      updates: [
-        { id: 'R1-docs', disposition: 'fixed', reason: 'README contains setup instructions' },
-      ],
+      updates: [{ id: 'R1-1', disposition: 'fixed', reason: 'README contains setup instructions' }],
     };
     expect(parseReview(JSON.stringify(reply), 'target-2', 2, previous).status).toBe('accepted');
     mutate(reply);
@@ -330,7 +323,7 @@ if(reviewContext.previous) { reply.updates=[]; }`,
 
 test('host combines reordered judgments and new findings, reopens resolved findings and blocks PR text', () => {
   const finding: ReviewItem = {
-    id: 'R1-bounds',
+    id: 'R1-1',
     introducedIn: 'target-1',
     kind: 'defect',
     area: 'code',
@@ -343,7 +336,12 @@ test('host combines reordered judgments and new findings, reopens resolved findi
     disposition: 'open',
     reason: 'Incorrect slice end',
   };
-  const { introducedIn: _introducedIn, disposition: _disposition, ...newFinding } = finding;
+  const {
+    id: _id,
+    introducedIn: _introducedIn,
+    disposition: _disposition,
+    ...newFinding
+  } = finding;
   const response = {
     targetId: 'target-1',
     findings: 'Pagination review',
@@ -365,13 +363,10 @@ test('host combines reordered judgments and new findings, reopens resolved findi
     JSON.stringify({
       ...response,
       targetId: 'target-2',
-      updates: [
-        { id: 'R1-bounds', disposition: 'fixed', reason: 'Nonzero offset now returns [30,40]' },
-      ],
+      updates: [{ id: 'R1-1', disposition: 'fixed', reason: 'Nonzero offset now returns [30,40]' }],
       newItems: [
         {
           ...newFinding,
-          id: 'R2-limit',
           condition: 'Invalid limit',
           reason: 'Negative limit is accepted',
         },
@@ -383,7 +378,7 @@ test('host combines reordered judgments and new findings, reopens resolved findi
   );
   expect(second.items[1]).toEqual({
     ...finding,
-    id: 'R2-limit',
+    id: 'R2-1',
     introducedIn: 'target-2',
     condition: 'Invalid limit',
     reason: 'Negative limit is accepted',
@@ -395,7 +390,7 @@ test('host combines reordered judgments and new findings, reopens resolved findi
         ...response,
         targetId: 'target-3',
         newItems: [],
-        updates: [{ id: 'R2-limit', disposition: 'fixed', reason: 'Negative limit guarded' }],
+        updates: [{ id: 'R2-1', disposition: 'fixed', reason: 'Negative limit guarded' }],
       }),
       'target-3',
       3,
@@ -409,11 +404,11 @@ test('host combines reordered judgments and new findings, reopens resolved findi
       newItems: [],
       updates: [
         {
-          id: 'R2-limit',
+          id: 'R2-1',
           disposition: 'not_applicable',
           reason: 'Guard already rejects negative limits',
         },
-        { id: 'R1-bounds', disposition: 'open', reason: 'Offset fix regressed' },
+        { id: 'R1-1', disposition: 'open', reason: 'Offset fix regressed' },
       ],
     }),
     'target-3',
@@ -424,7 +419,7 @@ test('host combines reordered judgments and new findings, reopens resolved findi
     { ...finding, reason: 'Offset fix regressed' },
     {
       ...finding,
-      id: 'R2-limit',
+      id: 'R2-1',
       introducedIn: 'target-2',
       condition: 'Invalid limit',
       disposition: 'not_applicable',
@@ -761,8 +756,8 @@ test('historical review formats are preserved without conversion or execution', 
   const t = await trial('normal');
   expect(t.execute().status).toBe(0);
   const current = await t.state();
-  expect(current.reviewFormat).toBe(3);
-  for (const format of [undefined, 1, 2]) {
+  expect(current.reviewFormat).toBe(4);
+  for (const format of [undefined, 1, 2, 3]) {
     const state: Record<string, unknown> = { ...current, reviewFormat: format };
     if (format === undefined) {
       delete state.reviewHistory;

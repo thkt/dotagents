@@ -32,7 +32,7 @@ async function expectInvocation(root: string, role: string) {
   } else {
     expect(properties).not.toHaveProperty('status');
     const newItem = object(object(properties.newItems).items);
-    for (const field of ['introducedIn', 'disposition']) {
+    for (const field of ['id', 'introducedIn', 'disposition']) {
       expect(newItem.properties).not.toHaveProperty(field);
       expect(sortedStrings(newItem.required)).not.toContain(field);
     }

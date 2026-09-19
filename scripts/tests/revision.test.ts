@@ -186,7 +186,7 @@ async function fixture(root: string, media = false) {
       await hooks.beforeVerify?.();
       await mkdir(config.runDir, { recursive: true });
       const state: State = {
-        reviewFormat: 3,
+        reviewFormat: 4,
         baseCommit: config.baseCommit ?? initialBase,
         configHash: hash(JSON.stringify(config)),
         issueHash: hash(issue),
