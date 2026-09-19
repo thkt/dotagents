@@ -416,7 +416,7 @@ async function implement(context: Context, io: typeof runtime) {
     'Documentation-only Issues use the same flow; add tests or code only when the agreed requirements need them. Include changed documents in the existing independent review.',
     repairInstructions(context.target.config.capture),
     `Target setup/check/capture contract (do not weaken or replace): ${JSON.stringify(context.target.config)}`,
-    'Do not edit control scripts or credentials outside this checkout. If scope or authorization must change, return needs_human with the concrete decision and its impact. If an instruction file caused that stop, identify the file actually read, quote the relevant instruction and distinguish its explicit requirement from your interpretation. Otherwise return repaired with a concrete summary.',
+    'Do not edit control scripts or credentials outside this checkout.',
     `Requirements:\n${original}`,
     revisionContext(context.revision),
     `Issue: https://github.com/${context.target.config.repository}/issues/${context.number}`,

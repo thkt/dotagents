@@ -65,7 +65,6 @@ async function checkRepairEvidence(mode: string, runDir: string, findings: unkno
       'Do not commit, push or publish',
       'Leave configured full verification to the host after your changes',
       'do not launch browsers or servers in your sandbox',
-      'If requirements, permissions or execution limits must change, report needs_human without changing them',
       'Requirements:\nAgreed requirement: correct source and docs',
       'Failure evidence:',
     ]) {
@@ -126,6 +125,47 @@ for (const [mode, result, repairs, reviews] of [
     }
   });
 }
+
+test('blank human findings stop repair and preserve work and prior review evidence', async () => {
+  const t = await trial('blank_human');
+  expect(t.execute().status).toBe(1);
+  const state = await t.state();
+  expect(state).toMatchObject({
+    result: 'invalid_repair',
+    findings: '',
+    repair: 2,
+    review: 1,
+    checks: 2,
+  });
+  expect(await readFile(join(t.config.cwd, 'README.md'), 'utf8')).toBe('current');
+  expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('correct');
+  expect(state.reviewHistory).toEqual([
+    object(JSON.parse(await readFile(join(t.config.runDir, 'review-1.json'), 'utf8'))).review,
+  ]);
+  expect(state.reviewHistory).toMatchObject([
+    { status: 'needs_changes', findings: 'README missing' },
+  ]);
+  expect(JSON.parse(await readFile(join(t.config.runDir, 'repair-2.stdout'), 'utf8'))).toEqual({
+    status: 'needs_human',
+    findings: '',
+  });
+  const paths = [
+    'state.json',
+    'check-1.stdout',
+    'check-1.stderr',
+    'check-2.stdout',
+    'repair-1.stdout',
+    'repair-2.stdout',
+    'review-1.stdout',
+    'review-1.json',
+  ].map((path) => join(t.config.runDir, path));
+  const before = await Promise.all(paths.map((path) => readFile(path, 'utf8')));
+  expect(t.execute().status).toBe(1);
+  expect(await Promise.all(paths.map((path) => readFile(path, 'utf8')))).toEqual(before);
+  for (const path of ['check-3.stdout', 'repair-3.stdout', 'review-2.stdout']) {
+    expect(await Bun.file(join(t.config.runDir, path)).exists()).toBe(false);
+  }
+});
 
 test('Issue retrieval failure after repair preserves reservation and refuses reexecution', async () => {
   const t = await trial('normal');
@@ -383,10 +423,23 @@ test('repair reply contract rejects malformed values and preserves diagnostic fi
     status: 'invalid',
     findings: 'detail',
   });
-  for (const status of ['repaired', 'needs_human'] as const) {
-    expect(parseRepairReply(JSON.stringify({ status, findings: '', extra: true }))).toEqual({
-      status,
-      findings: '',
+  for (const findings of ['', ' \t\r\n\u3000']) {
+    expect(parseRepairReply(JSON.stringify({ status: 'needs_human', findings }))).toEqual({
+      status: 'invalid',
+      findings,
     });
   }
+  for (const findings of ['', ' \t\n', 'Implemented agreed change']) {
+    expect(parseRepairReply(JSON.stringify({ status: 'repaired', findings, extra: true }))).toEqual(
+      {
+        status: 'repaired',
+        findings,
+      },
+    );
+  }
+  const findings = ' \n問い: 対象範囲を広げますか。追加機能を含める場合は検証範囲も増えます。\n ';
+  expect(parseRepairReply(JSON.stringify({ status: 'needs_human', findings }))).toEqual({
+    status: 'needs_human',
+    findings,
+  });
 });

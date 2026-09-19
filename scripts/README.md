@@ -222,6 +222,8 @@ bun scripts/correction.ts /absolute/path/config.json
 
 `repair`と`review`は、要求と失敗の根拠を標準入力で受け取り、結果のJSONだけを標準出力へ返します。`repair`は`status: repaired | needs_human`と文字列`findings`を返します。`review`は[review.ts](review.ts)の専用schemaに従います。独自のreviewコマンドにも同じ形式が必要です。
 
+`needs_human`では、担当AIが既存の`findings`に問い・人に必要な選択・影響を説明し、回答に依存する作業を止めます。指示ファイルが停止理由なら、実際に読んだファイルへのリンクと該当文を示し、明示条件と解釈を区別します。空文字・空白だけの`findings`は不正応答として、初回は`Invalid implementation reply`、追加修正は`invalid_repair`で停止し、有効な判断依頼として案内しません。生応答・作業差分・既存記録を保持し、内容の推測補完、自動再生成、上限変更、後続公開は行いません。非空検査は判断材料の意味的な十分性を保証しません。
+
 評価担当は、概要の`findings`、ホストが指定した`targetId`、4観点の`assessments`、過去指摘への判断の`updates`、新規指摘の`newItems`、参照文書の`documents`、後続担当の作業を示す`handoff`を返します。総合`status`と完全な`items`はホストが組み立てるため、応答には含めません。各観点には判断理由と未確認範囲を記し、適用しない観点についてもその理由を説明します。
 
 指摘は、`id`、初出対象の`introducedIn`、証明できた欠陥と未確認の懸念を分ける`kind`、指摘の観点を表す`area`（code・requirements・tests・documentation）、必須対応かを表す`required`、`location`、発生条件、影響、根拠、必要な対応を持ちます。文書不足など実在するコード位置がない場合は、pathとlineを`null`にし、架空の位置や再現実行を埋めません。新規の指摘は`newItems`に入れ、空でない識別名を持つ`R<評価回数>-<識別名>`を指定します。`newItems`の各項目に`introducedIn`と`disposition`は含めません。ホストが応答全体の`targetId`を照合した後、検証済みの対象IDと`open`をそれぞれ付与し、完全な指摘記録として保存します。

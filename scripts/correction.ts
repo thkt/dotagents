@@ -649,7 +649,6 @@ async function cycle(
         ? { destination: config.captureDestination }
         : null,
     ),
-    'If requirements, permissions or execution limits must change, report needs_human without changing them.',
     `Requirements:\n${issue}\nFailure evidence:\n${findings}`,
     researchContext(state.baseCommit, config.reports, knowledge),
   ].join('\n');

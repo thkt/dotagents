@@ -1,4 +1,4 @@
-// Invalid statuses retain well-formed findings for the correction failure record.
+// Invalid replies retain string findings unchanged for the correction failure record.
 export function parseRepairReply(
   stdout: string,
 ):
@@ -20,7 +20,10 @@ export function parseRepairReply(
     return { status: 'invalid' };
   }
   const status =
-    value.status === 'repaired' || value.status === 'needs_human' ? value.status : 'invalid';
+    value.status === 'repaired' ||
+    (value.status === 'needs_human' && value.findings.trim().length > 0)
+      ? value.status
+      : 'invalid';
   return { status, findings: value.findings };
 }
 
@@ -39,7 +42,7 @@ export function repairInstructions(capture: { destination: string } | null) {
       : [
           'This target declares no capture. If the agreed Issue needs media, return needs_human to configure required capture before execution.',
         ]),
-    'Return repaired when implementation and test/capture definitions are ready; pending host execution alone is not needs_human. Actual requirement or authorization decisions still require needs_human.',
-    'Return JSON with status repaired or needs_human, and findings explaining your changes or the necessary human decision.',
+    'Return repaired when implementation and test/capture definitions are ready; pending host execution alone is not needs_human. If requirements, scope, permissions or execution limits must change, return needs_human without changing them and stop work that depends on the answer.',
+    'Return JSON with status repaired or needs_human, and findings explaining your changes or the necessary human decision. For needs_human, findings must not be empty or whitespace-only: explain the question, the choice the human must make and its impact. If an instruction file caused the stop, link the file actually read, quote the relevant instruction and distinguish its explicit requirement from your interpretation.',
   ].join('\n');
 }

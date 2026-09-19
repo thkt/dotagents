@@ -105,6 +105,7 @@ if(role==='repair') {
  if(mode==='human') {console.log(JSON.stringify({status:'needs_human',findings:'Need changed requirements'}));process.exit(0);}
  if(mode!=='exhaust') writeFileSync('source.txt','correct');
  if(existsSync(${JSON.stringify(join(root, 'reviewed'))})) writeFileSync('README.md','current');
+ if(mode==='blank_human' && existsSync('README.md')) {console.log(JSON.stringify({status:'needs_human',findings:''}));process.exit(0);}
  console.log(JSON.stringify({status:'repaired',findings:'fixed'}));
 }
 if(role==='review') {
@@ -116,7 +117,7 @@ if(role==='review') {
  if(mode==='issue_changed') writeFileSync(${JSON.stringify(join(root, 'issue-changed'))},'yes');
  if(mode==='malformed') console.log('success');
  else if(mode==='changed') {writeFileSync('source.txt','changed');console.log(JSON.stringify(reviewReply('accepted','changed')));}
- else if(mode==='docs'&&!existsSync('README.md')) {writeFileSync(${JSON.stringify(join(root, 'reviewed'))},'1');console.log(JSON.stringify(reviewReply('needs_changes','README missing')));}
+ else if(['docs','blank_human'].includes(mode)&&!existsSync('README.md')) {writeFileSync(${JSON.stringify(join(root, 'reviewed'))},'1');console.log(JSON.stringify(reviewReply('needs_changes','README missing')));}
  else console.log(JSON.stringify(reviewReply('accepted','checked')));
 }
 `,
