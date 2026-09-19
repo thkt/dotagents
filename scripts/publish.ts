@@ -18,28 +18,63 @@ async function command(argv: string[], cwd: string) {
 }
 const runtime = { command };
 
-async function checkPr(
-  io: typeof runtime,
-  repo: string,
-  url: string,
-  actor: string,
-  cwd: string,
-  body: string,
+export class PublicationError extends Error {
+  constructor(
+    public url: string,
+    cause: unknown,
+  ) {
+    super(
+      `PR ${url}: ${cause instanceof Error ? cause.message : String(cause)}; reconcile actual state before retrying`,
+      { cause },
+    );
+  }
+}
+
+export async function checkPublishedPr(
+  input: {
+    cwd: string;
+    repository: string;
+    url: string;
+    actor: string;
+    body: string;
+    head: string;
+    base: string;
+    commit: string;
+  },
+  read: typeof command,
 ) {
-  const prefix = `https://github.com/${repo}/pull/`;
-  const number = url.startsWith(prefix) ? url.slice(prefix.length) : '';
-  assert(/^[1-9]\d*$/.test(number), 'Unexpected PR URL');
-  const prior: unknown = JSON.parse(
-    await io.command(['gh', 'api', `repos/${repo}/pulls/${number}`], cwd),
-  );
-  assert(
-    isRecord(prior) && isRecord(prior.user) && prior.user.login === actor,
-    'PR author differs from authenticated user',
-  );
-  assert(
-    prior.body === body,
-    'Existing PR body differs from reviewed body; reconcile before continuing',
-  );
+  const { cwd, repository: repo, url, actor, body, head, base, commit } = input;
+  try {
+    const prefix = `https://github.com/${repo}/pull/`;
+    const number = url.startsWith(prefix) ? url.slice(prefix.length) : '';
+    assert(/^[1-9]\d*$/.test(number), 'Unexpected PR URL');
+    const pr: unknown = JSON.parse(await read(['gh', 'api', `repos/${repo}/pulls/${number}`], cwd));
+    assert(
+      isRecord(pr) && isRecord(pr.user) && pr.user.login === actor,
+      'PR author differs from authenticated user',
+    );
+    assert(
+      pr.html_url === url &&
+        pr.state === 'open' &&
+        isRecord(pr.head) &&
+        isRecord(pr.head.repo) &&
+        pr.head.repo.full_name === repo &&
+        pr.head.ref === head &&
+        pr.head.sha === commit &&
+        isRecord(pr.base) &&
+        isRecord(pr.base.repo) &&
+        pr.base.repo.full_name === repo &&
+        pr.base.ref === base,
+      'Published PR target differs from expected repository, branch or commit',
+    );
+    assert(
+      pr.body === body,
+      'Existing PR body differs from generated body; reconcile before continuing',
+    );
+    assert(pr.draft === true, 'Published PR is not confirmed draft; reconcile before continuing');
+  } catch (error) {
+    throw new PublicationError(url, error);
+  }
 }
 
 export interface PublishInput {
@@ -97,18 +132,22 @@ export async function publish(input: PublishInput, io = runtime) {
   const { repository: repo, baseBranch: base } = target.config;
   assert(head !== base, 'Head must differ from base');
   assert(!input.actor || target.actor === input.actor, 'GitHub actor changed');
+  const commit = (await io.command(['git', 'rev-parse', 'HEAD'], target.cwd)).trim();
   assertRunning();
   if (revision) {
     assert(revision.branch === head, 'Revision publication target differs');
-    const commit = await io.command(['git', 'rev-parse', 'HEAD'], target.cwd);
-    await checkRevision(revision, target.cwd, io.command, { head: commit.trim(), target });
+    await checkRevision(revision, target.cwd, io.command, {
+      head: commit,
+      target,
+      draft: 'require',
+    });
     assertRunning();
     await io.command(
       ['gh', 'pr', 'edit', revision.url, '--repo', repo, '--body-file', bodyFile],
       target.cwd,
     );
     assertRunning();
-    await checkRevision(revision, target.cwd, io.command, { head: commit.trim(), body });
+    await checkRevision(revision, target.cwd, io.command, { head: commit, body, draft: 'require' });
     return revision.url;
   }
   const existing = (
@@ -139,31 +178,33 @@ export async function publish(input: PublishInput, io = runtime) {
   const actor: unknown = JSON.parse(await io.command(['gh', 'api', 'user'], target.cwd));
   assert(isRecord(actor) && actor.login === target.actor, 'GitHub actor changed');
   assertRunning();
-  if (existing) {
-    await checkPr(io, repo, existing, target.actor, target.cwd, body);
-    return existing;
-  }
-  const url = (
-    await io.command(
-      [
-        'gh',
-        'pr',
-        'create',
-        '--repo',
-        repo,
-        '--base',
-        base,
-        '--head',
-        head,
-        '--title',
-        title,
-        '--body-file',
-        bodyFile,
-      ],
-      target.cwd,
-    )
-  ).trim();
-  await checkPr(io, repo, url, target.actor, target.cwd, body);
+  const url =
+    existing ||
+    (
+      await io.command(
+        [
+          'gh',
+          'pr',
+          'create',
+          '--draft',
+          '--repo',
+          repo,
+          '--base',
+          base,
+          '--head',
+          head,
+          '--title',
+          title,
+          '--body-file',
+          bodyFile,
+        ],
+        target.cwd,
+      )
+    ).trim();
+  await checkPublishedPr(
+    { cwd: target.cwd, repository: repo, url, actor: target.actor, body, head, base, commit },
+    io.command,
+  );
   return url;
 }
 

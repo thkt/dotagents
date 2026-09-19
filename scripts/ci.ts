@@ -69,7 +69,7 @@ export type CiResult = {
 
 const actions = {
   passed:
-    'CI confirmed for the published commit; proceed to human review and any rendered media check.',
+    'CI confirmed for the published draft commit. Assigned AI: compare the latest public body with the Issue, commit, accepted assessment and verification, complete any rendered media check, then recheck target, body, evidence, actor, permissions and same-head CI before gh pr ready; read back the result before human review.',
   failed:
     'Inspect failing check logs and fix the cause; required SKIPPED or NEUTRAL checks must run successfully.',
   timed_out:
@@ -81,7 +81,7 @@ const actions = {
   storage_failed:
     'Assigned AI: inspect the failed evidence path and raw retrieval logs; the host must restore writable evidence storage within existing authorization. Obtain permission for environment changes outside that authorization before reassessment.',
   target_changed:
-    'Reconcile the current PR URL, head, base, OPEN state and Issue reference with the published target before assessing CI; another target cannot confirm this commit.',
+    'Reconcile the current PR URL, head, base, OPEN/draft state and Issue reference with the published target before assessing CI; another target cannot confirm this commit.',
 };
 
 type CiProgress = Pick<CiResult, 'timedOut' | 'lastObservation' | 'logs'>;
@@ -90,7 +90,7 @@ function finish(result: CiProgress, status: CiResult['status'], reason: string):
   const constraints =
     status === 'passed'
       ? ''
-      : ' Reconfirm target, evidence, authorization and verification after assistance. Do not resume this run, change locks, active reservations or limits, or retry publication automatically; the current entry point cannot resume a stopped run.';
+      : ' Keep the established draft; do not mark or restore ready. Reconcile unexpected state changes, then reconfirm target, evidence, authorization and verification after assistance. Do not resume this run, change locks, active reservations or limits, or retry publication automatically; the current entry point cannot resume a stopped run.';
   return { ...result, status, reason, nextAction: actions[status] + constraints };
 }
 
@@ -153,17 +153,19 @@ function parseTarget(stdout: string, target: Target, publicationIssue?: string) 
       isRecord(pr) &&
         typeof pr.headRefOid === 'string' &&
         typeof pr.baseRefName === 'string' &&
-        typeof pr.state === 'string',
+        typeof pr.state === 'string' &&
+        typeof pr.isDraft === 'boolean',
       'Invalid PR target response',
     );
     if (
       pr.headRefOid !== target.commit ||
       pr.baseRefName !== target.baseBranch ||
-      pr.state !== 'OPEN'
+      pr.state !== 'OPEN' ||
+      !pr.isDraft
     ) {
       return {
         status: 'target_changed' as const,
-        reason: `PR target changed: head=${pr.headRefOid}, base=${pr.baseRefName}, state=${pr.state}; expected ${target.commit}, ${target.baseBranch}, OPEN`,
+        reason: `PR target changed: head=${pr.headRefOid}, base=${pr.baseRefName}, state=${pr.state}, draft=${pr.isDraft}; expected ${target.commit}, ${target.baseBranch}, OPEN, draft`,
       };
     }
     if (publicationIssue !== undefined) {
@@ -210,7 +212,7 @@ export async function waitForCi(
     execute,
     publicationTimeout,
     log,
-    'url,headRefOid,baseRefName,state,body,statusCheckRollup',
+    'url,headRefOid,baseRefName,state,isDraft,body,statusCheckRollup',
     target.issue,
   );
   if (initial.status !== 'observed') {
@@ -224,7 +226,7 @@ export async function waitForCi(
     execute,
     publicationTimeout,
     finalLog,
-    'headRefOid,baseRefName,state',
+    'headRefOid,baseRefName,state,isDraft',
   );
   observed.logs.push(finalLog);
   if (latest.status === 'observed') {
@@ -267,7 +269,7 @@ export async function waitForCi(
         execute,
         Math.max(1, deadline - clock.now()),
         log,
-        'headRefOid,baseRefName,state,statusCheckRollup',
+        'headRefOid,baseRefName,state,isDraft,statusCheckRollup',
       );
     }
     assertRunning();

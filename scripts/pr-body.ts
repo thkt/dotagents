@@ -56,8 +56,8 @@ export function prBody(input: {
         `- [${doc.path}](https://github.com/${repository}/blob/${commit}/${doc.path.split('/').map(encodeURIComponent).join('/')}) (${doc.role}): ${text(doc.reason)}`,
     ),
     '## 残作業と担当',
-    '本文作成時点では公開・CI・公開後確認・人の承認は未完了です。後続のCLI結果と同じPR headの結果を照合してください。',
-    `- CLI: PRを公開し、同じheadのCI（${ciChecks.join('・')}）の登録と成功を確認する。`,
+    '本文作成時点ではdraft公開・CI・本文と媒体の確認・ready切替・人の承認は未完了です。後続のCLI結果と同じPR headの結果を照合してください。',
+    `- CLI: PRをdraftで公開し、同じheadのCI（${ciChecks.join('・')}）の登録と成功を確認する。`,
     ...(media.length
       ? [
           `- CLI: 対象commitの媒体を添付する（${media.join('、')}）。`,
@@ -65,7 +65,7 @@ export function prBody(input: {
         ]
       : []),
     ...review.handoff.map((action) => `- ${text(action)}`),
-    '- 担当AI: 公開本文をIssue・対象commit・検証結果と照合し、未確認事項と担当を引き継ぐ。',
+    '- 担当AI: 最新の公開本文をIssue・対象commit・accepted評価・検証結果と照合する（published_body_check）。本文・必要媒体と同じheadのCIを確認後、対象・本文・根拠・主体・権限・CIを再照合してreadyへ切り替え、実状態を読み戻す（mark_ready）。未確認ならdraftを維持し、未確認事項と担当を引き継ぐ。',
     '- 人: 要求や権限の変更を判断し、差分と検証結果をレビューして、承認・マージを判断する。',
   ];
   return sections.join('\n\n') + '\n';

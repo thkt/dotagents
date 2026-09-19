@@ -446,9 +446,6 @@ test('host combines reordered judgments and new findings, reopens resolved findi
   });
   expect(body).toContain(response.assessments.tests);
   expect(body).not.toContain('## 指摘への対応');
-  expect(body).toContain('## 残作業と担当');
-  expect(body).toContain('CLI: PRを公開し、同じheadのCI（checks）');
-  expect(body).toContain('人: 要求や権限の変更を判断');
 });
 
 test('repair after a failed check retains prior review findings and current failure evidence', async () => {

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { withInterrupts } from '../process.ts';
-import { publish, publishCli } from '../publish.ts';
+import { publish, publishCli, PublicationError } from '../publish.ts';
 import { readTarget } from '../target.ts';
 import { initializeTarget, githubTarget, git } from './support/target.ts';
 
@@ -13,16 +13,30 @@ afterEach(async () => {
   await withInterrupts(async () => {});
 });
 
-function targetReply(args: string[], mode: string, users: number) {
+function publishedReply(args: string[], mode: string, commit: string) {
+  return JSON.stringify({
+    html_url: `https://github.com/team/component/pull/${args[2]?.split('/').at(-1)}`,
+    state: 'open',
+    draft: !['created_ready', 'existing_ready'].includes(mode),
+    head: {
+      ref: 'codex/test',
+      sha: mode === 'wrong_head' ? 'changed' : commit,
+      repo: { full_name: 'team/component' },
+    },
+    base: {
+      ref: mode === 'wrong_base' ? 'main' : 'release',
+      repo: { full_name: 'team/component' },
+    },
+    body: mode === 'stale_body' ? 'Previous body' : 'Reviewable body',
+    user: {
+      login: ['wrong_author', 'created_wrong_author'].includes(mode) ? 'old-app[bot]' : 'operator',
+    },
+  });
+}
+
+function targetReply(args: string[], mode: string, users: number, commit: string) {
   if (args[1] === 'api' && args[2]?.includes('/pulls/')) {
-    return JSON.stringify({
-      body: mode === 'stale_body' ? 'Previous body' : 'Reviewable body',
-      user: {
-        login: ['wrong_author', 'created_wrong_author'].includes(mode)
-          ? 'old-app[bot]'
-          : 'operator',
-      },
-    });
+    return publishedReply(args, mode, commit);
   }
   if (args[2] === 'user') {
     return JSON.stringify({
@@ -52,10 +66,17 @@ function publicationReply(args: string[], mode: string, body: string) {
     if (mode === 'interrupted') {
       process.emit('SIGINT');
     }
-    return ['existing', 'wrong_author', 'stale_body', 'existing_actor_changed'].includes(mode)
+    return [
+      'existing',
+      'wrong_author',
+      'stale_body',
+      'existing_actor_changed',
+      'existing_ready',
+    ].includes(mode)
       ? 'https://github.com/team/component/pull/1'
       : '';
   }
+  expect(args).toContain('--draft');
   expect(args[args.indexOf('--body-file') + 1]).toBe(body);
   expect(args[args.indexOf('--title') + 1]).toBe('Title with spaces');
   if (mode === 'create_failed') {
@@ -76,6 +97,10 @@ for (const mode of [
   'denied',
   'empty',
   'create_failed',
+  'created_ready',
+  'existing_ready',
+  'wrong_head',
+  'wrong_base',
   'interrupted',
 ] as const) {
   test(`publisher: ${mode}`, async () => {
@@ -84,6 +109,7 @@ for (const mode of [
       const repo = join(dir, 'checkout');
       await mkdir(repo);
       await initializeTarget(repo);
+      const commit = git(repo, 'rev-parse', 'HEAD');
       const body = join(dir, 'body with spaces.md');
       await writeFile(body, mode === 'empty' ? '' : 'Reviewable body');
       const publications: string[][] = [];
@@ -96,7 +122,7 @@ for (const mode of [
           if (args[2] === 'user') {
             users++;
           }
-          const reply = targetReply(args, mode, users);
+          const reply = targetReply(args, mode, users, commit);
           if (reply !== undefined) {
             return reply;
           }
@@ -138,6 +164,10 @@ for (const mode of [
       } else {
         assert(mode !== 'create' && mode !== 'existing');
         const reasons = {
+          created_ready: /not confirmed draft/,
+          existing_ready: /not confirmed draft/,
+          wrong_head: /Published PR target differs/,
+          wrong_base: /Published PR target differs/,
           stale_body: /Existing PR body differs/,
           existing_actor_changed: /GitHub actor changed/,
           wrong_author: /PR author differs/,
@@ -149,12 +179,30 @@ for (const mode of [
           create_failed: /create_failed/,
           interrupted: /Interrupted execution/,
         };
-        await assert.rejects(() => withInterrupts(() => publishCli(args, io)), reasons[mode]);
+        await assert.rejects(
+          () => withInterrupts(() => publishCli(args, io)),
+          (error: unknown) => {
+            assert(error instanceof Error);
+            assert.match(error.message, reasons[mode]);
+            if (mode === 'created_ready') {
+              assert(error instanceof PublicationError);
+              assert.equal(error.url, 'https://github.com/team/component/pull/2');
+            }
+            return true;
+          },
+        );
       }
       expect(publications.map((args) => args[2])).toEqual(
         ['unexpected_actor', 'denied', 'empty'].includes(mode)
           ? []
-          : ['create', 'create_failed', 'created_wrong_author'].includes(mode)
+          : [
+                'create',
+                'create_failed',
+                'created_wrong_author',
+                'created_ready',
+                'wrong_head',
+                'wrong_base',
+              ].includes(mode)
             ? ['list', 'create']
             : ['list'],
       );

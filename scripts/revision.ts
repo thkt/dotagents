@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { assertConfig, assertState } from './input.ts';
 import { isRecord } from './values.ts';
 import { readTarget } from './target.ts';
+import { assertRunning } from './process.ts';
 import type { Reader } from './target.ts';
 
 export interface Revision {
@@ -75,7 +76,7 @@ export async function previousRun(
   assert(
     result.publication === 'published' &&
       result.phase === 'ci' &&
-      ['stopped', 'ready_for_human_review'].includes(String(result.status)),
+      ['stopped', 'published_draft', 'ready_for_human_review'].includes(String(result.status)),
     'Previous publication is incomplete or unconfirmed; reconcile GitHub and retained evidence',
   );
   assert(
@@ -151,12 +152,14 @@ export async function checkRevision(
     head = revision.head,
     body = revision.body,
     captureBody = false,
+    draft,
     issue,
     target,
   }: {
     head?: string;
     body?: string;
     captureBody?: boolean;
+    draft?: 'ensure' | 'require';
     issue?: string;
     target?: Awaited<ReturnType<typeof readTarget>>;
   } = {},
@@ -206,7 +209,7 @@ export async function checkRevision(
         '--repo',
         revision.repository,
         '--json',
-        'url,state,body,author,headRefName,headRefOid,baseRefName,headRepository,headRepositoryOwner,isCrossRepository,closingIssuesReferences',
+        'url,state,isDraft,body,author,headRefName,headRefOid,baseRefName,headRepository,headRepositoryOwner,isCrossRepository,closingIssuesReferences',
       ],
       cwd,
     ),
@@ -256,6 +259,17 @@ export async function checkRevision(
     isRecord(value) && isRecord(value.object) && value.object.sha === head,
     'Revision remote ref differs from PR head',
   );
+  if (draft) {
+    assert(typeof pr.isDraft === 'boolean', 'Revision PR draft state unavailable');
+    if (draft === 'ensure' && !pr.isDraft) {
+      assertRunning();
+      await read(['gh', 'pr', 'ready', revision.url, '--repo', revision.repository, '--undo'], cwd);
+      assertRunning();
+      // The mutation invalidates the earlier target, actor, Issue and body observations.
+      return checkRevision(revision, cwd, read, { head, body, draft: 'require' });
+    }
+    assert(pr.isDraft, 'Revision PR is not draft; reconcile before further publication');
+  }
   return pr.body;
 }
 
