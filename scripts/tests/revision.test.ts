@@ -303,6 +303,14 @@ const failures: Record<string, RegExp> = {
 };
 async function successfulRevision(f: Awaited<ReturnType<typeof fixture>>, mode: string) {
   const { pr, hooks } = f;
+  const verifiedHeads: string[] = [];
+  let beforeCommit = -1;
+  hooks.beforeVerify = async () => {
+    verifiedHeads.push(git(f.cwd, 'rev-parse', 'HEAD'));
+    if (verifiedHeads.length === 2) {
+      beforeCommit = f.commands.length;
+    }
+  };
   const result = await develop(f.args, f.io);
   expect(result.status).toBe(mode === 'local' ? 'verified_local' : 'ready_for_human_review');
   const config = await readObject(join(f.dir, 'verification-config.json'));
@@ -323,9 +331,20 @@ async function successfulRevision(f: Awaited<ReturnType<typeof fixture>>, mode: 
     })),
   );
   if (mode === 'local') {
+    expect(verifiedHeads).toEqual([f.oldHead]);
     expect(git(f.cwd, 'rev-parse', 'HEAD')).toBe(f.oldHead);
     expect(result.publication).toBe('not_attempted');
   } else {
+    assert(result.commit);
+    expect(verifiedHeads).toEqual([f.oldHead, f.oldHead, result.commit]);
+    // One target reconciliation between the final pre-commit verify and staging.
+    // Verification internals are simulated and excluded from these command counts.
+    expect(beforeCommit).toBeGreaterThanOrEqual(0);
+    const staging = f.commands.findIndex(({ argv }) => argv[0] === 'git' && argv[1] === 'add');
+    expect(staging).toBeGreaterThan(beforeCommit);
+    const boundary = f.commands.slice(beforeCommit, staging);
+    expect(boundary.filter(({ argv }) => argv[0] === 'gh')).toHaveLength(6);
+    expect(boundary.filter(({ argv }) => argv[0] === 'git')).toHaveLength(5);
     expect(result.commit).not.toBe(f.oldHead);
     expect(pr.body).toContain(result.commit ?? 'missing');
     expect(pr.body).toContain('Prior limitation and attachment: https://example.com/media.png');
@@ -489,6 +508,84 @@ for (const mode of ['success', 'local', ...Object.keys(failures)]) {
       }
     } finally {
       await withInterrupts(async () => {});
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
+const verificationChanges: Record<string, RegExp> = {
+  issue: /Agreed Issue changed/,
+  request: /Revision request changed/,
+  repository: /Revision target or actor changed/,
+  config: /Revision target or actor changed/,
+  actor: /Revision target or actor changed/,
+  permission: /GitHub push permission required/,
+  pr: /Revision PR body changed/,
+};
+for (const [change, expected] of Object.entries(verificationChanges)) {
+  test(`existing PR revision stops changes during pre-commit verification: ${change}`, async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-verify-')));
+    try {
+      const f = await fixture(root);
+      const priorState = await readFile(join(f.prior, 'verification/state.json'), 'utf8');
+      const priorResult = await readFile(join(f.prior, 'result.json'), 'utf8');
+      const initialVerifications = f.hooks.verifications;
+      let changed = false;
+      f.hooks.beforeVerify = async () => {
+        if (f.hooks.verifications !== initialVerifications + 2) {
+          return;
+        }
+        changed = true;
+        if (change === 'request') {
+          await writeFile(f.request, 'Expanded scope');
+        }
+        if (change === 'config') {
+          const path = join(f.cwd, '.dotagents.json');
+          await writeFile(path, JSON.stringify({ ...(await readObject(path)), check: ['false'] }));
+        }
+        if (change === 'pr') {
+          f.pr.body += '\nConcurrent edit during verification';
+        }
+      };
+      const command = f.io.command;
+      f.io.command = async (argv, cwd, input, timeout) => {
+        const result = await command(argv, cwd, input, timeout);
+        if (!changed || argv[0] !== 'gh') {
+          return result;
+        }
+        if (change === 'issue' && argv[1] === 'issue') {
+          return ok(issue.replace('Keep result visible', 'Changed requirements'));
+        }
+        if (change === 'actor' && argv[2] === 'user') {
+          return ok(JSON.stringify({ login: 'another-operator' }));
+        }
+        if (argv[2] === 'repos/team/component') {
+          return ok(
+            JSON.stringify({
+              full_name: 'team/component',
+              id: change === 'repository' ? 456 : 123,
+              permissions: { push: change !== 'permission' },
+            }),
+          );
+        }
+        return result;
+      };
+      await assert.rejects(() => develop(f.args, f.io), expected);
+      expect(changed).toBe(true);
+      expect(git(f.cwd, 'rev-parse', 'HEAD')).toBe(f.oldHead);
+      expect(f.commands.some(({ argv }) => argv[0] === 'git' && argv[1] === 'add')).toBe(false);
+      expect(f.hooks.pushes).toBe(1); // Only the fixture's original publication.
+      expect(f.hooks.edits).toBe(0);
+      expect(await readObject(join(f.dir, 'result.json'))).toMatchObject({
+        status: 'stopped',
+        publication: 'not_attempted',
+        url: f.pr.url,
+        phase: 'verification',
+      });
+      expect(await readFile(join(f.cwd, 'result.txt'), 'utf8')).toBe('reset corrected');
+      expect(await readFile(join(f.prior, 'verification/state.json'), 'utf8')).toBe(priorState);
+      expect(await readFile(join(f.prior, 'result.json'), 'utf8')).toBe(priorResult);
+    } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
