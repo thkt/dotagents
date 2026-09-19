@@ -526,7 +526,6 @@ async function ship(
   result.details = join(dir, 'pr.md');
   result.nextAction =
     'Inspect the reason, checkout and publication evidence; reconcile the Git and GitHub state before any further write.';
-  await revisionUnchanged(context, io);
   await git('add', '--all');
   await git('commit', '-m', `${requirements.title} (#${number})`);
   const commit = await git('rev-parse', 'HEAD');
