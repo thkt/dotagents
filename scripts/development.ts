@@ -474,11 +474,7 @@ async function implement(context: Context, io: typeof runtime) {
     checkTimeMs,
   };
   await writeFile(join(dir, 'verification-config.json'), JSON.stringify(config, null, 2));
-  const resultState = await verify(context, config, io);
-  await writeFile(
-    join(dir, 'verification-summary.md'),
-    resultState.findings ?? 'Local check and independent review accepted the current deliverables.',
-  );
+  await verify(context, config, io);
   return config;
 }
 

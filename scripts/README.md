@@ -257,7 +257,7 @@ PR作成・添付・CIの登録と成功の確認はCLI、PR内の表示確認�
 
 評価者は今回参照した主要なリポジトリ内文書を列挙し、ホストは対象内の通常ファイルであることと版を結び付けます。symlink先など対象同一性の範囲外にある文書はこの参照記録に含められません。これは全文書の索引でも、モデルが十分に読んだことの証明でもありません。
 
-`state.json`のreviewHistoryに有効な評価を残し、修正担当と次の評価へ渡します。修正後のcheckや撮影が失敗した場合も、その失敗ログと以前の指摘・対象版・記録先を次の修正担当へ渡します。以前の評価は過去の記録として扱い、現在の成果物を照合します。内部の検証概要（`verification-summary.md`）には指摘ID、初出対象、根拠、対応、最新判断、未確認事項と記録の保存場所を保持します。原文、履歴、生ログ、対象版への参照も内部記録に残します。
+`verification/state.json`の`reviewHistory`に有効な評価を残し、修正担当と次の評価へ渡します。`findings`には検証の要約や停止時の診断を保持します。指摘ID、初出対象、根拠、対応、最新判断、未確認事項は`reviewHistory`から確認できます。生ログは、`events`に記録された試行では`events[].prefix`、中断などで`active`が残る試行では`active.prefix`に`.stdout`・`.stderr`を付けたパスを確認します。強制終了や保存障害では、これらのログが存在しない場合もあります。レビューの対象版と原文は同じ接頭辞の上記記録を参照します。修正後のcheckや撮影が失敗した場合も、その失敗ログと以前の指摘・対象版・記録先を次の修正担当へ渡します。以前の評価は過去の記録として扱い、現在の成果物を照合します。
 
 公開用の`pr.md`は、CLIが最新のaccepted評価から変更と理由、要求との対応、検証の内容と限界、指摘の現在の判断・対応、文書の役割と選択理由、残作業を選んで生成します。評価担当AIは既存のassessments・reason・handoffへこれらの具体的な説明を記し、生ログと内部記録への参照はevidenceなどに分けます。CLIは内部要約全体や生のevidenceを転記せず、選んだ文章内の実行ディレクトリや既知のローカルパスは省略表記に置き換え、周囲の事実と公開URL・ルートの説明を残します。文書は対象commitの公開リンクで示し、適用条件、過去の観測、未合意の提案、未確認事項を区別します。共有が必要な証拠は秘密情報や生ログを除き、対象repoの合意した保存先へ要約します。
 
@@ -269,7 +269,7 @@ PR本文の公開・CI・公開後確認は本文作成時点の未完了事項�
 
 ## 結果と再実行
 
-新しい通常の`development.ts`実行では、最初に`result.json`を読み、`details`や`evidence`から必要な証拠へ進みます。安全な新規保存先を確保できた場合、準備途中の失敗から、実装・検証・公開・CIでの停止、成功、`--no-publish`の完了まで同じ場所へ保存します。新規runでは`stopped.txt`を作りません。過去の`result.json`・`stopped.txt`・下位state・生ログは変換・削除せず、その版の記録として保持します。単独のcorrection・publish・評価実験CLIの結果形式は変更しません。
+新しい通常の`development.ts`実行では、最初に`result.json`を読み、`details`や`evidence`から必要な証拠へ進みます。検証停止時と`--no-publish`完了時の`details`は`verification/state.json`を指します。公開へ進んだ後も、`evidence`が示すrun保存先の`verification/state.json`から[検証の要約・評価履歴・生ログ](#レビュー対象と参照記録)を辿れます。安全な新規保存先を確保できた場合、準備途中の失敗から、実装・検証・公開・CIでの停止、成功、`--no-publish`の完了まで同じ場所へ保存します。新規runでは`verification-summary.md`と`stopped.txt`を作りません。過去の要約Markdown・`result.json`・`stopped.txt`・下位state・生ログは変換・削除せず、その版の記録として保持します。repo外で要約Markdownを読む独自利用者の有無と互換性は未確認です。単独のcorrection・publish・評価実験CLIの結果形式は変更しません。
 
 `status`は`stopped`、ローカル検証完了の`verified_local`、公開と同じ対象のCI確認完了の`ready_for_human_review`です。`phase`は`preparation`・`implementation`・`verification`（撮影・独立評価・修正を含む）・`publication`・`ci`を示します。具体的な処理は`operation`、終了理由は`reason`、既知の理由コードは`reasonCode`、次の対応は`nextAction`、残る作業は`remaining`で確認します。setupは`setup-N`、初回実装は`initial implementation`として区別し、`details`のログ接頭辞に`.stdout`・`.stderr`を付けて読みます。検証は`verification/state.json`とそこから参照するログを確認します。例外文から細かい原因コードは推測しません。
 
