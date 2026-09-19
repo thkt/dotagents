@@ -150,7 +150,7 @@ async function checkStop(mode: StopMode, dir: string, reviews: number, implement
   expect(saved.issue).toContain('/issues/99');
   expect(saved.startCommit).toMatch(/^[a-f0-9]{40}$/);
   expect(saved.remaining).toContain('human_review');
-  await checkEarlyStop(mode, dir, saved, reviews, implementations);
+  checkEarlyStop(mode, saved, reviews, implementations);
   if (isVerificationStop(mode)) {
     expect(saved.reasonCode).toBe(mode);
     expect(saved.nextAction).toContain(verificationStops[mode]);
@@ -202,9 +202,8 @@ async function checkStop(mode: StopMode, dir: string, reviews: number, implement
   }
 }
 
-async function checkEarlyStop(
+function checkEarlyStop(
   mode: string,
-  dir: string,
   saved: Record<string, unknown>,
   reviews: number,
   implementations: number,
@@ -225,10 +224,6 @@ async function checkEarlyStop(
     expect(saved.reasonCode).toBe(
       mode === 'review_failure' ? 'review_failed' : 'target_changed_after_stop',
     );
-    expect(saved.details).toBe(join(dir, 'verification/state.json'));
-    expect(await readFile(join(dir, 'verification/state.json'), 'utf8')).toContain(
-      'ready_for_human_review',
-    );
   }
 }
 
@@ -236,6 +231,38 @@ async function savedResult(dir: string) {
   const saved: unknown = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'));
   assert(isRecord(saved));
   return saved;
+}
+
+async function checkVerificationEvidence(
+  mode: string,
+  dir: string,
+  expected: Pick<State, 'findings' | 'reviewHistory' | 'result'>,
+  rawReview: string,
+) {
+  expect(existsSync(join(dir, 'verification-summary.md'))).toBe(false);
+  if (
+    ![
+      'success',
+      'other_repo',
+      'local_denied',
+      'local_no_ci',
+      'review_failure',
+      'source_changed',
+    ].includes(mode) &&
+    !isVerificationStop(mode)
+  ) {
+    return;
+  }
+  const result = await savedResult(dir);
+  assert(typeof result.evidence === 'string');
+  const statePath = join(result.evidence, 'verification/state.json');
+  if (mode !== 'success') {
+    expect(result.details).toBe(statePath);
+  }
+  expect(JSON.parse(await readFile(statePath, 'utf8'))).toMatchObject(expected);
+  expect(await readFile(join(result.evidence, 'verification/review-2.stdout'), 'utf8')).toBe(
+    rawReview,
+  );
 }
 
 async function checkPublicationStop(mode: string, dir: string, saved: Record<string, unknown>) {
@@ -950,10 +977,6 @@ for (const mode of [
           await changeTarget(mode, config, settings);
           await mkdir(config.runDir, { recursive: true });
           await writeFile(join(config.runDir, 'review-2.stdout'), rawReview);
-          await writeFile(
-            join(config.runDir, 'state.json'),
-            JSON.stringify({ result: 'ready_for_human_review', active: null }),
-          );
           if (settings.capture) {
             const media = join(config.cwd, 'review/media');
             await mkdir(media, { recursive: true });
@@ -974,7 +997,7 @@ for (const mode of [
           expect(config.capture?.length).toBeGreaterThan(0);
         }
         expect(await readFile(join(config.cwd, 'result.txt'), 'utf8')).toBe('implemented');
-        return {
+        const state: State = {
           reviewFormat: 3,
           baseCommit: await git(config.cwd, 'rev-parse', 'HEAD'),
           reviewHistory: history,
@@ -989,6 +1012,10 @@ for (const mode of [
           findings: summary,
           result: verificationReason(mode, reviews),
         };
+        if (reviews === 1) {
+          await writeFile(join(config.runDir, 'state.json'), JSON.stringify(state));
+        }
+        return state;
       },
       publish: async (args: string[]) => {
         expect(args).toContain('--repo');
@@ -1097,8 +1124,6 @@ for (const mode of [
         ].forEach((privateDetail) => {
           expect(body).not.toContain(privateDetail);
         });
-        expect(await readFile(join(dir, 'verification-summary.md'), 'utf8')).toBe(summary);
-        expect(await readFile(join(dir, 'verification/review-2.stdout'), 'utf8')).toBe(rawReview);
         expect(JSON.stringify(history)).toBe(internal);
         expect(body).not.toContain('Implementation claim, not verification');
         const beforeCollision = await readFile(join(dir, 'result.json'), 'utf8');
@@ -1127,6 +1152,16 @@ for (const mode of [
           expect(prReads).toHaveLength(1);
         }
       }
+      await checkVerificationEvidence(
+        mode,
+        dir,
+        {
+          findings: summary,
+          reviewHistory: history,
+          result: verificationReason(mode, 1),
+        },
+        rawReview,
+      );
       expect(await git(repo, 'rev-parse', 'HEAD')).toBe(original);
       expect(await readFile(join(repo, 'result.txt'), 'utf8')).toBe('old');
       if (pending) {
