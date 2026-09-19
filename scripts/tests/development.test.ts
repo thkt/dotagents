@@ -51,31 +51,22 @@ const verificationStops = {
   execution_limit: 'human must decide any new scope or budget',
 } as const;
 
+function isVerificationStop(mode: string): mode is keyof typeof verificationStops {
+  return Object.hasOwn(verificationStops, mode);
+}
+
 function verificationReason(mode: string, reviews: number) {
-  switch (mode) {
-    case 'review_storage_failed':
-    case 'invalid_review':
-    case 'check_unavailable':
-    case 'capture_unavailable':
-    case 'human_decision_required':
-    case 'execution_limit':
-      return mode;
-    default:
-      return mode === 'review_failure'
-        ? 'review_failed'
-        : mode === 'source_changed' && reviews > 1
-          ? 'target_changed_after_stop'
-          : 'ready_for_human_review';
+  if (isVerificationStop(mode)) {
+    return mode;
   }
+  return mode === 'review_failure'
+    ? 'review_failed'
+    : mode === 'source_changed' && reviews > 1
+      ? 'target_changed_after_stop'
+      : 'ready_for_human_review';
 }
 
 const stopReasons = {
-  review_storage_failed: /Verification stopped: review_storage_failed/,
-  invalid_review: /Verification stopped: invalid_review/,
-  check_unavailable: /Verification stopped: check_unavailable/,
-  capture_unavailable: /Verification stopped: capture_unavailable/,
-  human_decision_required: /Verification stopped: human_decision_required/,
-  execution_limit: /Verification stopped: execution_limit/,
   worktree_failure: /worktree fixture failure/,
   setup_failure: /setup fixture failure/,
   publication_unconfirmed: /PR author or body could not be confirmed/,
@@ -123,12 +114,13 @@ const stopReasons = {
   head_changed: /Actor changed branch or HEAD/,
 };
 
-async function checkStop(
-  mode: keyof typeof stopReasons,
-  dir: string,
-  reviews: number,
-  implementations: number,
-) {
+type StopMode = keyof typeof stopReasons | keyof typeof verificationStops;
+
+function stopReason(mode: StopMode) {
+  return isVerificationStop(mode) ? new RegExp(`Verification stopped: ${mode}`) : stopReasons[mode];
+}
+
+async function checkStop(mode: StopMode, dir: string, reviews: number, implementations: number) {
   if (
     [
       'denied_start',
@@ -150,7 +142,7 @@ async function checkStop(
     return;
   }
   const saved = await savedResult(dir);
-  expect([saved.reasonCode, saved.reason].join(': ')).toMatch(stopReasons[mode]);
+  expect([saved.reasonCode, saved.reason].join(': ')).toMatch(stopReason(mode));
   expect(saved.status).toBe('stopped');
   expect(saved.nextAction).toBeTruthy();
   expect(saved.evidence).toBe(dir);
@@ -158,10 +150,9 @@ async function checkStop(
   expect(saved.startCommit).toMatch(/^[a-f0-9]{40}$/);
   expect(saved.remaining).toContain('human_review');
   await checkEarlyStop(mode, dir, saved, reviews, implementations);
-  if (mode in verificationStops) {
-    const guidance = Object.entries(verificationStops).find(([reason]) => reason === mode)?.[1];
+  if (isVerificationStop(mode)) {
     expect(saved.reasonCode).toBe(mode);
-    expect(saved.nextAction).toContain(guidance ?? 'missing expected guidance');
+    expect(saved.nextAction).toContain(verificationStops[mode]);
     expect(saved.nextAction).toContain('Evidence: ' + join(dir, 'verification/state.json'));
     expect(saved.nextAction).toContain(
       'reconfirm target, evidence, authorization and verification',
@@ -673,7 +664,7 @@ for (const mode of [
   'needs_human',
   'invalid_reply',
   'review_failure',
-  ...(Object.keys(verificationStops) as (keyof typeof verificationStops)[]),
+  ...Object.keys(verificationStops).filter(isVerificationStop),
   'requirements_changed',
   'source_changed',
   'ci_publication_unavailable',
@@ -1110,7 +1101,7 @@ for (const mode of [
         expect(implementations).toBe(1);
         expect(publications).toBe(1);
       } else {
-        await assert.rejects(() => withInterrupts(() => develop(args, io)), stopReasons[mode]);
+        await assert.rejects(() => withInterrupts(() => develop(args, io)), stopReason(mode));
         await withInterrupts(async () => {});
         await checkSaveFailure(mode, dir, implementations, reviews);
         expect(publications).toBe(expectedPublications);

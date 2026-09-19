@@ -482,7 +482,7 @@ async function implement(context: Context, io: typeof runtime) {
   return config;
 }
 
-const verificationActions: Record<StopReason, string> = {
+const verificationActions: Record<Exclude<StopReason, 'ready_for_human_review'>, string> = {
   execution_limit:
     'Assigned AI: inspect consumed attempts, model time and unresolved findings; a human must decide any new scope or budget. Existing limits cannot be extended.',
   repair_failed:
@@ -509,7 +509,6 @@ const verificationActions: Record<StopReason, string> = {
     'Obtain the human decision described in the repair findings about requirements, scope, permissions or limits before further implementation.',
   target_changed_after_stop:
     'Assigned AI: reconcile current source and requirements with the retained terminal result; prior acceptance does not verify the changed target.',
-  ready_for_human_review: 'Review the verified deliverables and remaining publication conditions.',
 };
 
 async function verify(context: Context, config: Config, io: typeof runtime) {

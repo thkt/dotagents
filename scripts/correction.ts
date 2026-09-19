@@ -178,11 +178,8 @@ async function runModel(
     ms: result.ms,
     prefix,
   });
-  // Keep the persisted review reservation until response adoption and the next
-  // state save complete. A storage failure must never make this attempt runnable again.
-  if (role !== 'review') {
-    await persist();
-  }
+  // Keep the persisted reservation until the next command reservation or terminal save.
+  // A failure before that save must never make this attempt runnable again.
   if (result.timedOut) {
     return { stop: 'execution_limit' };
   }
