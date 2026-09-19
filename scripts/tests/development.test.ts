@@ -88,6 +88,7 @@ const stopReasons = {
   initial_interruption: /Interrupted execution/,
   needs_human: /Human decision required: Need agreement on scope/,
   invalid_reply: /Invalid implementation reply/,
+  blank_human: /Invalid implementation reply/,
   review_failure: /Verification stopped: review_failed/,
   requirements_changed: /Requirements changed during implementation/,
   source_changed: /Verification stopped: target_changed_after_stop/,
@@ -173,7 +174,7 @@ async function checkStop(mode: StopMode, dir: string, reviews: number, implement
     await checkPublicationStop(mode, dir, saved);
   }
   const initialStop =
-    mode.startsWith('initial_') || ['needs_human', 'invalid_reply'].includes(mode);
+    mode.startsWith('initial_') || ['needs_human', 'invalid_reply', 'blank_human'].includes(mode);
   if (initialStop || mode === 'requirements_changed') {
     expect(reviews).toBe(0);
   }
@@ -185,10 +186,14 @@ async function checkStop(mode: StopMode, dir: string, reviews: number, implement
     mode === 'initial_startup_failure' ? 'ENOENT' : 'Actor diagnostic',
   );
   expect(existsSync(join(dir, 'implementation.json'))).toBe(mode !== 'initial_interruption');
-  if (mode === 'invalid_reply' || mode === 'needs_human') {
+  if (['invalid_reply', 'needs_human', 'blank_human'].includes(mode)) {
+    expect(implementations).toBe(1);
+    expect(saved.publication).toBe('not_attempted');
+    expect(await readFile(join(dir, 'checkout/result.txt'), 'utf8')).toBe('implemented');
     expect(await readFile(join(dir, 'implementation.stdout'), 'utf8')).toBe(
       implementationResult(mode).stdout,
     );
+    expect(existsSync(join(dir, 'implementation-summary.md'))).toBe(mode === 'needs_human');
   }
   if (mode === 'needs_human') {
     expect(await readFile(join(dir, 'implementation-summary.md'), 'utf8')).toBe(
@@ -384,6 +389,7 @@ const implementationResults: Record<string, Partial<Awaited<ReturnType<typeof co
   initial_failure: { code: 1 },
   initial_timeout: { timedOut: true },
   invalid_reply: { stdout: JSON.stringify({ status: 'accepted', findings: 'Unexpected status' }) },
+  blank_human: { stdout: JSON.stringify({ status: 'needs_human', findings: ' \t\r\n\u3000' }) },
   needs_human: {
     stdout: JSON.stringify({ status: 'needs_human', findings: 'Need agreement on scope' }),
   },
@@ -663,6 +669,7 @@ for (const mode of [
   'initial_interruption',
   'needs_human',
   'invalid_reply',
+  'blank_human',
   'review_failure',
   ...Object.keys(verificationStops).filter(isVerificationStop),
   'requirements_changed',
