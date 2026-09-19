@@ -5,14 +5,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { develop } from '../development.ts';
-import { publish } from '../publish.ts';
+import { publish, publishCli } from '../publish.ts';
+import type { PublishInput } from '../publish.ts';
 import { run, snapshot } from '../correction.ts';
 import { command, withInterrupts } from '../process.ts';
 import { assertConfig } from '../input.ts';
 import { reviewReplySource } from './support/correction.ts';
 import type { Config, State } from '../input.ts';
 import { isRecord } from '../values.ts';
-import { initializeTarget, githubTarget, git } from './support/target.ts';
+import { initializeTarget, githubTarget, git, targetConfig } from './support/target.ts';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const issue = JSON.stringify({
@@ -23,12 +24,15 @@ const issue = JSON.stringify({
 const ok = (stdout = '') => ({ stdout, stderr: '', code: 0, timedOut: false, ms: 1 });
 
 // Real Git and the existing development/publish entry points; only external responses are simulated.
-async function fixture(root: string) {
+async function fixture(root: string, media = false) {
   const repo = join(root, 'repo');
   const prior = join(root, 'prior');
   const dir = join(root, 'revision');
   await mkdir(repo);
-  await initializeTarget(repo);
+  await initializeTarget(repo, {
+    ...targetConfig,
+    capture: media ? { command: ['capture'], destination: 'media', required: true } : null,
+  });
   const initialBase = git(repo, 'rev-parse', 'HEAD');
   // GitHub does not create closing links from the body for a non-default base.
   const closingIssuesReferences: { url: string }[] = [];
@@ -89,6 +93,10 @@ async function fixture(root: string) {
     return command(argv, cwd, input, timeout);
   }
   async function editPr(argv: string[]) {
+    if (argv.includes('--attach')) {
+      pr.body += '\nhttps://example.com/revision.png';
+      return ok();
+    }
     hooks.edits++;
     if (hooks.mode === 'edit_failed') {
       return { ...ok(), code: 1, stderr: 'body update failed fixture' };
@@ -142,6 +150,10 @@ async function fixture(root: string) {
       await hooks.beforeActor?.();
       expect(input).toContain(await readFile(request, 'utf8'));
       expect(input).toContain(pr.body);
+      if (media) {
+        await mkdir(join(cwd, 'media'));
+        await writeFile(join(cwd, 'media/result.png'), 'simulated capture');
+      }
     }
     await writeFile(
       join(cwd, 'result.txt'),
@@ -207,16 +219,14 @@ async function fixture(root: string) {
       await writeFile(join(config.runDir, 'state.json'), JSON.stringify(state));
       return state;
     },
-    publish: async (args: string[]): Promise<string> => {
-      if (!args.includes('--revision-file')) {
-        const path = args[args.indexOf('--body-file') + 1];
-        assert(path);
+    publish: async (input: PublishInput): Promise<string> => {
+      if (!input.revision) {
         pr.body =
-          (await readFile(path, 'utf8')) +
+          (await readFile(input.bodyFile, 'utf8')) +
           '\nPrior limitation and attachment: https://example.com/media.png';
         return pr.url;
       }
-      return publish(args, {
+      return publish(input, {
         command: async (argv, cwd) => {
           publicationCommands.push(argv);
           const result = await io.command(argv, cwd, '', 660000);
@@ -275,6 +285,74 @@ async function readObject(path: string) {
   assert(isRecord(value));
   return value;
 }
+
+test('standalone revision validates external configuration and binds it to the publication target', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-cli-')));
+  try {
+    const f = await fixture(root);
+    f.io.publish = async (input: PublishInput) => {
+      const configPath = join(f.dir, 'verification-config.json');
+      const original = await readFile(configPath, 'utf8');
+      const config: unknown = JSON.parse(original);
+      assertConfig(config);
+      assert(config.revision);
+      const args = [
+        '--repo',
+        input.cwd,
+        '--actor',
+        'operator',
+        '--head',
+        input.head,
+        '--title',
+        input.title,
+        '--body-file',
+        input.bodyFile,
+        '--revision-file',
+        configPath,
+      ];
+      const io = {
+        command: async (argv: string[], cwd: string) => {
+          const result = await f.io.command(argv, cwd, '', 660000);
+          assert(result.code === 0, result.stderr);
+          return result.stdout.trim();
+        },
+      };
+      const invalid: [string, RegExp][] = [
+        ['{', /JSON/],
+        [JSON.stringify({ ...config, check: [] }), /Invalid check command/],
+        [JSON.stringify({ ...config, revision: undefined }), /Revision publication target differs/],
+        [JSON.stringify({ ...config, cwd: f.repo }), /Revision publication target differs/],
+        [
+          JSON.stringify({ ...config, revision: { ...config.revision, branch: 'codex/other' } }),
+          /Revision publication target differs/,
+        ],
+      ];
+      try {
+        for (const [contents, reason] of invalid) {
+          await writeFile(configPath, contents);
+          await assert.rejects(() => publishCli(args, io), reason);
+          expect(f.hooks.edits).toBe(0);
+        }
+      } finally {
+        await writeFile(configPath, original);
+      }
+      await assert.rejects(
+        () => publish({ ...input, head: 'codex/other' }, io),
+        /Revision publication target differs/,
+      );
+      expect(f.hooks.edits).toBe(0);
+      return publishCli(args, io);
+    };
+    const result = await develop(f.args, f.io);
+    expect(result.status).toBe('ready_for_human_review');
+    expect(f.hooks.edits).toBe(1);
+    expect(f.pr.body).toContain(result.commit ?? 'missing commit');
+    expect(f.pr.body).toContain('Closes #99');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 const failures: Record<string, RegExp> = {
   dirty: /Checkout differs|clean tracked/,
   wrong_head: /PR identity changed/,
@@ -345,6 +423,16 @@ async function successfulRevision(f: Awaited<ReturnType<typeof fixture>>, mode: 
     const boundary = f.commands.slice(beforeCommit, staging);
     expect(boundary.filter(({ argv }) => argv[0] === 'gh')).toHaveLength(6);
     expect(boundary.filter(({ argv }) => argv[0] === 'git')).toHaveLength(5);
+    // Share one fresh target observation within the push boundary.
+    const push = f.commands.findIndex(({ argv }) => argv.includes('push'));
+    const beforePush = f.commands
+      .slice(0, push)
+      .findLastIndex(({ argv }) => argv.join(' ') === 'git rev-parse HEAD');
+    expect(beforePush).toBeGreaterThan(staging);
+    expect(push).toBeGreaterThan(beforePush);
+    expect(
+      f.commands.slice(beforePush, push).filter(({ argv }) => argv[2] === 'user'),
+    ).toHaveLength(1);
     expect(result.commit).not.toBe(f.oldHead);
     expect(pr.body).toContain(result.commit ?? 'missing');
     expect(pr.body).toContain('Prior limitation and attachment: https://example.com/media.png');
@@ -508,6 +596,62 @@ for (const mode of ['success', 'local', ...Object.keys(failures)]) {
       }
     } finally {
       await withInterrupts(async () => {});
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const changed of [false, true]) {
+  test(`revision attachment reconciles a fresh target once: actor changed=${changed}`, async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-media-')));
+    try {
+      const f = await fixture(root, true);
+      let published = -1;
+      const publish = f.io.publish;
+      f.io.publish = async (input) => {
+        const url = await publish(input);
+        published = f.commands.length;
+        return url;
+      };
+      const command = f.io.command;
+      f.io.command = async (argv, cwd, input, timeout) => {
+        const result = await command(argv, cwd, input, timeout);
+        if (changed && published >= 0 && argv[2] === 'user') {
+          return ok(JSON.stringify({ login: 'another-operator' }));
+        }
+        return result;
+      };
+      if (changed) {
+        await assert.rejects(
+          () => develop(f.args, f.io),
+          /Target configuration or GitHub actor changed/,
+        );
+        const result = await readObject(join(f.dir, 'result.json'));
+        expect(result).toMatchObject({
+          status: 'stopped',
+          publication: 'published',
+          url: f.pr.url,
+        });
+        expect(result.remaining).toContain('attachments');
+        expect(result.commit).toBe(f.pr.headRefOid);
+        expect(f.commands.some(({ argv }) => argv.includes('--attach'))).toBe(false);
+      } else {
+        const result = await develop(f.args, f.io);
+        expect(result.status).toBe('ready_for_human_review');
+        expect(result.remaining).not.toContain('attachments');
+        expect(result.remaining).toContain('rendered_media_check');
+        const attachments = f.commands.filter(({ argv }) => argv.includes('--attach'));
+        expect(attachments).toHaveLength(1);
+        expect(attachments[0]?.argv).toContain(join(f.cwd, 'media/result.png'));
+        const attach = f.commands.findIndex(({ argv }) => argv.includes('--attach'));
+        expect(published).toBeGreaterThan(0);
+        expect(attach).toBeGreaterThan(published);
+        expect(
+          f.commands.slice(published, attach).filter(({ argv }) => argv[2] === 'user'),
+        ).toHaveLength(1);
+        expect(f.pr.body).toContain('https://example.com/revision.png');
+      }
+    } finally {
       await rm(root, { recursive: true, force: true });
     }
   });

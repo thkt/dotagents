@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { withInterrupts } from '../process.ts';
-import { publish } from '../publish.ts';
+import { publish, publishCli } from '../publish.ts';
 import { readTarget } from '../target.ts';
 import { initializeTarget, githubTarget, git } from './support/target.ts';
 
@@ -118,7 +118,20 @@ for (const mode of [
         body,
       ];
       if (['create', 'existing'].includes(mode)) {
-        const result = await withInterrupts(() => publish(args, io));
+        const result = await withInterrupts(() =>
+          mode === 'create'
+            ? publish(
+                {
+                  cwd: repo,
+                  actor: 'operator',
+                  head: 'codex/test',
+                  title: 'Title with spaces',
+                  bodyFile: body,
+                },
+                io,
+              )
+            : publishCli(args, io),
+        );
         expect(result).toBe(
           `https://github.com/team/component/pull/${mode === 'existing' ? 1 : 2}`,
         );
@@ -136,7 +149,7 @@ for (const mode of [
           create_failed: /create_failed/,
           interrupted: /Interrupted execution/,
         };
-        await assert.rejects(() => withInterrupts(() => publish(args, io)), reasons[mode]);
+        await assert.rejects(() => withInterrupts(() => publishCli(args, io)), reasons[mode]);
       }
       expect(publications.map((args) => args[2])).toEqual(
         ['unexpected_actor', 'denied', 'empty'].includes(mode)
@@ -158,6 +171,34 @@ test('publisher CLI rejects missing target before touching credentials', () => {
   });
   expect(result.status).toBe(1);
   expect(result.stderr).toContain('Publish failed: Required: --repo CHECKOUT');
+});
+
+test('publisher CLI rejects invalid arguments before invoking commands', async () => {
+  const args = [
+    '--repo',
+    '/unused',
+    '--head',
+    'topic',
+    '--title',
+    'Title',
+    '--body-file',
+    '/unused.md',
+  ];
+  let calls = 0;
+  const io = {
+    command: async () => {
+      calls++;
+      throw Error('unexpected command');
+    },
+  };
+  for (const [input, reason] of [
+    [[...args, '--unknown'], /Unknown option/],
+    [[...args, '--title', '   '], /Required:/],
+    [[...args, '--head'], /argument missing/],
+  ] as const) {
+    await assert.rejects(() => publishCli([...input], io), reason);
+  }
+  expect(calls).toBe(0);
 });
 
 test('publisher rejects another GitHub host before invoking commands', async () => {
