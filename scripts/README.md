@@ -271,6 +271,22 @@ PR本文の公開・CI・公開後確認は本文作成時点の未完了事項�
 
 `status`は`stopped`、ローカル検証完了の`verified_local`、公開と同じ対象のCI確認完了の`ready_for_human_review`です。`phase`は`preparation`・`implementation`・`verification`（撮影・独立評価・修正を含む）・`publication`・`ci`を示します。具体的な処理は`operation`、終了理由は`reason`、既知の理由コードは`reasonCode`、次の対応は`nextAction`、残る作業は`remaining`で確認します。setupは`setup-N`、初回実装は`initial implementation`として区別し、`details`のログ接頭辞に`.stdout`・`.stderr`を付けて読みます。検証は`verification/state.json`とそこから参照するログを確認します。例外文から細かい原因コードは推測しません。
 
+既知の検証停止では、`nextAction`に理由別の対応と`verification/state.json`への参照を返します。担当AIは既存の許可範囲で事実を調べ、ホスト環境の変更に追加権限が必要ならその許可を求めます。環境の調査自体を一律に人の判断待ちにはしません。
+
+| 検証の`reasonCode` | 対応と再判定に必要な条件 |
+| --- | --- |
+| `invalid_review`・`invalid_repair` | 担当AIが生応答と応答契約を照合する。レビューでは対象と文書参照も確認し、応答元の修正後に検証・評価を行う。 |
+| `review_storage_failed` | レビュー応答の検査後に`review-N.json`の保存が失敗した。担当AIが`findings`の元のエラー、保存先、生応答を調べ、ホストが許可範囲で保存環境を解消する。以前の完全な`reviewHistory`は残るが、今回の受入には使わない。 |
+| `repair_failed`・`review_failed` | 担当AIがコマンドの終了結果とstdout・stderrから実行環境を調べ、原因を解消してから再判定する。 |
+| `check_unavailable`・`capture_unavailable`・`capture_timeout` | 担当AIが起動失敗や時間切れ、撮影環境をログで調べる。ホストが必要な依存・ブラウザー・表示環境などを解消し、必要な検証・撮影を行う。上限の変更は人が判断する。 |
+| `requirements_changed` | 担当AIが保存した要求と現在のIssueを比較し、要求・範囲の変更は人の合意へ戻す。 |
+| `source_changed`・`target_changed_after_stop` | 担当AIが対象差分と同時更新の有無を照合し、意図した成果物への検証を確認する。古い成功で変更後の対象を受け入れない。 |
+| `human_decision_required`・`execution_limit` | findingsと消費量を確認し、要求・範囲・許可・新しい実行予算など必要な選択を人へ戻す。既存の上限は書き換えない。 |
+
+支援後も対象・根拠・権限・検証を再確認します。対応案内は旧runの再開許可ではなく、現行CLIに停止runを再開する入口はありません。旧run、lock、active予約、上限を変更せず、新しい保存先を停止条件の迂回に使いません。公開結果が不明ならGitHubの実状態を確認し、自動再試行しません。
+
+レビューの保存に失敗した場合は終端結果を保存して後続修正・公開を止めます。終端stateも保存できない場合は元の停止理由と保存先・保存エラーを例外へ残し、直前の完全なstateとレビューのactive予約を保持して再実行を拒否します。生応答・以前の完全な評価・履歴は削除しません。保存環境全体が使えない場合まで新しい証拠の永続保存は保証できないため、stderr／例外と保存できた記録を併せて調べます。
+
 `repository`・`issue`・`startCommit`・`branch`・`checkout`は今回の対象、`evidence`は保存先です。保存済みの要求は`issue.json`、設定・主体は`target.json`にあります。準備失敗などでは参照先がまだ存在しない場合があります。検証の履歴・予算・activeの正本は下位stateのままで、上位結果へ複製しません。終端再照合で返された`target_changed_after_stop`などは、その呼び出しの結果を保持します。保存stateに以前の成功があっても上位の停止を取り消しません。
 
 | `publication` | 意味と確認先 |
@@ -292,10 +308,14 @@ CLIは保存に成功した`verified_local`または`ready_for_human_review`だ�
 | `passed` | 必要checkが全件SUCCESSで、他の登録済みcheckにも失敗・保留がなく、最後の対象照合も一致。人のレビューと必要な媒体表示確認へ引き継ぐ。 |
 | `failed` | 実行失敗、または必要checkがSKIPPED・NEUTRALなどで未達。checkのログから原因を確認して修正する。 |
 | `timed_out` | 待機上限に到達。最後の観測から未登録・実行中を確認し、同じPR commitのCIを手動で確認する。コードの失敗とは扱わない。 |
-| `unavailable` | API失敗、取得の時間切れ、不正な応答などで確認不能。認証・権限・接続と取得ログを確認する。最後の対象取得だけが失敗した場合も、先に観測した成功だけでCI成功としない。 |
+| `unavailable` | API失敗や取得の時間切れで確認不能。担当AIが許可範囲で認証・権限・接続と取得ログを調べ、必要な環境変更はホストへつなぐ。追加権限が必要なら許可を求める。 |
+| `invalid_response` | JSON、PRの必須項目、CIデータが不正。担当AIが生応答と要求した項目・応答契約を照合し、解消後に同じ公開対象を再判定する。 |
+| `storage_failed` | `pr.json`や取得ログを保存できない。元のエラーと失敗した保存先・処理を確認し、ホストが許可範囲で保存環境を解消する。保存できた生応答と最後の完全なCI観測は保持し、認証失敗やコードの不具合とは説明しない。 |
 | `target_changed` | head、base、OPEN状態、または公開直後に照合するURL・Issue参照が対象と不一致。公開commitと現在のPRを照合し、変更理由と確認すべき対象を判断する。別commitの成功を今回の成功にしない。 |
 
-公開直後の初回取得も同じ分類で`result.json`へ保存します。公開対象の取得失敗・時間切れ・不正な応答は`unavailable`、対象不一致は`target_changed`として終了し、その応答のcheck判定・CI待機・最終対象照合へ進みません。公開対象が一致してもCIデータが欠落・不正なら`unavailable`とし、成功にはしません。CI判定・待機を終えた後は、11分を上限に対象を再照合します。PR URLは`pr-url.txt`、初回の生応答は`pr.json`と`pr-publication.stdout`、診断は`pr-publication.stderr`に保持し、CI初回ログとして複製しません。後続取得は`ci-registration-N.stdout`および`.stderr`（Nは1から）、最終対象照合は`ci-final-target.stdout`および`.stderr`へ保存します。取得不能時の`pr.json`は有効なJSONとは限らないため、生の応答として確認してください。
+最後の対象取得やその保存に失敗した場合も、先に観測した成功だけでCI成功としません。公開直後の初回取得も上表の分類で`result.json`へ保存します。初回の公開対象の取得・応答・保存に異常があるか対象が不一致なら、その応答のcheck判定・CI待機・最終対象照合へ進みません。公開対象が一致してもCIデータが欠落・不正なら上表の応答不正として扱います。CI判定・待機を終えた後は、11分を上限に対象を再照合します。PR URLは`pr-url.txt`、初回の生応答は`pr.json`と`pr-publication.stdout`、診断は`pr-publication.stderr`に保持し、CI初回ログとして複製しません。後続取得は`ci-registration-N.stdout`および`.stderr`（Nは1から）、最終対象照合は`ci-final-target.stdout`および`.stderr`へ保存します。stdout・stderrは片方の保存に失敗しても両方の保存を試みます。保存例外には取得済みの両出力と終了情報を含め、CIでは停止理由にも残します。初回取得ではログ保存に失敗しても`pr.json`への保存を試みます。保存に失敗した記録は欠落・不完全な場合があります。`pr.json`が既にある場合は上書きせず停止します。取得不能時の`pr.json`は有効なJSONとは限らないため、生の応答として確認してください。
+
+待機中の保存失敗後も最終対象照合を行います。最終照合も失敗した場合は`storage_failed`を保ち、先行する保存原因・保存先と最終照合の失敗理由・対応を両方残します。
 
 `ciDetails.timedOut`はCI待機上限への到達を示し、最後の観測を消しません。期限時点で失敗を取得した場合は`failed`として残します。取得不能や対象変更で終了した場合も、それ以前のcheck観測は履歴として保持し、現在の対象での成功とは扱いません。待機の再開、自動再実行、予算延長は行いません。`remaining`の`ci`と`nextAction`を担当AIへ、`human_review`を人へ引き継ぎ、媒体がある場合の`rendered_media_check`も別に確認します。
 
@@ -417,14 +437,14 @@ developmentは、publishからURLを受け取り、必要な添付を終えて�
 ```mermaid
 flowchart TD
   A[公開・必要な添付の完了] --> P22[公開対象とCIの取得]
-  P22 -->|初回の公開対象不一致・取得異常| S[停止・記録を保持]
+  P22 -->|初回の公開対象不一致・取得／保存異常| S[停止・記録を保持]
   P22 -->|対象一致| P24[CI判定]
-  P22 -->|後続の対象不一致・取得異常| P25[最終対象照合]
+  P22 -->|後続の対象不一致・取得／保存異常| P25[最終対象照合]
   P24 -->|未登録・実行中かつ時間あり| W[最大5秒と残り時間の短い方だけ待機]
   W -->|時間あり| P22
   W -->|期限| P25
   P24 -->|成功・失敗・期限・CIデータ不正| P25
-  P25 -->|CI未確認・最終対象不一致・取得異常| S
+  P25 -->|CI未確認・最終対象不一致・取得／保存異常| S
   P25 -->|CI成功・対象一致| H[担当AIの公開後確認と人のレビューへ]
 ```
 

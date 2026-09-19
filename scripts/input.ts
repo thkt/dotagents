@@ -40,6 +40,7 @@ const stopReasons = [
   'capture_unavailable',
   'capture_timeout',
   'invalid_review',
+  'review_storage_failed',
   'invalid_repair',
   'human_decision_required',
   'ready_for_human_review',

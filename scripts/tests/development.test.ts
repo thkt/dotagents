@@ -42,6 +42,30 @@ async function commitReport(repo: string) {
   await git(repo, 'commit', '-m', 'required research');
   return git(repo, 'rev-parse', `HEAD:${reportPath}`);
 }
+const verificationStops = {
+  review_storage_failed: 'writable evidence storage',
+  invalid_review: 'raw review response',
+  check_unavailable: 'check startup or timeout',
+  capture_unavailable: 'capture logs and configured runtime',
+  human_decision_required: 'human decision described in the repair findings',
+  execution_limit: 'human must decide any new scope or budget',
+} as const;
+
+function isVerificationStop(mode: string): mode is keyof typeof verificationStops {
+  return Object.hasOwn(verificationStops, mode);
+}
+
+function verificationReason(mode: string, reviews: number) {
+  if (isVerificationStop(mode)) {
+    return mode;
+  }
+  return mode === 'review_failure'
+    ? 'review_failed'
+    : mode === 'source_changed' && reviews > 1
+      ? 'target_changed_after_stop'
+      : 'ready_for_human_review';
+}
+
 const stopReasons = {
   worktree_failure: /worktree fixture failure/,
   setup_failure: /setup fixture failure/,
@@ -69,7 +93,7 @@ const stopReasons = {
   source_changed: /Verification stopped: target_changed_after_stop/,
   ci_publication_unavailable: /unavailable:/,
   ci_publication_timeout: /unavailable:/,
-  ci_publication_invalid_json: /unavailable:/,
+  ci_publication_invalid_json: /invalid_response:/,
   ci_publication_head_target_changed: /target_changed:/,
   ci_publication_base_target_changed: /target_changed:/,
   ci_publication_state_target_changed: /target_changed:/,
@@ -90,12 +114,13 @@ const stopReasons = {
   head_changed: /Actor changed branch or HEAD/,
 };
 
-async function checkStop(
-  mode: keyof typeof stopReasons,
-  dir: string,
-  reviews: number,
-  implementations: number,
-) {
+type StopMode = keyof typeof stopReasons | keyof typeof verificationStops;
+
+function stopReason(mode: StopMode) {
+  return isVerificationStop(mode) ? new RegExp(`Verification stopped: ${mode}`) : stopReasons[mode];
+}
+
+async function checkStop(mode: StopMode, dir: string, reviews: number, implementations: number) {
   if (
     [
       'denied_start',
@@ -117,7 +142,7 @@ async function checkStop(
     return;
   }
   const saved = await savedResult(dir);
-  expect([saved.reasonCode, saved.reason].join(': ')).toMatch(stopReasons[mode]);
+  expect([saved.reasonCode, saved.reason].join(': ')).toMatch(stopReason(mode));
   expect(saved.status).toBe('stopped');
   expect(saved.nextAction).toBeTruthy();
   expect(saved.evidence).toBe(dir);
@@ -125,6 +150,18 @@ async function checkStop(
   expect(saved.startCommit).toMatch(/^[a-f0-9]{40}$/);
   expect(saved.remaining).toContain('human_review');
   await checkEarlyStop(mode, dir, saved, reviews, implementations);
+  if (isVerificationStop(mode)) {
+    expect(saved.reasonCode).toBe(mode);
+    expect(saved.nextAction).toContain(verificationStops[mode]);
+    expect(saved.nextAction).toContain('Evidence: ' + join(dir, 'verification/state.json'));
+    expect(saved.nextAction).toContain(
+      'reconfirm target, evidence, authorization and verification',
+    );
+    expect(saved.nextAction).toContain('Do not resume this run');
+    expect(saved.publication).toBe('not_attempted');
+    expect(saved.remaining).toContain('local_verification');
+    expect(reviews).toBe(1);
+  }
   if (
     [
       'publication_unconfirmed',
@@ -627,6 +664,7 @@ for (const mode of [
   'needs_human',
   'invalid_reply',
   'review_failure',
+  ...Object.keys(verificationStops).filter(isVerificationStop),
   'requirements_changed',
   'source_changed',
   'ci_publication_unavailable',
@@ -942,12 +980,7 @@ for (const mode of [
           active: null,
           events: [],
           findings: summary,
-          result:
-            mode === 'review_failure'
-              ? 'review_failed'
-              : mode === 'source_changed' && reviews > 1
-                ? 'target_changed_after_stop'
-                : 'ready_for_human_review',
+          result: verificationReason(mode, reviews),
         };
       },
       publish: async (args: string[]) => {
@@ -1068,7 +1101,7 @@ for (const mode of [
         expect(implementations).toBe(1);
         expect(publications).toBe(1);
       } else {
-        await assert.rejects(() => withInterrupts(() => develop(args, io)), stopReasons[mode]);
+        await assert.rejects(() => withInterrupts(() => develop(args, io)), stopReason(mode));
         await withInterrupts(async () => {});
         await checkSaveFailure(mode, dir, implementations, reviews);
         expect(publications).toBe(expectedPublications);
@@ -1311,6 +1344,9 @@ for (const [phase, change, reason] of [
 }
 
 function ciStatus(mode: string) {
+  if (mode === 'ci_publication_invalid_json') {
+    return 'invalid_response';
+  }
   return mode === 'ci_failure'
     ? 'failed'
     : mode.endsWith('target_changed')
@@ -1318,6 +1354,9 @@ function ciStatus(mode: string) {
       : 'unavailable';
 }
 function ciAction(mode: string) {
+  if (mode === 'ci_publication_invalid_json') {
+    return 'raw PR/CI response';
+  }
   return mode === 'ci_failure'
     ? 'Inspect failing'
     : mode.endsWith('target_changed')

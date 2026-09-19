@@ -127,6 +127,37 @@ for (const [mode, result, repairs, reviews] of [
   });
 }
 
+test('Issue retrieval failure after repair preserves reservation and refuses reexecution', async () => {
+  const t = await trial('normal');
+  const helper = join(t.root, 'helper.js');
+  await writeFile(
+    helper,
+    (await readFile(helper, 'utf8')) +
+      "\nif(role==='issue' && readFileSync('source.txt','utf8')==='correct') process.exit(1);\n",
+  );
+  const result = t.execute();
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('Issue unavailable');
+  expect(await t.state()).toMatchObject({
+    active: { role: 'repair', prefix: join(t.config.runDir, 'repair-1') },
+    repair: 1,
+    review: 0,
+    checks: 1,
+    reviewHistory: [],
+  });
+  const paths = ['state.json', 'repair-1.stdout', 'repair-1.stderr'].map((path) =>
+    join(t.config.runDir, path),
+  );
+  paths.push(join(t.config.cwd, 'source.txt'));
+  const before = await Promise.all(paths.map((path) => readFile(path, 'utf8')));
+  expect(JSON.parse(before[1] ?? '')).toEqual({ status: 'repaired', findings: 'fixed' });
+  expect(before[3]).toBe('correct');
+  const retry = t.execute();
+  expect(retry.status).toBe(1);
+  expect(retry.stderr).toContain('Interrupted execution');
+  expect(await Promise.all(paths.map((path) => readFile(path, 'utf8')))).toEqual(before);
+});
+
 test('changed limits cannot reset an existing finite trial', async () => {
   const t = await trial('exhaust');
   expect(t.execute().status).toBe(1);
