@@ -47,7 +47,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
   --run-dir /absolute/path/to/revision-run
 ```
 
-`--run-dir`は前回runと同じ親ディレクトリ内の新しい保存先を指定します。既存の`result.json`を使って同じcheckoutの未完了・公開結果不明の実行を照合するためです。新しい保存先を確保した後、setup前に結果の初期記録を置き、並行する実行も照合します。別の再開台帳は作りません。前回run・state・ログは読み取り参照に限り、修正入力・検証設定・評価・結果は新runへ保存します。
+`--run-dir`は前回runと同じ親ディレクトリ内の新しい保存先を指定します。既存の`result.json`を使って同じcheckoutの未完了・公開結果不明の実行を照合するためです。新しい保存先を確保した後、結果の初期記録を先に置き、要求・設定・修正入力を保存してからsetup直前に対象と並行する実行を照合します。ここで不一致があれば、`phase: implementation`・`operation: check revision before setup`で停止しますが、setupや担当AIは起動していません。停止理由・既知のPR URL・次の対応は新runの`result.json`で確認できます。別の再開台帳は作りません。前回run・state・ログは読み取り参照に限り、修正入力・検証設定・評価・結果は新runへ保存します。
 
 前回のPR・Issue・公開commit・checkout・主体・対象設定をGit/GitHubの実状態と照合します。checkoutは記録した公開headと一致し、追跡対象・未追跡の作業差分がないことが必要です。既存本文は開始時に読み取り、固定した修正入力とともに担当者へ渡します。未完了の実行、結果不明、対象不一致、残った作業があれば開始せず、記録と作業を保ったまま原因・次の対応を返します。別checkoutの自動作成、stash、作業差分の移植、rebase、旧stateの変換・再開は行いません。
 

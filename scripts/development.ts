@@ -325,7 +325,6 @@ async function prepare(
   if (revision) {
     revision.runDirectory = canonical;
     await saveResult(result, undefined);
-    await checkRevision(revision, cwd, (argv, path) => checked(io, argv, path));
   }
   const remote = await git('remote', 'get-url', target.config.remote);
   await writeFile(join(dir, 'issue.json'), original);
@@ -390,6 +389,7 @@ async function revisionUnchanged(context: Context, io: typeof runtime, target?: 
 async function implement(context: Context, io: typeof runtime) {
   const { cwd, dir, original, result: outcome } = context;
   outcome.phase = 'implementation';
+  outcome.operation = 'check revision before setup';
   await revisionUnchanged(context, io);
   for (const [index, argv] of context.target.config.setup.entries()) {
     outcome.operation = `setup-${index + 1}`;
@@ -398,11 +398,11 @@ async function implement(context: Context, io: typeof runtime) {
   }
   outcome.operation = 'check implementation inputs';
   outcome.details = join(dir, 'target.json');
-  await unchangedTarget(context, io);
+  const target = await unchangedTarget(context, io);
   for (const checkout of new Set([cwd, context.repo])) {
     await verifyStartInputs(checkout, context.base, context.target.text, context.inputs, io);
   }
-  await revisionUnchanged(context, io);
+  await revisionUnchanged(context, io, target);
   if (context.revision) {
     assert(
       !(await checked(

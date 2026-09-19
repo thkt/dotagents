@@ -24,13 +24,14 @@ const issue = JSON.stringify({
 const ok = (stdout = '') => ({ stdout, stderr: '', code: 0, timedOut: false, ms: 1 });
 
 // Real Git and the existing development/publish entry points; only external responses are simulated.
-async function fixture(root: string, media = false) {
+async function fixture(root: string, media = false, setup: string[][] = []) {
   const repo = join(root, 'repo');
   const prior = join(root, 'prior');
   const dir = join(root, 'revision');
   await mkdir(repo);
   await initializeTarget(repo, {
     ...targetConfig,
+    setup,
     capture: media ? { command: ['capture'], destination: 'media', required: true } : null,
   });
   const initialBase = git(repo, 'rev-parse', 'HEAD');
@@ -750,6 +751,70 @@ for (const changed of ['none', 'actor', 'draft']) {
         ).toHaveLength(1);
         expect(f.pr.body).toContain('https://example.com/revision.png');
       }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const boundary of ['reservation', 'setup']) {
+  test(`revision rejects changes at the start boundary: ${boundary}`, async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-start-')));
+    try {
+      const setup = ['git', 'status', '--porcelain'];
+      const f = await fixture(root, false, [setup]);
+      const priorState = await readFile(join(f.prior, 'verification/state.json'), 'utf8');
+      const priorResult = await readFile(join(f.prior, 'result.json'), 'utf8');
+      const initialVerifications = f.hooks.verifications;
+      let changed = false;
+      const command = f.io.command;
+      f.io.command = async (argv, cwd, input, timeout) => {
+        const result = await command(argv, cwd, input, timeout);
+        if (boundary === 'reservation' && !changed && argv[1] === 'remote') {
+          const reserved = await readObject(join(f.dir, 'result.json')).catch(() => undefined);
+          if (reserved) {
+            expect(reserved).toMatchObject({ reason: '', url: f.pr.url });
+            await writeFile(f.request, 'Expanded scope');
+            changed = true;
+          }
+        }
+        if (boundary === 'setup' && argv.join(' ') === setup.join(' ')) {
+          f.pr.body += '\nConcurrent edit during setup';
+          await writeFile(join(f.cwd, 'untracked.txt'), 'Preserve setup work');
+          changed = true;
+        }
+        return result;
+      };
+      const reason = boundary === 'reservation' ? /Revision request changed/ : /PR body changed/;
+      await assert.rejects(() => develop(f.args, f.io), reason);
+      expect(changed).toBe(true);
+      expect(f.commands.filter(({ argv }) => argv.join(' ') === setup.join(' '))).toHaveLength(
+        boundary === 'reservation' ? 0 : 1,
+      );
+      expect(f.hooks.implementations).toBe(1); // Only the prior run's actor and publication.
+      expect(f.hooks.verifications).toBe(initialVerifications);
+      expect(f.hooks.pushes).toBe(1);
+      expect(f.hooks.edits).toBe(0);
+      expect(f.commands.some(({ argv }) => argv[2] === 'ready' || argv[1] === 'add')).toBe(false);
+      expect(git(f.cwd, 'rev-parse', 'HEAD')).toBe(f.oldHead);
+      const result = await readObject(join(f.dir, 'result.json'));
+      expect(result).toMatchObject({
+        status: 'stopped',
+        phase: 'implementation',
+        operation:
+          boundary === 'reservation'
+            ? 'check revision before setup'
+            : 'check implementation inputs',
+        publication: 'not_attempted',
+        url: f.pr.url,
+      });
+      expect(result.reason).toMatch(reason);
+      expect(result.nextAction).toContain('without resuming this run');
+      if (boundary === 'setup') {
+        expect(await readFile(join(f.cwd, 'untracked.txt'), 'utf8')).toBe('Preserve setup work');
+      }
+      expect(await readFile(join(f.prior, 'verification/state.json'), 'utf8')).toBe(priorState);
+      expect(await readFile(join(f.prior, 'result.json'), 'utf8')).toBe(priorResult);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
