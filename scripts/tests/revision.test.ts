@@ -39,6 +39,7 @@ async function fixture(root: string, media = false) {
   const pr = {
     url: 'https://github.com/team/component/pull/100',
     state: 'OPEN',
+    isDraft: true,
     body: '',
     author: { login: 'operator' },
     headRefName: 'codex/development-99',
@@ -75,6 +76,9 @@ async function fixture(root: string, media = false) {
   const publicationCommands: string[][] = [];
   async function gitCommand(argv: string[], cwd: string, input: string, timeout: number | null) {
     if (argv.includes('push')) {
+      if (hooks.pushes) {
+        expect(pr.isDraft).toBe(true);
+      }
       hooks.pushes++;
       if (hooks.mode === 'push_failed') {
         return { ...ok(), code: 1, stderr: 'push rejected fixture' };
@@ -97,6 +101,7 @@ async function fixture(root: string, media = false) {
       pr.body += '\nhttps://example.com/revision.png';
       return ok();
     }
+    expect(pr.isDraft).toBe(true);
     hooks.edits++;
     if (hooks.mode === 'edit_failed') {
       return { ...ok(), code: 1, stderr: 'body update failed fixture' };
@@ -119,28 +124,87 @@ async function fixture(root: string, media = false) {
         : issue,
     );
   }
-  async function githubCommand(argv: string[]) {
-    if (argv[1] === 'issue') {
-      return issueReply();
+  function undoDraft(argv: string[]) {
+    expect(argv).toEqual(['gh', 'pr', 'ready', pr.url, '--repo', 'team/component', '--undo']);
+    expect(hooks.pushes).toBe(1);
+    if (hooks.mode === 'draft_failed') {
+      return { ...ok(), code: 1, stderr: 'draft conversion failed fixture' };
     }
-    if (argv[1] === 'pr' && argv[2] === 'view') {
-      if (hooks.mode === 'ci_failed' && argv.at(-1)?.includes('statusCheckRollup')) {
-        return { ...ok(), code: 1, stderr: 'CI unavailable fixture' };
-      }
-      return ok(JSON.stringify(pr));
+    if (hooks.mode !== 'draft_mismatch') {
+      pr.isDraft = true;
     }
-    if (argv[2] === 'edit') {
-      return editPr(argv);
+    if (hooks.mode === 'draft_body_changed') {
+      pr.body += '\nConcurrent edit during draft conversion';
     }
-    if (argv[2]?.includes('/git/ref/')) {
-      return ok(JSON.stringify({ object: { sha: remoteHead } }));
+    if (hooks.mode === 'draft_unknown') {
+      throw Error('draft conversion response lost fixture');
     }
-    const reply = githubTarget(argv);
-    if (reply !== undefined) {
-      return ok(reply);
-    }
-    throw Error(`Unexpected GitHub fixture command: ${argv.join(' ')}`);
+    return ok();
   }
+  function branchPulls() {
+    if (hooks.implementations < 2) {
+      return [[]];
+    }
+    const pages = [
+      [
+        {
+          html_url: pr.url,
+          head: { ref: pr.headRefName, repo: { full_name: 'team/component' } },
+          base: { ref: pr.baseRefName },
+          draft: pr.isDraft,
+        },
+      ],
+    ];
+    if (hooks.mode === 'shared_branch') {
+      pages.push([
+        {
+          html_url: 'https://github.com/team/component/pull/101',
+          head: { ref: pr.headRefName, repo: { full_name: 'team/component' } },
+          base: { ref: 'main' },
+          draft: false,
+        },
+      ]);
+    }
+    return pages;
+  }
+  async function githubCommand(argv: string[]) {
+    switch (`${argv[1]}/${argv[2]}`) {
+      case 'issue/view':
+        return issueReply();
+      case 'pr/view':
+        if (hooks.mode === 'ci_failed' && argv.at(-1)?.includes('statusCheckRollup')) {
+          return { ...ok(), code: 1, stderr: 'CI unavailable fixture' };
+        }
+        return ok(JSON.stringify(pr));
+      case 'api/repos/team/component/pulls':
+        expect(argv).toEqual([
+          'gh',
+          'api',
+          'repos/team/component/pulls',
+          '--method',
+          'GET',
+          '-f',
+          'state=open',
+          '-f',
+          'head=team:codex/development-99',
+          '--paginate',
+          '--slurp',
+        ]);
+        return ok(JSON.stringify(branchPulls()));
+      case 'pr/ready':
+        return undoDraft(argv);
+      case 'pr/edit':
+        return editPr(argv);
+      default:
+        if (argv[2]?.includes('/git/ref/')) {
+          return ok(JSON.stringify({ object: { sha: remoteHead } }));
+        }
+        const reply = githubTarget(argv);
+        assert(reply !== undefined, `Unexpected GitHub fixture command: ${argv.join(' ')}`);
+        return ok(reply);
+    }
+  }
+
   async function actor(cwd: string, input: string) {
     hooks.implementations++;
     if (hooks.implementations === 1) {
@@ -248,6 +312,7 @@ async function fixture(root: string, media = false) {
   };
   await develop(['99', '--repo', repo, '--run-dir', prior], io);
   commands.length = 0;
+  pr.isDraft = false;
   const cwd = join(prior, 'checkout');
   const oldHead = pr.headRefOid;
   const oldBody = pr.body;
@@ -344,7 +409,7 @@ test('standalone revision validates external configuration and binds it to the p
       return publishCli(args, io);
     };
     const result = await develop(f.args, f.io);
-    expect(result.status).toBe('ready_for_human_review');
+    expect(result.status).toBe('published_draft');
     expect(f.hooks.edits).toBe(1);
     expect(f.pr.body).toContain(result.commit ?? 'missing commit');
     expect(f.pr.body).toContain('Closes #99');
@@ -354,6 +419,12 @@ test('standalone revision validates external configuration and binds it to the p
 });
 
 const failures: Record<string, RegExp> = {
+  shared_branch:
+    /Open PR already uses this branch: https:\/\/github.com\/team\/component\/pull\/101/,
+  draft_failed: /draft conversion failed fixture/,
+  draft_mismatch: /not draft/,
+  draft_unknown: /draft conversion response lost fixture/,
+  draft_body_changed: /PR body changed/,
   dirty: /Checkout differs|clean tracked/,
   wrong_head: /PR identity changed/,
   wrong_author: /PR identity changed/,
@@ -390,7 +461,7 @@ async function successfulRevision(f: Awaited<ReturnType<typeof fixture>>, mode: 
     }
   };
   const result = await develop(f.args, f.io);
-  expect(result.status).toBe(mode === 'local' ? 'verified_local' : 'ready_for_human_review');
+  expect(result.status).toBe(mode === 'local' ? 'verified_local' : 'published_draft');
   const config = await readObject(join(f.dir, 'verification-config.json'));
   expect(config.baseCommit).toBe(f.initialBase);
   expect(config).toMatchObject({
@@ -412,6 +483,8 @@ async function successfulRevision(f: Awaited<ReturnType<typeof fixture>>, mode: 
     expect(verifiedHeads).toEqual([f.oldHead]);
     expect(git(f.cwd, 'rev-parse', 'HEAD')).toBe(f.oldHead);
     expect(result.publication).toBe('not_attempted');
+    expect(pr.isDraft).toBe(false);
+    expect(f.commands.some(({ argv }) => argv[2] === 'ready')).toBe(false);
   } else {
     assert(result.commit);
     expect(verifiedHeads).toEqual([f.oldHead, f.oldHead, result.commit]);
@@ -432,7 +505,11 @@ async function successfulRevision(f: Awaited<ReturnType<typeof fixture>>, mode: 
     expect(push).toBeGreaterThan(beforePush);
     expect(
       f.commands.slice(beforePush, push).filter(({ argv }) => argv[2] === 'user'),
-    ).toHaveLength(1);
+    ).toHaveLength(mode === 'already_draft' ? 1 : 2);
+    const conversions = f.commands.filter(({ argv }) => argv[2] === 'ready');
+    expect(conversions).toHaveLength(mode === 'already_draft' ? 0 : 1);
+    expect(pr.isDraft).toBe(true);
+    expect(result.remaining).toEqual(['published_body_check', 'mark_ready', 'human_review']);
     expect(result.commit).not.toBe(f.oldHead);
     expect(pr.body).toContain(result.commit ?? 'missing');
     expect(pr.body).toContain('Prior limitation and attachment: https://example.com/media.png');
@@ -450,8 +527,19 @@ async function stoppedRevision(f: Awaited<ReturnType<typeof fixture>>, mode: str
   assert(expected);
   await assert.rejects(() => withInterrupts(() => develop(f.args, f.io)), expected);
   const result = await readObject(join(f.dir, 'result.json')).catch(() => undefined);
+  if (mode === 'shared_branch') {
+    expect(pr.isDraft).toBe(false);
+    expect(pr.headRefOid).toBe(f.oldHead);
+    expect(pr.body).toBe(f.oldBody);
+    expect(f.commands.some(({ argv }) => argv[2] === 'ready' || argv[2] === 'edit')).toBe(false);
+  }
   if (
     [
+      'shared_branch',
+      'draft_failed',
+      'draft_mismatch',
+      'draft_unknown',
+      'draft_body_changed',
       'push_failed',
       'push_interrupt',
       'edit_failed',
@@ -472,7 +560,7 @@ async function stoppedRevision(f: Awaited<ReturnType<typeof fixture>>, mode: str
     expect(result.publication).toBe(
       mode === 'ci_failed'
         ? 'published'
-        : ['commit_failed', 'request_changed', 'body_changed'].includes(mode)
+        : ['shared_branch', 'commit_failed', 'request_changed', 'body_changed'].includes(mode)
           ? 'not_attempted'
           : 'unconfirmed',
     );
@@ -493,6 +581,11 @@ async function stoppedRevision(f: Awaited<ReturnType<typeof fixture>>, mode: str
   }
   if (
     [
+      'shared_branch',
+      'draft_failed',
+      'draft_mismatch',
+      'draft_unknown',
+      'draft_body_changed',
       'dirty',
       'wrong_head',
       'wrong_author',
@@ -512,7 +605,7 @@ async function stoppedRevision(f: Awaited<ReturnType<typeof fixture>>, mode: str
     expect(hooks.edits).toBe(0);
   }
 }
-for (const mode of ['success', 'local', ...Object.keys(failures)]) {
+for (const mode of ['success', 'already_draft', 'local', ...Object.keys(failures)]) {
   test(`existing PR revision: ${mode}`, async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-')));
     try {
@@ -521,6 +614,9 @@ for (const mode of ['success', 'local', ...Object.keys(failures)]) {
       const priorResult = await readFile(join(f.prior, 'result.json'), 'utf8');
       const { pr, hooks } = f;
       hooks.mode = mode;
+      if (mode === 'already_draft') {
+        f.pr.isDraft = true;
+      }
       const identityChanges: Record<string, () => void> = {
         wrong_head: () => {
           pr.headRefOid = 'a'.repeat(40);
@@ -582,7 +678,7 @@ for (const mode of ['success', 'local', ...Object.keys(failures)]) {
         f.args.push('--no-publish');
         pr.closingIssuesReferences = [{ url: 'https://github.com/team/component/issues/99' }];
       }
-      if (mode === 'success' || mode === 'local') {
+      if (['success', 'already_draft', 'local'].includes(mode)) {
         await successfulRevision(f, mode);
       } else {
         await stoppedRevision(f, mode);
@@ -601,8 +697,8 @@ for (const mode of ['success', 'local', ...Object.keys(failures)]) {
   });
 }
 
-for (const changed of [false, true]) {
-  test(`revision attachment reconciles a fresh target once: actor changed=${changed}`, async () => {
+for (const changed of ['none', 'actor', 'draft']) {
+  test(`revision attachment reconciles a fresh target once: changed=${changed}`, async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-media-')));
     try {
       const f = await fixture(root, true);
@@ -611,20 +707,23 @@ for (const changed of [false, true]) {
       f.io.publish = async (input) => {
         const url = await publish(input);
         published = f.commands.length;
+        if (changed === 'draft') {
+          f.pr.isDraft = false;
+        }
         return url;
       };
       const command = f.io.command;
       f.io.command = async (argv, cwd, input, timeout) => {
         const result = await command(argv, cwd, input, timeout);
-        if (changed && published >= 0 && argv[2] === 'user') {
+        if (changed === 'actor' && published >= 0 && argv[2] === 'user') {
           return ok(JSON.stringify({ login: 'another-operator' }));
         }
         return result;
       };
-      if (changed) {
+      if (changed !== 'none') {
         await assert.rejects(
           () => develop(f.args, f.io),
-          /Target configuration or GitHub actor changed/,
+          changed === 'actor' ? /Target configuration or GitHub actor changed/ : /not draft/,
         );
         const result = await readObject(join(f.dir, 'result.json'));
         expect(result).toMatchObject({
@@ -637,7 +736,7 @@ for (const changed of [false, true]) {
         expect(f.commands.some(({ argv }) => argv.includes('--attach'))).toBe(false);
       } else {
         const result = await develop(f.args, f.io);
-        expect(result.status).toBe('ready_for_human_review');
+        expect(result.status).toBe('published_draft');
         expect(result.remaining).not.toContain('attachments');
         expect(result.remaining).toContain('rendered_media_check');
         const attachments = f.commands.filter(({ argv }) => argv.includes('--attach'));

@@ -16,6 +16,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { develop } from '../development.ts';
+import { PublicationError } from '../publish.ts';
 import type { PublishInput } from '../publish.ts';
 import { repairInstructions } from '../repair.ts';
 import { command, interruptionMessage, withInterrupts } from '../process.ts';
@@ -71,7 +72,10 @@ const stopReasons = {
   worktree_failure: /worktree fixture failure/,
   setup_failure: /setup fixture failure/,
   publication_unconfirmed: /PR author or body could not be confirmed/,
+  publication_readback_unconfirmed: /PR author or body could not be confirmed/,
   attachment_failure: /attachment fixture failure/,
+  existing_ready_pr: /Open PR already uses this branch/,
+  attachment_draft_changed: /not confirmed draft/,
   ci_interruption: /Interrupted execution/,
   save_write_interruption: /Interrupted execution.*Result:/s,
   save_rename_interruption: /Interrupted execution.*Result:/s,
@@ -167,8 +171,10 @@ async function checkStop(mode: StopMode, dir: string, reviews: number, implement
   if (
     [
       'publication_unconfirmed',
+      'publication_readback_unconfirmed',
       'attachment_failure',
       'attachment_actor_changed',
+      'attachment_draft_changed',
       'ci_interruption',
     ].includes(mode)
   ) {
@@ -267,21 +273,32 @@ async function checkVerificationEvidence(
 }
 
 async function checkPublicationStop(mode: string, dir: string, saved: Record<string, unknown>) {
-  expect(saved.publication).toBe(mode === 'publication_unconfirmed' ? 'unconfirmed' : 'published');
+  expect(saved.publication).toBe(mode.startsWith('publication_') ? 'unconfirmed' : 'published');
   expect(saved.phase).toBe(mode === 'ci_interruption' ? 'ci' : 'publication');
   expect(saved.commit).toBe(await git(join(dir, 'checkout'), 'rev-parse', 'HEAD'));
   expect(saved.branch).toBe('codex/development-99');
   expect(saved.nextAction).toContain('GitHub');
   expect(saved.ci).toBeUndefined();
-  if (mode === 'publication_unconfirmed') {
-    expect(saved.url).toBeUndefined();
+  if (mode.startsWith('publication_')) {
+    expect(saved.url).toBe(
+      mode === 'publication_readback_unconfirmed'
+        ? 'https://github.com/team/component/pull/100'
+        : undefined,
+    );
     expect(existsSync(join(dir, 'pr-url.txt'))).toBe(false);
   } else {
     expect(saved.url).toBe(await readFile(join(dir, 'pr-url.txt'), 'utf8'));
     expect(saved.url).toContain('/pull/100');
   }
   if (mode.startsWith('attachment_')) {
-    expect(saved.remaining).toEqual(['ci', 'human_review', 'attachments', 'rendered_media_check']);
+    expect(saved.remaining).toEqual([
+      'ci',
+      'published_body_check',
+      'mark_ready',
+      'human_review',
+      'attachments',
+      'rendered_media_check',
+    ]);
   }
   if (mode === 'ci_interruption') {
     expect(await readFile(join(dir, 'pr-publication.stdout'), 'utf8')).toContain('headRefOid');
@@ -305,7 +322,7 @@ async function checkSaveFailure(
     const saved = await savedResult(dir);
     if (mode === 'save_interruption_failure') {
       // A failed replacement retains the previous complete record, not a partial JSON.
-      expect(saved.status).toBe('ready_for_human_review');
+      expect(saved.status).toBe('published_draft');
     } else {
       expect(saved.status).toBe('stopped');
       expect(saved.reason).toContain(interruptionMessage);
@@ -317,12 +334,18 @@ async function checkSaveFailure(
       expect(saved.commit).toBe(await git(join(dir, 'checkout'), 'rev-parse', 'HEAD'));
       expect(saved.ci).toBe('passed');
       expect(saved.ciDetails).toMatchObject({ status: 'passed' });
-      expect(saved.remaining).toEqual(['human_review']);
+      expect(saved.remaining).toEqual(['published_body_check', 'mark_ready', 'human_review']);
     }
     if (mode === 'save_write_interruption') {
       expect(saved.publication).toBe('not_attempted');
       expect(saved.reasonCode).toBeUndefined();
-      expect(saved.remaining).toEqual(['publication', 'ci', 'human_review']);
+      expect(saved.remaining).toEqual([
+        'publication',
+        'ci',
+        'published_body_check',
+        'mark_ready',
+        'human_review',
+      ]);
     }
     if (mode === 'save_stopped_interruption') {
       expect(saved.reason).toContain('setup fixture failure');
@@ -570,7 +593,7 @@ async function prView(
 ) {
   const publication = argv.at(-1)?.includes('body');
   expect(timeout).toBe(660000);
-  const finalRead = argv.at(-1) === 'headRefOid,baseRefName,state';
+  const finalRead = argv.at(-1) === 'headRefOid,baseRefName,state,isDraft';
   if (mode === 'ci_final_unavailable' && finalRead) {
     return { ...ok('raw API response'), code: 1, stderr: 'API unavailable in fixture' };
   }
@@ -580,6 +603,7 @@ async function prView(
     headRefOid: changed ? 'another-commit' : await git(cwd, 'rev-parse', 'HEAD'),
     baseRefName: settings.baseBranch,
     state: 'OPEN',
+    isDraft: true,
     body: attached ? 'Closes #99\nAttached media' : 'Closes #99',
     statusCheckRollup: [
       {
@@ -632,7 +656,7 @@ async function checkCiEvidence(mode: string, dir: string, prReads: string[]) {
   }
   expect(await readFile(join(dir, 'pr-url.txt'), 'utf8')).toContain('/pull/100');
   const body = await readFile(join(dir, 'pr.md'), 'utf8');
-  expect(body).toContain('公開・CI・公開後確認・人の承認は未完了');
+  expect(body).toContain('draft公開・CI・本文と媒体の確認・ready切替・人の承認は未完了');
   expect(body).not.toMatch(/媒体を添付|rendered_media_check|新規添付対象/);
   const saved: unknown = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'));
   assert(isRecord(saved) && isRecord(saved.ciDetails));
@@ -641,18 +665,18 @@ async function checkCiEvidence(mode: string, dir: string, prReads: string[]) {
     publication: 'published',
     requiredChecks: ['checks'],
     ci: ciStatus(mode),
-    remaining: ['ci', 'human_review'],
+    remaining: ['ci', 'published_body_check', 'mark_ready', 'human_review'],
   });
   expect(saved.commit).toBe(await git(join(dir, 'checkout'), 'rev-parse', 'HEAD'));
   expect(saved.nextAction).toContain(ciAction(mode));
   if (mode === 'ci_failure') {
     expect(prReads).toEqual([
-      'url,headRefOid,baseRefName,state,body,statusCheckRollup',
-      'headRefOid,baseRefName,state',
+      'url,headRefOid,baseRefName,state,isDraft,body,statusCheckRollup',
+      'headRefOid,baseRefName,state,isDraft',
     ]);
   }
   if (mode.startsWith('ci_publication_')) {
-    expect(prReads).toEqual(['url,headRefOid,baseRefName,state,body,statusCheckRollup']);
+    expect(prReads).toEqual(['url,headRefOid,baseRefName,state,isDraft,body,statusCheckRollup']);
     await checkPublicationEvidence(mode, dir, saved.ciDetails);
     return;
   }
@@ -677,6 +701,8 @@ for (const mode of [
   'worktree_failure',
   'setup_failure',
   'publication_unconfirmed',
+  'publication_readback_unconfirmed',
+  'existing_ready_pr',
   'attachment_failure',
   'ci_interruption',
   'save_failure',
@@ -691,6 +717,7 @@ for (const mode of [
   'permission_lost',
   'local_denied',
   'attachment_actor_changed',
+  'attachment_draft_changed',
   'initial_failure',
   'initial_startup_failure',
   'initial_timeout',
@@ -738,7 +765,12 @@ for (const mode of [
         '-c',
         'test "$(cat result.txt)" = implemented && test "$(cat setup.txt)" = configured',
       ],
-      capture: ['success', 'attachment_actor_changed', 'attachment_failure'].includes(mode)
+      capture: [
+        'success',
+        'attachment_actor_changed',
+        'attachment_draft_changed',
+        'attachment_failure',
+      ].includes(mode)
         ? {
             command: ['capture-fixture'],
             destination: 'review/media',
@@ -841,8 +873,10 @@ for (const mode of [
       mode.startsWith('ci_') ||
         [
           'attachment_actor_changed',
+          'attachment_draft_changed',
           'attachment_failure',
           'publication_unconfirmed',
+          'publication_readback_unconfirmed',
           'save_rename_interruption',
           'save_interruption_failure',
         ].includes(mode),
@@ -850,18 +884,46 @@ for (const mode of [
     let attached = false;
     let attachmentWrites = 0;
     const prReads: string[] = [];
+    const branchPulls =
+      mode === 'existing_ready_pr'
+        ? [
+            {
+              html_url: 'https://github.com/team/component/pull/100',
+              head: { ref: 'codex/development-99', repo: { full_name: settings.repository } },
+            },
+          ]
+        : [];
     async function github(argv: string[], cwd: string, timeout: number | null) {
-      const targetReply = githubTarget(argv, settings);
-      if (targetReply !== undefined) {
-        return ok(targetResponse(mode, targetReply, settings.repository, reviews, publications));
-      }
       switch (`${argv[1]}/${argv[2]}`) {
+        case `api/repos/${settings.repository}/pulls/100`:
+          return ok(
+            JSON.stringify({
+              html_url: `https://github.com/${settings.repository}/pull/100`,
+              state: 'open',
+              draft: mode !== 'attachment_draft_changed',
+              user: { login: 'operator' },
+              head: {
+                ref: await git(cwd, 'branch', '--show-current'),
+                sha: await git(cwd, 'rev-parse', 'HEAD'),
+                repo: { full_name: settings.repository },
+              },
+              base: { ref: settings.baseBranch, repo: { full_name: settings.repository } },
+              body: await readFile(join(dir, 'pr.md'), 'utf8'),
+            }),
+          );
         case 'issue/view':
           return ok(
             mode === 'requirements_changed' && implementations
               ? issue.replace('visible', 'different')
               : issue,
           );
+        case `api/repos/${settings.repository}/pulls`:
+          expect(argv).toContain('--paginate');
+          expect(argv).toContain('--slurp');
+          expect(argv).toContain('state=open');
+          expect(argv).toContain(`head=${settings.repository.split('/')[0]}:codex/development-99`);
+          expect(argv).not.toContain('--base');
+          return ok(JSON.stringify([branchPulls]));
         case 'pr/edit':
           attachmentWrites++;
           if (mode === 'attachment_failure') {
@@ -877,7 +939,9 @@ for (const mode of [
           }
           return response;
         default:
-          throw Error('Unexpected gh call');
+          const targetReply = githubTarget(argv, settings);
+          assert(targetReply !== undefined, 'Unexpected gh call');
+          return ok(targetResponse(mode, targetReply, settings.repository, reviews, publications));
       }
     }
     async function localCommand(
@@ -1027,6 +1091,12 @@ for (const mode of [
         expect(pushes).toBe(1);
         const bodyPath = input.bodyFile;
         expect(await readFile(bodyPath, 'utf8')).toBe(await readFile(join(dir, 'pr.md'), 'utf8'));
+        if (mode === 'publication_readback_unconfirmed') {
+          throw new PublicationError(
+            'https://github.com/team/component/pull/100',
+            Error('PR author or body could not be confirmed'),
+          );
+        }
         if (mode === 'publication_unconfirmed') {
           throw Error('PR author or body could not be confirmed');
         }
@@ -1062,8 +1132,8 @@ for (const mode of [
         expect(await savedResult(dir)).toEqual(result);
         expect(result.ci).toBe('passed');
         expect(prReads).toEqual([
-          'url,headRefOid,baseRefName,state,body,statusCheckRollup',
-          'headRefOid,baseRefName,state',
+          'url,headRefOid,baseRefName,state,isDraft,body,statusCheckRollup',
+          'headRefOid,baseRefName,state,isDraft',
         ]);
         expect(result.ciDetails.logs).toEqual([
           join(dir, 'pr-publication'),
@@ -1104,18 +1174,23 @@ for (const mode of [
         expect(body).toContain('対象commit: ' + result.commit);
         expect(body).toContain('Closes #99');
         [
-          'CLI: PRを公開し、同じheadのCI（checks）',
+          'CLI: PRをdraftで公開し、同じheadのCI（checks）',
           'CLI: 対象commitの媒体を添付する（review/media/view.png）',
           '担当AI: 添付後の実際のPR画面',
-          '担当AI: 公開本文をIssue・対象commit・検証結果と照合',
+          '担当AI: 最新の公開本文をIssue・対象commit・accepted評価・検証結果と照合',
           '人: 要求や権限の変更を判断',
-          '公開・CI・公開後確認・人の承認は未完了',
+          'draft公開・CI・本文と媒体の確認・ready切替・人の承認は未完了',
           '担当AI: 実サービスAの応答が遅い場合、結果の保持時間を計測する。現時点では未計測（（内部パス省略））。',
           '運用担当: 実サービスBの応答が遅い場合、結果の保持時間を計測する。現時点では未計測。',
         ].forEach((task) => {
           expect(body.split(task)).toHaveLength(2);
         });
-        expect(result.remaining).toEqual(['human_review', 'rendered_media_check']);
+        expect(result.remaining).toEqual([
+          'published_body_check',
+          'mark_ready',
+          'human_review',
+          'rendered_media_check',
+        ]);
         [
           dir,
           'RAW_LOG_ONLY',
@@ -1144,9 +1219,13 @@ for (const mode of [
         await checkStop(mode, dir, reviews, implementations);
         await checkCiEvidence(mode, dir, prReads);
         if (
-          ['publication_unconfirmed', 'attachment_failure', 'attachment_actor_changed'].includes(
-            mode,
-          )
+          [
+            'publication_unconfirmed',
+            'publication_readback_unconfirmed',
+            'attachment_failure',
+            'attachment_actor_changed',
+            'attachment_draft_changed',
+          ].includes(mode)
         ) {
           expect(prReads).toEqual([]);
         }

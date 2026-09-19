@@ -12,7 +12,7 @@ import type { Revision } from './revision.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
 import { command, assertRunning, withInterrupts } from './process.ts';
 import { isRecord, outside } from './values.ts';
-import { publish } from './publish.ts';
+import { publish, checkPublishedPr, PublicationError } from './publish.ts';
 import { waitForCi } from './ci.ts';
 import type { CiResult } from './ci.ts';
 import { readTarget, issueNumber, targetCommand, pushArguments } from './target.ts';
@@ -27,7 +27,7 @@ const checkTimeMs = 540000;
 const hostCommandTimeMs = 660000;
 
 type DevelopmentResult = {
-  status: 'stopped' | 'verified_local' | 'ready_for_human_review';
+  status: 'stopped' | 'verified_local' | 'published_draft';
   phase: 'preparation' | 'implementation' | 'verification' | 'publication' | 'ci';
   operation: string;
   reason: string;
@@ -316,6 +316,8 @@ async function prepare(
       'local_verification',
       'publication',
       ...(target.config.ciChecks.length ? ['ci'] : []),
+      'published_body_check',
+      'mark_ready',
       'human_review',
     ],
   };
@@ -533,6 +535,47 @@ async function verify(context: Context, config: Config, io: typeof runtime) {
   return state;
 }
 
+async function checkBranchPulls(context: Context, io: typeof runtime) {
+  const repository = context.target.config.repository;
+  const pages: unknown = JSON.parse(
+    await checked(
+      io,
+      [
+        'gh',
+        'api',
+        `repos/${repository}/pulls`,
+        '--method',
+        'GET',
+        '-f',
+        'state=open',
+        '-f',
+        `head=${repository.split('/')[0]}:${context.branch}`,
+        '--paginate',
+        '--slurp',
+      ],
+      context.cwd,
+    ),
+  );
+  assert(Array.isArray(pages) && pages.every(Array.isArray), 'Invalid branch PR response');
+  for (const pr of pages.flat()) {
+    assert(
+      isRecord(pr) &&
+        typeof pr.html_url === 'string' &&
+        isRecord(pr.head) &&
+        typeof pr.head.ref === 'string' &&
+        isRecord(pr.head.repo) &&
+        typeof pr.head.repo.full_name === 'string',
+      'Invalid branch PR response',
+    );
+    if (pr.head.repo.full_name === repository && pr.head.ref === context.branch) {
+      assert(
+        pr.html_url === context.revision?.url,
+        `Open PR already uses this branch: ${pr.html_url}; reconcile other PRs before pushing`,
+      );
+    }
+  }
+}
+
 async function ship(
   context: Context,
   config: Awaited<ReturnType<typeof implement>>,
@@ -601,26 +644,46 @@ async function ship(
   const push = await pushArguments(repository, branch, cwd, (argv, path) =>
     checked(io, argv, path),
   );
-  await revisionUnchanged(context, io, target);
+  await checkBranchPulls(context, io);
   if (context.revision) {
+    result.operation = 'confirm revision draft';
     result.publication = 'unconfirmed';
     result.nextAction =
-      'Reconcile the existing PR, remote ref and body on GitHub before any further write; push or body update may have succeeded. Do not retry automatically.';
+      'Reconcile the existing PR draft state, remote ref and body before any further write; draft conversion, push or body update may have succeeded. Do not retry automatically or restore ready.';
     await saveResult(result, undefined);
+    await checkRevision(
+      context.revision,
+      cwd,
+      (argv, path) =>
+        checked(io, argv, path, argv[2] === 'ready' ? join(dir, 'pr-draft') : undefined),
+      {
+        target,
+        draft: 'ensure',
+      },
+    );
   }
+  result.operation = 'push';
   await checked(io, push, cwd, join(dir, 'push'));
   result.operation = 'publish PR';
   result.publication = 'unconfirmed';
   result.nextAction =
     'Check the actual PR, author, body and branch on GitHub before any further write; do not automatically recreate the PR or repeat attachments.';
-  const url = await io.publish({
-    cwd,
-    actor: context.target.actor,
-    head: branch,
-    title: requirements.title,
-    bodyFile: body,
-    revision: context.revision,
-  });
+  let url: string;
+  try {
+    url = await io.publish({
+      cwd,
+      actor: context.target.actor,
+      head: branch,
+      title: requirements.title,
+      bodyFile: body,
+      revision: context.revision,
+    });
+  } catch (error) {
+    if (error instanceof PublicationError) {
+      result.url = error.url;
+    }
+    throw error;
+  }
   result.url = url;
   result.publication = 'published';
   result.remaining = result.remaining.filter((task) => task !== 'publication');
@@ -636,7 +699,22 @@ async function ship(
         head: commit,
         body: bodyText,
         target,
+        draft: 'require',
       });
+    } else {
+      await checkPublishedPr(
+        {
+          cwd,
+          repository,
+          url,
+          actor: target.actor,
+          body: bodyText,
+          head: branch,
+          base: baseBranch,
+          commit,
+        },
+        (argv, path) => checked(io, argv, path),
+      );
     }
     await checked(
       io,
@@ -674,7 +752,7 @@ async function ship(
   result.reason = ci.reason;
   result.nextAction = ci.nextAction;
   if (ci.status === 'passed') {
-    result.status = 'ready_for_human_review';
+    result.status = 'published_draft';
     result.remaining = result.remaining.filter((task) => task !== 'ci');
   }
 }
@@ -699,7 +777,7 @@ export async function develop(args: string[], io = runtime) {
       outcome.reasonCode = 'ready_for_human_review';
       outcome.reason = 'Local check and independent review accepted the current deliverables.';
       outcome.nextAction =
-        'Review the verified deliverables; publication, configured CI and any required attachments and rendered media check remain before merge.';
+        'Review the verified deliverables; draft publication, configured CI, published body and any rendered media checks, ready transition and human review remain.';
     } else {
       console.error('Verified; committing, publishing and checking CI');
       await ship(context, config, io);

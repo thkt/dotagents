@@ -27,13 +27,13 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to
 
 保存先は `~/.local/share/dotagents/development/<Git管理ディレクトリの識別値>/<Issue番号>/` です。`--run-dir DIRECTORY` でcheckoutやGit管理領域の外を指定できます。`target.json` に対象設定、repo ID、gh主体を残し、ほかに要求、指示と結果、検証ログ、作業checkout、PR本文とURL、CI結果を残します。既存の保存先は再実行に使いません。中断後は記録、実プロセス、GitHubの状態を照合し、保存先の削除や別名での自動再試行は行いません。
 
-`--no-publish` は独立評価までで止め、commit、push、PR作成を行いません。push権限の確認も不要です。通常実行は検証済み対象を再照合し、commit、acceptedな評価からのPR本文生成、ユーザー認証と権限の再確認、gh主体の資格情報を明示したpush、ユーザー認証によるPR作成へ進みます。pushにはコマンド内だけで定義するHTTPSの公開先を使い、GitのURL書き換え後も対象が一致することを確認します。SSHへの切り替えや別repoへの書き換えは拒否します。`push.followTags`の設定にかかわらず、タグを同時に公開しません。設定した保存先から生成媒体の変更を添付します。
+`--no-publish` は独立評価までで止め、commit、push、PR作成、draft/ready操作を行いません。push権限の確認も不要です。通常実行は検証済み対象を再照合し、commit、acceptedな評価からのPR本文生成、ユーザー認証と権限の再確認、gh主体の資格情報を明示したpush、ユーザー認証によるdraft PR作成と対象・本文・draft状態の読戻しへ進みます。pushにはコマンド内だけで定義するHTTPSの公開先を使い、GitのURL書き換え後も対象が一致することを確認します。SSHへの切り替えや別repoへの書き換えは拒否します。`push.followTags`の設定にかかわらず、タグを同時に公開しません。通常入口ではpush前に同じhead branchのopen PRがないことを確認し、あれば既存PR修正の入口へ戻します。別baseのPRも同じbranchのpushで更新されるため対象に含めます。設定した保存先から生成媒体の変更を添付します。
 
-`ciChecks`に指定した全checkの登録とSUCCESSを待ち、取得ごとにPRのhead・base・OPEN状態を照合します。必要なcheckのSKIPPEDやNEUTRALは成功と扱わず、同名checkが複数ある場合は全件の成功を求めます。他の登録済みcheckに失敗や保留がある場合も完了にしません。
+`ciChecks`に指定した全checkの登録とSUCCESSを待ち、取得ごとにPRのhead・base・OPEN・draft状態を照合します。必要なcheckのSKIPPEDやNEUTRALは成功と扱わず、同名checkが複数ある場合は全件の成功を求めます。他の登録済みcheckに失敗や保留がある場合も完了にしません。
 
-最後の公開操作（媒体があれば添付）の後に、URL・head・base・OPEN・Issue参照とcheck群を一度に取得します。初回取得は11分を上限とし、公開対象の一致を確認してから9分のCI待機時間を開始します。同じ初回応答のcheckを直ちに判定し、未登録・実行中なら最大5秒と残り時間の短い方だけ待って再取得します。後続の取得コマンドも残り時間で制限し、期限後は再取得しません。待機間隔により状態変化の検知に数秒かかる場合があるため、即時の確認が必要ならPR上のcheckを確認してください。実際のGitHub負荷の削減量は未測定です。
+最後の公開操作（媒体があれば添付）の後に、URL・head・base・OPEN・draft・Issue参照とcheck群を一度に取得します。初回取得は11分を上限とし、公開対象の一致を確認してから9分のCI待機時間を開始します。同じ初回応答のcheckを直ちに判定し、未登録・実行中なら最大5秒と残り時間の短い方だけ待って再取得します。後続の取得コマンドも残り時間で制限し、期限後は再取得しません。待機間隔により状態変化の検知に数秒かかる場合があるため、即時の確認が必要ならPR上のcheckを確認してください。実際のGitHub負荷の削減量は未測定です。
 
-CI未確認時もPR URLと取得済みの公開結果・ログを保持し、非zeroコードで終了します。詳細は[結果と再実行](#結果と再実行)を参照してください。担当AIは公開本文と根拠を照合し、`rendered_media_check`があれば添付後の表示・再生・配置を確認します。人が要求・権限の変更、レビュー、承認、マージを判断します。
+CI未確認時もPR URLと取得済みの公開結果・ログを保持し、非zeroコードで終了します。詳細は[結果と再実行](#結果と再実行)を参照してください。CI成功後もPRはdraftのままです。担当AIは[公開後確認とreadyへの切替](#公開後確認とreadyへの切替)を完了してから人へ渡します。人が要求・権限の変更、レビュー、承認、マージを判断します。
 
 ## 既存PRの修正
 
@@ -55,9 +55,11 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
 
 評価の差分は前回から保持したPR全体の基点から作ります。公開headは今回の修正の開始点として別に渡し、独立評価はIssue全体と採用した修正要求の両方を確認します。既存本文の変更説明、未確認事項、添付リンクは現在も必要か評価し、必要な内容をacceptedな評価の公開用説明へ含めます。過去の生成本文を再帰的に追加せず、以前の全文は実行証拠に保持します。
 
-公開時は検証済み成果物をcommitし、通常pushと同じPRの本文更新を行います。push前から今回の`publication`を`unconfirmed`として`result.json`へ保存し、本文・ref・PR headの読戻し後に`published`とします。更新前の再照合で本文等が変わっていれば、未確認の手編集を上書きしません。更新後は既存処理で同じheadのCIを確認します。GitHubの複数操作は原子的ではなく、通信断や割込み後に自動再試行しません。push成功後の本文更新失敗でもPR URLと今回の判明状態・次の対応を残し、旧headを今回の最新成功として案内しません。
+公開時は検証済み成果物をcommitし、push前に対象・主体・権限・既存本文・head・refを照合します。同じhead repository・branchを使う対象外のopen PRがあれば、別base向けも含め、draft化・push・本文更新の前に停止します。共有branchの影響と許可範囲を照合し、対象外のPRを自動でdraftへ戻しません。readyなら`gh pr ready --undo`でdraftへ戻し、同じ対象・本文・headとdraft状態を読み戻してからpushします。既にdraftなら切替を重ねません。本文更新前・更新後と添付前にも必要なdraft状態を確認し、不明・不一致なら後続の公開変更を止めます。
 
-`--no-publish`では修正後の独立評価までで止まり、commit・push・本文更新を行いません。自動コメント投稿、会話のresolve、承認、マージも行いません。媒体がある対象は通常の添付・公開後確認を継続します。制御テストの模擬応答、実モデルの意味判断、実際のPR更新は別の検証です。
+draft確認の開始前から今回の`publication`を`unconfirmed`として既知のURLとともに`result.json`へ保存し、本文更新後の本文・ref・PR head・draftの読戻しで`published`とします。更新前に本文等が変わっていれば未確認の手編集を上書きしません。更新後は既存処理で同じheadのCIを確認します。GitHubの複数操作は原子的ではなく、通信断や割込み後に自動再試行せず、失敗時にreadyへ自動復帰しません。draft化やpush成功後の失敗でもPR URLと判明状態・次の対応を残し、旧headを今回の最新成功として案内しません。
+
+`--no-publish`では修正後の独立評価までで止まり、commit・push・本文更新・draft/ready操作を行いません。自動コメント投稿、会話のresolve、承認、マージも行いません。媒体がある対象は通常の添付・公開後確認を継続します。制御テストの模擬応答、実モデルの意味判断、実際のPR更新は別の検証です。
 
 ## 調査報告を指定した実装開始
 
@@ -261,9 +263,9 @@ PR作成・添付・CIの登録と成功の確認はCLI、PR内の表示確認�
 
 公開用の`pr.md`は、CLIが最新のaccepted評価から変更と理由、要求との対応、検証の内容と限界、指摘の現在の判断・対応、文書の役割と選択理由、残作業を選んで生成します。評価担当AIは既存のassessments・reason・handoffへこれらの具体的な説明を記し、生ログと内部記録への参照はevidenceなどに分けます。CLIは内部要約全体や生のevidenceを転記せず、選んだ文章内の実行ディレクトリや既知のローカルパスは省略表記に置き換え、周囲の事実と公開URL・ルートの説明を残します。文書は対象commitの公開リンクで示し、適用条件、過去の観測、未合意の提案、未確認事項を区別します。共有が必要な証拠は秘密情報や生ログを除き、対象repoの合意した保存先へ要約します。
 
-CLIは検証済み成果物と公開するcommitの同一性を照合し、Issue参照、対象commit、検証コマンド、必要な添付と担当別の残作業を本文へ加えます。指摘がなければ対応の節を、添付がなければ添付・実表示確認の作業を省きます。本文専用のモデル生成・校正や自由文の重複除去は行いません。担当AIは生成本文とIssue・根拠の意味の一致を確認します。文章の選択やパスの置換だけでは、意味の正しさや機密情報の除去、実モデルの重複出力の解消を保証しません。
+CLIは検証済み成果物と公開するcommitの同一性を照合し、Issue参照、対象commit、検証コマンド、必要な添付と担当別の残作業を本文へ加えます。指摘がなければ対応の節を、添付がなければ添付・実表示確認の作業を省きます。本文専用のモデル生成・校正や自由文の重複除去は行いません。担当AIはdraft公開後の最新本文とIssue・根拠の意味の一致を確認します。生成前のacceptedや機械的な本文一致を完成本文の意味確認とは扱いません。文章の選択やパスの置換だけでは、意味の正しさや機密情報の除去、実モデルの重複出力の解消を保証しません。
 
-PR本文の公開・CI・公開後確認は本文作成時点の未完了事項として記します。公開後のCLI結果は`result.json`で確認し、CI成功を媒体表示確認や人の承認へ読み替えません。`remaining`の`ci`はCLI結果と同じheadのCIを担当AIが確認する作業、`rendered_media_check`は担当AIによる実画面確認、`human_review`は人のレビューと承認・マージ判断です。`--no-publish`の`verified_local`も公開完了ではなく、`publication`・`human_review`と、CIが設定されていれば`ci`を残します。公開する際は必要な添付と実画面確認も引き継ぎます。
+PR本文のdraft公開・CI・公開後確認・ready切替は本文作成時点の未完了事項として記します。公開後のCLI結果は`result.json`で確認し、CI成功を本文・媒体確認やready切替、人の承認へ読み替えません。`remaining`の`ci`は同じheadのCI確認、`published_body_check`は担当AIの最新本文照合、`rendered_media_check`は必要な媒体の実画面確認、`mark_ready`は担当AIの再照合・ready切替・読戻し、`human_review`は人のレビューと承認・マージ判断です。`--no-publish`の`verified_local`でもこれらの担当作業は完了せず、`publication`と設定済みの`ci`も残します。公開する際は必要な添付と実画面確認を引き継ぎます。
 
 この応答契約は`state.json`の`reviewFormat: 4`で識別する新規実行に適用します。`reviewFormat: 1`・`2`・`3`や識別のない旧形式の保存状態は変換・再開・削除せず、その版の記録として保全します。保存済みの完全なReviewの項目構成は変更せず、引き続き`id`・`introducedIn`・`disposition`を必須とし、空のID・導入対象や不正な状態を拒否します。独自のreviewコマンドは新規実行前に`newItems[].id`の出力を外してください。`updates[].id`にはホストから渡された過去指摘のIDをそのまま返します。旧応答のIDは取り込まず、不正応答として停止します。新規指摘が空の応答は旧契約と同じ形ですが、runの形式識別は4です。repairの応答形式は変更しません。停止理由とログを保持し、回数や時間枠をリセットしません。対象変更、不正応答、評価失敗時に以前のacceptedへ戻す処理はありません。
 
@@ -271,7 +273,7 @@ PR本文の公開・CI・公開後確認は本文作成時点の未完了事項�
 
 新しい通常の`development.ts`実行では、最初に`result.json`を読み、`details`や`evidence`から必要な証拠へ進みます。検証停止時と`--no-publish`完了時の`details`は`verification/state.json`を指します。公開へ進んだ後も、`evidence`が示すrun保存先の`verification/state.json`から[検証の要約・評価履歴・生ログ](#レビュー対象と参照記録)を辿れます。安全な新規保存先を確保できた場合、準備途中の失敗から、実装・検証・公開・CIでの停止、成功、`--no-publish`の完了まで同じ場所へ保存します。新規runでは`verification-summary.md`と`stopped.txt`を作りません。過去の要約Markdown・`result.json`・`stopped.txt`・下位state・生ログは変換・削除せず、その版の記録として保持します。repo外で要約Markdownを読む独自利用者の有無と互換性は未確認です。単独のcorrection・publish・評価実験CLIの結果形式は変更しません。
 
-`status`は`stopped`、ローカル検証完了の`verified_local`、公開と同じ対象のCI確認完了の`ready_for_human_review`です。`phase`は`preparation`・`implementation`・`verification`（撮影・独立評価・修正を含む）・`publication`・`ci`を示します。具体的な処理は`operation`、終了理由は`reason`、既知の理由コードは`reasonCode`、次の対応は`nextAction`、残る作業は`remaining`で確認します。setupは`setup-N`、初回実装は`initial implementation`として区別し、`details`のログ接頭辞に`.stdout`・`.stderr`を付けて読みます。検証は`verification/state.json`とそこから参照するログを確認します。例外文から細かい原因コードは推測しません。
+`status`は`stopped`、ローカル検証完了の`verified_local`、draft公開と同じ対象のCI確認完了の`published_draft`です。`phase`は`preparation`・`implementation`・`verification`（撮影・独立評価・修正を含む）・`publication`・`ci`を示します。具体的な処理は`operation`、終了理由は`reason`、既知の理由コードは`reasonCode`、次の対応は`nextAction`、残る作業は`remaining`で確認します。setupは`setup-N`、初回実装は`initial implementation`として区別し、`details`のログ接頭辞に`.stdout`・`.stderr`を付けて読みます。検証は`verification/state.json`とそこから参照するログを確認します。例外文から細かい原因コードは推測しません。
 
 既知の検証停止では、`nextAction`に理由別の対応と`verification/state.json`への参照を返します。担当AIは既存の許可範囲で事実を調べ、ホスト環境の変更に追加権限が必要ならその許可を求めます。環境の調査自体を一律に人の判断待ちにはしません。
 
@@ -294,26 +296,26 @@ PR本文の公開・CI・公開後確認は本文作成時点の未完了事項�
 | `publication` | 意味と確認先 |
 | --- | --- |
 | `not_attempted` | PR公開処理をまだ呼び出していない。commitやpushも未実施という意味ではないため、`operation`とGit・GitHubの実状態を確認する。 |
-| `unconfirmed` | PR公開処理を呼び出したが、URLが返る前に停止した。通信断、作者・本文の照合失敗などではPRが存在する可能性がある。GitHubのPR・作者・本文・branchを確認し、自動再作成・再添付しない。 |
-| `published` | 公開処理からURLを取得した。`url`と、保存できた`pr-url.txt`を確認する。後続の添付失敗やCI割込みでも既知のURL・`commit`・`branch`を保持する。CI、人のレビュー、媒体表示確認の完了は別に確認する。 |
+| `unconfirmed` | PR公開処理を呼び出した、または既存PRのdraft確認・更新を開始したが、完了を確認していない。通信断、対象・本文・draftの照合失敗でも変更済みの可能性がある。既知の`url`と記録を保持し、実状態を照合するまで自動再試行・再作成・再添付・ready復帰をしない。 |
+| `published` | 公開処理からURLを取得した。`url`と、保存できた`pr-url.txt`を確認する。後続の添付失敗やCI割込みでも既知のURL・`commit`・`branch`を保持する。CI、担当AIの本文・媒体確認、ready切替、人のレビューの完了は別に確認する。 |
 
-`commit`は公開に用いるcommitを取得した時点で記録します。`remaining`に`attachments`があれば、一部添付済みの可能性も含めて実際の本文を照合してください。`human_review`と必要な`rendered_media_check`は成功後にも残ります。`--no-publish`では公開・設定済みCI・人のレビューを残し、公開する際の必要な添付と実表示確認も引き継ぎます。
+`commit`は公開に用いるcommitを取得した時点で記録します。`remaining`に`attachments`があれば、一部添付済みの可能性も含めて実際の本文を照合してください。`published_body_check`・`mark_ready`・`human_review`と必要な`rendered_media_check`は成功後にも残ります。`--no-publish`では公開・設定済みCI・人のレビューを残し、公開する際の必要な添付と実表示確認も引き継ぎます。
 
-通常結果は上位で一度だけ保存し、完全なJSONを書いた一時ファイルを`result.json`へrenameします。保存中に割込みを受けた場合は、既知の公開情報・CI観測と元の停止理由を保持し、割込みを反映した停止結果へ更新して失敗を返します。書きかけの`.tmp`は有効な結果として扱いません。引数・権限の失敗、既存runとの衝突、安全な新規保存先の確認前の失敗では結果を書かず、stderr／例外で元の理由と保存不能を伝えます。結果保存自体の失敗も元の理由と保存エラーを両方伝え、成功終了しません。割込みを反映する更新に失敗した場合、直前の完全な記録が残ることがあるため、stderr／例外の保存不能も併せて確認してください。既存記録を新規runの結果へ書き換えないでください。
+通常結果は上位で終端時に保存し、既存PRの修正では開始予約とdraft確認・公開変更前の未確定状態も保存します。いずれも完全なJSONを書いた一時ファイルを`result.json`へrenameします。保存中に割込みを受けた場合は、既知の公開情報・CI観測と元の停止理由を保持し、割込みを反映した停止結果へ更新して失敗を返します。書きかけの`.tmp`は有効な結果として扱いません。引数・権限の失敗、既存runとの衝突、安全な新規保存先の確認前の失敗では結果を書かず、stderr／例外で元の理由と保存不能を伝えます。結果保存自体の失敗も元の理由と保存エラーを両方伝え、成功終了しません。割込みを反映する更新に失敗した場合、直前の完全な記録が残ることがあるため、stderr／例外の保存不能も併せて確認してください。既存記録を新規runの結果へ書き換えないでください。
 
-CLIは保存に成功した`verified_local`または`ready_for_human_review`だけをstdoutのJSONと終了コード0で返します。未達・人の判断待ち・割込み・保存失敗は終了コード1で、stderrに理由と記録先または保存不能を示します。関数`develop`も成功時は保存した結果を返し、失敗時はrejectします。人の承認やマージ完了を意味しません。
+CLIは保存に成功した`verified_local`または`published_draft`だけをstdoutのJSONと終了コード0で返します。未達・人の判断待ち・割込み・保存失敗は終了コード1で、stderrに理由と記録先または保存不能を示します。関数`develop`も成功時は保存した結果を返し、失敗時はrejectします。人の承認やマージ完了を意味しません。
 
 公開後のCI結果は`ci`で確認します。CI処理が結果を返す前の割込みでは`ci`・`ciDetails`はなく、CI確認済みとは扱いません。保存済みの取得ログを`evidence`から確認してください。`ciDetails.lastObservation`には最後に対象commitで確認できたcheck名と状態（同名checkも全件）、必要checkの未登録（`missing`）、実行中（`running`）、失敗（`failed`）、未達の必要check（`unmet`）を残します。初回の公開対象が未確認・不一致、または有効なcheck観測がない場合は`null`です。`requiredChecks`には必要checkの一覧を残すため、初回取得ができない場合も未確認の対象を辿れます。`ciDetails.reason`は失敗・未確認の理由、`ciDetails.logs`は使用した取得ログの接頭辞、`nextAction`は次に必要な対応です。
 
 | `ci` | 意味と担当AIの次の対応 |
 | --- | --- |
-| `passed` | 必要checkが全件SUCCESSで、他の登録済みcheckにも失敗・保留がなく、最後の対象照合も一致。人のレビューと必要な媒体表示確認へ引き継ぐ。 |
+| `passed` | 必要checkが全件SUCCESSで、他の登録済みcheckにも失敗・保留がなく、最後の対象照合も一致。担当AIの最新本文・必要媒体確認、ready直前の再照合、切替と読戻しへ引き継ぎ、その後に人のレビューへ渡す。 |
 | `failed` | 実行失敗、または必要checkがSKIPPED・NEUTRALなどで未達。checkのログから原因を確認して修正する。 |
 | `timed_out` | 待機上限に到達。最後の観測から未登録・実行中を確認し、同じPR commitのCIを手動で確認する。コードの失敗とは扱わない。 |
 | `unavailable` | API失敗や取得の時間切れで確認不能。担当AIが許可範囲で認証・権限・接続と取得ログを調べ、必要な環境変更はホストへつなぐ。追加権限が必要なら許可を求める。 |
 | `invalid_response` | JSON、PRの必須項目、CIデータが不正。担当AIが生応答と要求した項目・応答契約を照合し、解消後に同じ公開対象を再判定する。 |
 | `storage_failed` | `pr.json`や取得ログを保存できない。元のエラーと失敗した保存先・処理を確認し、ホストが許可範囲で保存環境を解消する。保存できた生応答と最後の完全なCI観測は保持し、認証失敗やコードの不具合とは説明しない。 |
-| `target_changed` | head、base、OPEN状態、または公開直後に照合するURL・Issue参照が対象と不一致。公開commitと現在のPRを照合し、変更理由と確認すべき対象を判断する。別commitの成功を今回の成功にしない。 |
+| `target_changed` | head、base、OPEN・draft状態、または公開直後に照合するURL・Issue参照が対象と不一致。公開commitと現在のPRを照合し、変更理由と確認すべき対象を判断する。別commitの成功を今回の成功にしない。 |
 
 最後の対象取得やその保存に失敗した場合も、先に観測した成功だけでCI成功としません。公開直後の初回取得も上表の分類で`result.json`へ保存します。初回の公開対象の取得・応答・保存に異常があるか対象が不一致なら、その応答のcheck判定・CI待機・最終対象照合へ進みません。公開対象が一致してもCIデータが欠落・不正なら上表の応答不正として扱います。CI判定・待機を終えた後は、11分を上限に対象を再照合します。PR URLは`pr-url.txt`、初回の生応答は`pr.json`と`pr-publication.stdout`、診断は`pr-publication.stderr`に保持し、CI初回ログとして複製しません。後続取得は`ci-registration-N.stdout`および`.stderr`（Nは1から）、最終対象照合は`ci-final-target.stdout`および`.stderr`へ保存します。stdout・stderrは片方の保存に失敗しても両方の保存を試みます。保存例外には取得済みの両出力と終了情報を含め、CIでは停止理由にも残します。初回取得ではログ保存に失敗しても`pr.json`への保存を試みます。保存に失敗した記録は欠落・不完全な場合があります。`pr.json`が既にある場合は上書きせず停止します。取得不能時の`pr.json`は有効なJSONとは限らないため、生の応答として確認してください。
 
@@ -406,7 +408,7 @@ Issue #66の試行結果は[2026-09-15の実モデル検証記録](../docs/evide
 
 ## 専用校正の廃止と切替
 
-文書の作成・評価は[日本語確認の方針](../.codex/DEVELOPMENT.md#pr本文人向け文書の日本語確認)に従い、執筆、既存の独立評価、公開前後の確認で行います。`writing-review.ts`の`file`・`documents`、Gemini校正、Codexの`review-text`は提供しません。設定未指定時の自動校正も終了します。`agy`の導入・実行・認証はハーネスの前提ではありません。利用者のCLIや認証情報は削除しません。
+文書の作成・評価は[日本語確認の方針](../.codex/DEVELOPMENT.md#pr本文人向け文書の日本語確認)に従い、執筆、既存の独立評価、draft公開後の完成本文確認で行います。`writing-review.ts`の`file`・`documents`、Gemini校正、Codexの`review-text`は提供しません。設定未指定時の自動校正も終了します。`agy`の導入・実行・認証はハーネスの前提ではありません。利用者のCLIや認証情報は削除しません。
 
 対象repoの`.dotagents.json`またはstandalone correction入力に`writing`があれば、空の指定や`null`も含めてモデル実行・公開前に拒否します。対象の文書方針を確認し、専用校正の廃止がそのrepoの運用に与える変更を説明した上で、`writing`キーを削除してください。互換実行や任意の校正モードはありません。専用校正が必要な利用先は切替前に方針を決め、未解決なら旧版を保持します。他repoの設定・方針を一括で書き換えません。
 
@@ -416,7 +418,7 @@ Issue #66の試行結果は[2026-09-15の実モデル検証記録](../docs/evide
 
 1. 合意した対象repo・Issue・許可範囲で、文書変更を含む新しいタスクを選びます。変更後のハーネスを隔離先に固定し、その実体パス、HEAD、未commit差分を含むファイルhashを実行前後に記録します。固定した実体の`development.ts`から新しい保存先へ開始し、生成された`verification-config.json`のrepair・reviewが同じ版の`codex-actor.ts`を参照し、`writing`を含まないことを確認します。登録済みの旧入口や進行中のrunは差し替えません。
 2. 担当AIは、`verification/review-N.target.json`、同じ番号の`.diff`・`.additions.json`・`.json`、checkログを照合します。変更文書が評価対象に含まれることに加え、実モデルの評価が原資料・Issue・変更文書・check結果の内容と整合するかを読みます。具体的な内容不備があれば修正へ戻し、変更後のcheckと独立評価を確認します。単なるファイル名の掲載やaccepted応答だけを意味の確認とは扱いません。
-3. PR本文は、そのタスクのacceptedな評価と検証済みcommitから生成された`pr.md`を使います。Issue番号、対象commit、要求との対応、検証結果、未確認事項、文書リンクを評価記録・対象ソース・checkログと照合します。`--no-publish`はcommitと本文生成の前に停止するため、文書評価までの部分的な証拠です。本文確認のために公開禁止を外したり、仮のcommitや固定応答で完了扱いにしたりしません。公開が許可されたタスクでは公開前後の本文と同じPR headのCIも確認します。対象・権限の変更が必要なら人の判断へ戻します。
+3. PR本文は、そのタスクのacceptedな評価と検証済みcommitから生成された`pr.md`を使います。Issue番号、対象commit、要求との対応、検証結果、未確認事項、文書リンクを評価記録・対象ソース・checkログと照合します。`--no-publish`はcommitと本文生成の前に停止するため、文書評価までの部分的な証拠です。本文確認のために公開禁止を外したり、仮のcommitや固定応答で完了扱いにしたりしません。公開が許可されたタスクではdraftで公開し、[公開後確認とreadyへの切替](#公開後確認とreadyへの切替)で実際の本文と同じPR headのCIを確認します。対象・権限の変更が必要なら人の判断へ戻します。
 4. 既存のcheckout外の証拠保存先に、対象版、実行コマンド、対象Issue、評価・check・本文の記録への参照と担当AIの照合結果、未実施範囲を残します。共有する根拠だけを対象repoの合意した保存先へ置き、再評価へ渡します。実行結果や過去の受入記録を現行の操作説明へ混ぜず、旧runや旧版での成功を新しい版の証拠に流用しません。
 
 制御テストによる受け渡し、実モデルの意味判断、実際のGitHub公開は別の確認です。模擬応答が通っただけで文章の意味が正しいとは扱いません。文体統一・保護対象の機械比較・校正前後の別モデル照合は廃止しており、既存評価が同じ検査を代替すると説明しません。
@@ -432,13 +434,13 @@ bun /absolute/path/to/trusted/scripts/publish.ts --repo /absolute/path/target-ch
 
 `target.ts CHECKOUT --write`は対象repo、base branch、remoteとghのpush権限、実効ユーザーを照合し、PRを作らず確認結果を返します。`--actor` は事前に確認したloginを指定します。developmentは開始時のloginを公開時にも渡し、不一致で停止します。PR書き込みの細かなtoken権限や組織ポリシーは読み取り確認だけで保証せず、公開失敗時は停止理由とGitHub上の実状態を確認します。
 
-同じhead・baseのopen PRがあれば作者と確認済み本文の一致を照合してURLを返します。不一致なら本文を保持して停止し、担当者が内容を照合して対応します。新規作成も同じgh認証を使い、作者と本文を確認します。旧Appや別ユーザーのPRを現在のユーザーの公開成功とは扱いません。developmentは公開に必要な値を型付き入力で渡します。既存PRの修正情報も保持済みの値を渡し、検証設定ファイルを読み直さず、同じ公開処理で最新の対象照合・本文更新・読戻しを行います。単独publishの`--revision-file`は引き続き設定ファイル全体を検査し、checkoutと公開branchの一致を確認します。利用者は[既存PRの修正](#既存prの修正)から開始し、個別の公開スクリプトや検証設定を組み立てません。単独の通常publishはpush、承認、マージを行いません。正常終了時もコマンドの所有するprocess groupの残存子を終了させます。SIGINT・SIGTERMでは実行中のコマンドと子プロセスを停止し、後続の公開操作へ進みません。通信断や強制終了時は、再試行前にPRの実状態を確認します。制御テストの模擬応答は実際のGitHubアクセスの証拠ではありません。
+同じhead・baseのopen PRがあれば作者・公開先・head commit・生成本文の一致とdraft状態を照合してURLを返します。readyのPRをこの経路でそのまま再利用しません。不一致なら本文を保持して停止し、担当者が内容を照合して対応します。新規作成は同じgh認証で[`gh pr create --draft`](https://cli.github.com/manual/gh_pr_create)を使い、実際の対象・作者・本文・draft状態を読み戻します。旧Appや別ユーザーのPRを現在のユーザーの公開成功とは扱いません。developmentは公開に必要な値を型付き入力で渡します。既存PRの修正情報も保持済みの値を渡し、検証設定ファイルを読み直さず、同じ公開処理で最新の対象・draft照合、本文更新と読戻しを行います。単独publishの`--revision-file`は引き続き設定ファイル全体を検査し、checkoutと公開branchの一致を確認します。利用者は[既存PRの修正](#既存prの修正)から開始し、個別の公開スクリプトや検証設定を組み立てません。単独publishはdraft確認済みの対象を扱い、push、ready切替、承認、マージを行いません。正常終了時もコマンドの所有するprocess groupの残存子を終了させます。SIGINT・SIGTERMでは実行中のコマンドと子プロセスを停止し、後続の公開操作へ進みません。通信断や強制終了時は、再試行前にPRの実状態を確認します。制御テストの模擬応答は実際のGitHubアクセスの証拠ではありません。
 
 developmentは、publishからURLを受け取り、必要な添付を終えてから次のCI処理へ進みます。単独publishはURLを返すところまでで、CI成功を判定しません。
 
 ```mermaid
 flowchart TD
-  A[公開・必要な添付の完了] --> P22[公開対象とCIの取得]
+  A[draft公開・必要な添付の完了] --> P22[公開対象とCIの取得]
   P22 -->|初回の公開対象不一致・取得／保存異常| S[停止・記録を保持]
   P22 -->|対象一致| P24[CI判定]
   P22 -->|後続の対象不一致・取得／保存異常| P25[最終対象照合]
@@ -447,14 +449,31 @@ flowchart TD
   W -->|期限| P25
   P24 -->|成功・失敗・期限・CIデータ不正| P25
   P25 -->|CI未確認・最終対象不一致・取得／保存異常| S
-  P25 -->|CI成功・対象一致| H[担当AIの公開後確認と人のレビューへ]
+  P25 -->|CI成功・対象一致| U01[担当AIが最新本文・必要媒体を根拠と照合]
+  U01 -->|確認不足・失敗| S
+  U01 -->|確認済み| R[対象・本文・head・根拠・主体・権限・CIを再照合]
+  R -->|変更あり| U01
+  R -->|一致| D[gh pr ready・実状態の読戻し]
+  D -->|不明・不一致| S
+  D -->|一致・ready| H[人のレビュー・承認・マージ判断]
 ```
 
 「公開対象とCIの取得」は初回だけURL・Issue参照も照合します。初回対象が不正ならcheck判定へ進まず、[結果と再実行](#結果と再実行)の分類と証拠を残します。
 
+### 公開後確認とreadyへの切替
+
+ホストはdraft公開・機械照合・同じheadのCI確認までを行い、CI成功だけでreadyへ移しません。担当AIは新規PR・既存PRの修正とも次を行います。CLIの`published_draft`や独立評価の`ready_for_human_review`は、この作業や人の承認の完了を意味しません。
+
+1. 実際の最新本文と対象（URL、repo、作者、OPEN・draft状態、head branch・commit、base、Issue参照）を読み、Issue・accepted評価・検証結果と照合します。事実、数量、条件、範囲、否定、権限、未確認事項、リンクと必要な説明を確認し、生成時の省略・内部パス置換・整形で意味が変わっていないか読みます。必要な媒体は[実表示確認](#prへの画像動画の添付)も完了します。draftの本文は閲覧可能で、後の修正は開示を取り消しません。
+2. 本文を直接編集する場合も、対象・主体・権限と現在の本文・head・根拠を照合してからdraftを確認します。readyなら`gh pr ready PR_NUMBER --repo OWNER/REPO --undo`で戻し、切替後の対象・本文・head・draft状態を読み戻します。書込み直前にも変更案と最新本文・head・根拠を照合し、他担当の変更があれば上書きせず取り込み方を確認します。`gh pr edit PR_NUMBER --repo OWNER/REPO --body-file /absolute/path/pr.md`の後は、最新本文を読み戻して内容とリンク・必要媒体を再確認します。変更前の成功は流用しません。
+3. ready直前に、確認した版と最新の対象・本文・head・Issue・accepted評価・検証結果・媒体、`gh api user`の実効主体、対象repoの権限、同じheadの設定済みCIを再照合します。`gh pr view PR_NUMBER --repo OWNER/REPO --json url,state,isDraft,body,author,headRefName,headRefOid,baseRefName,headRepository,headRepositoryOwner,isCrossRepository,closingIssuesReferences,statusCheckRollup`等で実状態を取得します。設定されたcheckの登録・全件SUCCESSに加え、他の登録済みcheckにも失敗・保留がないことを確認します。別headの成功や本文変更前の確認は流用せず、変更があれば関係する確認へ戻します。
+4. すべて揃ったら既存の[`gh pr ready`](https://cli.github.com/manual/gh_pr_ready)で切り替えます。切替後も対象・本文・head・CIと`isDraft: false`を読み戻してから、PR URL、確認した版と結果、未確認事項を人へ渡します。ready切替はCODEOWNERSへのレビュー依頼等を生じ得ますが、人の承認やマージ判断を代行しません。担当AIの確認結果は既存のrun・PRへの引き継ぎに残し、新しい台帳は作りません。
+
+説明だけの不備は本文修正・再確認へ、成果物の不備は必要な修正・check・独立評価へ、事実不足は調査へ戻します。要求・権限の変更は人の判断を待ちます。確認失敗・不足ではreadyへ移さず、確立したdraftを維持します。他者による予期しない状態変更があれば、draft維持や完了を推測せず対象・変更内容・権限を照合してから対応します。draft/ready切替を含む公開結果が不明なら記録と判明したURLを保持し、実状態を確認するまで再試行しません。失敗時に以前のreadyへ自動復帰しません。GitHubの複数操作を一括確定する仕組みではなく、操作間の他者変更を完全に防ぐ保証はありません。
+
 ### PRへの画像・動画の添付
 
-添付直前に対象と開始時のユーザー認証を再照合し、同じユーザーのgh認証で`gh pr edit --attach`を実行します。対象 commit で取得した画像や動画を指定します。本文を指定しなければ、既存の本文を保って添付が追加されます。
+添付直前に対象・本文・head・draft状態と開始時のユーザー認証・権限を再照合し、同じユーザーのgh認証で`gh pr edit --attach`を実行します。対象 commit で取得した画像や動画を指定します。本文を指定しなければ、既存の本文を保って添付が追加されます。
 
 ```sh
 gh pr edit PR_NUMBER --repo OWNER/REPO \
@@ -462,6 +481,6 @@ gh pr edit PR_NUMBER --repo OWNER/REPO \
   --attach /absolute/path/demo.mp4
 ```
 
-添付後は`gh pr view PR_NUMBER --repo OWNER/REPO --json body --jq .body`で本文を取得し、アップロード先の URL を確認します。配置を整える場合は、この最新の本文をファイルに保存して編集し、`gh pr edit PR_NUMBER --repo OWNER/REPO --body-file /absolute/path/pr.md`で反映します。既存の説明と添付 URL を維持し、画像は必要に応じて table に並べます。動画の添付 URL は単独の行に置き、PR 内で再生できるようにします。
+添付後は`gh pr view PR_NUMBER --repo OWNER/REPO --json body --jq .body`で本文を取得し、アップロード先の URL を確認します。配置を整える場合も[直接編集の条件](#公開後確認とreadyへの切替)に従い、この最新の本文をファイルに保存して編集し、`gh pr edit PR_NUMBER --repo OWNER/REPO --body-file /absolute/path/pr.md`で反映します。既存の説明と添付 URL を維持し、画像は必要に応じて table に並べます。動画の添付 URL は単独の行に置き、PR 内で再生できるようにします。
 
 公開を担当するAIは[レビューを助ける説明](../.codex/DEVELOPMENT.md#レビューを助ける説明)に従い、実際のPR画面で表示・再生と配置・説明の読みやすさを確認します。動画には確認する操作・状態と画面条件が分かる見出し・説明を添え、撮影準備時に選んだ説明手段が実際に伝わるかを確認します。キー表示、字幕、音声がある場合の確認と、説明不足の戻り先も同方針に従います。必要な整形後に再確認して完了とし、確認できない場合は未確認点を報告します。`rendered_media_check`はこの確認全体を指し、CLIのアップロード成功だけでは完了しません。一部のアップロードが失敗すると、成功した添付を反映したうえでコマンドが失敗終了するため、本文を確認し、未添付のファイルだけを再実行します。

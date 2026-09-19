@@ -26,6 +26,7 @@ const frame = (checks: unknown[], head = 'verified') => ({
   headRefOid: head,
   baseRefName: 'main',
   state: 'OPEN',
+  isDraft: true,
   statusCheckRollup: checks,
 });
 const scenarios: {
@@ -42,6 +43,7 @@ const scenarios: {
   interrupt?: 'read' | 'sleep';
   budget?: number;
   finalFailure?: 'timeout' | 'throws';
+  finalDraft?: boolean;
   reason?: string;
 }[] = [
   {
@@ -81,6 +83,19 @@ const scenarios: {
     elapsed: [0, 2000],
     status: 'target_changed',
     observed: 'missing',
+  },
+  {
+    name: 'another actor marks ready while CI is pending',
+    frames: [frame([]), { ...frame(required), isDraft: false }],
+    status: 'target_changed',
+    observed: 'missing',
+  },
+  {
+    name: 'ready transition after CI success prevents draft handoff',
+    frames: [frame(required)],
+    finalDraft: false,
+    status: 'target_changed',
+    observed: 'passed',
   },
   {
     name: 'required skipped',
@@ -219,7 +234,7 @@ function checkObservation(scenario: (typeof scenarios)[number], result: CiResult
   }
   expect(result.nextAction).toContain(
     {
-      passed: 'proceed to human review',
+      passed: 'Assigned AI: compare the latest public body',
       failed: 'Inspect failing check logs',
       timed_out: 'confirm CI manually without resuming',
       unavailable: 'Check gh authentication',
@@ -250,11 +265,14 @@ function checkObservation(scenario: (typeof scenarios)[number], result: CiResult
   }
 }
 
-function finalResponse(failure?: 'timeout' | 'throws') {
+function finalResponse(failure?: 'timeout' | 'throws', isDraft = true) {
   if (failure === 'throws') {
     throw Error('spawn failed');
   }
-  return { ...ok(JSON.stringify(frame(required))), timedOut: failure === 'timeout' };
+  return {
+    ...ok(JSON.stringify({ ...frame(required), isDraft })),
+    timedOut: failure === 'timeout',
+  };
 }
 
 for (const scenario of scenarios) {
@@ -272,10 +290,10 @@ for (const scenario of scenarios) {
         waitForCi(
           { ...target, dir },
           async (argv, _cwd, _input, timeout) => {
-            if (argv.at(-1) === 'headRefOid,baseRefName,state') {
+            if (argv.at(-1) === 'headRefOid,baseRefName,state,isDraft') {
               finalReads++;
               expect(timeout).toBe(660000);
-              return finalResponse(scenario.finalFailure);
+              return finalResponse(scenario.finalFailure, scenario.finalDraft);
             }
             expect(argv[2]).toBe('view');
             starts.push(now);
