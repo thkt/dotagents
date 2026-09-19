@@ -3,7 +3,7 @@ import { setTimeout } from 'node:timers/promises';
 import { join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
 import type { command } from './process.ts';
-import { assertRunning } from './process.ts';
+import { assertRunning, OutputStorageError } from './process.ts';
 import { isRecord } from './values.ts';
 
 type Target = {
@@ -52,7 +52,14 @@ function checkStatus(values: unknown[], required: string[]) {
 }
 
 export type CiResult = {
-  status: 'passed' | 'failed' | 'timed_out' | 'unavailable' | 'target_changed';
+  status:
+    | 'passed'
+    | 'failed'
+    | 'timed_out'
+    | 'unavailable'
+    | 'invalid_response'
+    | 'storage_failed'
+    | 'target_changed';
   timedOut: boolean;
   lastObservation: ReturnType<typeof checkStatus> | null;
   reason: string;
@@ -68,7 +75,11 @@ const actions = {
   timed_out:
     'Inspect missing registrations and running checks on this PR commit; confirm CI manually without resuming this run or extending its budget.',
   unavailable:
-    'Check gh authentication, permissions, connectivity and the raw retrieval logs; CI is unconfirmed, not a code failure.',
+    'Assigned AI: Check gh authentication, permissions, connectivity and the raw retrieval logs within existing authorization; ask the host to address environment changes and obtain permission where required. CI is unconfirmed, not a code failure.',
+  invalid_response:
+    'Assigned AI: inspect the raw PR/CI response and its schema against the requested fields; validate the response contract before reassessing this commit.',
+  storage_failed:
+    'Assigned AI: inspect the failed evidence path and raw retrieval logs; the host must restore writable evidence storage within existing authorization. Obtain permission for environment changes outside that authorization before reassessment.',
   target_changed:
     'Reconcile the current PR URL, head, base, OPEN state and Issue reference with the published target before assessing CI; another target cannot confirm this commit.',
 };
@@ -76,7 +87,11 @@ const actions = {
 type CiProgress = Pick<CiResult, 'timedOut' | 'lastObservation' | 'logs'>;
 
 function finish(result: CiProgress, status: CiResult['status'], reason: string): CiResult {
-  return { ...result, status, reason, nextAction: actions[status] };
+  const constraints =
+    status === 'passed'
+      ? ''
+      : ' Reconfirm target, evidence, authorization and verification after assistance. Do not resume this run, change locks, active reservations or limits, or retry publication automatically; the current entry point cannot resume a stopped run.';
+  return { ...result, status, reason, nextAction: actions[status] + constraints };
 }
 
 async function readTarget(
@@ -87,8 +102,10 @@ async function readTarget(
   fields: string,
   publicationIssue?: string,
 ) {
+  let view: Awaited<ReturnType<typeof command>>;
+  const storageFailures: string[] = [];
   try {
-    const view = await execute(
+    view = await execute(
       ['gh', 'pr', 'view', target.url, '--repo', target.repository, '--json', fields],
       target.cwd,
       '',
@@ -96,14 +113,42 @@ async function readTarget(
       log,
     );
     assertRunning();
-    if (publicationIssue !== undefined) {
-      await writeFile(join(target.dir, 'pr.json'), view.stdout);
+  } catch (error) {
+    assertRunning();
+    if (!(error instanceof OutputStorageError)) {
+      return {
+        status: 'unavailable' as const,
+        reason: error instanceof Error ? error.message : String(error),
+      };
     }
-    assert(
-      view.code === 0 && !view.timedOut,
-      `Cannot retrieve PR/CI (exit ${view.code}, timedOut ${view.timedOut}); inspect ${log}.stderr`,
-    );
-    const pr: unknown = JSON.parse(view.stdout);
+    view = error.result;
+    storageFailures.push(error.message);
+  }
+  if (publicationIssue !== undefined) {
+    const path = join(target.dir, 'pr.json');
+    try {
+      await writeFile(path, view.stdout, { flag: 'wx' });
+    } catch (error) {
+      storageFailures.push(
+        `Cannot save PR response at ${path}: ${error instanceof Error ? error.message : String(error)}; retrieval exit ${view.code}, timedOut ${view.timedOut}; raw response: ${log}.stdout and ${log}.stderr`,
+      );
+    }
+  }
+  if (storageFailures.length) {
+    return { status: 'storage_failed' as const, reason: storageFailures.join('; ') };
+  }
+  if (view.code !== 0 || view.timedOut) {
+    return {
+      status: 'unavailable' as const,
+      reason: `Cannot retrieve PR/CI (exit ${view.code}, timedOut ${view.timedOut}); inspect ${log}.stderr`,
+    };
+  }
+  return parseTarget(view.stdout, target, publicationIssue);
+}
+
+function parseTarget(stdout: string, target: Target, publicationIssue?: string) {
+  try {
+    const pr: unknown = JSON.parse(stdout);
     assert(
       isRecord(pr) &&
         typeof pr.headRefOid === 'string' &&
@@ -140,7 +185,7 @@ async function readTarget(
   } catch (error) {
     assertRunning();
     return {
-      status: 'unavailable' as const,
+      status: 'invalid_response' as const,
       reason: error instanceof Error ? error.message : String(error),
     };
   }
@@ -182,7 +227,17 @@ export async function waitForCi(
     'headRefOid,baseRefName,state',
   );
   observed.logs.push(finalLog);
-  return latest.status === 'observed' ? observed : finish(observed, latest.status, latest.reason);
+  if (latest.status === 'observed') {
+    return observed;
+  }
+  if (observed.status === 'storage_failed') {
+    return {
+      ...observed,
+      reason: `${observed.reason}; final target check (${latest.status}): ${latest.reason}`,
+      nextAction: `${observed.nextAction} Final target check: ${actions[latest.status]}`,
+    };
+  }
+  return finish(observed, latest.status, latest.reason);
 
   async function pollCi(): Promise<CiResult> {
     let view = initial;
@@ -229,7 +284,11 @@ export async function waitForCi(
       assert(Array.isArray(pr.statusCheckRollup), 'Missing CI registration status');
       result.lastObservation = checkStatus(pr.statusCheckRollup, target.ciChecks);
     } catch (error) {
-      return finish(result, 'unavailable', error instanceof Error ? error.message : String(error));
+      return finish(
+        result,
+        'invalid_response',
+        error instanceof Error ? error.message : String(error),
+      );
     }
     result.timedOut = clock.now() >= deadline;
     // A failure observed at the deadline must not become a waiting result.

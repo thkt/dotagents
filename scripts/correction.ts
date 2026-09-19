@@ -178,7 +178,11 @@ async function runModel(
     ms: result.ms,
     prefix,
   });
-  await persist();
+  // Keep the persisted review reservation until response adoption and the next
+  // state save complete. A storage failure must never make this attempt runnable again.
+  if (role !== 'review') {
+    await persist();
+  }
   if (result.timedOut) {
     return { stop: 'execution_limit' };
   }
@@ -425,7 +429,7 @@ async function verifyHost(
     if (changed) {
       return { stop: changed };
     }
-    state.findings = `Capture logs: ${capture.prefix}.stdout and ${capture.prefix}.stderr; environment stops require the host operator, execution failures return to repair.`;
+    state.findings = `Capture logs: ${capture.prefix}.stdout and ${capture.prefix}.stderr; the assigned AI investigates environment evidence within existing permissions; host environment changes require authorization, execution failures return to repair.`;
     if (capture.timedOut) {
       return { stop: 'capture_timeout' };
     }
@@ -578,17 +582,23 @@ async function evaluate(
     return { stop: changed };
   }
   let review: Review;
+  let documents: ReturnType<typeof documentVersions>;
   try {
     review = parseReview(reviewed.stdout, target.targetId, state.review, history.at(-1));
-    const documents = documentVersions(review, target.files);
+    documents = documentVersions(review, target.files);
+  } catch (error) {
+    state.findings = `Invalid review: ${error instanceof Error ? error.message : String(error)}; raw response: ${target.prefix}.stdout`;
+    return { stop: 'invalid_review' };
+  }
+  try {
     await writeFile(
       `${target.prefix}.json`,
       JSON.stringify({ target: `${target.prefix}.target.json`, review, documents }, null, 2),
       { flag: 'wx' },
     );
   } catch (error) {
-    state.findings = `Invalid review: ${error instanceof Error ? error.message : String(error)}; raw response: ${target.prefix}.stdout`;
-    return { stop: 'invalid_review' };
+    state.findings = `Cannot save review at ${target.prefix}.json: ${error instanceof Error ? error.message : String(error)}; raw response: ${target.prefix}.stdout; previous complete reviews remain in reviewHistory.`;
+    return { stop: 'review_storage_failed' };
   }
   history.push(review);
   state.reviewHistory = history;
@@ -748,8 +758,19 @@ async function execute(config: Config): Promise<State> {
   while (!state.result) {
     state.result = await cycle(config, state, issue, persist, knowledge);
   }
-  await persist();
+  await saveTerminal(path, state);
   return state;
+}
+
+async function saveTerminal(path: string, state: State) {
+  try {
+    await save(path, state);
+  } catch (error) {
+    throw new Error(
+      `${state.result}: ${state.findings ?? ''}; cannot save terminal state at ${path}: ${error instanceof Error ? error.message : String(error)}. Preserve the previous state and active reservation; do not resume this run.`,
+      { cause: error },
+    );
+  }
 }
 
 if (import.meta.main) {

@@ -611,6 +611,65 @@ mock.module('node:fs/promises',()=>({...fs,${hooks}}));
   });
 }
 
+for (const [attempt, terminalFailure] of [
+  [1, false],
+  [2, false],
+  [2, true],
+] as const) {
+  test(`review save failure at attempt ${attempt}, terminal save failure ${terminalFailure}`, async () => {
+    const t = await trial('docs');
+    await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
+    await reviewer(
+      t,
+      `const reply=reviewReply(${attempt}===1 || reviewContext.previous ? 'accepted' : 'needs_changes','Valid review');`,
+    );
+    const prefix = join(t.config.runDir, `review-${attempt}`);
+    const result = await withFileHooks(
+      t,
+      `
+writeFile: async (path,...args)=>{
+ if(path===${JSON.stringify(prefix + '.json')}) throw Error('review disk fixture failure');
+ if(${terminalFailure} && String(path).endsWith('state.json.tmp') && JSON.parse(args[0]).result==='review_storage_failed') throw Error('terminal disk fixture failure');
+ return fs.writeFile(path,...args);
+}`,
+    );
+    expect(result.status).toBe(1);
+    const state = await t.state();
+    expect([state.review, state.repair]).toEqual([attempt, attempt - 1]);
+    expect(events(state.reviewHistory)).toHaveLength(attempt - 1);
+    if (attempt === 2) {
+      const previous = object(
+        JSON.parse(await readFile(join(t.config.runDir, 'review-1.json'), 'utf8')),
+      );
+      expect(events(state.reviewHistory)[0]).toEqual(previous.review);
+      expect(object(previous.review).status).toBe('needs_changes');
+    }
+    const raw = object(JSON.parse(await readFile(`${prefix}.stdout`, 'utf8')));
+    expect(raw.newItems).toEqual([]);
+    expect(await Bun.file(`${prefix}.target.json`).exists()).toBe(true);
+    if (terminalFailure) {
+      expect(state.active).toMatchObject({ role: 'review', prefix });
+      expect(result.stderr).toContain('terminal disk fixture failure');
+      expect(result.stderr).toContain(join(t.config.runDir, 'state.json'));
+    } else {
+      expect(state.result).toBe('review_storage_failed');
+      expect(state.active).toBeNull();
+    }
+    const diagnostic = terminalFailure ? result.stderr : String(state.findings);
+    expect(diagnostic).toContain('review disk fixture failure');
+    expect(diagnostic).toContain(`${prefix}.json`);
+    expect(diagnostic).toContain(`${prefix}.stdout`);
+    expect(diagnostic).not.toContain('Invalid review');
+    const saved = await readFile(join(t.config.runDir, 'state.json'), 'utf8');
+    expect(t.execute().status).toBe(1);
+    expect(await readFile(join(t.config.runDir, 'state.json'), 'utf8')).toBe(saved);
+    expect(await Bun.file(join(t.config.runDir, `repair-${attempt}.prompt`)).exists()).toBe(false);
+    expect(await Bun.file(join(t.config.runDir, `review-${attempt + 1}.prompt`)).exists()).toBe(
+      false,
+    );
+  });
+}
+
 for (const [change, operation] of Object.entries({
   addition: "await fs.writeFile(cwd+'/new.txt','new')",
   content: "await fs.writeFile(cwd+'/source.txt','changed')",

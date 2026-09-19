@@ -9,6 +9,18 @@ interface CommandResult {
   ms: number;
 }
 
+export class OutputStorageError extends Error {
+  constructor(
+    readonly failures: { path: string; cause: unknown }[],
+    readonly result: CommandResult,
+  ) {
+    super(
+      `${failures.map(({ path, cause }) => `Cannot save command output at ${path}: ${cause instanceof Error ? cause.message : String(cause)}`).join('; ')}; acquired command result: ${JSON.stringify(result)}`,
+      { cause: new AggregateError(failures.map(({ cause }) => cause)) },
+    );
+  }
+}
+
 // One owner for sequential commands; concurrent commands and nested scopes are unsupported.
 export const interruptionMessage =
   'Interrupted execution: reconcile existing process and evidence before continuing';
@@ -123,12 +135,27 @@ export async function command(
   });
   clearTimeout(timer);
   killGroup(child.pid);
+  const result = { code, stdout, stderr, timedOut, ms: performance.now() - start };
   if (files) {
-    await writeFile(`${files}.stdout`, stdout);
-    await writeFile(`${files}.stderr`, stderr);
+    await saveOutput(files, result);
   }
   assertRunning(); // Save output before reporting interruption to the caller.
-  return { code, stdout, stderr, timedOut, ms: performance.now() - start };
+  return { ...result, ms: performance.now() - start };
+}
+
+async function saveOutput(prefix: string, result: CommandResult) {
+  const failures: { path: string; cause: unknown }[] = [];
+  for (const stream of ['stdout', 'stderr'] as const) {
+    const path = `${prefix}.${stream}`;
+    try {
+      await writeFile(path, result[stream]);
+    } catch (cause) {
+      failures.push({ path, cause });
+    }
+  }
+  if (failures.length) {
+    throw new OutputStorageError(failures, result);
+  }
 }
 
 export async function withInterrupts<T>(action: () => Promise<T>): Promise<T> {

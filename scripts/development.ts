@@ -17,7 +17,7 @@ import { waitForCi } from './ci.ts';
 import type { CiResult } from './ci.ts';
 import { readTarget, issueNumber, targetCommand, pushArguments } from './target.ts';
 import { researchContext, researchHandoff, verifyReports } from './research-handoff.ts';
-import type { Config, State, ReportReference } from './input.ts';
+import type { Config, State, ReportReference, StopReason } from './input.ts';
 import { knowledgeReferences, readKnowledge } from './knowledge.ts';
 
 const runtime = { command, verify: run, publish };
@@ -482,6 +482,36 @@ async function implement(context: Context, io: typeof runtime) {
   return config;
 }
 
+const verificationActions: Record<StopReason, string> = {
+  execution_limit:
+    'Assigned AI: inspect consumed attempts, model time and unresolved findings; a human must decide any new scope or budget. Existing limits cannot be extended.',
+  repair_failed:
+    'Assigned AI: inspect repair command stdout, stderr and exit evidence; investigate the actor environment within existing permissions before reassessment.',
+  review_failed:
+    'Assigned AI: inspect review command stdout, stderr and exit evidence; investigate the actor environment within existing permissions before reassessment.',
+  requirements_changed:
+    'Assigned AI: compare the current Issue with the recorded requirements; a human must agree any changed requirements or scope before new verification.',
+  source_changed:
+    'Assigned AI: identify the source changes against the recorded review target and check for concurrent writers; verify the intended deliverables again.',
+  check_unavailable:
+    'Assigned AI: investigate check startup or timeout from its command logs; the host must resolve execution environment problems within existing authorization before verification.',
+  capture_unavailable:
+    'Assigned AI: inspect capture logs and configured runtime; the host must resolve missing browser, display or dependency support before required capture and verification.',
+  capture_timeout:
+    'Assigned AI: investigate capture timeout using retained logs and processes; the host must address environment problems within authorization. A human must decide any changed time limit.',
+  invalid_review:
+    'Assigned AI: compare the raw review response with its target, document references and response contract; correct the response producer before new independent evaluation.',
+  review_storage_failed:
+    'Assigned AI: inspect the failed review save path, original error and raw response in state findings; the host must restore writable evidence storage. Previous complete reviewHistory is historical, not acceptance of this attempt.',
+  invalid_repair:
+    'Assigned AI: inspect the raw repair response against its response contract; correct the response producer before new verification.',
+  human_decision_required:
+    'Obtain the human decision described in the repair findings about requirements, scope, permissions or limits before further implementation.',
+  target_changed_after_stop:
+    'Assigned AI: reconcile current source and requirements with the retained terminal result; prior acceptance does not verify the changed target.',
+  ready_for_human_review: 'Review the verified deliverables and remaining publication conditions.',
+};
+
 async function verify(context: Context, config: Config, io: typeof runtime) {
   const result = context.result;
   result.phase = 'verification';
@@ -494,6 +524,9 @@ async function verify(context: Context, config: Config, io: typeof runtime) {
   await revisionUnchanged(context, io);
   if (state.result !== 'ready_for_human_review') {
     result.reasonCode = state.result ?? undefined;
+    if (state.result) {
+      result.nextAction = `${verificationActions[state.result]} Evidence: ${result.details} and its referenced findings, history and logs. Obtain permission for host environment changes outside existing authorization. After assistance, reconfirm target, evidence, authorization and verification. Do not resume this run or change old runs, locks, active reservations or limits; the current entry point cannot resume a stopped run. Do not retry uncertain publication automatically.`;
+    }
     if (!result.remaining.includes('local_verification')) {
       result.remaining.unshift('local_verification');
     }
