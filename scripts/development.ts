@@ -473,8 +473,8 @@ async function implement(context: Context, io: typeof runtime) {
       : {}),
     repair: actor,
     review: [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'review', dir],
-    repairLimit: 2,
-    reviewLimit: 2,
+    repairLimit: null,
+    reviewLimit: null,
     modelTimeMs: null,
     checkTimeMs,
   };

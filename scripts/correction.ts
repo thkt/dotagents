@@ -151,6 +151,14 @@ async function readIssue(config: Config) {
   return result.stdout;
 }
 
+function modelLimitReached(config: Config, state: State, role: ActorRole) {
+  const limit = config[`${role}Limit`];
+  return (
+    (limit !== null && state[role] >= limit) ||
+    (config.modelTimeMs !== null && state.modelMs >= config.modelTimeMs)
+  );
+}
+
 async function runModel(
   config: Config,
   state: State,
@@ -158,10 +166,10 @@ async function runModel(
   prompt: string,
   persist: Persist,
 ): Promise<ModelResult> {
-  const remaining = config.modelTimeMs === null ? null : config.modelTimeMs - state.modelMs;
-  if (state[role] >= config[`${role}Limit`] || (remaining !== null && remaining <= 0)) {
+  if (modelLimitReached(config, state, role)) {
     return { stop: 'execution_limit' };
   }
+  const remaining = config.modelTimeMs === null ? null : config.modelTimeMs - state.modelMs;
   state[role]++;
   const prefix = resolve(config.runDir, `${role}-${state[role]}`);
   state.active = { role, prefix };
@@ -548,10 +556,7 @@ async function evaluate(
   knowledge: SelectedKnowledge[],
 ): Promise<{ stop?: StopReason; findings?: string }> {
   // Do not create an apparent attempt if the existing execution budget is exhausted.
-  if (
-    state.review >= config.reviewLimit ||
-    (config.modelTimeMs !== null && state.modelMs >= config.modelTimeMs)
-  ) {
+  if (modelLimitReached(config, state, 'review')) {
     return { stop: 'execution_limit' };
   }
   const target = await reviewTarget(config, state, issue, knowledge);
@@ -640,6 +645,7 @@ async function cycle(
   }
   const prompt = [
     'Repair only within these agreed requirements. Read the current files and fix the root cause.',
+    'When findings recur, compare the existing review records and prior repair results with the current artifacts, reassess the cause and repair approach, and continue required corrections within the agreed scope. Do not make out-of-scope improvements or preferences completion conditions.',
     revisionContext(config.revision),
     'Return document content defects to repair and renew affected checks and independent review.',
     'Preserve agreed acceptance criteria and verification of required behavior; never hide realistic regressions to make checks pass.',

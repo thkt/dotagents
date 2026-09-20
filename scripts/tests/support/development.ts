@@ -302,8 +302,6 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
     verify: async (config: Config) => {
       expect(config).not.toHaveProperty('writing');
       expect(config.modelTimeMs).toBeNull();
-      expect(config.repairLimit).toBe(2);
-      expect(config.reviewLimit).toBe(2);
       expect(config.checkTimeMs).toBe(540000);
       calls.reviews++;
       const state = await fixture.verify(config);

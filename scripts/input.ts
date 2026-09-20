@@ -61,8 +61,8 @@ export interface Config {
   captureRequired?: boolean;
   repair: string[];
   review: string[];
-  repairLimit: number;
-  reviewLimit: number;
+  repairLimit: number | null;
+  reviewLimit: number | null;
   // null explicitly disables only the model elapsed-time limit.
   modelTimeMs: number | null;
   checkTimeMs: number;
@@ -103,6 +103,7 @@ export interface State {
 const nonnegative = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0;
 const count = (value: unknown): value is number => nonnegative(value) && Number.isInteger(value);
+const attemptLimit = (value: unknown) => value === null || (count(value) && value > 0);
 const optionalString = (value: unknown) => value === undefined || typeof value === 'string';
 const role = (value: unknown) =>
   value === 'check' || value === 'repair' || value === 'review' || value === 'capture';
@@ -147,8 +148,7 @@ export function assertConfig(value: unknown): asserts value is Config {
     assert(typeof value.captureRequired === 'boolean', 'Explicit capture requirement required');
   }
   for (const key of ['repairLimit', 'reviewLimit']) {
-    const limit: unknown = value[key];
-    assert(count(limit) && limit > 0, `Invalid ${key}`);
+    assert(attemptLimit(value[key]), `Invalid ${key}`);
   }
   assert(
     value.modelTimeMs === null || (nonnegative(value.modelTimeMs) && value.modelTimeMs > 0),
