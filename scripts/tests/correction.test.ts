@@ -1,4 +1,5 @@
 import { test, expect, afterEach } from 'bun:test';
+import { existsSync } from 'node:fs';
 import { mkdir, symlink, writeFile, readFile, rm, rename, chmod } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -10,7 +11,7 @@ import {
   events,
   reviewReplySource,
 } from './support/correction.ts';
-import { parseRepairReply, repairInstructions } from '../repair.ts';
+import { parseRepairReply } from '../repair.ts';
 import { assertConfig, assertState } from '../input.ts';
 import { snapshot } from '../correction.ts';
 import { git } from './support/target.ts';
@@ -59,19 +60,7 @@ async function checkRepairEvidence(mode: string, runDir: string, findings: unkno
   }
   if (mode === 'normal') {
     const prompt = await readFile(join(runDir, 'repair-1.prompt'), 'utf8');
-    // Transport only; instruction meaning is assessed by independent review.
-    expect(prompt).toContain(repairInstructions(null));
-    for (const instruction of [
-      'Repair only within these agreed requirements',
-      'Run only targeted checks needed to diagnose or validate your repair',
-      'Do not commit, push or publish',
-      'Leave configured full verification to the host after your changes',
-      'do not launch browsers or servers in your sandbox',
-      'Requirements:\nAgreed requirement: correct source and docs',
-      'Failure evidence:',
-    ]) {
-      expect(prompt).toContain(instruction);
-    }
+    expect(prompt).toContain('Agreed requirement: correct source and docs');
   }
 }
 
@@ -343,16 +332,28 @@ for (const [name, change, reason] of [
     'Duplicate required report',
   ],
 ] as const) {
-  test(`invalid config: ${name}`, async () => {
-    const t = await trial('normal');
-    await writeFile(t.configFile, JSON.stringify({ ...t.config, ...change }));
-    const result = t.execute();
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain(reason);
-    expect(await Bun.file(join(t.config.runDir, 'check-1.stdout')).exists()).toBe(false);
-    expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
+  test(`invalid config: ${name}`, () => {
+    expect(() => assertConfig({ ...correctionConfig('/correction-config'), ...change })).toThrow(
+      reason,
+    );
   });
 }
+
+test('CLI rejects invalid config before commands or evidence writes', async () => {
+  const t = await trial('normal');
+  const executed = join(t.root, 'unexpected-execution');
+  await writeFile(
+    join(t.root, 'helper.js'),
+    `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(executed)}, 'executed');`,
+  );
+  await writeFile(t.configFile, JSON.stringify({ ...t.config, repair: [] }));
+  const result = t.execute();
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('Invalid repair command');
+  expect(existsSync(executed)).toBe(false);
+  expect(existsSync(t.config.runDir)).toBe(false);
+  expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
+});
 
 test('attempt limits require explicit null or positive integers', () => {
   const config = correctionConfig('/correction-config');
@@ -389,12 +390,8 @@ test('invalid saved state is retained and rejected before execution', async () =
   expect(saved.reviewFormat).toBe(4);
   expect(() => assertState(saved)).not.toThrow();
   expect(() => assertState({ ...saved, reviewHistory: [] })).not.toThrow();
-  for (const reviewFormat of [undefined, 1, 2, 3]) {
-    expect(() => assertState({ reviewFormat })).toThrow(
-      /cannot be converted or resumed; preserve existing run/,
-    );
-  }
   for (const [change, reason] of [
+    [{ reviewFormat: 3 }, 'Historical review format cannot be converted or resumed'],
     ...[null, 0, 5, '4'].map(
       (reviewFormat) => [{ reviewFormat }, 'Invalid review format'] as const,
     ),

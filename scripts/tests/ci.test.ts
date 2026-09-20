@@ -185,14 +185,20 @@ const scenarios: {
     status: 'unavailable',
     observed: 'missing',
   },
-  ...[
-    { ...frame(required), baseRefName: 'other' },
-    { ...frame(required), state: 'CLOSED' },
-    { ...frame(required), state: 'MERGED' },
-  ].map((value) => ({
-    name: `changed target ${value.baseRefName}/${value.state}`,
-    frames: [value],
+  ...(
+    [
+      ['headRefOid', 'another-commit', 'head=another-commit'],
+      ['baseRefName', 'other-base', 'base=other-base'],
+      ['state', 'CLOSED', 'state=CLOSED'],
+      ['state', 'MERGED', 'state=MERGED'],
+      ['url', 'https://github.com/other/repo/pull/100', 'URL or Issue reference changed'],
+      ['body', 'Closes #990', 'URL or Issue reference changed'],
+    ] as const
+  ).map(([field, value, reason]) => ({
+    name: `initial target changed: ${field}=${value}`,
+    frames: [{ ...frame(required), [field]: value }],
     status: 'target_changed',
+    reason,
   })),
   ...[
     { ...frame(required), statusCheckRollup: null },
@@ -337,6 +343,11 @@ for (const scenario of scenarios) {
           scenario.invalidJson ? '{' : JSON.stringify(scenario.frames[0]),
         );
         checkObservation(scenario, result, views);
+        if (scenario.status === 'target_changed' && scenario.observed === undefined) {
+          expect(views).toBe(1);
+          expect(finalReads).toBe(0);
+          expect(result.lastObservation).toBeNull();
+        }
       }
       expect(starts[0]).toBe(0);
       expect(timeouts).toEqual([
