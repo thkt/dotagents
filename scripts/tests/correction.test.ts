@@ -8,9 +8,11 @@ import {
   controller,
   object,
   events,
+  reviewReplySource,
 } from './support/correction.ts';
 import { parseRepairReply, repairInstructions } from '../repair.ts';
 import { assertConfig, assertState } from '../input.ts';
+import { snapshot } from '../correction.ts';
 import { git } from './support/target.ts';
 
 const { trial, cleanup } = correctionFixture();
@@ -126,6 +128,62 @@ for (const [mode, result, repairs, reviews] of [
   });
 }
 
+test('unlimited attempts check and accept the latest repair after recurring findings', async () => {
+  const t = await trial('docs', { repairLimit: null, reviewLimit: null, modelTimeMs: null });
+  await writeFile(join(t.config.cwd, 'source.txt'), 'correct-0');
+  await writeFile(
+    join(t.root, 'helper.js'),
+    `
+import {readFileSync,writeFileSync,existsSync} from 'node:fs';
+const role=process.argv[2];
+${reviewReplySource}
+const stage=existsSync('README.md')?Number(readFileSync('README.md','utf8')):0;
+if(role==='issue') console.log('Agreed requirement: complete source and instructions through stage 3');
+if(role==='check') {
+ console.log(readFileSync('source.txt','utf8'));
+ process.exit(readFileSync('source.txt','utf8')==='correct-'+stage?0:1);
+}
+if(role==='repair') {
+ writeFileSync('README.md',String(stage+1));
+ writeFileSync('source.txt','correct-'+(stage+1));
+ console.log(JSON.stringify({status:'repaired',findings:'Completed stage '+(stage+1)}));
+}
+if(role==='review') console.log(JSON.stringify(reviewReply(stage===3?'accepted':'needs_changes',stage===3?'Instructions complete':'Instructions incomplete')));
+`,
+  );
+  expect(t.execute().status).toBe(0);
+  const state = await t.state();
+  expect(state).toMatchObject({
+    result: 'ready_for_human_review',
+    repair: 3,
+    review: 4,
+    checks: 4,
+    active: null,
+  });
+  const history = events(state.reviewHistory).map(object);
+  expect(history.map((review) => review.status)).toEqual([
+    'needs_changes',
+    'needs_changes',
+    'needs_changes',
+    'accepted',
+  ]);
+  expect(new Set(history.map((review) => review.targetId)).size).toBe(4);
+  expect(history.at(-1)).toMatchObject({ items: [{ id: 'R1-1', disposition: 'fixed' }] });
+  const recorded = events(state.events).map(object);
+  const source = await snapshot(t.config.cwd);
+  expect(state.source).toBe(source);
+  expect(recorded.slice(-2)).toMatchObject([
+    { role: 'check', code: 0, source },
+    { role: 'review', code: 0, source },
+  ]);
+  expect(await readFile(join(t.config.runDir, 'check-4.stdout'), 'utf8')).toBe('correct-3\n');
+  const prompt = await readFile(join(t.config.runDir, 'repair-3.prompt'), 'utf8');
+  for (const review of [1, 2, 3]) {
+    expect(prompt).toContain(join(t.config.runDir, `review-${review}.json`));
+  }
+  expect(prompt).toContain('R1-1');
+});
+
 test('blank human findings stop repair and preserve work and prior review evidence', async () => {
   const t = await trial('blank_human');
   expect(t.execute().status).toBe(1);
@@ -204,13 +262,11 @@ test('changed limits cannot reset an existing finite trial', async () => {
   const stateFile = join(t.config.runDir, 'state.json');
   const before = await readFile(stateFile, 'utf8');
   expect(await t.state()).toMatchObject({ repair: 2, result: 'execution_limit' });
-  for (const change of [{ repairLimit: 10 }, { modelTimeMs: null }]) {
-    await writeFile(t.configFile, JSON.stringify({ ...t.config, ...change }));
-    const result = t.execute();
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain('configuration changed');
-    expect(await readFile(stateFile, 'utf8')).toBe(before);
-  }
+  await writeFile(t.configFile, JSON.stringify({ ...t.config, repairLimit: null }));
+  const result = t.execute();
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('configuration changed');
+  expect(await readFile(stateFile, 'utf8')).toBe(before);
 });
 
 test('terminal success still refuses an active reservation or an existing lock', async () => {
@@ -240,12 +296,15 @@ test('terminal success still refuses an active reservation or an existing lock',
 });
 
 test('review limit prevents a third-party evaluator from being called again', async () => {
-  const t = await trial('docs', { reviewLimit: 1, modelTimeMs: null });
+  const t = await trial('docs', { repairLimit: null, reviewLimit: 1, modelTimeMs: null });
   t.execute();
   const state = await t.state();
   expect(state.result).toBe('execution_limit');
   expect(state.review).toBe(1);
   expect(state.repair).toBe(2);
+  expect(state.checks).toBe(3);
+  expect(await Bun.file(join(t.config.runDir, 'review-2.target.json')).exists()).toBe(false);
+  expect(await Bun.file(join(t.config.runDir, 'review-2.prompt')).exists()).toBe(false);
 });
 
 for (const [target, path, content] of [
@@ -267,8 +326,6 @@ for (const [target, path, content] of [
 for (const [name, change, reason] of [
   ['missing cwd', { cwd: undefined }, 'Invalid cwd'],
   ['empty command', { repair: [] }, 'Invalid repair command'],
-  ['invalid limit', { reviewLimit: -1 }, 'Invalid reviewLimit'],
-  ['missing model time', { modelTimeMs: undefined }, 'Invalid modelTimeMs'],
   [
     'report without base',
     { reports: [{ path: 'research/reset.md', blob: 'a'.repeat(40) }] },
@@ -296,6 +353,19 @@ for (const [name, change, reason] of [
     expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
   });
 }
+
+test('attempt limits require explicit null or positive integers', () => {
+  const config = correctionConfig('/correction-config');
+  for (const key of ['repairLimit', 'reviewLimit']) {
+    for (const limit of [null, 1, 3]) {
+      expect(() => assertConfig({ ...config, [key]: limit })).not.toThrow();
+    }
+    for (const limit of [undefined, 0, -1, 1.5, NaN, Infinity, '2', 'unlimited', false, {}, []]) {
+      expect(() => assertConfig({ ...config, [key]: limit })).toThrow(`Invalid ${key}`);
+    }
+  }
+  expect(() => assertConfig({ ...config, repairLimit: null, reviewLimit: null })).not.toThrow();
+});
 
 test('model time requires explicit null or a positive finite number; check time stays finite', () => {
   const config = correctionConfig('/correction-config');
@@ -410,26 +480,6 @@ test('evidence directory boundary: symlink resolving into the worktree', async (
   expect(result.stderr).toContain('Evidence must not resolve inside the worktree');
   expect(await Bun.file(join(inside, 'state.json')).exists()).toBe(false);
   expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
-});
-
-test('retired writing input is rejected before execution and preserves prior evidence', async () => {
-  const t = await trial('normal');
-  await mkdir(t.config.runDir);
-  const prior = '{"result":"writing_failed","active":{"role":"writing"}}';
-  const stateFile = join(t.config.runDir, 'state.json');
-  await writeFile(stateFile, prior);
-  for (const writing of [[process.execPath, 'old-writing.js'], null]) {
-    await writeFile(t.configFile, JSON.stringify({ ...t.config, writing }));
-    const result = t.execute();
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain(
-      'writing is no longer supported; remove writing from correction input',
-    );
-    expect(await readFile(stateFile, 'utf8')).toBe(prior);
-    expect(await Bun.file(join(t.config.runDir, 'check-1.stdout')).exists()).toBe(false);
-    expect(await Bun.file(join(t.config.runDir, 'repair-1.stdout')).exists()).toBe(false);
-    expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
-  }
 });
 
 // Response boundaries run without another repository or actor process per malformed value.

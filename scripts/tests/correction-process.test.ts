@@ -15,7 +15,7 @@ const { trial, cleanup } = correctionFixture();
 afterEach(cleanup);
 
 test('time limit terminates actor and keeps consumed reservation', async () => {
-  const t = await trial('timeout', { modelTimeMs: 100 });
+  const t = await trial('timeout', { repairLimit: null, reviewLimit: null, modelTimeMs: 100 });
   t.execute();
   const state = await t.state();
   expect(state.result).toBe('execution_limit');
@@ -72,7 +72,12 @@ for (const role of ['check', 'repair', 'review', 'capture'] as const) {
     ? (['SIGINT', 'SIGTERM', 'SIGKILL'] as const)
     : (['SIGTERM'] as const)) {
     test(`${signal} during ${role} preserves reservation and blocks duplicate execution`, async () => {
-      const t = await trial('normal', { checkTimeMs: 15000, modelTimeMs: null });
+      const t = await trial('normal', {
+        repairLimit: null,
+        reviewLimit: null,
+        checkTimeMs: 15000,
+        modelTimeMs: null,
+      });
       if (role === 'review') {
         await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
       }

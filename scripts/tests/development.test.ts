@@ -1005,8 +1005,8 @@ testDevelopment(
     expect(JSON.parse(await readFile(join(dir, 'verification-config.json'), 'utf8'))).toMatchObject(
       {
         modelTimeMs: null,
-        repairLimit: 2,
-        reviewLimit: 2,
+        repairLimit: null,
+        reviewLimit: null,
         checkTimeMs: 540000,
       },
     );

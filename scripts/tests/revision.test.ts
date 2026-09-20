@@ -466,8 +466,8 @@ async function successfulRevision(f: Awaited<ReturnType<typeof fixture>>, mode: 
   const config = await readObject(join(f.dir, 'verification-config.json'));
   expect(config.baseCommit).toBe(f.initialBase);
   expect(config).toMatchObject({
-    repairLimit: 2,
-    reviewLimit: 2,
+    repairLimit: null,
+    reviewLimit: null,
     modelTimeMs: null,
     revision: { head: f.oldHead },
   });
