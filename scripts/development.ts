@@ -519,7 +519,6 @@ async function verify(context: Context, config: Config, io: typeof runtime) {
   result.details = join(config.runDir, 'state.json');
   result.nextAction =
     'Inspect verification/state.json and its referenced findings and logs; reconcile the stop without changing active reservations or limits, and obtain any required human decision.';
-  await revisionUnchanged(context, io);
   const state: State = await io.verify(config);
   await revisionUnchanged(context, io);
   if (state.result !== 'ready_for_human_review') {

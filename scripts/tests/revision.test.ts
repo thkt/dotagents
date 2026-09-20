@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import { test, expect } from 'bun:test';
-import { mkdtemp, realpath, mkdir, readFile, writeFile, rm, chmod } from 'node:fs/promises';
+import {
+  mkdtemp,
+  realpath,
+  mkdir,
+  readFile,
+  writeFile,
+  rm,
+  chmod,
+  readdir,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -899,19 +908,23 @@ for (const [change, expected] of Object.entries(verificationChanges)) {
   });
 }
 
-for (const changedIssue of [false, true]) {
-  test(`correction evaluates the whole PR and request with live Issue checks: changed=${changedIssue}`, async () => {
+for (const [mode, reason] of [
+  ['normal', null],
+  ['issue_changed', /Agreed Issue changed during revision/],
+  ['body_changed', /Revision PR body changed/],
+  ['locked_body_changed', /EEXIST/],
+] as const) {
+  test(`development verifies revisions through correction: ${mode}`, async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-controller-')));
     const originalPath = process.env.PATH;
     try {
       const f = await fixture(root);
-      await develop([...f.args, '--no-publish'], f.io);
-      const config: unknown = JSON.parse(
-        await readFile(join(f.dir, 'verification-config.json'), 'utf8'),
+      const priorFiles = ['result.json', 'verification/state.json', 'pr.json'];
+      const priorEvidence = await Promise.all(
+        priorFiles.map((path) => readFile(join(f.prior, path), 'utf8')),
       );
-      assertConfig(config);
-      assert(config.revision);
-      const request = config.revision.request;
+      const livePr = join(root, 'pr.json');
+      await writeFile(livePr, JSON.stringify(f.pr));
       const bin = join(root, 'bin');
       await mkdir(bin);
       const gh = join(bin, 'gh');
@@ -922,7 +935,7 @@ for (const changedIssue of [false, true]) {
         `#!${process.execPath}
 import {appendFileSync,readFileSync} from 'node:fs';
 const args = process.argv.slice(2);
-const pr = ${JSON.stringify(f.pr)};
+const pr = JSON.parse(readFileSync(${JSON.stringify(livePr)},'utf8'));
 if (['issue', 'pr'].includes(args[0])) appendFileSync(${JSON.stringify(join(root, 'reads'))}, args[0]+'\\n');
 if(args[0] === 'issue') process.stdout.write(readFileSync(${JSON.stringify(liveIssue)},'utf8'));
 else if(args[0] === 'pr') console.log(JSON.stringify(pr));
@@ -942,51 +955,113 @@ import {readFileSync,writeFileSync} from 'node:fs';
 const role = process.argv[2];
 ${reviewReplySource}
 if(role === 'check') {
- if (${changedIssue}) writeFileSync(${JSON.stringify(liveIssue)}, ${JSON.stringify(issue.replace('Keep result visible', 'Changed requirements'))});
+ if (${mode === 'issue_changed'}) writeFileSync(${JSON.stringify(liveIssue)}, ${JSON.stringify(issue.replace('Keep result visible', 'Changed requirements'))});
  process.exit(readFileSync('result.txt','utf8') === 'corrected' ? 0 : 1);
 }
 if(role === 'repair') { writeFileSync('result.txt','corrected'); console.log(JSON.stringify({status:'repaired',findings:'Reset corrected'})); }
 if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue and revision inspected')));
 `,
       );
-      config.runDir = join(f.dir, 'controller');
-      config.check = [process.execPath, helper, 'check'];
-      config.repair = [process.execPath, helper, 'repair'];
-      config.review = [process.execPath, helper, 'review'];
-      if (changedIssue) {
-        await assert.rejects(() => run(config), /Agreed Issue changed during revision/);
-        expect(await readObject(join(config.runDir, 'state.json'))).toMatchObject({
-          repair: 0,
-          review: 0,
-          checks: 1,
-          active: null,
+      let config: Config | undefined;
+      f.io.verify = async (input) => {
+        config = {
+          ...input,
+          check: [process.execPath, helper, 'check'],
+          repair: [process.execPath, helper, 'repair'],
+          review: [process.execPath, helper, 'review'],
+        };
+        return run(config);
+      };
+      const verification = join(f.dir, 'verification');
+      const entryFailure = mode.endsWith('body_changed');
+      if (entryFailure) {
+        f.hooks.mode = 'body_changed';
+        const execute = f.io.command;
+        f.io.command = async (...args) => {
+          const result = await execute(...args);
+          if (args[0].includes('repair')) {
+            await writeFile(livePr, JSON.stringify(f.pr));
+            if (mode === 'locked_body_changed') {
+              await mkdir(join(verification, 'lock'), { recursive: true });
+              await writeFile(join(verification, 'lock/owner'), 'existing execution');
+            }
+          }
+          return result;
+        };
+      }
+      if (reason) {
+        await assert.rejects(() => develop(f.args, f.io), reason);
+        const stopped = await readObject(join(f.dir, 'result.json'));
+        expect(stopped.reason).toMatch(reason);
+        expect(stopped).toMatchObject({
+          status: 'stopped',
+          phase: 'verification',
+          publication: 'not_attempted',
+          url: f.pr.url,
         });
+        expect(f.hooks.pushes).toBe(1); // Only the fixture's original publication.
+        expect(f.hooks.edits).toBe(0);
+        expect(git(f.cwd, 'rev-parse', 'HEAD')).toBe(f.oldHead);
         expect(await readFile(join(f.cwd, 'result.txt'), 'utf8')).toBe('reset corrected');
+        expect(
+          await Promise.all(priorFiles.map((path) => readFile(join(f.prior, path), 'utf8'))),
+        ).toEqual(priorEvidence);
+        if (entryFailure) {
+          expect(await readdir(verification)).toEqual(
+            mode === 'locked_body_changed' ? ['lock'] : [],
+          );
+          if (mode === 'locked_body_changed') {
+            expect(await readFile(join(verification, 'lock/owner'), 'utf8')).toBe(
+              'existing execution',
+            );
+          }
+        } else {
+          expect(await readObject(join(verification, 'state.json'))).toMatchObject({
+            repair: 0,
+            review: 0,
+            checks: 1,
+            active: null,
+          });
+        }
         return;
       }
-      const state = await run(config);
+      const result = await develop(f.args, f.io);
+      expect(result.status).toBe('published_draft');
+      expect(f.hooks.pushes).toBe(2);
+      expect(f.hooks.edits).toBe(1);
+      const verifiedConfig = config;
+      assert(verifiedConfig?.revision);
+      const request = verifiedConfig.revision.request;
+      const state = await readObject(join(verification, 'state.json'));
       expect(state.result).toBe('ready_for_human_review');
       expect(state.repair).toBe(1);
       expect(state.review).toBe(1);
+      expect(state.checks).toBe(2);
       expect(state.issueHash).toBe(hash(issue + '\n'));
       const reads = (await readFile(join(root, 'reads'), 'utf8')).trim().split('\n');
       expect(reads.filter((role) => role === 'issue').length).toBeGreaterThan(1);
       expect(reads).toEqual(reads.filter((role) => role === 'pr').flatMap(() => ['issue', 'pr']));
-      expect(await readFile(join(config.runDir, 'repair-1.prompt'), 'utf8')).toContain(request);
-      expect(await readFile(join(config.runDir, 'review-1.prompt'), 'utf8')).toContain(request);
-      expect(await readFile(join(config.runDir, 'review-1.prompt'), 'utf8')).toContain(f.oldBody);
-      expect(await readFile(join(config.runDir, 'review-1.diff'), 'utf8')).toContain(
+      expect(await readFile(join(verifiedConfig.runDir, 'repair-1.prompt'), 'utf8')).toContain(
+        request,
+      );
+      expect(await readFile(join(verifiedConfig.runDir, 'review-1.prompt'), 'utf8')).toContain(
+        request,
+      );
+      expect(await readFile(join(verifiedConfig.runDir, 'review-1.prompt'), 'utf8')).toContain(
+        f.oldBody,
+      );
+      expect(await readFile(join(verifiedConfig.runDir, 'review-1.diff'), 'utf8')).toContain(
         'original issue deliverable',
       );
-      const target = await readObject(join(config.runDir, 'review-1.target.json'));
+      const target = await readObject(join(verifiedConfig.runDir, 'review-1.target.json'));
       expect(target).toMatchObject({
         baseCommit: f.initialBase,
         revision: { request, head: f.oldHead },
       });
-      const saved = await readFile(join(config.runDir, 'state.json'), 'utf8');
+      const saved = await readFile(join(verifiedConfig.runDir, 'state.json'), 'utf8');
       await writeFile(f.request, 'Another request');
-      await assert.rejects(() => run(config), /Revision request changed/);
-      expect(await readFile(join(config.runDir, 'state.json'), 'utf8')).toBe(saved);
+      await assert.rejects(() => run(verifiedConfig), /Revision request changed/);
+      expect(await readFile(join(verifiedConfig.runDir, 'state.json'), 'utf8')).toBe(saved);
     } finally {
       process.env.PATH = originalPath;
       await rm(root, { recursive: true, force: true });
