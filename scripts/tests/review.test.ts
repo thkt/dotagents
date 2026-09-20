@@ -11,6 +11,7 @@ import {
   reviewReplySource,
 } from './support/correction.ts';
 import { parseReview } from '../review.ts';
+import { assertState } from '../input.ts';
 import type { ReviewItem } from '../review.ts';
 import { prBody } from '../pr-body.ts';
 import { git } from './support/target.ts';
@@ -754,7 +755,17 @@ test('historical review formats are preserved without conversion or execution', 
   expect(t.execute().status).toBe(0);
   const current = await t.state();
   expect(current.reviewFormat).toBe(4);
+  expect(() => assertState({ ...current, reviewHistory: [] })).not.toThrow();
+  const executed = join(t.root, 'unexpected-execution');
+  await writeFile(
+    join(t.root, 'helper.js'),
+    `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(executed)}, 'executed');`,
+  );
   for (const format of [undefined, 1, 2, 3]) {
+    // Legacy classification must not require current fields, even when several are missing.
+    expect(() => assertState({ reviewFormat: format })).toThrow(
+      'Historical review format cannot be converted or resumed; preserve existing run',
+    );
     const state: Record<string, unknown> = { ...current, reviewFormat: format };
     if (format === undefined) {
       delete state.reviewHistory;
@@ -765,6 +776,7 @@ test('historical review formats are preserved without conversion or execution', 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Historical review format cannot be converted or resumed');
     expect(await readFile(join(t.config.runDir, 'state.json'), 'utf8')).toBe(old);
+    expect(await Bun.file(executed).exists()).toBe(false);
   }
 });
 

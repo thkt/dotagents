@@ -316,7 +316,21 @@ test('invalid saved state is retained and rejected before execution', async () =
   const saved = await t.state();
   const review = object(events(saved.reviewHistory)[0]);
   const item = object(events(review.items)[0]);
+  const executed = join(t.root, 'unexpected-execution');
+  await writeFile(
+    join(t.root, 'helper.js'),
+    `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(executed)}, 'executed');`,
+  );
   for (const [change, reason] of [
+    ...[null, 0, 5, '4'].map(
+      (reviewFormat) => [{ reviewFormat }, 'Invalid review format'] as const,
+    ),
+    ...[undefined, '', 42].map(
+      (baseCommit) => [{ baseCommit }, 'Invalid saved base commit'] as const,
+    ),
+    ...[undefined, null].map(
+      (reviewHistory) => [{ reviewHistory }, 'Invalid saved review history'] as const,
+    ),
     [{ repair: -1 }, 'Invalid saved usage'],
     [{ active: { role: 'repair' } }, 'Invalid active reservation'],
     [{ events: [{}] }, 'Invalid saved events'],
@@ -349,6 +363,7 @@ test('invalid saved state is retained and rejected before execution', async () =
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(reason);
     expect(await readFile(stateFile, 'utf8')).toBe(invalid);
+    expect(await Bun.file(executed).exists()).toBe(false);
   }
 });
 test('missing CLI configuration argument fails with usage', () => {
