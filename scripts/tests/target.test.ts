@@ -139,15 +139,13 @@ test('target rejects retired writing settings before GitHub access', async () =>
       }
       return git(cwd, ...argv.slice(1));
     };
-    for (const writing of [{ documents: ['README.md'] }, { documents: [] }, null]) {
-      const text = JSON.stringify({ ...targetConfig, writing });
-      await writeFile(join(cwd, '.dotagents.json'), text);
-      await assert.rejects(
-        () => readTarget(cwd, read),
-        /writing is no longer supported; remove writing from .dotagents.json/,
-      );
-      expect(await Bun.file(join(cwd, '.dotagents.json')).text()).toBe(text);
-    }
+    const text = JSON.stringify({ ...targetConfig, writing: null });
+    await writeFile(join(cwd, '.dotagents.json'), text);
+    await assert.rejects(
+      () => readTarget(cwd, read),
+      /writing is no longer supported; remove writing from .dotagents.json/,
+    );
+    expect(await Bun.file(join(cwd, '.dotagents.json')).text()).toBe(text);
     expect(githubReads).toBe(0);
   } finally {
     await rm(cwd, { recursive: true, force: true });

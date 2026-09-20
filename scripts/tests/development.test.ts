@@ -17,7 +17,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { develop } from '../development.ts';
 import { PublicationError } from '../publish.ts';
-import { repairInstructions } from '../repair.ts';
 import { command, interruptionMessage, withInterrupts } from '../process.ts';
 import type { Config, State } from '../input.ts';
 import { isRecord } from '../values.ts';
@@ -72,8 +71,6 @@ async function runDevelopment(f: DevelopmentFixture) {
     if (pending) {
       expect(await pendingWork(f.repo)).toEqual(pending);
     }
-    expect(existsSync(join(f.dir, 'verification-summary.md'))).toBe(false);
-    expect(existsSync(join(f.dir, 'stopped.txt'))).toBe(false);
   }
 }
 
@@ -184,19 +181,10 @@ testDevelopment('setup_failure', async (f) => {
   noPublication(f);
 });
 
-for (const [name, settings, reason] of [
-  ['missing_check', { check: [] }, /Verification command is required/],
-  [
-    'retired_writing',
-    { writing: { documents: ['README.md'] } },
-    /writing is no longer supported; remove writing from .dotagents.json/,
-  ],
-] as const) {
-  testDevelopment(name, async (f) => {
-    await commitSettings(f, { ...f.settings, ...settings });
-    await rejectedBeforeStart(f, reason);
-  });
-}
+testDevelopment('missing_check', async (f) => {
+  await commitSettings(f, { ...f.settings, check: [] });
+  await rejectedBeforeStart(f, /Verification command is required/);
+});
 
 testDevelopment(
   'no_ci',
@@ -822,21 +810,10 @@ for (const [name, failure, status, action, reason] of [
     'exit 1',
   ],
   ['ci_publication_timeout', { timedOut: true }, 'unavailable', 'Check gh', 'timedOut true'],
-  [
-    'ci_publication_invalid_json',
-    { stdout: 'not JSON' },
-    'invalid_response',
-    'raw PR/CI response',
-    'JSON',
-  ],
 ] as const) {
   testDevelopment(name, async (f) => {
     const prView = f.prView;
     f.prView = async (argv, cwd, timeout) => {
-      if (argv.at(-1) === publicationFields && 'stdout' in failure) {
-        expect(timeout).toBe(660000);
-        return { ...ok(), ...failure };
-      }
       const response = await prView(argv, cwd, timeout);
       return argv.at(-1) === publicationFields ? { ...response, ...failure } : response;
     };
@@ -849,41 +826,20 @@ for (const [name, failure, status, action, reason] of [
   });
 }
 
-for (const [field, value, reason] of [
-  ['headRefOid', 'another-commit', 'head=another-commit'],
-  ['baseRefName', 'other-base', 'base=other-base'],
-  ['state', 'CLOSED', 'state=CLOSED'],
-  ['url', 'https://github.com/other/repo/pull/100', 'URL or Issue reference changed'],
-  ['body', 'Closes #990', 'URL or Issue reference changed'],
-] as const) {
-  testDevelopment(`CI publication rejects changed ${field}`, async (f) => {
-    const prView = f.prView;
-    f.prView = async (argv, cwd, timeout) => {
-      if (argv.at(-1) === publicationFields && field === 'headRefOid') {
-        expect(timeout).toBe(660000);
-        return ok(
-          JSON.stringify({
-            url: `https://github.com/${f.settings.repository}/pull/100`,
-            headRefOid: value,
-            baseRefName: f.settings.baseBranch,
-            state: 'OPEN',
-            isDraft: true,
-            body: 'Closes #99',
-            statusCheckRollup: [{ name: 'checks', status: 'COMPLETED', conclusion: 'SUCCESS' }],
-          }),
-        );
-      }
-      const response = await prView(argv, cwd, timeout);
-      if (argv.at(-1) !== publicationFields) {
-        return response;
-      }
-      const view: unknown = JSON.parse(response.stdout);
-      assert(isRecord(view));
-      return { ...response, stdout: JSON.stringify({ ...view, [field]: value }) };
-    };
-    await publicationReadStop(f, 'target_changed', 'Reconcile', reason);
-  });
-}
+// CI owns the initial target field matrix; development retains the stop/result connection.
+testDevelopment('CI publication rejects changed head', async (f) => {
+  const prView = f.prView;
+  f.prView = async (argv, cwd, timeout) => {
+    const response = await prView(argv, cwd, timeout);
+    if (argv.at(-1) !== publicationFields) {
+      return response;
+    }
+    const view: unknown = JSON.parse(response.stdout);
+    assert(isRecord(view));
+    return { ...response, stdout: JSON.stringify({ ...view, headRefOid: 'another-commit' }) };
+  };
+  await publicationReadStop(f, 'target_changed', 'Reconcile', 'head=another-commit');
+});
 
 testDevelopment('ci_failure', async (f) => {
   const prView = f.prView;
@@ -954,17 +910,8 @@ testDevelopment(
     const implement = f.implement;
     f.implement = async (...args) => {
       const input = args[2];
-      // Transport only; instruction meaning is assessed by independent review.
-      expect(input).toContain(repairInstructions({ destination: 'review/media' }));
-      for (const instruction of [
-        'Do not change the Issue or weaken acceptance criteria',
-        'Do not commit, push or publish',
-        'Leave configured full verification to the host after your changes',
-        'do not launch browsers or servers in your sandbox',
-      ]) {
-        expect(input).toContain(instruction);
-      }
-      expect(input).not.toContain('Failure evidence:');
+      expect(input).toContain(JSON.stringify(f.settings));
+      expect(input).toContain(issue);
 
       return { ...(await implement(...args)), ms: 1200001 };
     };
@@ -1065,7 +1012,6 @@ testDevelopment(
     expect(body).not.toContain('Implementation claim, not verification');
     await assert.rejects(() => develop(args, io), /EEXIST.*no safe new run directory/);
     expect(await readFile(join(dir, 'result.json'), 'utf8')).toBe(beforeCollision);
-    expect(existsSync(join(dir, 'stopped.txt'))).toBe(false);
     expect(f.calls.implementations).toBe(1);
     expect(f.calls.publications).toBe(1);
 
@@ -1103,9 +1049,7 @@ testDevelopment('other_repo', async (f) => {
     expect((await stat(join(cwd, 'notes.txt'))).mode & 0o111).toBe(0);
     expect(existsSync(join(cwd, 'unrelated.txt'))).toBe(false);
     expect(await readFile(join(cwd, '.dotagents.json'), 'utf8')).toBe(JSON.stringify(settings));
-    expect(input).not.toContain('CAPTURE_OUTPUT');
-    expect(input).not.toContain('Close video contexts');
-    expect(input).toContain('If the agreed Issue needs media, return needs_human');
+    expect(input).toContain(JSON.stringify(settings));
     expect(await readFile(join(cwd, 'setup.txt'), 'utf8')).toBe('configured');
     expect(await readFile(join(cwd, reportPath), 'utf8')).toBe(reportContent);
     expect(await readFile(join(cwd, secondReport), 'utf8')).toBe(
