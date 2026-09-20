@@ -53,6 +53,10 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
 
 新しい明示的な修正依頼ごとに初回修正を行い、追加修正・独立評価の回数上限は設けません。モデル時間制限も設けず、check・capture・CI等は通常developmentの時間枠と処理を共用します。過去のaccepted・check・capture成功や指摘IDは新runへ移しません。修正入力の変更、Issue・主体・設定・PRの本文・head・baseなどの変化は工程境界で停止します。人が要求・許可範囲を変更する場合は合意へ戻します。
 
+検証入口の修正対象照合はcorrectionが担当します。設定・保存先、lock、保存stateを確認してから、修正入力・Issue・対象・主体・権限・PR・remote ref・並行runを照合します。同時に異常がある場合、保存先・lock・stateの異常で先に停止し、その時点では外部対象の変化を照合しません。検証後とsetup・モデル実行・commit・push・本文更新・draft/ready切替をまたぐ再照合は継続します。
+
+対象不一致や中断までに空のverificationディレクトリが残る場合があります。取得した自分のlockはfinallyで解放し、既存lockは取得・削除しません。入口で対象不一致を検出した場合はstateやモデル実行記録を新規作成せず、作業と旧runの記録を保持します。
+
 評価の差分は前回から保持したPR全体の基点から作ります。公開headは今回の修正の開始点として別に渡し、独立評価はIssue全体と採用した修正要求の両方を確認します。既存本文の変更説明、未確認事項、添付リンクは現在も必要か評価し、必要な内容をacceptedな評価の公開用説明へ含めます。過去の生成本文を再帰的に追加せず、以前の全文は実行証拠に保持します。
 
 公開時は検証済み成果物をcommitし、push前に対象・主体・権限・既存本文・head・refを照合します。同じhead repository・branchを使う対象外のopen PRがあれば、別base向けも含め、draft化・push・本文更新の前に停止します。共有branchの影響と許可範囲を照合し、対象外のPRを自動でdraftへ戻しません。readyなら`gh pr ready --undo`でdraftへ戻し、同じ対象・本文・headとdraft状態を読み戻してからpushします。既にdraftなら切替を重ねません。本文更新前・更新後と添付前にも必要なdraft状態を確認し、不明・不一致なら後続の公開変更を止めます。
@@ -441,7 +445,7 @@ bun /absolute/path/to/trusted/scripts/publish.ts --repo /absolute/path/target-ch
 
 同じhead・baseのopen PRがあれば作者・公開先・head commit・生成本文の一致とdraft状態を照合してURLを返します。readyのPRをこの経路でそのまま再利用しません。不一致なら本文を保持して停止し、担当者が内容を照合して対応します。新規作成は同じgh認証で[`gh pr create --draft`](https://cli.github.com/manual/gh_pr_create)を使い、実際の対象・作者・本文・draft状態を読み戻します。旧Appや別ユーザーのPRを現在のユーザーの公開成功とは扱いません。developmentは公開に必要な値を型付き入力で渡します。既存PRの修正情報も保持済みの値を渡し、検証設定ファイルを読み直さず、同じ公開処理で最新の対象・draft照合、本文更新と読戻しを行います。単独publishの`--revision-file`は引き続き設定ファイル全体を検査し、checkoutと公開branchの一致を確認します。利用者は[既存PRの修正](#既存prの修正)から開始し、個別の公開スクリプトや検証設定を組み立てません。単独publishはdraft確認済みの対象を扱い、push、ready切替、承認、マージを行いません。正常終了時もコマンドの所有するprocess groupの残存子を終了させます。SIGINT・SIGTERMでは実行中のコマンドと子プロセスを停止し、後続の公開操作へ進みません。通信断や強制終了時は、再試行前にPRの実状態を確認します。制御テストの模擬応答は実際のGitHubアクセスの証拠ではありません。
 
-developmentは、publishからURLを受け取り、必要な添付を終えてから次のCI処理へ進みます。単独publishはURLを返すところまでで、CI成功を判定しません。
+developmentは、publishからURLを受け取り、必要な添付を終えてから次のCI処理へ進みます。単独publishはURLを返すところまでで、CI成功を判定しません。次図はdraft公開・必要な添付の完了後を示します。それより前の検証入口ではcorrectionが修正対象を照合します（[既存PRの修正](#既存prの修正)）。
 
 ```mermaid
 flowchart TD
