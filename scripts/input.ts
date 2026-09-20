@@ -186,6 +186,14 @@ function validResult(value: unknown) {
 export function assertState(value: unknown): asserts value is State {
   assert(isRecord(value), 'Invalid saved state');
   assert(
+    value.reviewFormat !== undefined &&
+      value.reviewFormat !== 1 &&
+      value.reviewFormat !== 2 &&
+      value.reviewFormat !== 3,
+    'Historical review format cannot be converted or resumed; preserve existing run',
+  );
+  assert(value.reviewFormat === 4, 'Invalid review format');
+  assert(
     typeof value.configHash === 'string' && typeof value.issueHash === 'string',
     'Invalid saved hashes',
   );
@@ -202,24 +210,14 @@ export function assertState(value: unknown): asserts value is State {
   );
   assert(isArray(value.events) && value.events.every(isEvent), 'Invalid saved events');
   assert(
-    value.reviewFormat === undefined ||
-      value.reviewFormat === 1 ||
-      value.reviewFormat === 2 ||
-      value.reviewFormat === 3 ||
-      value.reviewFormat === 4,
-    'Invalid review format',
+    typeof value.baseCommit === 'string' && value.baseCommit.length > 0,
+    'Invalid saved base commit',
   );
-  assert(optionalString(value.baseCommit), 'Invalid saved base commit');
   assert(
-    value.reviewHistory === undefined ||
-      (isArray(value.reviewHistory) && value.reviewHistory.every(isReview)),
+    isArray(value.reviewHistory) && value.reviewHistory.every(isReview),
     'Invalid saved review history',
   );
   assert(optionalString(value.findings), 'Invalid saved findings');
   assert(optionalString(value.captureSource), 'Invalid saved capture source');
   assert(optionalString(value.source) && validResult(value.result), 'Invalid saved result');
-  assert(
-    value.reviewFormat === 4 && value.baseCommit && value.reviewHistory,
-    'Historical review format cannot be converted or resumed; preserve existing run',
-  );
 }

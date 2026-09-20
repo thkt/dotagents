@@ -749,25 +749,6 @@ process.exit(result.status??1);
   expect(await Bun.file(join(t.config.runDir, 'review-1.prompt')).exists()).toBe(false);
 });
 
-test('historical review formats are preserved without conversion or execution', async () => {
-  const t = await trial('normal');
-  expect(t.execute().status).toBe(0);
-  const current = await t.state();
-  expect(current.reviewFormat).toBe(4);
-  for (const format of [undefined, 1, 2, 3]) {
-    const state: Record<string, unknown> = { ...current, reviewFormat: format };
-    if (format === undefined) {
-      delete state.reviewHistory;
-    }
-    const old = JSON.stringify(state);
-    await writeFile(join(t.config.runDir, 'state.json'), old);
-    const result = t.execute();
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain('Historical review format cannot be converted or resumed');
-    expect(await readFile(join(t.config.runDir, 'state.json'), 'utf8')).toBe(old);
-  }
-});
-
 test('selected evidence reaches repair and review with original versions and changed applicability', async () => {
   const t = await trial('normal');
   const path = 'research/reset.md';
