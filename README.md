@@ -16,7 +16,9 @@ bun install --frozen-lockfile --ignore-scripts
 bun run check
 ```
 
-Bun 1.4.2を使います。checkはlint、書式、複雑度、型、証拠・共有知識の生成物照合、ハーネスの制御テストです。Playwrightや商品アプリの依存は導入しません。対象repoではそのrepoの検証を指定してください。商品・既存媒体・旧App版コードと実測履歴は[trial repo](https://github.com/thkt/dotagents-workflow-trial/blob/d0134086ad9bdddb5ed2693327cb1ffb0859c4a2/README.md)に残っています。
+Bun 1.4.2を使います。checkはlint、書式、複雑度、型、共有知識の生成物照合、ハーネスの制御テストです。Playwrightや商品アプリの依存は導入しません。対象repoではそのrepoの検証を指定してください。商品・既存媒体・旧App版コードと実測履歴は[trial repo](https://github.com/thkt/dotagents-workflow-trial/blob/d0134086ad9bdddb5ed2693327cb1ffb0859c4a2/README.md)に残っています。
+
+[Issue #58の過去の検証報告](docs/evidence/harness-review-2026-09-14.md)は固定資料です。通常checkでは、この報告の形式検査やJSONとMarkdownの一致確認を行いません。現行の共有知識を扱う`knowledge:check`、runtimeの正常系・異常系の制御テスト、および共通checkとは別に行う[撮影の実検証](scripts/README.md#検証)は維持します。
 
 ## 要求整理とIssue作成
 
