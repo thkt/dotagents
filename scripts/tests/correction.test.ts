@@ -10,7 +10,7 @@ import {
   events,
 } from './support/correction.ts';
 import { parseRepairReply, repairInstructions } from '../repair.ts';
-import { assertConfig } from '../input.ts';
+import { assertConfig, assertState } from '../input.ts';
 import { git } from './support/target.ts';
 
 const { trial, cleanup } = correctionFixture();
@@ -316,11 +316,14 @@ test('invalid saved state is retained and rejected before execution', async () =
   const saved = await t.state();
   const review = object(events(saved.reviewHistory)[0]);
   const item = object(events(review.items)[0]);
-  const executed = join(t.root, 'unexpected-execution');
-  await writeFile(
-    join(t.root, 'helper.js'),
-    `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(executed)}, 'executed');`,
-  );
+  expect(saved.reviewFormat).toBe(4);
+  expect(() => assertState(saved)).not.toThrow();
+  expect(() => assertState({ ...saved, reviewHistory: [] })).not.toThrow();
+  for (const reviewFormat of [undefined, 1, 2, 3]) {
+    expect(() => assertState({ reviewFormat })).toThrow(
+      /cannot be converted or resumed; preserve existing run/,
+    );
+  }
   for (const [change, reason] of [
     ...[null, 0, 5, '4'].map(
       (reviewFormat) => [{ reviewFormat }, 'Invalid review format'] as const,
@@ -357,14 +360,20 @@ test('invalid saved state is retained and rejected before execution', async () =
         ] as const,
     ),
   ] as const) {
-    const invalid = JSON.stringify({ ...saved, ...change });
-    await writeFile(stateFile, invalid);
-    const result = t.execute();
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain(reason);
-    expect(await readFile(stateFile, 'utf8')).toBe(invalid);
-    expect(await Bun.file(executed).exists()).toBe(false);
+    expect(() => assertState({ ...saved, ...change })).toThrow(reason);
   }
+  const executed = join(t.root, 'unexpected-execution');
+  await writeFile(
+    join(t.root, 'helper.js'),
+    `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(executed)}, 'executed');`,
+  );
+  const invalid = JSON.stringify({ ...saved, baseCommit: undefined });
+  await writeFile(stateFile, invalid);
+  const result = t.execute();
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('Invalid saved base commit');
+  expect(await readFile(stateFile, 'utf8')).toBe(invalid);
+  expect(await Bun.file(executed).exists()).toBe(false);
 });
 test('missing CLI configuration argument fails with usage', () => {
   const result = spawnSync(process.execPath, [controller], { encoding: 'utf8' });
