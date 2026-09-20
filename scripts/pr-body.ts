@@ -45,9 +45,10 @@ export function prBody(input: {
     `CLI: 検証済み成果物との同一性を照合。ローカルcheck（${text(JSON.stringify(check))}）成功。独立評価: accepted。`,
     text(review.assessments.tests),
     ...(review.items.length ? ['## 指摘への対応'] : []),
-    ...review.items.map(
-      (item) =>
-        `- ${item.kind} / ${item.disposition}: ${text(item.condition)} 影響: ${text(item.impact)} 判断・対応: ${text(item.reason)}${item.disposition === 'open' ? ` 必要な対応: ${text(item.action)}` : ''}`,
+    ...review.items.map((item) =>
+      item.disposition === 'open'
+        ? `- ${item.kind} / open: ${text(item.condition)} 影響: ${text(item.impact)} 判断・対応: ${text(item.reason)} 必要な対応: ${text(item.action)}`
+        : `- ${item.kind} / ${item.disposition}: ${text(item.reason)}`,
     ),
     '## 文書と根拠',
     text(review.assessments.documentation),
@@ -56,17 +57,17 @@ export function prBody(input: {
         `- [${doc.path}](https://github.com/${repository}/blob/${commit}/${doc.path.split('/').map(encodeURIComponent).join('/')}) (${doc.role}): ${text(doc.reason)}`,
     ),
     '## 残作業と担当',
-    '本文作成時点ではdraft公開・CI・本文と媒体の確認・ready切替・人の承認は未完了です。後続のCLI結果と同じPR headの結果を照合してください。',
+    '本文作成時点ではdraft公開・CI・本文と媒体の確認・ready切替・人の承認は未完了です。詳細は[公開後確認とreadyへの切替](https://github.com/thkt/dotagents/blob/main/scripts/README.md#公開後確認とreadyへの切替)を参照してください。',
     `- CLI: PRをdraftで公開し、同じheadのCI（${ciChecks.join('・')}）の登録と成功を確認する。`,
     ...(media.length
       ? [
           `- CLI: 対象commitの媒体を添付する（${media.join('、')}）。`,
-          '- 担当AI: 添付後の実際のPR画面で画像表示・動画再生、比較対象の対応、判読性、配置と操作説明を確認する（rendered_media_check）。必要な本文整形後も再確認し、未確認点を報告する。',
+          '- 担当AI: 添付後の実際のPR画面で媒体の表示・再生と説明・配置を確認する（rendered_media_check）。',
         ]
       : []),
     ...review.handoff.map((action) => `- ${text(action)}`),
-    '- 担当AI: 最新の公開本文をIssue・対象commit・accepted評価・検証結果と照合する（published_body_check）。本文・必要媒体と同じheadのCIを確認後、対象・本文・根拠・主体・権限・CIを再照合してreadyへ切り替え、実状態を読み戻す（mark_ready）。未確認ならdraftを維持し、未確認事項と担当を引き継ぐ。',
-    '- 人: 要求や権限の変更を判断し、差分と検証結果をレビューして、承認・マージを判断する。',
+    '- 担当AI: 最新の公開本文をIssue・対象commit・accepted評価・検証結果と照合する（published_body_check）。本文・必要媒体と同じheadのCIの確認後、ガイドに従い再照合・ready切替・読戻しを行う（mark_ready）。未確認ならdraftを維持する。',
+    '- 人: 要求や権限の変更を判断し、レビュー・承認・マージを判断する。',
   ];
   return sections.join('\n\n') + '\n';
 }

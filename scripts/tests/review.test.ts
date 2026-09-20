@@ -448,6 +448,40 @@ test('host combines reordered judgments and new findings, reopens resolved findi
   expect(body).not.toContain('## 指摘への対応');
 });
 
+test('PR descriptions preserve structural Markdown and prose without adding a mandatory view', () => {
+  // Examples describe this PR's generator and guide changes. This checks transport,
+  // not whether a live reviewer chooses an appropriate explanation.
+  const structural = [
+    '解決済み指摘は現在の対応を一度だけ説明する。内部の指摘履歴は保持する。',
+    '公開するデータの概略（実行コードではない）:',
+    '```diff',
+    ' open: condition + impact + reason + action',
+    '-fixed / not_applicable: condition + impact + reason',
+    '+fixed / not_applicable: reason（問題・条件・現在の判断と根拠）',
+    '```',
+  ].join('\n');
+  const prose = '操作の詳細を既存ガイドへまとめる。本文には未完了の作業と担当を残す。';
+  for (const code of [structural, prose]) {
+    const response = reviewResponse();
+    response.assessments.code = code;
+    response.newItems = [];
+    const body = prBody({
+      review: parseReview(JSON.stringify(response), 'target-1', 1),
+      repository: 'owner/repo',
+      number: '142',
+      commit: 'reviewed-head',
+      check: ['bun', 'run', 'check'],
+      ciChecks: ['checks', 'verify'],
+      media: [],
+      localRoots: [],
+    });
+    expect(body).toContain(`\n\n${code}\n\n`);
+    if (code === prose) {
+      expect(body).not.toContain('```');
+    }
+  }
+});
+
 test('repair after a failed check retains prior review findings and current failure evidence', async () => {
   const t = await trial('normal');
   await writeFile(join(t.config.cwd, 'source.txt'), 'correct');

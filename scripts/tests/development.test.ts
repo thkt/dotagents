@@ -967,13 +967,19 @@ testDevelopment(
     expect(body).toContain('Issue #99 requires a visible result');
     expect(body).toContain('Reset and empty-input checks passed');
     expect(body).toContain('Reset now clears the result, confirmed by the reset check');
+    expect(body).not.toContain('Reset left stale content.');
+    expect(body).not.toContain('Readers could see an obsolete result.');
     expect(body).toContain('Live service timing is unmeasured');
+    expect(body).toContain('Timing may differ in production.');
     expect(body).toContain('Report live service timing as unverified');
     expect(body).toContain('focus movement remains an unagreed proposal');
     expect(body).toContain(`/blob/${result.commit}/.dotagents.json`);
     expect(body).toContain('its success does not establish live service behavior');
     expect(body).toContain('対象commit: ' + result.commit);
     expect(body).toContain('Closes #99');
+    expect(body).toContain(
+      'https://github.com/thkt/dotagents/blob/main/scripts/README.md#公開後確認とreadyへの切替',
+    );
     [
       'CLI: PRをdraftで公開し、同じheadのCI（checks）',
       'CLI: 対象commitの媒体を添付する（review/media/view.png）',
