@@ -56,6 +56,7 @@ if (import.meta.main) {
             process.execPath,
             'test',
             config ?? 'scripts/tests',
+            '--only-failures',
             '--reporter=junit',
             '--reporter-outfile',
             report,
@@ -78,7 +79,16 @@ if (import.meta.main) {
       throw result.error;
     }
     assert(result.status === 0, `${runner} did not succeed (${result.signal ?? result.status})`);
-    checkReport(runner, await readFile(report, 'utf8'));
+    const text = await readFile(report, 'utf8');
+    try {
+      checkReport(runner, text);
+    } catch (error) {
+      if (runner === 'bun') {
+        temporaryReportDir = undefined;
+        console.error(`JUnit report retained: ${report}`);
+      }
+      throw error;
+    }
     console.log(runner === 'bun' ? 'All tests executed.' : `All tests executed. Report: ${report}`);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
