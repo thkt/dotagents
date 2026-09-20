@@ -10,9 +10,7 @@
     "format:check": "oxfmt --check \"scripts/**/*.ts\"",
     "lint": "oxlint --deny-warnings scripts",
     "complexity": "biome lint scripts",
-    "check": "bun run lint && bun run format:check && bun run complexity && bun run typecheck && bun run evidence:check && bun run knowledge:check && bun run test:control",
-    "evidence:generate": "bun scripts/evidence.ts",
-    "evidence:check": "bun scripts/evidence.ts --check",
+    "check": "bun run lint && bun run format:check && bun run complexity && bun run typecheck && bun run knowledge:check && bun run test:control",
     "knowledge:generate": "bun scripts/knowledge.ts",
     "knowledge:check": "bun scripts/knowledge.ts --check"
   },

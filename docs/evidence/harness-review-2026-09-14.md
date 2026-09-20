@@ -2,11 +2,11 @@
 
 [Issue](https://github.com/thkt/dotagents/issues/58) / [PR](https://github.com/thkt/dotagents/pull/60) / [操作手順](../../scripts/README.md)
 
-検証結果と判断の正本はJSONです。Markdownはそこから生成します。文章確認で修正する場合もJSONに反映して再生成してください。AIも同じJSONを参照します。 [正本JSON](harness-review-2026-09-14.json)
+この報告はIssue #58の過去の検証結果を保全する固定資料です。下記の本文と[正本JSON](harness-review-2026-09-14.json)は当時の結果・判断・未確認事項を記録しており、現在の変更の検証成功を示すものではありません。JSON内の生成・確認の案内も当時の記録です。
 
-再生成: `bun run evidence:generate`。一致確認: `bun run evidence:check`（`bun run check`にも含まれます）。
+[Issue #161](https://github.com/thkt/dotagents/issues/161)の合意により、専用生成器とコマンドを終了しました。この報告の再生成、形式検査、JSONとMarkdownの自動一致検査は通常の開発経路から外れ、`bun run check`でも一致確認しません。記録の根拠として正本JSONを引き続き参照できます。
 
-生成結果の一致確認では、表示に必要な項目とMarkdownの一致を確認します。記録内容の正しさや要求の達成は、出典との照合と独立評価で確認します。
+当時の[生成器](https://github.com/thkt/dotagents/blob/e0264ad7803965074af5e998e06f04643408ed88/scripts/evidence.ts)と[変更前の運用案内](https://github.com/thkt/dotagents/blob/e0264ad7803965074af5e998e06f04643408ed88/docs/evidence/harness-review-2026-09-14.md)はGit履歴から参照できます。
 
 ## 対象版と実測
 
