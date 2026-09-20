@@ -1,8 +1,9 @@
 // Host-only live-model probe. Kept separate from simulated control tests and common check.
 import assert from 'node:assert/strict';
+import { randomInt } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { run, snapshot } from './correction.ts';
 import { command, withInterrupts } from './process.ts';
 import { isRecord } from './values.ts';
@@ -77,9 +78,8 @@ async function usage(dir: string) {
   };
 }
 
-async function probe(root: string, broken: boolean) {
-  const name = broken ? 'defective' : 'correct';
-  const dir = join(root, name),
+async function probe(root: string, id: string, broken: boolean) {
+  const dir = join(root, id),
     cwd = join(dir, 'checkout');
   await mkdir(cwd, { recursive: true });
   await checked(['git', 'init', '-q'], cwd);
@@ -125,7 +125,9 @@ async function probe(root: string, broken: boolean) {
   const elapsedMs = performance.now() - started;
   // Independent oracle is deliberately outside the reviewed checkout/check. It diagnoses
   // the known defect after review, without coaching the model about the missing condition.
-  const oracle = join(dir, 'oracle.ts');
+  const hostDir = join(root, 'host', id);
+  await mkdir(hostDir);
+  const oracle = join(hostDir, 'oracle.ts');
   await writeFile(
     oracle,
     `import {page} from ${JSON.stringify(join(cwd, 'page.ts'))}; console.log(JSON.stringify(page([10,20,30,40],2,2)));`,
@@ -138,7 +140,8 @@ async function probe(root: string, broken: boolean) {
   const review = state.reviewHistory.at(-1);
   const reproduced: unknown = JSON.parse(actual);
   const result = {
-    name,
+    id,
+    name: broken ? 'defective' : 'correct',
     baseCommit,
     elapsedMs,
     modelMs: state.modelMs,
@@ -173,8 +176,8 @@ async function probe(root: string, broken: boolean) {
       'No GitHub publication, browser, concurrent review or full repository audit.',
     ],
   };
-  await writeFile(join(dir, 'result.json'), JSON.stringify(result, null, 2));
-  return { name, result: join(dir, 'result.json'), stop: state.result };
+  await writeFile(join(hostDir, 'result.json'), JSON.stringify(result, null, 2));
+  return { id, result: join(hostDir, 'result.json'), stop: state.result };
 }
 
 if (import.meta.main) {
@@ -182,6 +185,19 @@ if (import.meta.main) {
   console.error(`Live review evidence retained at ${root}`);
   try {
     await withInterrupts(async () => {
+      // Random names and order have no fixed relationship to the answer. Retain the
+      // mapping before launch so an interrupted run is still identifiable by the host.
+      // Nothing in host/ is referenced by the default reviewer input; this is not a
+      // filesystem security boundary against deliberate surrounding-file exploration.
+      const hostDir = join(root, 'host');
+      await mkdir(hostDir);
+      const firstBroken = randomInt(2) === 0;
+      const cases = [];
+      for (const broken of [firstBroken, !firstBroken]) {
+        const id = basename(await mkdtemp(join(root, 'case-')));
+        cases.push({ id, name: broken ? 'defective' : 'correct' });
+      }
+      await writeFile(join(hostDir, 'cases.json'), JSON.stringify(cases, null, 2));
       const environment = {
         model: reviewModel,
         bun: Bun.version,
@@ -190,10 +206,10 @@ if (import.meta.main) {
         harnessCommit: await checked(['git', 'rev-parse', 'HEAD'], import.meta.dir),
         harnessDiff: await checked(['git', 'diff', '--binary', 'HEAD'], import.meta.dir),
       };
-      await writeFile(join(root, 'environment.json'), JSON.stringify(environment, null, 2));
+      await writeFile(join(hostDir, 'environment.json'), JSON.stringify(environment, null, 2));
       const results = [];
-      for (const broken of [true, false]) {
-        results.push(await probe(root, broken));
+      for (const { id, name } of cases) {
+        results.push(await probe(root, id, name === 'defective'));
       }
       console.log(
         JSON.stringify(
