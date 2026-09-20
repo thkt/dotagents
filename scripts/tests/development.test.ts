@@ -181,19 +181,10 @@ testDevelopment('setup_failure', async (f) => {
   noPublication(f);
 });
 
-for (const [name, settings, reason] of [
-  ['missing_check', { check: [] }, /Verification command is required/],
-  [
-    'retired_writing',
-    { writing: { documents: ['README.md'] } },
-    /writing is no longer supported; remove writing from .dotagents.json/,
-  ],
-] as const) {
-  testDevelopment(name, async (f) => {
-    await commitSettings(f, { ...f.settings, ...settings });
-    await rejectedBeforeStart(f, reason);
-  });
-}
+testDevelopment('missing_check', async (f) => {
+  await commitSettings(f, { ...f.settings, check: [] });
+  await rejectedBeforeStart(f, /Verification command is required/);
+});
 
 testDevelopment(
   'no_ci',

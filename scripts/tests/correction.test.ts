@@ -391,6 +391,7 @@ test('invalid saved state is retained and rejected before execution', async () =
   expect(() => assertState(saved)).not.toThrow();
   expect(() => assertState({ ...saved, reviewHistory: [] })).not.toThrow();
   for (const [change, reason] of [
+    [{ reviewFormat: 3 }, 'Historical review format cannot be converted or resumed'],
     ...[null, 0, 5, '4'].map(
       (reviewFormat) => [{ reviewFormat }, 'Invalid review format'] as const,
     ),
@@ -433,18 +434,13 @@ test('invalid saved state is retained and rejected before execution', async () =
     join(t.root, 'helper.js'),
     `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(executed)}, 'executed');`,
   );
-  for (const [change, reason] of [
-    [{ baseCommit: undefined }, 'Invalid saved base commit'],
-    [{ reviewFormat: 3 }, 'Historical review format cannot be converted or resumed'],
-  ] as const) {
-    const invalid = JSON.stringify({ ...saved, ...change });
-    await writeFile(stateFile, invalid);
-    const result = t.execute();
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain(reason);
-    expect(await readFile(stateFile, 'utf8')).toBe(invalid);
-    expect(await Bun.file(executed).exists()).toBe(false);
-  }
+  const invalid = JSON.stringify({ ...saved, baseCommit: undefined });
+  await writeFile(stateFile, invalid);
+  const result = t.execute();
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('Invalid saved base commit');
+  expect(await readFile(stateFile, 'utf8')).toBe(invalid);
+  expect(await Bun.file(executed).exists()).toBe(false);
 });
 test('missing CLI configuration argument fails with usage', () => {
   const result = spawnSync(process.execPath, [controller], { encoding: 'utf8' });

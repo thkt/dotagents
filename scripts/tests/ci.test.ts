@@ -343,7 +343,7 @@ for (const scenario of scenarios) {
           scenario.invalidJson ? '{' : JSON.stringify(scenario.frames[0]),
         );
         checkObservation(scenario, result, views);
-        if (scenario.name.startsWith('initial target changed:')) {
+        if (scenario.status === 'target_changed' && scenario.observed === undefined) {
           expect(views).toBe(1);
           expect(finalReads).toBe(0);
           expect(result.lastObservation).toBeNull();
