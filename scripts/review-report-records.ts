@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile, readdir, realpath, lstat } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { assertReviewReport, assertState } from './input.ts';
 import type { ReviewReport, State } from './input.ts';
 import { isArray, isRecord, outside } from './values.ts';
@@ -10,6 +11,43 @@ export interface SavedRecord {
   text: string | null;
   value?: unknown;
   problem?: string;
+  additions?: { path: string; content: string | Uint8Array }[];
+}
+
+function readAddition(item: unknown) {
+  assert(isRecord(item) && typeof item.path === 'string', '追加ファイルのパスが不正です');
+  assert(
+    typeof item.content === 'string' && typeof item.symlink === 'boolean',
+    `${item.path}: 内容・symlinkの保存形式が不正です`,
+  );
+  if (item.symlink) {
+    return { path: item.path, content: item.content };
+  }
+  const bytes = Buffer.from(item.content, 'base64');
+  assert(bytes.toString('base64') === item.content, `${item.path}: base64の保存形式が不正です`);
+  return { path: item.path, content: bytes };
+}
+
+function inspectAdditions(entry: SavedRecord) {
+  if (entry.problem || !entry.path.endsWith('.additions.json')) {
+    return;
+  }
+  if (!isArray(entry.value)) {
+    entry.problem = '追加ファイル一覧の保存形式が不正です';
+    return;
+  }
+  const problems: string[] = [];
+  entry.additions = entry.value.flatMap((item, index) => {
+    try {
+      return [readAddition(item)];
+    } catch (error) {
+      problems.push(`${index + 1}番目: ${String(error)}`);
+      return [];
+    }
+  });
+  if (problems.length) {
+    entry.problem = problems.join('\n');
+  }
 }
 export interface ReportRecords {
   result: ReviewReport;
@@ -25,6 +63,36 @@ export interface ReportRecords {
   targets: SavedRecord[];
   logs: SavedRecord[];
   warnings: string[];
+}
+
+// References address only records loaded for this case, never arbitrary filesystem paths.
+export function trialEvidence(data: ReportRecords) {
+  const refs = new Map<string, string>();
+  if (data.result.reproduction) {
+    refs.set('reproduction', 'reproduction');
+  }
+  for (const [index, item] of (data.result.review?.items ?? []).entries()) {
+    const finding = data.result.adjudication?.findings.find((entry) => entry.id === item.id);
+    if (finding?.reason?.trim() && finding.reproduction !== null) {
+      refs.set(`finding:${item.id}`, `finding-${index}`);
+    }
+  }
+  for (const [index, target] of data.targets.entries()) {
+    if (
+      target.path.endsWith('.target.json') &&
+      isRecord(target.value) &&
+      target.value.targetId === data.result.review?.targetId &&
+      target.value.baseCommit === data.result.baseCommit
+    ) {
+      refs.set(`target:${String(target.value.targetId)}`, `target-${index}`);
+    }
+  }
+  for (const [index, log] of data.logs.entries()) {
+    if (!log.problem) {
+      refs.set(`log:${log.path.slice(data.root.length + 1)}`, `log-${index}`);
+    }
+  }
+  return refs;
 }
 
 async function record(root: string, path: string, json = false): Promise<SavedRecord> {
@@ -96,19 +164,10 @@ function checkTimeline(state: SavedRecord, warnings: string[]) {
 function inspectCorrespondence(data: ReportRecords) {
   const { result, warnings, timeline } = data;
   const targets = data.targets.filter((entry) => entry.path.endsWith('.target.json'));
-  if (
-    result.review &&
-    !targets.some(
-      (entry) => isRecord(entry.value) && entry.value.targetId === result.review?.targetId,
-    )
-  ) {
-    warnings.push(
-      'レビュー対象IDに一致する保存対象記録がありません。同じ試行の成果物との対応は未確認です。',
-    );
-  }
   if (timeline && timeline.baseCommit !== result.baseCommit) {
     warnings.push('stateとresultの基準版が不一致です。記録間の対応は未確認です。');
   }
+  inspectSavedReview(data);
   for (const entry of targets) {
     inspectTarget(entry, data);
     if (isRecord(entry.value) && entry.value.baseCommit !== result.baseCommit) {
@@ -119,6 +178,38 @@ function inspectCorrespondence(data: ReportRecords) {
   for (const finding of result.adjudication?.findings ?? []) {
     if (!reviewedIds.has(finding.id)) {
       warnings.push(`裁定 ${finding.id} に対応するレビュー指摘がありません。`);
+    }
+  }
+}
+
+function inspectSavedReview(data: ReportRecords) {
+  const { result, timeline, warnings } = data;
+  if (timeline && !isDeepStrictEqual(timeline.reviewHistory.at(-1) ?? null, result.review)) {
+    warnings.push('stateとresultのレビュー内容が不一致です。記録間の対応は未確認です。');
+  }
+  if (!isRecord(data.config.value) || data.config.value.baseCommit !== result.baseCommit) {
+    warnings.push('configとresultの基準版の対応を確認できません。');
+  }
+  if (!result.review) {
+    return;
+  }
+  const targets = data.targets.filter(
+    (entry) =>
+      entry.path.endsWith('.target.json') &&
+      isRecord(entry.value) &&
+      entry.value.targetId === result.review?.targetId,
+  );
+  if (!targets.length) {
+    warnings.push(
+      'レビュー対象IDに一致する保存対象記録がありません。同じ試行の成果物との対応は未確認です。',
+    );
+  }
+  for (const target of targets) {
+    const saved = data.targets.find(
+      (entry) => entry.path === target.path.replace(/\.target\.json$/, '.json'),
+    );
+    if (!isRecord(saved?.value) || !isDeepStrictEqual(saved.value.review, result.review)) {
+      warnings.push(`${target.path}: 保存レビューとresultの内容が不一致または未確認です。`);
     }
   }
 }
@@ -271,6 +362,10 @@ export async function readReport(inputPath: string): Promise<ReportRecords> {
   }
 
   inspectLogFailures(data);
+
+  for (const entry of targets) {
+    inspectAdditions(entry);
+  }
 
   for (const entry of [issue, environment, cases, config, state, ...targets, ...logs]) {
     if (entry.problem) {

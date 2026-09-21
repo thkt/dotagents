@@ -11,7 +11,7 @@ if (import.meta.main) {
   const output = join(root, 'html');
   await mkdir(output);
   const reports = [];
-  for (const mode of ['normal', 'pending', 'empty', 'stopped'] as const) {
+  for (const mode of ['normal', 'pending', 'empty', 'stopped', 'unmet', 'missed'] as const) {
     const fixture = await reportFixture(records, mode);
     reports.push(await generateReviewReport(fixture.input, join(output, `${mode}.html`)));
   }

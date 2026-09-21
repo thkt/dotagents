@@ -1,12 +1,13 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ReviewReport, State } from '../../input.ts';
+import { reviewTrial } from '../../review-trial.ts';
 import type { Review } from '../../review.ts';
 
 // Public, synthetic records. Never copy live prompts, paths, identities or model logs here.
 export async function reportFixture(
   root: string,
-  mode: 'normal' | 'pending' | 'empty' | 'stopped' = 'normal',
+  mode: 'normal' | 'pending' | 'empty' | 'stopped' | 'unmet' | 'missed' = 'normal',
 ) {
   const id = `case-${mode}`;
   const dir = join(root, id);
@@ -18,8 +19,12 @@ export async function reportFixture(
   }
   const baseCommit = 'a'.repeat(40);
   const targetId = 'fixture-target-same-trial';
+  const noFindings = ['empty', 'missed'].includes(mode);
+  const hasLogs = !['pending', 'stopped'].includes(mode);
+  const testInput = mode === 'empty' ? '2, 2)).toEqual([30,40])' : '0, 2)).toEqual([10,20])';
+  const sliceEnd = mode === 'empty' ? 'offset + limit' : 'limit';
   const review: Review = {
-    status: mode === 'empty' ? 'accepted' : 'needs_changes',
+    status: noFindings ? 'accepted' : 'needs_changes',
     targetId,
     findings: '## 保存されたレビュー\n\n**模擬データ**です。実モデルの品質は測定していません。',
     assessments: {
@@ -28,46 +33,47 @@ export async function reportFixture(
       tests: 'offset=0 だけでは今回の欠陥を検出できない。',
       documentation: '要求・条件・未確認事項を省略しない。',
     },
-    items:
-      mode === 'empty'
-        ? []
-        : [
-            {
-              id: 'R1-1',
-              introducedIn: targetId,
-              kind: 'defect',
-              area: 'code',
-              required: true,
-              location: { path: 'page.ts', line: 3 },
-              disposition: 'open',
-              condition:
-                'offset が 0 より大きく、残りの配列に要素がある場合。\n\n入力 `[10,20,30,40]`, offset=2, limit=2。',
-              impact: '期待した `[30,40]` が取得できない。',
-              evidence: '同じ試行の独立した再現は `[]` を返した。',
-              action: '終了位置を `offset + limit` にする。',
-              reason: '対象は修正していない。真偽の裁定と修正状況を区別する。',
-            },
-            {
-              id: 'R1-2',
-              introducedIn: targetId,
-              kind: 'concern',
-              area: 'documentation',
-              required: false,
-              location: { path: null, line: null },
-              disposition: 'fixed',
-              condition:
-                '長い日本語の要求を確認するとき、境界条件と未計測の事項を省略すると誤解が起こり得る。'.repeat(
-                  12,
-                ),
-              impact: '条件付きの判断が無条件の成功に見える可能性。',
-              evidence: 'この懸念に対応する実際の操作・再現は保存されていない。',
-              action: '元の条件と限界を照合する。',
-              reason: 'fixed は模擬レビューの修正状況であり、真偽の確認完了を示さない。',
-            },
-          ],
+    items: noFindings
+      ? []
+      : [
+          {
+            id: 'R1-1',
+            introducedIn: targetId,
+            kind: 'defect',
+            area: 'code',
+            required: true,
+            location: { path: 'page.ts', line: 3 },
+            disposition: 'open',
+            condition:
+              'offset が 0 より大きく、残りの配列に要素がある場合。\n\n入力 `[10,20,30,40]`, offset=2, limit=2。',
+            impact: '期待した `[30,40]` が取得できない。',
+            evidence: '同じ試行の独立した再現は `[]` を返した。',
+            action: '終了位置を `offset + limit` にする。',
+            reason: '対象は修正していない。真偽の裁定と修正状況を区別する。',
+          },
+          {
+            id: 'R1-2',
+            introducedIn: targetId,
+            kind: 'defect',
+            area: 'tests',
+            required: false,
+            location: { path: null, line: null },
+            disposition: 'fixed',
+            condition:
+              '長い日本語の要求を確認するとき、境界条件と未計測の事項を省略すると誤解が起こり得る。'.repeat(
+                12,
+              ),
+            impact: '正のoffsetで非空結果を期待するテスト不足により、同じ機能不具合を見逃す。',
+            evidence:
+              'R1-1と同じ入力で機能不具合が再現する。テスト不足の裁定はホストの記録で確認する。',
+            action: '元の条件と限界を照合する。',
+            reason: 'fixed は模擬レビューの修正状況であり、真偽の確認完了を示さない。',
+          },
+        ],
     documents: [{ path: 'README.md', role: 'current', reason: '元の要求に対応する使用説明。' }],
     handoff: ['親子使用量と金額は未確認。'],
   };
+  configureFinding(review, mode);
   const result = fixtureResult(mode, id, baseCommit, review, dir, host);
   const issue = {
     title: '配列のページ分割 — 公開確認用の模擬記録',
@@ -103,7 +109,7 @@ export async function reportFixture(
   await save(join(host, 'result.json'), result);
   await save(
     join(root, 'host', 'cases.json'),
-    ['normal', 'pending', 'empty', 'stopped'].map((name) => ({
+    ['normal', 'pending', 'empty', 'stopped', 'unmet', 'missed'].map((name) => ({
       id: `case-${name}`,
       name: name === 'empty' ? 'correct' : 'defective',
     })),
@@ -141,7 +147,7 @@ export async function reportFixture(
         mode: 33188,
         symlink: false,
         content: Buffer.from(
-          '// 保存時点の追加テスト\nexpect(page([10,20,30,40], 2, 2)).toEqual([30,40]);\n// </pre><script>globalThis.ADDITION_EXECUTED = true</script>\n',
+          `// 保存時点の追加テスト\nexpect(page([10,20,30,40], ${testInput};\n// </pre><script>globalThis.ADDITION_EXECUTED = true</script>\n`,
         ).toString('base64'),
       },
       { path: 'saved-link', mode: 41471, symlink: true, content: '../checkout/page.ts' },
@@ -149,7 +155,7 @@ export async function reportFixture(
     ]);
     await writeFile(
       join(verification, 'review-1.diff'),
-      '@@ page.ts @@\n+return items.slice(offset, limit);\n',
+      `@@ page.ts @@\n+return items.slice(offset, ${sliceEnd});\n`,
     );
   }
   for (const event of state.events) {
@@ -157,7 +163,7 @@ export async function reportFixture(
       event.prefix + '.stdout',
       event.role === 'check' ? '1 pass (synthetic)' : 'simulated reviewer output',
     );
-    if (mode !== 'pending' && mode !== 'stopped') {
+    if (hasLogs) {
       await writeFile(event.prefix + '.stderr', '');
     }
   }
@@ -165,7 +171,8 @@ export async function reportFixture(
     join(verification, 'review-1.prompt'),
     '模擬要求のみ。実際のモデルは呼び出さない。',
   );
-  if (mode !== 'pending' && mode !== 'stopped') {
+  const commandExit = mode === 'unmet' ? 1 : 0;
+  if (hasLogs) {
     await writeFile(
       join(actor, 'events.jsonl'),
       [
@@ -174,7 +181,7 @@ export async function reportFixture(
           type: 'item.completed',
           item: {
             type: 'command_execution',
-            exit_code: 1,
+            exit_code: commandExit,
             aggregated_output: '<img src=x onerror=alert(1)> synthetic failure',
           },
         },
@@ -193,6 +200,28 @@ export async function reportFixture(
   return { input: join(host, 'result.json'), result, dir, issue, state, actor, verification };
 }
 
+function configureFinding(review: Review, mode: string) {
+  const item = review.items[1];
+  if (!item) {
+    return;
+  }
+  if (mode === 'normal') {
+    item.disposition = 'open';
+  }
+  if (mode === 'unmet') {
+    item.area = 'code';
+    item.condition = 'offset=0, limit=2の場合も件数が不足する、という模擬の誤指摘。';
+    item.impact = '先頭ページの2要素を取得できない、という主張。';
+    item.evidence = 'レビューの主張は[]。同じ対象の独立観測とは異なる。';
+    item.action = '先頭ページの取得を修正する、という対応案。';
+  } else {
+    item.condition =
+      '保存したテストはoffset=0のみで、正のoffsetで非空結果を期待する条件がない。' + item.condition;
+    item.action = 'offset=2, limit=2で[30,40]を期待するテストを追加する。';
+    item.reason = '対象は修正せず保存。修正状況の値だけで真偽を裁定しない。';
+  }
+}
+
 function fixtureResult(
   mode: string,
   id: string,
@@ -202,6 +231,7 @@ function fixtureResult(
   host: string,
 ): ReviewReport {
   const result: ReviewReport = {
+    trial: fixtureTrial(mode, id, review),
     id,
     name: mode === 'empty' ? 'correct' : 'defective',
     baseCommit,
@@ -240,25 +270,97 @@ function fixtureResult(
   };
   return result;
 }
+function fixtureTrial(mode: string, id: string, review: Review) {
+  const trial = reviewTrial('display_sample', mode !== 'empty');
+  trial.startedAt = '2026-09-21T01:00:00Z';
+  trial.finishedAt = '2026-09-21T01:00:01.234Z';
+  if (mode === 'pending') {
+    return trial;
+  }
+  trial.judgment = {
+    at: '2026-09-21T02:00:00Z',
+    conclusion: 'met',
+    reason:
+      '同一原因の機能不具合とテスト不足を確認。誤指摘なく既知欠陥を検出したという表示サンプル。',
+    evidence: [
+      'reproduction',
+      `target:${review.targetId}`,
+      ...review.items.map((item) => `finding:${item.id}`),
+    ],
+    unmet: [],
+    unconfirmed: [],
+  };
+  switch (mode) {
+    case 'stopped':
+      trial.judgment.conclusion = 'execution_failed';
+      trial.judgment.reason = '模擬レビューの実行が失敗し、裁定できなかった。';
+      trial.judgment.evidence = [`log:${id}/verification/review-1.stdout`];
+      trial.judgment.unconfirmed = ['レビュー・再現・関連ログが不足。'];
+      break;
+    case 'unmet':
+      trial.judgment.conclusion = 'unmet';
+      trial.judgment.reason =
+        '既知欠陥は検出したが、R1-2を誤指摘と裁定した。補足観測も不足している。';
+      trial.judgment.unmet = ['R1-2は誤指摘。'];
+      trial.judgment.unconfirmed = ['補足観測が未保存。条件未達と別に確認待ちを残す。'];
+      break;
+    case 'missed':
+      trial.judgment.conclusion = 'unmet';
+      trial.judgment.reason = '既知欠陥を再現したが、モデルは指摘しなかった。';
+      trial.judgment.unmet = ['既知欠陥の見落とし。'];
+      break;
+    case 'empty':
+      trial.judgment.reason =
+        '独立確認で指定の要求を満たし、誤指摘なく必要な証拠が揃ったという表示サンプル。';
+      break;
+  }
+  return trial;
+}
+
 function fixtureAdjudication(mode: string, review: Review): ReviewReport['adjudication'] {
   if (mode === 'stopped') {
     return null;
   }
-  const completed = mode === 'normal';
+  const completed = ['normal', 'unmet', 'empty', 'missed'].includes(mode);
   return {
     status: completed ? 'completed' : 'pending_host_adjudication',
     knownDefect: mode === 'empty' ? null : 'slice uses limit as end index',
-    missedKnownDefect: completed ? false : null,
-    findings: review.items.map((item, index) => ({
-      id: item.id,
-      verdict: completed
-        ? (['demonstrated', 'false_positive'][index] ?? 'unconfirmed')
-        : 'unconfirmed',
-      reproduction: completed
-        ? { input: 'offset=2, limit=2', expected: [30, 40], actual: [] }
-        : null,
-      reason: completed ? '模擬の裁定根拠。一般的な品質の証明ではない。' : null,
-    })),
+    missedKnownDefect: completed ? mode === 'missed' : null,
+    findings: review.items.map((item, index) =>
+      fixtureFindingJudgment(item.id, index, mode, completed),
+    ),
     instruction: '指摘ごとに同じ試行の再現で裁定する。',
+  };
+}
+
+function fixtureFindingJudgment(id: string, index: number, mode: string, completed: boolean) {
+  if (!completed) {
+    return { id, verdict: 'unconfirmed', reproduction: null, reason: null };
+  }
+  if (mode === 'unmet' && index === 1) {
+    return {
+      id,
+      verdict: 'false_positive',
+      reproduction: {
+        input: { items: [10, 20, 30, 40], offset: 0, limit: 2 },
+        expected: [10, 20],
+        actual: [10, 20],
+      },
+      reason:
+        'offset=0では期待どおり[10,20]を返すため、先頭ページも不足するという指摘は誤り。模擬の裁定記録。',
+    };
+  }
+  return {
+    id,
+    verdict: 'demonstrated',
+    reproduction: {
+      input: { items: [10, 20, 30, 40], offset: 2, limit: 2 },
+      expected: [30, 40],
+      actual: [],
+    },
+    reason:
+      index === 0
+        ? 'offset=2, limit=2の同じ対象の再現で、期待[30,40]に対し[]を確認した模擬記録。'
+        : '保存した追加テストはoffset=0のみ。offset=2の欠陥を検出できない条件を照合した模擬記録。',
   };
 }

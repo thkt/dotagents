@@ -8,6 +8,7 @@ import { run, snapshot } from './correction.ts';
 import { command, withInterrupts } from './process.ts';
 import { isRecord } from './values.ts';
 import { reviewModel } from './review.ts';
+import { reviewTrial } from './review-trial.ts';
 
 const requirements = {
   title: 'Add array pagination',
@@ -120,9 +121,12 @@ async function probe(root: string, id: string, broken: boolean) {
     checkTimeMs: 540000,
   };
   await writeFile(join(dir, 'config.json'), JSON.stringify(config, null, 2));
+  const trial = reviewTrial('live_model', broken);
+  trial.startedAt = new Date().toISOString();
   const started = performance.now();
   const state = await run(config);
   const elapsedMs = performance.now() - started;
+  trial.finishedAt = new Date().toISOString();
   // Independent oracle is deliberately outside the reviewed checkout/check. It diagnoses
   // the known defect after review, without coaching the model about the missing condition.
   const hostDir = join(root, 'host', id);
@@ -140,6 +144,7 @@ async function probe(root: string, id: string, broken: boolean) {
   const review = state.reviewHistory.at(-1);
   const reproduced: unknown = JSON.parse(actual);
   const result = {
+    trial,
     id,
     name: broken ? 'defective' : 'correct',
     baseCommit,

@@ -88,6 +88,18 @@ async function inspectCase(root: string, entry: Record<string, unknown>) {
   });
   // Deliberately wrong mock judgments must not become host detection verdicts.
   expect(object(result.review).status).toBe(broken ? 'accepted' : 'needs_changes');
+  const trial = object(result.trial);
+  expect(trial.provenance).toBe('live_model');
+  expect(typeof trial.startedAt).toBe('string');
+  expect(typeof trial.finishedAt).toBe('string');
+  expect(object(trial.judgment)).toMatchObject({
+    at: null,
+    conclusion: null,
+    reason: null,
+    evidence: [],
+  });
+  expect(serialized).not.toContain(String(trial.question));
+  expect(serialized).not.toContain(String(trial.criteria));
   const adjudication = object(result.adjudication);
   expect(adjudication.status).toBe('pending_host_adjudication');
   expect(adjudication.missedKnownDefect).toBeNull();

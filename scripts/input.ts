@@ -225,6 +225,21 @@ export function assertState(value: unknown): asserts value is State {
 // The host-side, case-level result written by verify-review.ts after Issue #138.
 // Missing observations remain null; this reader never derives verdicts from prose.
 export interface ReviewReport {
+  trial?: {
+    provenance: 'display_sample' | 'live_model';
+    startedAt: string | null;
+    finishedAt: string | null;
+    question: string;
+    criteria: string;
+    judgment: {
+      at: string | null;
+      conclusion: 'met' | 'unmet' | 'pending' | 'execution_failed' | null;
+      reason: string | null;
+      evidence: string[];
+      unmet: string[];
+      unconfirmed: string[];
+    };
+  } | null;
   id: string;
   name: 'correct' | 'defective';
   baseCommit: string;
@@ -273,9 +288,55 @@ export function assertReviewReport(value: unknown): asserts value is ReviewRepor
     'Invalid limitations',
   );
   assertReportUsage(value.usage);
+  assertReportTrial(value.trial);
   assertReportReproduction(value.reproduction);
   if (value.adjudication !== undefined && value.adjudication !== null) {
     assertReportAdjudication(value.adjudication);
+  }
+}
+
+function assertReportTrial(value: unknown) {
+  if (value === undefined || value === null) {
+    return;
+  }
+  assert(isRecord(value), 'Invalid trial');
+  assert(
+    typeof value.provenance === 'string' &&
+      ['display_sample', 'live_model'].includes(value.provenance),
+    'Invalid trial provenance',
+  );
+  const timestamp = (date: unknown) =>
+    date === null ||
+    (typeof date === 'string' &&
+      /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(date) &&
+      Number.isFinite(Date.parse(date)) &&
+      new Date(date).toISOString() === date.replace(/Z$/, date.includes('.') ? 'Z' : '.000Z'));
+  assert(
+    timestamp(value.startedAt) && timestamp(value.finishedAt),
+    'Invalid trial execution timestamp',
+  );
+  assert(
+    typeof value.question === 'string' &&
+      value.question.trim() &&
+      typeof value.criteria === 'string' &&
+      value.criteria.trim(),
+    'Invalid trial question or criteria',
+  );
+  const judgment = value.judgment;
+  assert(isRecord(judgment) && timestamp(judgment.at), 'Invalid trial judgment timestamp');
+  assert(
+    judgment.conclusion === null ||
+      (typeof judgment.conclusion === 'string' &&
+        ['met', 'unmet', 'pending', 'execution_failed'].includes(judgment.conclusion)),
+    'Invalid trial conclusion',
+  );
+  assert(judgment.reason === null || typeof judgment.reason === 'string', 'Invalid trial reason');
+  for (const key of ['evidence', 'unmet', 'unconfirmed']) {
+    assert(
+      isArray(judgment[key]) &&
+        judgment[key].every((item) => typeof item === 'string' && item.trim()),
+      `Invalid trial ${key}`,
+    );
   }
 }
 
@@ -335,7 +396,8 @@ function assertReportAdjudication(value: unknown) {
     );
     ids.add(finding.id);
     assert(
-      ['demonstrated', 'false_positive', 'unconfirmed'].includes(String(finding.verdict)),
+      typeof finding.verdict === 'string' &&
+        ['demonstrated', 'false_positive', 'unconfirmed'].includes(finding.verdict),
       'Invalid adjudication verdict',
     );
     assert(

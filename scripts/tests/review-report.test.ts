@@ -20,7 +20,9 @@ const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
-async function fixture(mode: 'normal' | 'pending' | 'empty' | 'stopped' = 'normal') {
+async function fixture(
+  mode: 'normal' | 'pending' | 'empty' | 'stopped' | 'unmet' | 'missed' = 'normal',
+) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'report-test-')));
   roots.push(root);
   return {
@@ -71,12 +73,14 @@ test('CLI renders recorded requirements, observations and independent verdicts w
     { encoding: 'utf8', timeout: 5000 },
   );
   expect(execution.status, execution.stderr).toBe(0);
+  // A valid binary addition is not a corrupt saved record.
+  expect(execution.stdout).not.toContain('review-1.additions.json');
   expect(await contents(join(f.root, 'records'))).toEqual(before);
   const html = await readFile(f.output, 'utf8');
   expect(html).not.toContain('CURRENT CHECKOUT IS NOT HISTORICAL EVIDENCE');
   const additions = (await select(html, '#targets')).text;
   expect(additions).toContain('保存時点の追加テスト');
-  expect(additions).toContain('expect(page([10,20,30,40], 2, 2)).toEqual([30,40]);');
+  expect(additions).toContain('expect(page([10,20,30,40], 0, 2)).toEqual([10,20]);');
   expect(additions).toContain('symlinkの保存参照先');
   expect(additions).toContain('../checkout/page.ts');
   expect(additions).toContain('UTF-8テキストとして本文を表示できません');
@@ -90,7 +94,7 @@ test('CLI renders recorded requirements, observations and independent verdicts w
     /期待値[\s\S]*30[\s\S]*40[\s\S]*実結果\[\]/,
   );
   expect((await select(html, '#finding-0')).text).toContain('open真偽の裁定demonstrated');
-  expect((await select(html, '#finding-1')).text).toContain('fixed真偽の裁定false_positive');
+  expect((await select(html, '#finding-1')).text).toContain('open真偽の裁定demonstrated');
   expect((await select(html, '#usage')).text).toContain('1234.5');
   expect((await select(html, '#usage')).text).toContain('入力トークン120');
   expect((await select(html, '#usage')).text).toContain('キャッシュ入力トークン20');
@@ -101,7 +105,13 @@ test('CLI renders recorded requirements, observations and independent verdicts w
   const logs = (await select(html, '#logs')).text;
   expect(logs.indexOf('check —')).toBeLessThan(logs.indexOf('review —'));
   expect(logs.indexOf('item.started')).toBeLessThan(logs.indexOf('item.completed'));
-  expect((await select(html, '.attention')).text).toContain('失敗の記録');
+  const top = (await select(html, 'header, #attention')).text;
+  expect(top).toContain('レビュー試験 · 表示サンプル');
+  expect(top).toContain('2026-09-21T01:00:00Z');
+  expect(top).toContain('2026-09-21T02:00:00Z');
+  expect(top).toContain('条件を満たす');
+  expect(top).not.toContain('ready_for_human_review');
+  expect((await select(html, 'header')).text).not.toContain(f.input);
   expect((await select(html, '#finding-1')).text).toContain(
     '長い日本語の要求を確認するとき、境界条件と未計測の事項を省略すると誤解が起こり得る。'.repeat(
       12,
@@ -115,30 +125,84 @@ test('CLI renders recorded requirements, observations and independent verdicts w
   expect((await select(html, 'details > summary')).count).toBeGreaterThan(0);
 });
 
-test('pending, no-findings and stopped records expose uncertainty before any details are opened', async () => {
-  for (const mode of ['pending', 'empty', 'stopped'] as const) {
+test('host conclusions stay distinct from model status, missing evidence and execution failure', async () => {
+  for (const mode of ['pending', 'empty', 'stopped', 'unmet', 'missed'] as const) {
     const f = await fixture(mode);
     await generateReviewReport(f.input, f.output);
     const html = await readFile(f.output, 'utf8');
-    const top = (await select(html, 'header, .attention')).text;
+    const top = (await select(html, 'header, #attention')).text;
     if (mode === 'empty') {
-      expect(top).toContain('accepted');
-      expect(top).toContain('裁定待ち・未判定');
+      expect(top).toContain('条件を満たす');
+      expect((await select(html, '#targets')).text).toContain('slice(offset, offset + limit)');
       expect((await select(html, '#review')).text).toContain('記録された指摘: 0件');
-    } else {
+    }
+    if (mode === 'pending' || mode === 'stopped') {
       expect(top).toContain('使用量が未計測・欠落');
+      expect((await select(html, '.attention')).text).toContain('関連記録の失敗・不足・不整合');
       expect(top).toContain('events.jsonl');
       expect((await select(html, '#usage')).text).toContain('入力トークン未記録・未確認');
     }
     if (mode === 'pending') {
-      expect(top).toContain('fixed / 真偽の裁定: unconfirmed');
+      expect(top).toContain('結論は未確認');
+      expect((await select(html, '#finding-1')).text).toContain('fixed真偽の裁定unconfirmed');
+      expect((await select(html, 'header')).text).toContain('ホスト判断（UTC）未記録・未確認');
     }
     if (mode === 'stopped') {
-      expect(top).toContain('review_failed');
+      expect(top).toContain('実行失敗');
       expect(top).toContain('レビュー未記録');
       expect(top).toContain('再現記録がありません');
     }
-    expect(top).not.toContain('合格');
+    if (mode === 'unmet') {
+      expect(top).toContain('条件未達');
+      expect(top).toContain('確認待ち: 補足観測が未保存');
+      expect(top).toContain('誤指摘の裁定あり');
+      expect(top).toContain('失敗の記録');
+      expect((await select(html, '#finding-1')).text).toContain('fixed真偽の裁定false_positive');
+    }
+    if (mode === 'missed') {
+      expect(top).toContain('条件未達');
+      expect(top).toContain('既知の欠陥の見落とし');
+      expect((await select(html, '#review')).text).toContain('記録された指摘: 0件');
+    }
+  }
+});
+
+test('old records keep unknown dates and criteria; absent evidence never supplies a verdict', async () => {
+  const f = await fixture();
+  const old = { ...f.result };
+  delete old.trial;
+  await writeFile(f.input, JSON.stringify(old));
+  await generateReviewReport(f.input, f.output);
+  const html = await readFile(f.output, 'utf8');
+  const top = (await select(html, 'header, #attention')).text;
+  expect(top).toContain('レビュー試験 · 不明');
+  expect(top).toContain('結論は未確認');
+  expect(top).not.toContain(f.issue.updatedAt);
+  expect(top).not.toContain('条件を満たす');
+  expect((await select(html, '#results')).text).toContain('現在の基準を遡及適用しません');
+  assert(f.result.trial);
+  assert(f.result.adjudication?.findings[0]);
+  f.result.adjudication.findings[0].reason = '   ';
+  f.result.trial.judgment.reason = '   ';
+  f.result.adjudication.findings[0].reproduction = null;
+  f.result.trial.judgment.evidence = [
+    'finding:unrelated',
+    'target:another-trial',
+    'log:case-other/events.jsonl',
+  ];
+  f.result.trial.judgment.conclusion = 'pending';
+  await writeFile(f.input, JSON.stringify(f.result));
+  await generateReviewReport(f.input, join(f.root, 'missing-evidence.html'));
+  const missing = await readFile(join(f.root, 'missing-evidence.html'), 'utf8');
+  expect((await select(missing, '#attention')).text).toContain('判定保留');
+  expect((await select(missing, '.attention')).text).toContain(
+    'ホストの結論・判断日時・理由に未確認',
+  );
+  expect((await select(missing, '.attention')).text).toContain('R1-1: 裁定または根拠が未確認');
+  for (const ref of f.result.trial.judgment.evidence) {
+    expect((await select(missing, '.attention')).text).toContain(
+      `判断根拠の対応がありません: ${ref}`,
+    );
   }
 });
 
@@ -193,6 +257,14 @@ test('invalid JSON and unsupported result fields reject with input and reason be
     ],
     [JSON.stringify({ ...f.result, review: { status: 'accepted' } }), 'review format'],
     [JSON.stringify({ ...f.result, id: 'case-other' }), 'directory'],
+    [
+      JSON.stringify({ ...f.result, trial: { ...f.result.trial, startedAt: 'yesterday' } }),
+      'timestamp',
+    ],
+    [
+      JSON.stringify({ ...f.result, trial: { ...f.result.trial, provenance: ['live_model'] } }),
+      'provenance',
+    ],
   ]) {
     assert(content && reason);
     await writeFile(f.input, content);
@@ -245,13 +317,54 @@ test('missing targets, malformed related records and escaped symlinks remain vis
   const malformed = await generateReviewReport(f.input, join(f.root, 'malformed-final.html'));
   const malformedHtml = await readFile(malformed.output, 'utf8');
   expect(malformed.warnings.filter((warning) => warning.includes('final.json'))).toHaveLength(1);
-  expect((await select(malformedHtml, '.attention')).text).toMatch(/final\.json.*SyntaxError/);
+  expect((await select(malformedHtml, '#attention')).text).toMatch(/final\.json.*SyntaxError/);
   expect((await select(malformedHtml, '#logs')).text).toMatch(
     /final\.json[\s\S]*記録欠落・読取不能/,
   );
   expect((await select(malformedHtml, '#finding-0')).text).toContain('open真偽の裁定demonstrated');
   expect((await select(malformedHtml, '#logs')).text).toContain('item.completed');
   await writeFile(finalPath, savedFinal);
+  const additionsPath = join(f.verification, 'review-1.additions.json');
+  const savedAdditions = await readFile(additionsPath, 'utf8');
+  for (const [index, content] of [
+    JSON.stringify([
+      { path: 'intact.txt', symlink: false, content: 'aW50YWN0IHRleHQ=' },
+      { path: 'broken.txt', symlink: false, content: 'NOT BASE64' },
+      { path: 'intact-link', symlink: true, content: '../intact-target' },
+    ]),
+    JSON.stringify([{ path: 'broken.txt', content: 'dGV4dA==' }]),
+    JSON.stringify({ path: 'broken.txt' }),
+    JSON.stringify([{ symlink: false, content: 'dGV4dA==' }]),
+  ].entries()) {
+    await writeFile(additionsPath, content);
+    const corrupt = await generateReviewReport(f.input, join(f.root, `corrupt-${index}.html`));
+    const corruptHtml = await readFile(corrupt.output, 'utf8');
+    expect(corrupt.warnings.filter((warning) => warning.includes(additionsPath))).toHaveLength(1);
+    expect((await select(corruptHtml, '#attention .attention')).text).toContain(
+      '関連記録の失敗・不足・不整合',
+    );
+    expect((await select(corruptHtml, '#record-warnings')).text).toContain(additionsPath);
+    expect((await select(corruptHtml, '#targets')).text).toContain(Bun.escapeHTML(content));
+    if (index === 0) {
+      expect((await select(corruptHtml, '#targets')).text).toContain('intact text');
+      expect((await select(corruptHtml, '#targets')).text).toContain(
+        'symlinkの保存参照先（参照先の内容は読み込みません）: ../intact-target',
+      );
+    }
+    expect((await select(corruptHtml, '#attention .conclusion')).text).toBe('条件を満たす');
+    expect(await readFile(additionsPath, 'utf8')).toBe(content);
+  }
+  await writeFile(additionsPath, savedAdditions);
+  const savedReviewPath = join(f.verification, 'review-1.json');
+  const savedReview = await readFile(savedReviewPath, 'utf8');
+  await writeFile(
+    savedReviewPath,
+    JSON.stringify({ review: { ...f.result.review, findings: 'Another trial response' } }),
+  );
+  const mismatch = await generateReviewReport(f.input, join(f.root, 'mismatch.html'));
+  expect(mismatch.warnings.join('\n')).toContain('保存レビューとresultの内容が不一致');
+  await writeFile(savedReviewPath, savedReview);
+
   await writeFile(
     join(f.dir, 'issue.json'),
     JSON.stringify({ ...f.issue, body: 'Changed after the recorded review' }),
@@ -269,8 +382,8 @@ test('missing targets, malformed related records and escaped symlinks remain vis
   const result = await generateReviewReport(f.input, f.output);
   const html = await readFile(f.output, 'utf8');
   expect(result.warnings.join('\n')).toContain('レビュー対象IDに一致する保存対象記録がありません');
-  expect((await select(html, '.attention')).text).toContain('JSONL不正・未完');
-  expect((await select(html, '.attention')).text).toContain('symlink');
+  expect((await select(html, '#attention')).text).toContain('JSONL不正・未完');
+  expect((await select(html, '#attention')).text).toContain('symlink');
   expect(html).not.toContain('EXTERNAL_SECRET_MUST_NOT_APPEAR');
   expect(html).not.toContain('CURRENT CHECKOUT IS NOT HISTORICAL EVIDENCE');
 });
