@@ -136,7 +136,6 @@ export async function previousRun(
     result,
     config,
     state,
-    original,
     url: result.url,
     head: result.commit,
     branch: result.branch,
