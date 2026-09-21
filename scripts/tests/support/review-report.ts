@@ -171,18 +171,61 @@ export async function reportFixture(
     join(verification, 'review-1.prompt'),
     '模擬要求のみ。実際のモデルは呼び出さない。',
   );
+  await fixtureLogs(dir, actor, mode, review);
+  await writeFile(join(dir, 'checkout', 'page.ts'), 'CURRENT CHECKOUT IS NOT HISTORICAL EVIDENCE');
+  return { input: join(host, 'result.json'), result, dir, issue, state, actor, verification };
+}
+
+async function fixtureLogs(dir: string, actor: string, mode: string, review: Review) {
+  const hasLogs = !['pending', 'stopped'].includes(mode);
   const commandExit = mode === 'unmet' ? 1 : 0;
   if (hasLogs) {
     await writeFile(
       join(actor, 'events.jsonl'),
       [
-        { type: 'item.started', item: { type: 'command_execution', command: 'bun test' } },
+        {
+          type: 'item.started',
+          item: {
+            id: 'cmd-1',
+            type: 'command_execution',
+            command: 'bun test',
+            status: 'in_progress',
+          },
+        },
         {
           type: 'item.completed',
           item: {
+            id: 'cmd-1',
             type: 'command_execution',
+            command: 'bun test',
+            status: commandExit === 0 ? 'completed' : 'failed',
             exit_code: commandExit,
             aggregated_output: '<img src=x onerror=alert(1)> synthetic failure',
+          },
+        },
+        {
+          type: 'item.started',
+          timestamp: '2026-09-21T01:00:00.400Z',
+          item: {
+            id: 'tool-1',
+            type: 'mcp_tool_call',
+            server: 'fixture',
+            tool: 'read_source',
+            arguments: { path: 'page.ts' },
+            status: 'in_progress',
+          },
+        },
+        {
+          type: 'item.completed',
+          timestamp: '2026-09-21T01:00:00.500Z',
+          item: {
+            id: 'tool-1',
+            type: 'mcp_tool_call',
+            server: 'fixture',
+            tool: 'read_source',
+            arguments: { path: 'page.ts' },
+            status: 'completed',
+            result: { content: '公開可能な模擬応答' },
           },
         },
         {
@@ -194,10 +237,37 @@ export async function reportFixture(
         .join('\n') + '\n',
     );
     await writeFile(join(actor, 'stderr.log'), '');
-    await save(join(actor, 'final.json'), review);
+    await writeFile(join(actor, 'final.json'), JSON.stringify(review));
   }
-  await writeFile(join(dir, 'checkout', 'page.ts'), 'CURRENT CHECKOUT IS NOT HISTORICAL EVIDENCE');
-  return { input: join(host, 'result.json'), result, dir, issue, state, actor, verification };
+  if (mode === 'pending') {
+    const incomplete = join(dir, 'review-codex-incomplete');
+    await mkdir(incomplete);
+    await writeFile(
+      join(incomplete, 'events.jsonl'),
+      [
+        JSON.stringify({
+          type: 'item.started',
+          item: {
+            id: 'unfinished',
+            type: 'command_execution',
+            command: 'bun test',
+            status: 'in_progress',
+          },
+        }),
+        JSON.stringify({
+          type: 'item.updated',
+          item: {
+            id: 'unfinished',
+            type: 'command_execution',
+            status: 'interrupted',
+            aggregated_output: '模擬の中断。終了結果は未保存。',
+          },
+        }),
+        JSON.stringify({ type: 'future.event', payload: '未対応の模擬イベント' }),
+        '{truncated',
+      ].join('\n'),
+    );
+  }
 }
 
 function configureFinding(review: Review, mode: string) {

@@ -15,6 +15,7 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { generateReviewReport } from '../review-report.ts';
 import { reportFixture } from './support/review-report.ts';
+import { parseLogEvents } from '../review-report-events.ts';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -109,8 +110,26 @@ test('CLI renders recorded requirements, observations and independent verdicts w
     'delegated model totals remain unconfirmed',
   );
   const logs = (await select(html, '#logs')).text;
-  expect(logs.indexOf('check —')).toBeLessThan(logs.indexOf('review —'));
-  expect(logs.indexOf('item.started')).toBeLessThan(logs.indexOf('item.completed'));
+  expect(logs.indexOf('ホスト · 検証')).toBeLessThan(logs.indexOf('ホスト · レビュー依頼'));
+  const actions = (await select(html, '#logs li[id]')).text;
+  expect(actions).toContain('入力・対象: bun test');
+  expect(actions).toContain('終了コード 0');
+  expect(actions).toContain('fixture / read_source');
+  expect(actions).toContain('page.ts');
+  expect(actions).toContain('2026-09-21T01:00:00.400Z');
+  expect(actions).toContain('同じIDの対応行 2');
+  const responses = (await select(html, '#logs li[id] > p')).text;
+  expect(responses).toContain('応答: &lt;img src=x onerror=alert(1)&gt; synthetic failure');
+  expect(responses).toContain('応答: {&quot;content&quot;:&quot;公開可能な模擬応答&quot;}');
+  const originals = (await select(html, '#logs li[id] details pre')).text;
+  expect(originals).toContain(
+    '&quot;aggregated_output&quot;:&quot;&lt;img src=x onerror=alert(1)&gt; synthetic failure&quot;',
+  );
+  expect(originals).toContain(
+    '&quot;result&quot;:{&quot;content&quot;:&quot;公開可能な模擬応答&quot;}',
+  );
+  expect((await select(html, '#logs details li[id]')).count).toBe(0);
+  expect((await select(html, '#results details #reproduction')).count).toBe(0);
   const top = (await select(html, 'header, #attention')).text;
   expect(top).toContain('レビュー試験 · 表示サンプル');
   expect(top).toContain('2026-09-21T01:00:00Z');
@@ -436,4 +455,99 @@ test('missing targets, malformed related records and escaped symlinks remain vis
   expect((await select(html, '#attention')).text).toContain('symlink');
   expect(html).not.toContain('EXTERNAL_SECRET_MUST_NOT_APPEAR');
   expect(html).not.toContain('CURRENT CHECKOUT IS NOT HISTORICAL EVIDENCE');
+});
+
+test('event rows preserve failures and link only unique IDs within one file in saved order', () => {
+  const event = (type: string, id?: string, extra = {}) =>
+    JSON.stringify({
+      type,
+      item: { type: 'command_execution', id, ...extra },
+    });
+  const rows = parseLogEvents(
+    [
+      event('item.started', 'paired', { command: 'cat page.ts' }),
+      '',
+      event('item.updated', 'paired', { status: 'failed', exit_code: 9 }),
+      event('item.completed', 'paired', { status: 'completed', exit_code: 0 }),
+      event('item.started'),
+      event('item.completed'),
+      event('item.started', 'duplicate'),
+      event('item.started', 'duplicate'),
+      event('item.completed', 'duplicate'),
+      event('item.started', 'interrupted', { status: 'interrupted' }),
+      event('item.completed', 'reversed'),
+      event('item.started', 'reversed'),
+      event('item.started', 'different-type'),
+      JSON.stringify({
+        type: 'item.completed',
+        item: { id: 'different-type', type: 'agent_message' },
+      }),
+      JSON.stringify({ type: 'constructor' }),
+      JSON.stringify({ type: 'item.completed', item: { type: 'toString' } }),
+      '{unfinished',
+      'null',
+    ].join('\n'),
+  );
+  expect(rows.map((row) => row.line)).toEqual([
+    1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+  ]);
+  expect(rows.filter((row) => row.relatedLine).map((row) => [row.line, row.relatedLine])).toEqual([
+    [1, 4],
+    [4, 1],
+  ]);
+  expect(rows.find((row) => row.line === 3)?.problems.join()).toContain('失敗');
+  expect(rows.find((row) => row.line === 10)?.problems.join()).toContain('中断');
+  for (const line of [5, 7, 8, 10, 12, 13]) {
+    expect(rows.find((row) => row.line === line)?.problems.join()).toContain('対応は未確認');
+  }
+  for (const line of [15, 16, 17, 18]) {
+    expect(rows.find((row) => row.line === line)?.problems.length).toBeGreaterThan(0);
+  }
+  expect(parseLogEvents(event('item.completed', 'interrupted'))[0]?.relatedLine).toBeUndefined();
+});
+
+test('visible action rows retain partial records and do not invent cross-actor evidence', async () => {
+  const f = await fixture('pending');
+  const second = join(f.dir, 'repair-codex-second');
+  await mkdir(second);
+  await writeFile(
+    join(second, 'events.jsonl'),
+    JSON.stringify({
+      type: 'item.completed',
+      item: {
+        id: 'unfinished',
+        type: 'command_execution',
+        command: '<script>globalThis.REPORT_EXECUTED=true</script>',
+        status: 'completed',
+        exit_code: 0,
+        aggregated_output: '記録済み応答',
+      },
+    }),
+  );
+  f.state.active = { role: 'review', prefix: join(f.verification, 'review-2') };
+  await writeFile(join(f.verification, 'state.json'), JSON.stringify(f.state));
+  const before = await contents(join(f.root, 'records'));
+  await generateReviewReport(f.input, f.output);
+  expect(await contents(join(f.root, 'records'))).toEqual(before);
+  const html = await readFile(f.output, 'utf8');
+  const actions = (await select(html, '#logs li[id] > div, #logs li[id] > p')).text;
+  for (const expected of [
+    '中断',
+    '未対応イベント',
+    '不正・未完の行',
+    '時刻: 未記録・未確認',
+    '記録済み応答',
+  ]) {
+    expect(actions).toContain(expected);
+  }
+  expect(actions).not.toContain('同じIDの対応行');
+  expect((await select(html, '#logs')).text).toContain('別ログ・主体間の全体順序');
+  expect((await select(html, '#logs')).text).toContain('review-2: 実行中の保存記録');
+  expect((await select(html, '#attention')).text).toContain('中断');
+  expect((await select(html, '#logs details li[id]')).count).toBe(0);
+  expect((await select(html, '#logs li[id] details pre')).text).toContain('{truncated');
+  expect((await select(html, '#logs li[id] details pre')).text).toContain(
+    '&quot;aggregated_output&quot;:&quot;記録済み応答&quot;',
+  );
+  expect((await select(html, 'script')).count).toBe(0);
 });

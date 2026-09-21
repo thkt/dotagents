@@ -5,12 +5,15 @@ import { isDeepStrictEqual } from 'node:util';
 import { assertReviewReport, assertState } from './input.ts';
 import type { ReviewReport, State } from './input.ts';
 import { isArray, isRecord, outside } from './values.ts';
+import { parseLogEvents } from './review-report-events.ts';
+import type { LogEvent } from './review-report-events.ts';
 
 export interface SavedRecord {
   path: string;
   text: string | null;
   value?: unknown;
   problem?: string;
+  events?: LogEvent[];
   additions?: { path: string; content: string | Uint8Array }[];
 }
 
@@ -237,7 +240,7 @@ function inspectTarget(entry: SavedRecord, data: ReportRecords) {
   }
 }
 
-function inspectLogFailures(data: ReportRecords) {
+function inspectLogs(data: ReportRecords) {
   for (const event of data.timeline?.events ?? []) {
     if (event.code !== 0 || event.timedOut) {
       data.warnings.push(
@@ -248,32 +251,20 @@ function inspectLogFailures(data: ReportRecords) {
   for (const entry of data.logs.filter(
     (log) => log.path.endsWith('events.jsonl') && log.text !== null,
   )) {
-    inspectJsonLines(entry, data.warnings);
-  }
-}
-
-function inspectJsonLines(entry: SavedRecord, warnings: string[]) {
-  for (const [index, line] of (entry.text ?? '').split('\n').entries()) {
-    if (!line.trim()) {
-      continue;
+    entry.events = parseLogEvents(entry.text ?? '');
+    if (!entry.events.length) {
+      data.warnings.push(`${entry.path}: JSONLのイベントは未記録です。`);
     }
-    try {
-      const event: unknown = JSON.parse(line);
-      assert(isRecord(event) && typeof event.type === 'string', 'Invalid event');
-      const item = isRecord(event.item) ? event.item : {};
-      const failed =
-        event.type === 'error' ||
-        event.type.endsWith('.failed') ||
-        item.status === 'failed' ||
-        (typeof item.exit_code === 'number' && item.exit_code !== 0);
-      if (failed) {
-        warnings.push(
-          `${entry.path}:${index + 1}: ${event.type} に失敗の記録があります。原因・採点への影響は未確認です。`,
-        );
+    for (const row of entry.events) {
+      for (const problem of row.problems) {
+        data.warnings.push(`${entry.path}:${row.line}: ${problem}`);
       }
-    } catch (error) {
-      warnings.push(`${entry.path}:${index + 1}: JSONL不正・未完の記録: ${String(error)}`);
     }
+  }
+  if (data.timeline?.active) {
+    data.warnings.push(
+      `制御呼出し ${data.timeline.active.role}: 実行中の保存記録があり、完了は未確認です。`,
+    );
   }
 }
 
@@ -361,7 +352,7 @@ export async function readReport(inputPath: string): Promise<ReportRecords> {
     warnings.push('host/cases.jsonとケースID・記録名の対応を確認できません。');
   }
 
-  inspectLogFailures(data);
+  inspectLogs(data);
 
   for (const entry of targets) {
     inspectAdditions(entry);

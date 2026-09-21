@@ -1,4 +1,5 @@
-import { basename } from 'node:path';
+import { basename, dirname } from 'node:path';
+import type { LogEvent } from './review-report-events.ts';
 import type { StopReason } from './input.ts';
 import { trialEvidence } from './review-report-records.ts';
 import type { ReviewItem } from './review.ts';
@@ -188,7 +189,7 @@ function requirements(data: ReportRecords) {
 
 function results(data: ReportRecords, evidence: ReadonlyMap<string, string>) {
   const { result } = data;
-  return `<section id="results" tabindex="-1"><h2>期待したこと / 実際に起きたこと</h2><div class="comparison"><div><h3>レビュー試験の基準</h3>${result.trial ? prose(result.trial.criteria) : '<p>未記録・未確認（現在の基準を遡及適用しません）</p>'}</div><div><h3>ホストの判断根拠</h3><p>${link('conclusion', '記録された結論と理由')}</p>${details('同じ試行の再現・裁定・対象・ログとの対応', `<ul>${result.trial?.judgment.evidence.map((ref) => `<li>${evidence.has(ref) ? link(evidence.get(ref) ?? '', ref) : `${escape(ref)} — 対応する証拠は未確認`}</li>`).join('') || '<li>対応は未記録・未確認</li>'}</ul>`)}</div></div><article id="reproduction" tabindex="-1"><h3>同じ対象の独立した再現</h3><div class="reproduction-input"><h4>入力</h4>${labeledValues(result.reproduction?.input)}</div><div class="comparison observations"><div><h4>期待値</h4>${labeledValues(result.reproduction?.expected)}</div><div><h4>実結果</h4>${labeledValues(result.reproduction?.actual)}</div></div>${details('再現記録の原JSON・全項目', raw(result.reproduction))}</article>${details('既知の欠陥・裁定記録', `<dl>${field('既知の欠陥', result.adjudication?.knownDefect)}${field('既知の欠陥の見落とし', result.adjudication?.missedKnownDefect)}</dl>${raw(result.adjudication)}`)}<p class="source-links">${link('requirements', '元の要求・対象・条件')} / ${link('targets', '保存されたレビュー対象')}</p></section>`;
+  return `<section id="results" tabindex="-1"><h2>評価</h2><p>期待値・実結果と適用基準を照合します。試験用コードの失敗と、レビューによる欠陥検出の成功は別です。</p><div class="comparison"><div><h3>レビュー試験の基準</h3>${result.trial ? prose(result.trial.criteria) : '<p>未記録・未確認（現在の基準を遡及適用しません）</p>'}</div><div><h3>ホストの判断根拠</h3><p>${link('conclusion', '記録された結論と理由')}</p><h4>同じ試行の証拠</h4><ul>${result.trial?.judgment.evidence.map((ref) => `<li>${evidence.has(ref) ? link(evidence.get(ref) ?? '', ref) : `${escape(ref)} — 対応する証拠は未確認`}</li>`).join('') || '<li>対応は未記録・未確認</li>'}</ul><p class="muted">ログ全体への参照では、個別行動との対応は未確認です。</p></div></div><article id="reproduction" tabindex="-1"><h3>同じ対象の独立した再現</h3><div class="reproduction-input"><h4>入力</h4>${labeledValues(result.reproduction?.input)}</div><div class="comparison observations"><div><h4>期待値</h4>${labeledValues(result.reproduction?.expected)}</div><div><h4>実結果</h4>${labeledValues(result.reproduction?.actual)}</div></div>${details('再現記録の原JSON・全項目', raw(result.reproduction))}</article>${details('既知の欠陥・裁定記録', `<dl>${field('既知の欠陥', result.adjudication?.knownDefect)}${field('既知の欠陥の見落とし', result.adjudication?.missedKnownDefect)}</dl>${raw(result.adjudication)}`)}<p class="source-links">${link('requirements', '元の要求・対象・条件')} / ${link('targets', '保存されたレビュー対象')}</p></section>`;
 }
 
 const verdicts: Record<string, string> = {
@@ -231,39 +232,68 @@ function usage(data: ReportRecords) {
   return `<section id="usage" tabindex="-1"><h2>時間・使用量</h2>${!totals ? '<p class="warning">使用量が未計測・欠落。品質と分けて費用比較を未確認にします。</p>' : ''}<dl>${field('実時間 (ms)', result.elapsedMs)}${field('モデル時間 (ms)', result.modelMs)}${field('入力トークン', totals?.input_tokens)}${field('キャッシュ入力トークン', totals?.cached_input_tokens)}${field('出力トークン', totals?.output_tokens)}${field('集計した完了ターン数', result.usage?.completedTurns)}${field('子モデルを含む総使用量', null)}${field('金額（未計測）', null)}</dl>${details('集計範囲・使用量の原記録', `${result.usage ? prose(result.usage.scope) : '<p>使用量の記録がありません。</p>'}<p>実時間とモデル時間は保存値です。使用量はレビューCLIの完了ターンを対象とし、中断したターンや子モデルを含む総量、契約上の課金額を確定するものではありません。トークンを再集計したり金額を推定したりしません。</p>${raw(result.usage)}`)}</section>`;
 }
 
+function shortValue(value: unknown) {
+  if (value === undefined || value === null) {
+    return '未記録・未確認';
+  }
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  return escape(text.length > 180 ? `${text.slice(0, 180)}…（全文は原文）` : text);
+}
+
+function eventRow(row: LogEvent, logId: string) {
+  const id = `${logId}-line-${row.line}`;
+  const bytes =
+    typeof row.output === 'string'
+      ? ` / 保存応答 ${Buffer.byteLength(row.output, 'utf8')} B（UTF-8）`
+      : '';
+  return `<li id="${id}" tabindex="-1"><div class="action-heading"><strong>行 ${row.line} · ${escape(row.operation)}</strong><span>${escape(row.result)}</span></div><p>入力・対象: ${shortValue(row.input)}</p>${row.output !== undefined ? `<p>応答: ${shortValue(row.output)}</p>` : ''}<p class="muted">時刻: ${escape(row.timestamp ?? '未記録・未確認')}${bytes}${row.itemId ? ` / ID: ${escape(row.itemId)}` : ''}</p>${row.relatedLine ? `<p>${link(`${logId}-line-${row.relatedLine}`, `同じIDの対応行 ${row.relatedLine}`)}（このファイル内）</p>` : ''}${row.problems.map((problem) => `<p class="warning">${escape(problem)}</p>`).join('')}${details(`行 ${row.line} の原文 · ${row.type || '形式不正'}`, `<pre>${escape(row.raw)}</pre>`)}</li>`;
+}
+
+function actorLog(entry: SavedRecord, index: number) {
+  if (!entry.events) {
+    return '';
+  }
+  const actor = basename(dirname(entry.path));
+  return `<article id="log-${index}" tabindex="-1"><h3>モデル側 · ${escape(actor)}</h3><p>このJSONLの非空行: ${entry.events.length}件。操作数・全実行の総量ではありません。</p>${entry.events.length ? `<ol class="actions">${entry.events.map((row) => eventRow(row, `log-${index}`)).join('')}</ol>` : '<p class="warning">イベント未記録・結果は未確認です。</p>'}${details('ログの保存先', `<p class="path">${escape(entry.path)}</p>`)}</article>`;
+}
+
+function controlLogs(data: ReportRecords) {
+  const roles = { check: '検証', review: 'レビュー依頼', repair: '修正依頼', capture: '撮影' };
+  const rows = (data.timeline?.events ?? []).map((event, index) => {
+    const status = event.timedOut
+      ? '時間切れ'
+      : event.code === null
+        ? '終了結果は未確認'
+        : event.code === 0
+          ? '正常終了'
+          : '実行失敗';
+    const refs = data.logs.flatMap((entry, logIndex) =>
+      dirname(entry.path) === dirname(data.state.path) &&
+      basename(entry.path).startsWith(`${basename(event.prefix)}.`)
+        ? [link(`log-${logIndex}`, basename(entry.path))]
+        : [],
+    );
+    return `<li><div class="action-heading"><strong>${index + 1} · ホスト · ${roles[event.role]}</strong><span>${status} / 終了コード ${escape(event.code ?? '未記録')}</span></div><p>対象: ${escape(basename(event.prefix))} / 実時間: ${escape(event.ms ?? '未計測')} ms</p><p>${refs.join(' / ') || '関連ログは未確認'}</p></li>`;
+  });
+  const active = data.timeline?.active;
+  return `<h3>ホストの制御呼出し</h3><p>state.eventsの保存順。個々の開始・終了時刻は未記録です。${link('state-record', 'stateの原文')}</p>${rows.length ? `<ol class="actions">${rows.join('')}</ol>` : '<p class="warning">呼出し順序は未確認です。</p>'}${active ? `<p class="warning">ホスト · ${roles[active.role]} · ${escape(basename(active.prefix))}: 実行中の保存記録。完了は未確認です。</p>` : ''}`;
+}
+
 function logs(data: ReportRecords) {
-  const events = data.timeline?.events ?? [];
-  return `<section id="logs" tabindex="-1"><h2>実行ログ</h2>${details(
-    '呼出し順と保存されたログを開く',
-    `<p>制御呼出しはstate.eventsの保存順です。各JSONLはファイルの行順を保ちます。ランダム名のactorディレクトリ同士の実行順や、制御呼出しとの対応・因果関係は推測しません。全文検索は詳細を開いてから使ってください。</p>${
-      events.length
-        ? `<ol>${events
-            .map(
-              (event) =>
-                `<li>${escape(event.role)} — code: ${escape(event.code ?? '未記録')}, timeout: ${escape(event.timedOut)}, ms: ${escape(event.ms ?? '未計測')}<p class="path">${escape(event.prefix)}</p>${data.logs
-                  .map((entry, index) => ({ entry, index }))
-                  .filter(({ entry }) =>
-                    basename(entry.path).startsWith(`${basename(event.prefix)}.`),
-                  )
-                  .map(({ entry, index }) => link(`log-${index}`, basename(entry.path)))
-                  .join(' / ')}</li>`,
-            )
-            .join('')}</ol>`
-        : '<p class="warning">呼出し順序は未確認です。</p>'
-    }${data.logs.map((entry, index) => recordView(entry, `log-${index}`)).join('')}`,
-  )}</section>`;
+  return `<section id="logs" tabindex="-1"><h2>行動ログ</h2><p>ホストの制御呼出しとモデル側の操作を分けて表示します。各JSONLはファイル内の行順です。別ログ・主体間の全体順序、親子関係、制御呼出しとの対応は未確認です。</p>${controlLogs(data)}<h3>モデルのツール実行・イベント</h3><p>開始と完了は同じファイルの一意なID・項目種別が一致する場合だけリンクします。失敗・中断・更新も元の行に残します。時刻・入力・応答は保存値だけを示し、操作から内容の理解・有効利用、空白時間の原因は判断しません。</p>${data.logs.filter((entry) => entry.events).length ? '' : '<p class="warning">読み取れるJSONLがなく、モデル側の操作は未確認です。</p>'}${data.logs.map(actorLog).join('')}<h3>呼出しの入出力・関連原記録</h3>${data.logs.map((entry, index) => (!entry.events ? recordView(entry, `log-${index}`) : '')).join('')}</section>`;
 }
 
 const css = `
-:root{color-scheme:light;font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;color:#252a30;background:#f7f8fa;line-height:1.75}
+:root{color-scheme:light;font-size:16px;font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;color:#252a30;background:#f7f8fa;line-height:1.75}
 *{box-sizing:border-box;min-width:0}body{margin:0}main{max-width:1060px;margin:auto;padding:3rem 2rem 5rem}
-header{padding-bottom:2rem}section{padding:2rem 0;border-top:1px solid #d9dde3}h1{font-size:1.8rem;line-height:1.45;letter-spacing:.01em;margin:.8rem 0}h2{font-size:1.25rem;margin:0 0 1.2rem}h3{font-size:1rem;margin:0 0 .8rem}h4{font-size:.9rem;color:#525b66;margin:0 0 .6rem}p{margin:.7rem 0}a{color:#275d92;text-underline-offset:.25em}a:focus-visible,summary:focus-visible{outline:3px solid #a04d0c;outline-offset:4px}nav{display:flex;flex-wrap:wrap;gap:.5rem 1.4rem;margin-top:1.4rem;font-size:.9rem}
+header{padding-bottom:2rem}section{padding:2rem 0;border-top:1px solid #d9dde3}h1{font-size:1.8rem;line-height:1.45;letter-spacing:.01em;margin:.8rem 0}h2{font-size:1.25rem;margin:0 0 1.2rem}h3{font-size:1rem;margin:0 0 .8rem}h4{font-size:1rem;color:#525b66;margin:0 0 .6rem}p{margin:.7rem 0}a{color:#275d92;text-underline-offset:.25em}a:focus-visible,summary:focus-visible{outline:3px solid #a04d0c;outline-offset:4px}nav{display:flex;flex-wrap:wrap;gap:.5rem 1.4rem;margin-top:1.4rem;font-size:.9rem}
 .badge{display:inline-block;border:1px solid #c8ced6;border-radius:5px;background:#eef0f3;padding:.12rem .6rem;font-size:.82rem;font-weight:600;align-self:start}.demonstrated{color:#175b4a;background:#edf7f2;border-color:#b7d7c9}.false_positive{color:#8b312b;background:#fff0ef;border-color:#e1b9b5}.unconfirmed{color:#78501c;background:#fff6e7;border-color:#dfcaa7}
-.question{max-width:52rem}.decision{margin:1.3rem 0;padding:1.2rem 1.5rem;background:#fff;border:1px solid #d9dde3;border-left:4px solid #657487;border-radius:5px}.decision[data-conclusion="met"]{border-left-color:#23715a}.decision[data-conclusion="unmet"],.decision[data-conclusion="execution_failed"]{border-left-color:#a04138}.decision[data-conclusion="pending"],.decision[data-conclusion="unknown"]{border-left-color:#916224}.eyebrow{font-size:.82rem;color:#525b66;margin:0}.conclusion{font-size:1.65rem;font-weight:700;line-height:1.45;margin:.35rem 0 .65rem}.decision .markdown p{margin:.4rem 0}.metadata{display:flex;flex-wrap:wrap;gap:.25rem 1.4rem;font-size:.82rem;color:#525b66}.muted,.source-links{font-size:.88rem;color:#525b66}
+.question{max-width:52rem}.decision{margin:1.3rem 0;padding:1.2rem 1.5rem;background:#fff;border:1px solid #d9dde3;border-left:4px solid #657487;border-radius:5px}.decision[data-conclusion="met"]{border-left-color:#23715a}.decision[data-conclusion="unmet"],.decision[data-conclusion="execution_failed"]{border-left-color:#a04138}.decision[data-conclusion="pending"],.decision[data-conclusion="unknown"]{border-left-color:#916224}.eyebrow{font-size:1rem;color:#525b66;margin:0}.conclusion{font-size:1.65rem;font-weight:700;line-height:1.45;margin:.35rem 0 .65rem}.decision .markdown p{margin:.4rem 0}.metadata{display:flex;flex-wrap:wrap;gap:.25rem 1.4rem;font-size:1rem;color:#525b66}.muted,.source-links{font-size:1rem;color:#525b66}
 .attention-panel{padding:1rem 1.3rem;margin-bottom:1.5rem;background:#fff8ec;border:1px solid #e0cfae;border-radius:5px}.attention-panel h2{font-size:1rem;margin:0}.attention{padding-left:1.3rem;margin:.5rem 0}.attention li{margin:.4rem 0}.warning{color:#814415;font-weight:600}
 .comparison{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:2rem}.comparison>div+div{border-left:1px solid #d9dde3;padding-left:2rem}.observations{background:#fff;border:1px solid #d9dde3;border-radius:5px;padding:1.1rem 1.3rem}.observations code{font-size:1.1rem}.reproduction-input{margin-bottom:1.2rem}.reproduction-input dl{margin:.5rem 0}.finding{padding:1.3rem 0;border-top:1px solid #d9dde3}.finding-summary{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:1rem}.finding-summary h3{font-weight:600;margin:0}.finding-location{font-family:ui-monospace,monospace;font-size:.85rem;color:#525b66;margin:.4rem 0}.finding details{margin:.65rem 0 0}article{scroll-margin-top:1rem}#reproduction{border-top:1px solid #d9dde3;margin-top:1.4rem;padding-top:1.4rem}
-details{margin:.9rem 0}summary{cursor:pointer;color:#3c4c5e;font-size:.9rem;font-weight:600;padding:.4rem 0}details[open]>summary{margin-bottom:.7rem}details details{margin-left:.8rem}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#eef0f3;padding:1rem;border-radius:4px;font-size:.82rem;line-height:1.6}p,li,dd,dt,h1,h2,h3,h4,summary,.path,span{overflow-wrap:anywhere}.recorded-text{white-space:pre-wrap}dl{display:grid;grid-template-columns:minmax(8rem,1fr) minmax(0,3fr);gap:0 1rem;margin:.6rem 0 1rem}dt,dd{border-bottom:1px solid #e5e7eb;padding:.55rem 0}dt{font-size:.88rem;color:#525b66;font-weight:500}dd{margin:0}dd pre{margin:0}.path{font-size:.8rem;color:#525b66}table{border-collapse:collapse;display:block;overflow:auto;max-width:100%}th,td{border:1px solid #c8ced6;padding:.5rem}blockquote{border-left:3px solid #a2abb7;padding-left:1rem}code{overflow-wrap:anywhere}section{scroll-margin-top:1rem}li input{pointer-events:none}
-@media(max-width:640px){main{padding:1.5rem 1rem 3rem}header{padding-bottom:1.5rem}section{padding:1.5rem 0}.comparison,.finding-summary{grid-template-columns:1fr;gap:1rem}.comparison>div+div{border-left:0;border-top:1px solid #d9dde3;padding:1rem 0 0}.finding-summary .badge{justify-self:start}.decision{padding:1rem}.attention-panel{padding:1rem}dl{grid-template-columns:minmax(5rem,1fr) minmax(0,2fr);gap:0 .7rem}h1{font-size:1.4rem}.conclusion{font-size:1.4rem}.metadata{display:block}.metadata span{display:block}}`;
+details{margin:.9rem 0}summary{cursor:pointer;color:#3c4c5e;font-size:1rem;font-weight:600;padding:.4rem 0}details[open]>summary{margin-bottom:.7rem}details details{margin-left:.8rem}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#eef0f3;padding:1rem;border-radius:4px;font-size:.82rem;line-height:1.6}p,li,dd,dt,h1,h2,h3,h4,summary,.path,span{overflow-wrap:anywhere}.recorded-text{white-space:pre-wrap}dl{display:grid;grid-template-columns:minmax(8rem,1fr) minmax(0,3fr);gap:0 1rem;margin:.6rem 0 1rem}dt,dd{border-bottom:1px solid #e5e7eb;padding:.55rem 0}dt{font-size:.88rem;color:#525b66;font-weight:500}dd{margin:0}dd pre{margin:0}.path{font-size:.8rem;color:#525b66}table{border-collapse:collapse;display:block;overflow:auto;max-width:100%}th,td{border:1px solid #c8ced6;padding:.5rem}blockquote{border-left:3px solid #a2abb7;padding-left:1rem}code{overflow-wrap:anywhere}section{scroll-margin-top:1rem}li input{pointer-events:none}
+.actions{list-style:none;padding:0;margin:1rem 0 2rem}.actions>li{padding:1rem 0;border-top:1px solid #d9dde3}.action-heading{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap}.actions p{margin:.4rem 0}.actions details{margin:.4rem 0}.action-heading span,#usage dd{font-variant-numeric:tabular-nums}#logs>article{margin:2rem 0}#usage dl{grid-template-columns:minmax(10rem,1fr) minmax(0,1fr) minmax(10rem,1fr) minmax(0,1fr)}
+@media(max-width:640px){main{padding:1.5rem 1rem 3rem}header{padding-bottom:1.5rem}section{padding:1.5rem 0}.comparison,.finding-summary{grid-template-columns:1fr;gap:1rem}.comparison>div+div{border-left:0;border-top:1px solid #d9dde3;padding:1rem 0 0}.finding-summary .badge{justify-self:start}.decision{padding:1rem}.attention-panel{padding:1rem}dl{grid-template-columns:minmax(5rem,1fr) minmax(0,2fr);gap:0 .7rem}h1{font-size:1.4rem}.conclusion{font-size:1.4rem}.metadata{display:block}.metadata span{display:block}#usage dl{grid-template-columns:1fr 1fr}.action-heading{display:block}.action-heading span{display:block}}`;
 
 function overview(data: ReportRecords, title: string) {
   const trial = data.result.trial;
@@ -274,11 +304,11 @@ function overview(data: ReportRecords, title: string) {
       : trial?.provenance === 'live_model'
         ? '実モデル'
         : '不明';
-  return `<header id="top"><p class="eyebrow">レビュー試験 · ${origin}</p><h1>${escape(title)}</h1><div class="question">${trial ? prose(trial.question) : '<p>何を確かめたか: 適用した試験の問いは未記録・未確認</p>'}</div><div id="conclusion" class="decision" data-conclusion="${judgment?.conclusion ?? 'unknown'}"><p class="eyebrow">このケースの結論 · ホストの記録</p><p class="conclusion">${judgment?.conclusion ? conclusions[judgment.conclusion] : '結論は未確認'}</p>${judgment?.reason ? prose(judgment.reason) : '<p class="muted">判断理由は未記録・未確認です。</p>'}</div><div class="metadata"><span>対象: ${escape(data.result.name === 'defective' ? '既知欠陥例' : '正常例')} · 基準版 ${escape(data.result.baseCommit.slice(0, 12))}</span><span>実行開始（UTC）: ${escape(trial?.startedAt ?? '未記録・未確認')}</span><span>ホスト判断（UTC）: ${escape(judgment?.at ?? '未記録・未確認')}</span></div>${trial?.provenance === 'display_sample' ? '<p class="muted">モデルを呼ばない表示サンプルです。日時・判断・使用量も模擬値です。</p>' : trial?.provenance === 'live_model' ? '<p class="muted">合成課題を実モデルでレビューしたケース単位の記録です。</p>' : ''}<nav aria-label="レポート内の移動">${[
-    ['results', '期待・実結果'],
+  return `<header id="top"><p class="eyebrow">レビュー試験 · ${origin}</p><h1>レビュー試験の行動ログと評価</h1><p>評価対象: ${escape(title)}</p><div class="question">${trial ? prose(trial.question) : '<p>何を確かめたか: 適用した試験の問いは未記録・未確認</p>'}</div><div id="conclusion" class="decision" data-conclusion="${judgment?.conclusion ?? 'unknown'}"><p class="eyebrow">このケースの結論 · ホストの記録</p><p class="conclusion">${judgment?.conclusion ? conclusions[judgment.conclusion] : '結論は未確認'}</p>${judgment?.reason ? prose(judgment.reason) : '<p class="muted">判断理由は未記録・未確認です。</p>'}</div><div class="metadata"><span>対象: ${escape(data.result.name === 'defective' ? '既知欠陥例' : '正常例')} · 基準版 ${escape(data.result.baseCommit.slice(0, 12))}</span><span>実行開始（UTC）: ${escape(trial?.startedAt ?? '未記録・未確認')}</span><span>ホスト判断（UTC）: ${escape(judgment?.at ?? '未記録・未確認')}</span></div>${trial?.provenance === 'display_sample' ? '<p class="muted">モデルを呼ばない表示サンプルです。日時・判断・使用量も模擬値です。</p>' : trial?.provenance === 'live_model' ? '<p class="muted">合成課題を実モデルでレビューしたケース単位の記録です。</p>' : ''}<nav aria-label="レポート内の移動">${[
+    ['results', '評価'],
     ['review', '指摘'],
     ['usage', '時間・使用量'],
-    ['logs', '実行ログ'],
+    ['logs', '行動ログ'],
     ['records', '記録詳細'],
   ]
     .map(([id, label]) => link(id ?? '', label ?? ''))
@@ -292,7 +322,7 @@ export async function renderReport(data: ReportRecords) {
       ? data.issue.value.title
       : data.result.id;
   const trial = data.result.trial;
-  const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; base-uri 'none'; form-action 'none'"><meta name="referrer" content="no-referrer"><title>レビュー試験 — ${escape(title)}</title><style>${css}</style></head><body><main>${overview(data, title)}${attention(data, evidence)}${results(data, evidence)}${reviews(data)}${usage(data)}${logs(data)}<section id="records" tabindex="-1"><h2>記録詳細</h2>${details('由来・日時・入力記録', `<dl>${field('由来', trial?.provenance)}${field('実行開始（UTC）', trial?.startedAt)}${field('実行終了（UTC）', trial?.finishedAt)}${field('ホスト判断（UTC）', trial?.judgment.at)}${field('HTML生成日時（評価日時ではありません）', new Date().toISOString())}</dl><p class="path">入力: ${escape(data.input.path)}</p>`)}${details('元の要求・対象・環境', requirements(data))}${recordView(data.input, 'result-record')}${recordView(data.state, 'state-record')}<article id="targets" tabindex="-1">${details('保存されたレビュー対象と関連記録', data.targets.map((entry, index) => recordView(entry, `target-${index}`)).join('') || '<p class="warning">保存対象記録がありません。</p>')}</article>${details('この表示で判断できる範囲', `<p>ハーネス全体の合否ではありません。試験用コードの失敗と、欠陥を正しく指摘するレビュー試験の成功は別です。モデル状態・制御終了・修正状況・真偽の裁定・試験の結論を区別します。表示側で合否・原因・証拠の対応やログ間の因果関係を補いません。現在のcheckout、oracleのパス先、別試行を過去の根拠として読み込まず、記録の真正性・完全性は保証しません。元記録を更新した場合は別名で再生成してください。状態変更・再実行・採点・承認・マージの操作はありません。</p>${data.result.limitations.map(prose).join('')}`)}<p>${link('top', '冒頭へ戻る')}</p></section></main></body></html>`;
+  const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; base-uri 'none'; form-action 'none'"><meta name="referrer" content="no-referrer"><title>レビュー試験 — ${escape(title)}</title><style>${css}</style></head><body><main>${overview(data, title)}${attention(data, evidence)}${results(data, evidence)}${reviews(data)}${logs(data)}${usage(data)}<section id="records" tabindex="-1"><h2>記録詳細</h2>${details('由来・日時・入力記録', `<dl>${field('由来', trial?.provenance)}${field('実行開始（UTC）', trial?.startedAt)}${field('実行終了（UTC）', trial?.finishedAt)}${field('ホスト判断（UTC）', trial?.judgment.at)}${field('HTML生成日時（評価日時ではありません）', new Date().toISOString())}</dl><p class="path">入力: ${escape(data.input.path)}</p>`)}${details('元の要求・対象・環境', requirements(data))}${recordView(data.input, 'result-record')}${recordView(data.state, 'state-record')}<article id="targets" tabindex="-1">${details('保存されたレビュー対象と関連記録', data.targets.map((entry, index) => recordView(entry, `target-${index}`)).join('') || '<p class="warning">保存対象記録がありません。</p>')}</article>${details('この表示で判断できる範囲', `<p>ハーネス全体の合否ではありません。試験用コードの失敗と、欠陥を正しく指摘するレビュー試験の成功は別です。モデル状態・制御終了・修正状況・真偽の裁定・試験の結論を区別します。表示側で合否・原因・証拠の対応やログ間の因果関係を補いません。現在のcheckout、oracleのパス先、別試行を過去の根拠として読み込まず、記録の真正性・完全性は保証しません。元記録を更新した場合は別名で再生成してください。状態変更・再実行・採点・承認・マージの操作はありません。</p>${data.result.limitations.map(prose).join('')}`)}<p>${link('top', '冒頭へ戻る')}</p></section></main></body></html>`;
   // HTML is disabled in Markdown; URL filtering also covers entity/control-character
   // spellings after HTML parsing. Images stay textual so opening a report is offline.
   return new HTMLRewriter()
