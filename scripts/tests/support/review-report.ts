@@ -234,7 +234,10 @@ async function fixtureLogs(dir: string, actor: string, mode: string, review: Rev
         },
       ]
         .map((event) => JSON.stringify(event))
-        .join('\n') + '\n',
+        .join('\n') +
+        '\n' +
+        String.raw`{"type":"item.completed","item":{"id":"lexical-read","type":"mcp_tool_call","server":"fixture","tool":"read_file","arguments":{"path":"boundary.json","large":9007199254740993,"same":1,"same":2,"power":1E+09,"escaped":"\u0061  b"},"status":"completed","result":{"large":9007199254740993,"same":1,"same":2,"power":1E+09,"escaped":"\u0061  b","markup":"<script>globalThis.REPORT_EXECUTED=true</script>"}}}` +
+        '\n',
     );
     await writeFile(join(actor, 'stderr.log'), '');
     await writeFile(join(actor, 'final.json'), JSON.stringify(review));
@@ -263,6 +266,27 @@ async function fixtureLogs(dir: string, actor: string, mode: string, review: Rev
             aggregated_output: '模擬の中断。終了結果は未保存。',
           },
         }),
+        ...[
+          { type: 'item.started', status: 'in_progress' },
+          {
+            type: 'item.updated',
+            status: 'failed',
+            result: { isError: true, content: '模擬の読取り失敗' },
+          },
+          { type: 'item.completed', status: 'completed' },
+        ].map(({ type, ...fields }) =>
+          JSON.stringify({
+            type,
+            item: {
+              id: 'read-incomplete',
+              type: 'mcp_tool_call',
+              server: 'fixture',
+              tool: 'read_file',
+              arguments: { path: 'unavailable.md' },
+              ...fields,
+            },
+          }),
+        ),
         JSON.stringify({ type: 'future.event', payload: '未対応の模擬イベント' }),
         '{truncated',
       ].join('\n'),

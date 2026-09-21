@@ -1,5 +1,7 @@
+import { readFile } from 'node:fs/promises';
+import { prettyJson, prettyValidatedJson } from './review-report-json.ts';
 import { basename, dirname } from 'node:path';
-import type { LogEvent } from './review-report-events.ts';
+import { hasRecordedOutput, type LogEvent } from './review-report-events.ts';
 import type { StopReason } from './input.ts';
 import { trialEvidence } from './review-report-records.ts';
 import type { ReviewItem } from './review.ts';
@@ -8,10 +10,16 @@ import { isRecord } from './values.ts';
 
 const escape = (value: unknown) => Bun.escapeHTML(String(value));
 const raw = (value: unknown) => `<pre>${escape(JSON.stringify(value, null, 2) ?? '未記録')}</pre>`;
+const savedText = (text: string) =>
+  `<pre class="saved-text"><code>${escape(text).replaceAll('\r', '&#13;')}</code></pre>`;
 const prose = (text: string) =>
   `<div class="markdown">${Bun.markdown.html(text, { noHtmlBlocks: true, noHtmlSpans: true, headings: false })}</div>`;
-const details = (title: string, html: string) =>
-  `<details><summary>${escape(title)}</summary>${html}</details>`;
+const panel = (label: string, body: string, tone = '') =>
+  `<div class="detail-panel ${tone}"><h4>${escape(label)}</h4><div class="field-content">${body}</div></div>`;
+function disclosure(title: string, body: string, meta = '', notice = '') {
+  return `<details class="disclosure"><summary><span class="disclosure-title"><span class="disclosure-heading">${escape(title)}</span></span><span class="disclosure-meta">${meta}</span><span class="chevron" aria-hidden="true">›</span>${notice ? `<span class="activity-problems">${notice}</span>` : ''}</summary><div class="disclosure-body">${body}</div></details>`;
+}
+const details = (title: string, html: string) => disclosure(title, html);
 const link = (id: string, label: string) => `<a href="#${id}">${escape(label)}</a>`;
 const field = (label: string, value: unknown) =>
   `<dt>${escape(label)}</dt><dd>${value === null || value === undefined ? '未記録・未確認' : escape(value)}</dd>`;
@@ -62,7 +70,20 @@ function recordView(entry: SavedRecord, id: string) {
   const additions = (entry.additions ?? [])
     .map((item) => details(`追加ファイル: ${item.path}`, additionContent(item.content)))
     .join('');
-  return `<article id="${id}" tabindex="-1">${details(basename(entry.path), `<p class="path">${escape(entry.path)}</p>${entry.problem ? `<p class="warning">記録欠落・読取不能。${link('record-warnings', '不足の詳細と必要な照合')}</p>` : ''}${additions}${entry.text !== null ? `<pre>${escape(entry.text)}</pre>` : ''}`)}</article>`;
+  const direction = entry.path.endsWith('.prompt')
+    ? '入力'
+    : /\.(stdout|stderr)$|\/(stderr\.log|final\.json)$/.test(entry.path)
+      ? '出力'
+      : '';
+  const meta = direction
+    ? `<span class="io-label ${direction === '入力' ? 'input-label' : 'output-label'}">${direction}</span>`
+    : '';
+  const problem = entry.problem ? '記録欠落・読取不能。関連記録の不足を照合してください。' : '';
+  const content =
+    entry.text === null
+      ? ''
+      : `${entry.text === '' ? '<p>内容は空です。保存された空の記録です。</p>' : ''}${savedText(prettyJson(entry.text))}`;
+  return `<article id="${id}" class="record-entry" tabindex="-1">${disclosure(basename(entry.path), `${additions}${content}<div class="record-source"><span>出所</span><p class="path">${escape(entry.path)}</p></div>`, meta, problem)}</article>`;
 }
 
 const conclusions = {
@@ -179,7 +200,7 @@ function attention(data: ReportRecords, evidence: ReadonlyMap<string, string>) {
   if (!notices.length && !warnings.length) {
     return '';
   }
-  return `<section id="attention" class="attention-panel"><h2>残る確認</h2><ul class="attention">${notices.map((notice) => `<li>${notice}</li>`).join('')}${warnings.length ? `<li>${link('record-warnings', `関連記録の失敗・不足・不整合: ${warnings.length}件`)}。同じ試行の記録を確認してください。</li>` : ''}</ul>${warnings.length ? details('不足している記録と必要な照合', `<ul id="record-warnings">${warnings.map((warning) => `<li>${escape(warning)}</li>`).join('')}</ul>`) : ''}</section>`;
+  return `<section id="attention" class="card attention-panel"><h2>残る確認</h2><ul class="attention">${notices.map((notice) => `<li>${notice}</li>`).join('')}${warnings.length ? `<li>${link('record-warnings', `関連記録の失敗・不足・不整合: ${warnings.length}件`)}。同じ試行の記録を確認してください。</li>` : ''}</ul>${warnings.length ? details('不足している記録と必要な照合', `<ul id="record-warnings">${warnings.map((warning) => `<li>${escape(warning)}</li>`).join('')}</ul>`) : ''}</section>`;
 }
 
 function requirements(data: ReportRecords) {
@@ -189,7 +210,7 @@ function requirements(data: ReportRecords) {
 
 function results(data: ReportRecords, evidence: ReadonlyMap<string, string>) {
   const { result } = data;
-  return `<section id="results" tabindex="-1"><h2>評価</h2><p>期待値・実結果と適用基準を照合します。試験用コードの失敗と、レビューによる欠陥検出の成功は別です。</p><div class="panel"><h3>判断の根拠</h3><p>${link('criteria', '適用した問い・達成基準')} / ${link('conclusion', '記録された結論と理由')}</p><ul>${result.trial?.judgment.evidence.map((ref) => `<li>${evidence.has(ref) ? link(evidence.get(ref) ?? '', ref) : `${escape(ref)} — 対応する証拠は未確認`}</li>`).join('') || '<li>対応は未記録・未確認</li>'}</ul><p class="muted">ログ全体への参照では、個別行動との対応は未確認です。</p></div><article id="reproduction" class="panel" tabindex="-1"><h3>同じ対象の独立した再現</h3><div class="reproduction-input"><h4>入力</h4>${labeledValues(result.reproduction?.input)}</div><div class="comparison observations"><div><h4>期待値</h4>${labeledValues(result.reproduction?.expected)}</div><div><h4>実結果</h4>${labeledValues(result.reproduction?.actual)}</div></div>${details('再現記録の原JSON・全項目', raw(result.reproduction))}</article>${details('既知の欠陥・裁定記録', `<dl>${field('既知の欠陥', result.adjudication?.knownDefect)}${field('既知の欠陥の見落とし', result.adjudication?.missedKnownDefect)}</dl>${raw(result.adjudication)}`)}<p class="source-links">${link('requirements', '元の要求・対象・条件')} / ${link('targets', '保存されたレビュー対象')}</p></section>`;
+  return `<section id="results" tabindex="-1"><h2>根拠と再現</h2><p>評価欄は解析した要約です。保存時の字句は${link('result-record', 'result.jsonの原文')}で確認してください。</p><p>期待値・実結果と適用基準を照合します。試験用コードの失敗と、レビューによる欠陥検出の成功は別です。</p><div class="card evidence-links"><h3>判断の根拠</h3><p>${link('criteria', '適用した問い・達成基準')} / ${link('conclusion', '記録された結論と理由')}</p><ul>${result.trial?.judgment.evidence.map((ref) => `<li>${evidence.has(ref) ? link(evidence.get(ref) ?? '', ref) : `${escape(ref)} — 対応する証拠は未確認`}</li>`).join('') || '<li>対応は未記録・未確認</li>'}</ul><p class="muted">ログ全体への参照では、個別行動との対応は未確認です。</p></div><article id="reproduction" class="card detail-card" tabindex="-1">${details('対象コードの動作確認', `<p class="muted">解析した値の要約。保存時の字句は${link('result-record', 'result.jsonの原文')}で確認してください。</p><div class="reproduction-layout">${panel('入力 · 条件', labeledValues(result.reproduction?.input), 'input-panel')}<div class="comparison observations">${panel('出力 · 期待値', labeledValues(result.reproduction?.expected), 'output-panel')}${panel('出力 · 実結果', labeledValues(result.reproduction?.actual), 'output-panel')}</div></div>${details('再現記録の全項目（解析した要約）', raw(result.reproduction))}`)}</article>${details('既知の欠陥・裁定記録', `<dl>${field('既知の欠陥', result.adjudication?.knownDefect)}${field('既知の欠陥の見落とし', result.adjudication?.missedKnownDefect)}</dl>${raw(result.adjudication)}`)}<p class="source-links">${link('requirements', '元の要求・対象・条件')} / ${link('targets', '保存されたレビュー対象')}</p></section>`;
 }
 
 const verdicts: Record<string, string> = {
@@ -200,24 +221,37 @@ const verdicts: Record<string, string> = {
 
 function findingView(item: ReviewItem, index: number, data: ReportRecords) {
   const judgment = data.result.adjudication?.findings.find((entry) => entry.id === item.id);
-  const bodies = [
-    ['発生条件', item.condition],
-    ['証拠', item.evidence],
-    ['対応案', item.action],
-    ['修正状況の理由・未確認事項', item.reason],
-  ]
-    .map(([label, text]) => `<h4>${escape(label)}</h4>${prose(text ?? '')}`)
-    .join('');
   const verdict = judgment?.verdict ?? 'unconfirmed';
-  return `<article id="finding-${index}" class="finding panel" tabindex="-1"><div class="finding-summary"><h3>${escape(item.impact)}</h3><span class="badge ${verdict}">真偽の裁定: ${verdicts[verdict]}</span></div><p class="finding-location">${escape(item.location.path ?? '箇所は未記録')}${item.location.line === null ? '' : `:${escape(item.location.line)}`}</p>${details('条件・証拠・対応と裁定理由', `<dl>${field('指摘ID', item.id)}${field('修正状況', item.disposition)}${field('真偽の裁定（内部コード）', judgment?.verdict)}${field('観点 / 種別', `${item.area} / ${item.kind}`)}${field('必須対応', item.required)}${field('初出対象ID', item.introducedIn)}</dl>${bodies}${judgment ? `<h4>裁定の再現</h4>${labeledValues(judgment.reproduction)}<h4>裁定理由</h4>${judgment.reason ? prose(judgment.reason) : '<p>裁定理由は未記録です。</p>'}` : '<p>対応する裁定・再現は未記録です。</p>'}<p>${link('reproduction', 'ケースの再現（指摘との対応は記録で確認）')} / ${link('targets', '対象記録')} / ${link('logs', '呼出し・ツール実行の記録')}</p>`)}</article>`;
+  const model = [
+    ['発生条件', item.condition],
+    ['モデルが挙げた証拠', item.evidence],
+    ['対応案', item.action],
+  ]
+    .map(([label, text]) => panel(label ?? '', prose(text ?? '')))
+    .join('');
+  const host =
+    panel(
+      '確認結果の理由',
+      judgment?.reason ? prose(judgment.reason) : '<p>裁定理由は未確認です。</p>',
+    ) +
+    panel(
+      'この指摘の再現（解析した要約）',
+      judgment?.reproduction !== null && judgment?.reproduction !== undefined
+        ? labeledValues(judgment.reproduction)
+        : '<p>この指摘に対する再現は未確認です。</p>',
+    ) +
+    panel('修正状況', `<p>${escape(item.disposition)}</p>${prose(item.reason)}`);
+  const metadata = `<dl>${field('指摘ID', item.id)}${field('修正状況', item.disposition)}${field('真偽の裁定（内部コード）', judgment?.verdict)}${field('観点 / 種別', `${item.area} / ${item.kind}`)}${field('必須対応', item.required)}${field('初出対象ID', item.introducedIn)}</dl>`;
+  const body = `<p class="finding-location">${escape(item.location.path ?? '箇所は未記録')}${item.location.line === null ? '' : `:${escape(item.location.line)}`}</p><div class="finding-columns"><section class="finding-party"><h3>モデルの指摘</h3>${model}</section><section class="finding-party"><h3>ホストの確認</h3>${host}</section></div><p>${link('reproduction', 'ケースの再現（指摘との対応は記録で確認）')} / ${link('targets', '対象記録')} / ${link('result-record', 'result.jsonの原文')} / ${link('logs', '呼出し・ツール実行の記録')}</p>${details('指摘の管理情報', metadata)}`;
+  return `<article id="finding-${index}" class="card finding-card" tabindex="-1">${disclosure(`${item.id} · ${item.impact}`, body, `<span class="badge ${verdict}" data-variant="outline">真偽の裁定: ${verdicts[verdict]}</span><span class="finding-location">${escape(item.location.path ?? '箇所は未記録')}${item.location.line === null ? '' : `:${escape(item.location.line)}`}</span>`)}</article>`;
 }
 
 function reviews(data: ReportRecords) {
   const review = data.result.review;
-  return `<section id="review" tabindex="-1"><h2>指摘と裁定</h2>${
+  return `<section id="review" tabindex="-1"><h2>指摘の検証</h2>${
     review
-      ? `${review.items.length ? review.items.map((item, index) => findingView(item, index, data)).join('') : '<p>記録された指摘: 0件。指摘なしは欠陥なしの証明ではありません。</p>'}${details('モデルのレビュー原文', prose(review.findings))}${details(
-          '評価観点・参照文書・引き継ぎ',
+      ? `${review.items.length ? review.items.map((item, index) => findingView(item, index, data)).join('') : '<p>記録された指摘: 0件。指摘なしは欠陥なしの証明ではありません。</p>'}${details('モデルのレビュー本文（解析した値）', prose(review.findings))}${details(
+          '評価観点・モデルが申告した参照文書・引き継ぎ',
           `${Object.entries(review.assessments)
             .map(([label, text]) => `<h3>${escape(label)}</h3>${prose(text)}`)
             .join('')}${raw(review.documents)}${review.handoff.map(prose).join('')}`,
@@ -227,39 +261,36 @@ function reviews(data: ReportRecords) {
 }
 
 function metric(label: string, value: number | null | undefined, unit: string) {
-  return `<div class="metric panel"><h3>${escape(label)}</h3><p class="metric-value">${value === null || value === undefined ? '<span class="metric-unknown">未計測・未確認</span>' : `${escape(value)} <span class="unit">${escape(unit)}</span>`}</p></div>`;
+  return `<div class="metric card"><h3>${escape(label)}</h3><p class="metric-value">${value === null || value === undefined ? '<span class="metric-unknown">未計測・未確認</span>' : `${escape(value)} <span class="unit">${escape(unit)}</span>`}</p></div>`;
 }
 
-function usage(data: ReportRecords) {
+function usage(data: ReportRecords, evidence: ReadonlyMap<string, string>) {
   const { result } = data;
   const totals = result.usage?.totals;
   const judgment = result.trial?.judgment;
-  return `<section id="usage" aria-label="結論・時間・使用量"><div class="metrics"><div id="conclusion" class="metric panel" data-conclusion="${judgment?.conclusion ?? 'unknown'}"><h3>結論 · ホストの記録</h3><p class="metric-value conclusion">${judgment?.conclusion ? conclusions[judgment.conclusion] : '結論は未確認'}</p></div>${metric('実時間', result.elapsedMs, 'ms')}${metric('入力トークン', totals?.input_tokens, 'tokens')}${metric('出力トークン', totals?.output_tokens, 'tokens')}</div><div class="decision-reason"><h3>判断理由</h3>${judgment?.reason ? prose(judgment.reason) : '<p class="muted">判断理由は未記録・未確認です。</p>'}</div><p class="muted">トークンの集計範囲: レビューCLIの完了ターン。子モデルを含む総使用量は未確認、金額は未計測です。</p>${!totals ? '<p class="warning">使用量が未計測・欠落。品質と分けて費用比較を未確認にします。</p>' : ''}${details('時間・使用量の内訳と原記録', `<dl>${field('モデル時間 (ms)', result.modelMs)}${field('キャッシュ入力トークン', totals?.cached_input_tokens)}${field('集計した完了ターン数', result.usage?.completedTurns)}</dl>${result.usage ? prose(result.usage.scope) : '<p>使用量の記録がありません。</p>'}<p>実時間とモデル時間は保存値です。中断したターンや子モデルを含む総量、契約上の課金額を確定するものではありません。トークンを再集計したり金額を推定したりしません。</p>${raw(result.usage)}`)}</section>`;
+  return `<section id="summary" tabindex="-1"><h2>評価の要約</h2><div id="usage" aria-label="結論・時間・使用量"><div class="metrics"><div id="conclusion" class="metric card" data-conclusion="${judgment?.conclusion ?? 'unknown'}"><h3>結論 · ホストの記録</h3><p class="metric-value conclusion">${judgment?.conclusion ? conclusions[judgment.conclusion] : '結論は未確認'}</p></div>${metric('実時間', result.elapsedMs, 'ms')}${metric('入力トークン', totals?.input_tokens, 'tokens')}${metric('出力トークン', totals?.output_tokens, 'tokens')}</div>${attention(data, evidence)}<div class="summary-grid"><div id="criteria" class="card question" tabindex="-1"><h3>問い</h3>${result.trial ? prose(result.trial.question) : '<p>適用した試験の問いは未記録・未確認</p>'}<h3>達成基準</h3>${result.trial ? prose(result.trial.criteria) : '<p>未記録・未確認（現在の基準を遡及適用しません）</p>'}</div><div class="card"><div class="decision-reason"><h3>判断理由</h3>${judgment?.reason ? prose(judgment.reason) : '<p class="muted">判断理由は未記録・未確認です。</p>'}</div><p class="muted">トークンの集計範囲: レビューCLIの完了ターン。子モデルを含む総使用量は未確認、金額は未計測です。</p>${!totals ? '<p class="warning">使用量が未計測・欠落。品質と分けて費用比較を未確認にします。</p>' : ''}${details('時間・使用量の内訳と原記録', `<dl>${field('モデル時間 (ms)', result.modelMs)}${field('キャッシュ入力トークン', totals?.cached_input_tokens)}${field('集計した完了ターン数', result.usage?.completedTurns)}</dl>${result.usage ? prose(result.usage.scope) : '<p>使用量の記録がありません。</p>'}<p>実時間とモデル時間は保存値です。中断したターンや子モデルを含む総量、契約上の課金額を確定するものではありません。トークンを再集計したり金額を推定したりしません。</p>${raw(result.usage)}`)}</div></div></div></section>`;
 }
 
-function shortValue(value: unknown) {
-  if (value === undefined || value === null) {
-    return '未記録・未確認';
-  }
-  const text = typeof value === 'string' ? value : JSON.stringify(value);
-  return escape(text.length > 180 ? `${text.slice(0, 180)}…（全文は原文）` : text);
-}
-
-function logTable(caption: string, columns: string[], rows: string[]) {
-  return `<table class="log-table"><caption>${escape(caption)}</caption><thead><tr>${columns.map((column) => `<th scope="col">${escape(column)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table>`;
-}
-
-function cell(label: string, html: string, className = '') {
-  return `<td data-label="${escape(label)}" class="${className}">${html}</td>`;
+function eventPayload(value: string | undefined) {
+  return value === undefined
+    ? '<p class="muted">未記録・未確認、または重複キーにより抽出不能。原文を確認してください。</p>'
+    : savedText(prettyValidatedJson(value));
 }
 
 function eventRow(row: LogEvent, logId: string) {
   const id = `${logId}-line-${row.line}`;
+  const outputField =
+    row.itemType === 'mcp_tool_call' ? (row.outputJson === undefined ? 'error' : 'result') : '応答';
   const bytes =
-    typeof row.output === 'string'
-      ? `<div class="response-size">${Buffer.byteLength(row.output, 'utf8')} <span class="unit">B</span></div>`
+    row.outputBytes !== undefined
+      ? `<div class="response-size">${row.outputBytes} <span class="unit">B</span>（解析した${outputField}文字列のUTF-8バイト数）</div>`
       : '<div class="muted">サイズ未計測</div>';
-  return `<tr id="${id}" tabindex="-1">${cell('行 / 時刻', `<strong>行 ${row.line}</strong><div class="event-time">${escape(row.timestamp ?? '時刻は未記録・未確認')}</div>`)}${cell('操作・ツール', `<strong>${escape(row.operation)}</strong>${row.itemId ? `<div class="muted">ID: ${escape(row.itemId)}</div>` : ''}${row.relatedLine ? `<div>${link(`${logId}-line-${row.relatedLine}`, `同じIDの対応行 ${row.relatedLine}`)}（このファイル内）</div>` : ''}`)}${cell('入力・対象', shortValue(row.input), 'event-input')}${cell('応答・サイズ', `<div class="event-output">${shortValue(row.output)}</div>${bytes}${details(`行 ${row.line} の原文 · ${row.type || '形式不正'}`, `<pre>${escape(row.raw)}</pre>`)}`)}${cell('状態', `<div>${escape(row.result)}</div>${row.problems.map((problem) => `<p class="warning">${escape(problem)}</p>`).join('')}`)}</tr>`;
+  const output =
+    row.itemType === 'mcp_tool_call'
+      ? `<h4>result</h4>${eventPayload(row.outputJson)}<h4>error</h4>${eventPayload(row.errorJson)}`
+      : eventPayload(row.outputJson);
+  const body = `<div class="io-grid">${panel('入力 · 保存されたJSON値', `<div class="event-input">${eventPayload(row.inputJson)}</div>`, 'input-panel')}${panel('出力 · 保存されたJSON値', `<div class="event-output">${output}</div>${bytes}`, 'output-panel')}</div><div class="event-meta"><span>${escape(row.timestamp ?? '時刻は未記録・未確認')}</span>${row.itemId ? `<span>ID: ${escape(row.itemId)}</span>` : ''}${row.relatedLine ? link(`${logId}-line-${row.relatedLine}`, `同じIDの対応行 ${row.relatedLine}`) : ''}</div>${details(`行 ${row.line} の原文（JSONの空白のみ整形） · ${row.type || '形式不正'}`, savedText(prettyJson(row.raw)))}`;
+  return `<article id="${id}" tabindex="-1">${disclosure(`行 ${row.line} · ${row.operation}`, body, `<span class="badge activity-status" data-variant="outline">${escape(row.result)}</span>`, row.problems.map(escape).join('<br>'))}</article>`;
 }
 
 function actorLog(entry: SavedRecord, index: number) {
@@ -267,15 +298,7 @@ function actorLog(entry: SavedRecord, index: number) {
     return '';
   }
   const actor = basename(dirname(entry.path));
-  return `<article id="log-${index}" tabindex="-1"><h3>モデル側 · ${escape(actor)}</h3><p>このJSONLの非空行: ${entry.events.length}件。操作数・全実行の総量ではありません。</p>${
-    entry.events.length
-      ? logTable(
-          'モデルの保存行（応答サイズは文字列応答のUTF-8バイト数）',
-          ['行 / 時刻', '操作・ツール', '入力・対象', '応答・サイズ', '状態'],
-          entry.events.map((row) => eventRow(row, `log-${index}`)),
-        )
-      : '<p class="warning">イベント未記録・結果は未確認です。</p>'
-  }${details('ログの保存先', `<p class="path">${escape(entry.path)}</p>`)}</article>`;
+  return `<article id="log-${index}" class="card log-group" tabindex="-1"><header><h3>モデル側 · ${escape(actor)}</h3><p>このJSONLの非空行: ${entry.events.length}件。操作数・全実行の総量ではありません。</p></header><div class="activity-list">${entry.events.length ? entry.events.map((row) => eventRow(row, `log-${index}`)).join('') : '<p class="warning">イベント未記録・結果は未確認です。</p>'}</div>${details('JSONLの原文・保存先', `<p class="path">${escape(entry.path)}</p><pre class="saved-text"><code>${escape(entry.text ?? '').replaceAll('\r', '&#13;')}</code></pre>`)}</article>`;
 }
 
 function controlLogs(data: ReportRecords) {
@@ -294,28 +317,34 @@ function controlLogs(data: ReportRecords) {
         ? [link(`log-${logIndex}`, basename(entry.path))]
         : [],
     );
-    return `<tr>${cell('保存順', String(index + 1))}${cell('操作', `ホスト · ${roles[event.role]}`)}${cell('対象', escape(basename(event.prefix)))}${cell('実時間 / 記録', `<div class="numeric">${escape(event.ms ?? '未計測')} <span class="unit">ms</span></div>${refs.join(' / ') || '関連ログは未確認'}`)}${cell('状態', `${status} / 終了コード ${escape(event.code ?? '未記録')}`)}</tr>`;
+    const body = `<div class="io-grid">${panel('入力 · 対象', escape(basename(event.prefix)), 'input-panel')}${panel('出力 · 関連記録と実時間', `<div class="numeric">${escape(event.ms ?? '未計測')} <span class="unit">ms</span></div>${refs.join(' / ') || '関連ログは未確認'}`, 'output-panel')}</div>`;
+    return disclosure(
+      `${index + 1} · ホスト · ${roles[event.role]}`,
+      body,
+      `<span class="badge activity-status" data-variant="outline">${status} / 終了コード ${escape(event.code ?? '未記録')}</span>`,
+    );
   });
   const active = data.timeline?.active;
-  return `<h3>ホストの制御呼出し</h3><p>state.eventsの保存順。個々の開始・終了時刻は未記録です。${link('state-record', 'stateの原文')}</p>${rows.length ? logTable('ホストの保存された制御呼出し', ['保存順', '操作', '対象', '実時間 / 記録', '状態'], rows) : '<p class="warning">呼出し順序は未確認です。</p>'}${active ? `<p class="warning">ホスト · ${roles[active.role]} · ${escape(basename(active.prefix))}: 実行中の保存記録。完了は未確認です。</p>` : ''}`;
+  return `<div class="card log-group"><header><h3>ホストの制御呼出し</h3><p>state.eventsの保存順。個々の開始・終了時刻は未記録です。${link('state-record', 'stateの原文')}</p></header><div class="activity-list">${rows.join('') || '<p class="warning">呼出し順序は未確認です。</p>'}</div>${active ? `<p class="warning">ホスト · ${roles[active.role]} · ${escape(basename(active.prefix))}: 実行中の保存記録。完了は未確認です。</p>` : ''}</div>`;
 }
 
 function logs(data: ReportRecords) {
-  return `<section id="logs" tabindex="-1"><h2>行動ログ</h2><p>ホストの制御呼出しとモデル側の操作を分けて表示します。各JSONLはファイル内の行順です。別ログ・主体間の全体順序、親子関係、制御呼出しとの対応は未確認です。</p>${controlLogs(data)}<h3>モデルのツール実行・イベント</h3><p>開始と完了は同じファイルの一意なID・項目種別が一致する場合だけリンクします。失敗・中断・更新も元の行に残します。時刻・入力・応答は保存値だけを示し、操作から内容の理解・有効利用、空白時間の原因は判断しません。</p>${data.logs.filter((entry) => entry.events).length ? '' : '<p class="warning">読み取れるJSONLがなく、モデル側の操作は未確認です。</p>'}${data.logs.map(actorLog).join('')}<h3>呼出しの入出力・関連原記録</h3>${data.logs.map((entry, index) => (!entry.events ? recordView(entry, `log-${index}`) : '')).join('')}</section>`;
+  return `<section id="logs" tabindex="-1"><h2>行動ログ</h2><p class="context-note">主体ごとの保存順です。別ログ・主体間の全体順序、親子関係、制御呼出しとの対応は未確認です。操作行を開くと保存された入出力を表示します。操作名・状態は解析した要約です。数値の精度や重複キー、エスケープの確認には原文を使ってください。</p>${controlLogs(data)}<h3 class="group-heading">モデルのツール実行・イベント</h3><p>開始と完了は同じファイルの一意なID・項目種別が一致する場合だけリンクします。失敗・中断・更新も元の行に残します。時刻・入力・応答は保存値だけを示し、操作から内容の理解・有効利用、空白時間の原因は判断しません。</p>${data.logs.some((entry) => entry.events) ? '' : '<p class="warning">読み取れるJSONLがなく、モデル側の操作は未確認です。</p>'}${data.logs.map(actorLog).join('')}</section>`;
 }
 
-const css = `
-:root{color-scheme:light;font-size:16px;font-family:system-ui,-apple-system,"Noto Sans JP",sans-serif;color:#252a30;background:#f4f6f8;line-height:1.7}
-*{box-sizing:border-box;min-width:0}body{margin:0}main{max-width:1280px;margin:auto;padding:2rem 2rem 4rem}
-header{padding-bottom:1rem}section{padding:1.5rem 0;scroll-margin-top:1rem}h1{font-size:1.7rem;line-height:1.4;margin:.4rem 0}h2{font-size:1.3rem;margin:0 0 1rem}h3,h4{font-size:1rem;margin:0 0 .6rem}h4{color:#525b66}p{margin:.6rem 0}a{color:#275d92;text-underline-offset:.25em}a:focus-visible,summary:focus-visible{outline:3px solid #a04d0c;outline-offset:4px}nav{display:flex;flex-wrap:wrap;gap:.5rem 1.4rem;margin-top:1rem}
-.panel{background:#fff;border:1px solid #dce1e7;border-radius:10px;padding:1.2rem;margin:.8rem 0}.eyebrow,.muted,.source-links{color:#525b66}.eyebrow{margin:0}.metadata{display:flex;flex-wrap:wrap;gap:.25rem 1.4rem;color:#525b66}.question .markdown>:first-child{margin-top:0}.question .markdown>:last-child{margin-bottom:0}.question h3:not(:first-child){margin-top:1rem}
-.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem}.metric{margin:0;border-top:3px solid #c8ced6}.metric h3{color:#525b66;font-weight:500}.metric-value{font-size:1.9rem;font-weight:650;line-height:1.4;font-variant-numeric:tabular-nums;margin:.5rem 0 0}.metric-unknown,.unit{font-size:1rem;font-weight:400;color:#525b66}.conclusion{font-size:1.5rem}.metric[data-conclusion="met"]{border-top-color:#23715a}.metric[data-conclusion="met"] .conclusion{color:#175b4a}.metric[data-conclusion="unmet"],.metric[data-conclusion="execution_failed"]{border-top-color:#a04138}.metric[data-conclusion="unmet"] .conclusion,.metric[data-conclusion="execution_failed"] .conclusion{color:#8b312b}.metric[data-conclusion="pending"],.metric[data-conclusion="unknown"]{border-top-color:#916224}.metric[data-conclusion="pending"] .conclusion,.metric[data-conclusion="unknown"] .conclusion{color:#78501c}.decision-reason{margin:1rem 0}.decision-reason h3{margin-bottom:.25rem}#usage{padding:.4rem 0 0}
-.badge{display:inline-block;border:1px solid #c8ced6;border-radius:6px;background:#eef0f3;padding:.15rem .6rem;font-size:1rem;font-weight:600;align-self:start}.demonstrated{color:#175b4a;background:#edf7f2;border-color:#b7d7c9}.false_positive{color:#8b312b;background:#fff0ef;border-color:#e1b9b5}.unconfirmed{color:#78501c;background:#fff6e7;border-color:#dfcaa7}.attention-panel{padding:1rem 1.2rem;margin:.8rem 0;background:#fff8ec;border:1px solid #e0cfae;border-radius:10px}.attention-panel h2{font-size:1rem;margin:0}.attention{padding-left:1.3rem;margin:.5rem 0}.attention li{margin:.4rem 0}.warning{color:#814415;font-weight:600}
-.comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.5rem}.comparison>div+div{border-left:1px solid #dce1e7;padding-left:1.5rem}.reproduction-input{margin-bottom:1rem}.finding-summary{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:1rem}.finding-summary h3{font-weight:600;margin:0}.finding-location{font-family:ui-monospace,monospace;color:#525b66;margin:.4rem 0}.finding details{margin:.6rem 0 0}article{scroll-margin-top:1rem}
-details{margin:.8rem 0}summary{cursor:pointer;color:#3c4c5e;font-size:1rem;font-weight:600;padding:.25rem 0}details[open]>summary{margin-bottom:.6rem}details details{margin-left:.8rem}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#eef0f3;padding:1rem;border-radius:5px;font-size:1rem;line-height:1.6}p,li,dd,dt,h1,h2,h3,h4,summary,.path,span,td,th{overflow-wrap:anywhere}.recorded-text{white-space:pre-wrap}dl{display:grid;grid-template-columns:minmax(8rem,1fr) minmax(0,3fr);gap:0 1rem;margin:.6rem 0 1rem}dt,dd{border-bottom:1px solid #e5e7eb;padding:.5rem 0}dt{color:#525b66;font-weight:500}dd{margin:0}dd pre{margin:0}.path{color:#525b66}.markdown table{border-collapse:collapse;display:block;overflow:auto;max-width:100%}.markdown th,.markdown td{border:1px solid #c8ced6;padding:.5rem}blockquote{border-left:3px solid #a2abb7;padding-left:1rem}code{overflow-wrap:anywhere}li input{pointer-events:none}
-.log-table{width:100%;table-layout:fixed;border-spacing:0;background:#fff;border:1px solid #dce1e7;border-radius:10px;margin:.6rem 0 1.5rem;text-align:left}.log-table caption{text-align:left;color:#525b66;margin:.4rem 0}.log-table th,.log-table td{padding:.65rem .75rem;vertical-align:top;border-bottom:1px solid #e5e7eb}.log-table th{color:#525b66;font-weight:500}.log-table th:nth-child(1){width:13%}.log-table th:nth-child(2){width:20%}.log-table th:nth-child(3){width:23%}.log-table th:nth-child(4){width:27%}.log-table th:nth-child(5){width:17%}.log-table tbody tr:last-child td{border-bottom:0}.log-table p{margin:.4rem 0}.log-table details{margin:.4rem 0 0}.event-time{font-variant-numeric:tabular-nums;color:#525b66}.event-input,.event-output{white-space:pre-wrap}.response-size,.numeric{font-variant-numeric:tabular-nums}.response-size{text-align:right;color:#525b66;margin:.35rem 0}#logs>article{margin:1.5rem 0}
-@media(max-width:960px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.log-table,.log-table tbody,.log-table tr,.log-table td{display:block}.log-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.log-table tr{padding:.6rem 0}.log-table tr+tr{border-top:1px solid #c8ced6}.log-table td,.log-table tbody tr:last-child td{display:grid;grid-template-columns:7rem minmax(0,1fr);column-gap:1rem;border:0;padding:.35rem .75rem}.log-table td::before{content:attr(data-label);color:#525b66;grid-column:1;grid-row:1 / span 20}.log-table td>*{grid-column:2}.response-size{text-align:left}.log-table caption{display:block}}
-@media(max-width:640px){main{padding:1.2rem 1rem 3rem}.metrics,.comparison,.finding-summary{grid-template-columns:1fr;gap:.75rem}.comparison>div+div{border-left:0;border-top:1px solid #dce1e7;padding:1rem 0 0}.finding-summary .badge{justify-self:start}dl{grid-template-columns:minmax(5rem,1fr) minmax(0,2fr);gap:0 .7rem}h1{font-size:1.4rem}.metadata{display:block}.metadata span{display:block}.log-table td{grid-template-columns:5.5rem minmax(0,1fr);column-gap:.65rem}}`;
+function references(data: ReportRecords) {
+  const rows = data.logs.flatMap((entry, index) =>
+    (entry.events ?? []).flatMap((row) =>
+      row.reference
+        ? [
+            `<tr><th scope="row"><code>${escape(row.reference.source)}</code></th><td>${escape(row.result)}${!hasRecordedOutput(row) ? ' / 応答は未記録・未確認' : ' / 応答記録あり'}${row.problems.map((problem) => `<p class="warning">${escape(problem)}</p>`).join('')}</td><td>${link(`log-${index}-line-${row.line}`, `${row.reference.tool} · 行 ${row.line}`)}</td></tr>`,
+          ]
+        : [],
+    ),
+  );
+  const count = data.logs.reduce((total, entry) => total + (entry.events?.length ?? 0), 0);
+  return `<article id="references" class="card detail-card" tabindex="-1"><header><h3>ログから確認した参照資料</h3><p>モデルログ${count}行中、参照操作${rows.length}行。開始・更新・完了を行ごとに表示します。</p></header>${rows.length ? `<div class="reference-table-wrap"><table class="table reference-table"><thead><tr><th scope="col">読取り対象</th><th scope="col">記録された状態</th><th scope="col">提供元・ツールと根拠</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '<p class="record-content">読取り対象を特定できるログがありません。</p>'}<footer>明示的な読取りイベントだけを抽出します。シェル経由の読取り・検索結果・モデルの申告は対象外です。ログにない初期コンテキスト、応答の全文性、モデルの読了・理解は確認できません。</footer></article>`;
+}
 
 function overview(data: ReportRecords, title: string) {
   const trial = data.result.trial;
@@ -326,15 +355,15 @@ function overview(data: ReportRecords, title: string) {
       : trial?.provenance === 'live_model'
         ? '実モデル'
         : '不明';
-  return `<header id="top"><p class="eyebrow">レビュー試験 · ${origin}</p><h1>レビュー試験の行動ログと評価</h1><p>評価対象: ${escape(title)}</p><div class="metadata"><span>対象: ${escape(data.result.name === 'defective' ? '既知欠陥例' : '正常例')} · 基準版 ${escape(data.result.baseCommit.slice(0, 12))}</span><span>実行開始（UTC）: ${escape(trial?.startedAt ?? '未記録・未確認')}</span><span>ホスト判断（UTC）: ${escape(judgment?.at ?? '未記録・未確認')}</span></div>${trial?.provenance === 'display_sample' ? '<p class="muted">モデルを呼ばない表示サンプルです。日時・判断・使用量も模擬値です。</p>' : trial?.provenance === 'live_model' ? '<p class="muted">合成課題を実モデルでレビューしたケース単位の記録です。</p>' : ''}<div id="criteria" class="question panel" tabindex="-1"><h3>問い</h3>${trial ? prose(trial.question) : '<p>適用した試験の問いは未記録・未確認</p>'}<h3>達成基準</h3>${trial ? prose(trial.criteria) : '<p>未記録・未確認（現在の基準を遡及適用しません）</p>'}</div>${usage(data)}<nav aria-label="レポート内の移動">${[
-    ['results', '評価'],
-    ['review', '指摘'],
-    ['usage', '時間・使用量'],
+  return `<header id="top"><p class="eyebrow">レビュー試験 · ${origin}</p><h1>レビュー試験の行動ログと評価</h1><p>評価対象: ${escape(title)}</p><div class="metadata"><span>対象: ${escape(data.result.name === 'defective' ? '既知欠陥例' : '正常例')} · 基準版 ${escape(data.result.baseCommit.slice(0, 12))}</span><span>実行開始（UTC）: ${escape(trial?.startedAt ?? '未記録・未確認')}</span><span>ホスト判断（UTC）: ${escape(judgment?.at ?? '未記録・未確認')}</span></div>${trial?.provenance === 'display_sample' ? '<p class="muted">モデルを呼ばない表示サンプルです。日時・判断・使用量も模擬値です。</p>' : trial?.provenance === 'live_model' ? '<p class="muted">合成課題を実モデルでレビューしたケース単位の記録です。</p>' : ''}</header><nav class="section-nav" aria-label="レポート内の移動">${[
+    ['summary', '評価の要約'],
     ['logs', '行動ログ'],
+    ['results', '根拠と再現'],
+    ['review', '指摘の検証'],
     ['records', '記録詳細'],
   ]
     .map(([id, label]) => link(id ?? '', label ?? ''))
-    .join('')}</nav></header>`;
+    .join('')}</nav>`;
 }
 
 export async function renderReport(data: ReportRecords) {
@@ -344,7 +373,12 @@ export async function renderReport(data: ReportRecords) {
       ? data.issue.value.title
       : data.result.id;
   const trial = data.result.trial;
-  const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; base-uri 'none'; form-action 'none'"><meta name="referrer" content="no-referrer"><title>レビュー試験 — ${escape(title)}</title><style>${css}</style></head><body><main>${overview(data, title)}${attention(data, evidence)}${results(data, evidence)}${reviews(data)}${logs(data)}<section id="records" tabindex="-1"><h2>記録詳細</h2>${details('由来・日時・入力記録', `<dl>${field('由来', trial?.provenance)}${field('実行開始（UTC）', trial?.startedAt)}${field('実行終了（UTC）', trial?.finishedAt)}${field('ホスト判断（UTC）', trial?.judgment.at)}${field('HTML生成日時（評価日時ではありません）', new Date().toISOString())}</dl><p class="path">入力: ${escape(data.input.path)}</p>`)}${details('元の要求・対象・環境', requirements(data))}${recordView(data.input, 'result-record')}${recordView(data.state, 'state-record')}<article id="targets" tabindex="-1">${details('保存されたレビュー対象と関連記録', data.targets.map((entry, index) => recordView(entry, `target-${index}`)).join('') || '<p class="warning">保存対象記録がありません。</p>')}</article>${details('この表示で判断できる範囲', `<p>ハーネス全体の合否ではありません。試験用コードの失敗と、欠陥を正しく指摘するレビュー試験の成功は別です。モデル状態・制御終了・修正状況・真偽の裁定・試験の結論を区別します。表示側で合否・原因・証拠の対応やログ間の因果関係を補いません。現在のcheckout、oracleのパス先、別試行を過去の根拠として読み込まず、記録の真正性・完全性は保証しません。元記録を更新した場合は別名で再生成してください。状態変更・再実行・採点・承認・マージの操作はありません。</p>${data.result.limitations.map(prose).join('')}`)}<p>${link('top', '冒頭へ戻る')}</p></section></main></body></html>`;
+  const basecoat = await readFile(
+    new URL('./basecoat.cdn.min.css', import.meta.resolve('basecoat-css')),
+    'utf8',
+  );
+  const css = await readFile(new URL('./review-report.css', import.meta.url), 'utf8');
+  const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; base-uri 'none'; form-action 'none'"><meta name="referrer" content="no-referrer"><title>レビュー試験 — ${escape(title)}</title><style data-library="basecoat-css@1.0.2">${basecoat}</style><style>${css}</style></head><body><main>${overview(data, title)}${usage(data, evidence)}${logs(data)}${results(data, evidence)}${reviews(data)}<section id="records" tabindex="-1"><h2>記録詳細</h2><p class="context-note">JSON原文は文字列外の空白だけを整形します。文字列の空白・エスケープ、数値の表記、キー順序と重複キーを保持します。非JSON・空白だけの記録は修復しません。評価欄の解析した要約とは区別してください。</p>${references(data)}<div class="card record-group"><header><h3>呼出しの入出力・関連原記録</h3></header>${data.logs.map((entry, index) => (!entry.events ? recordView(entry, `log-${index}`) : '')).join('')}</div>${details('由来・日時・入力記録', `<dl>${field('由来', trial?.provenance)}${field('実行開始（UTC）', trial?.startedAt)}${field('実行終了（UTC）', trial?.finishedAt)}${field('ホスト判断（UTC）', trial?.judgment.at)}${field('HTML生成日時（評価日時ではありません）', new Date().toISOString())}</dl><p class="path">入力: ${escape(data.input.path)}</p>`)}${details('元の要求・対象・環境', requirements(data))}${recordView(data.input, 'result-record')}${recordView(data.state, 'state-record')}<article id="targets" tabindex="-1">${details('保存されたレビュー対象と関連記録', data.targets.map((entry, index) => recordView(entry, `target-${index}`)).join('') || '<p class="warning">保存対象記録がありません。</p>')}</article>${details('この表示で判断できる範囲', `<p>ハーネス全体の合否ではありません。試験用コードの失敗と、欠陥を正しく指摘するレビュー試験の成功は別です。モデル状態・制御終了・修正状況・真偽の裁定・試験の結論を区別します。表示側で合否・原因・証拠の対応やログ間の因果関係を補いません。現在のcheckout、oracleのパス先、別試行を過去の根拠として読み込まず、記録の真正性・完全性は保証しません。元記録を更新した場合は別名で再生成してください。状態変更・再実行・採点・承認・マージの操作はありません。</p>${data.result.limitations.map(prose).join('')}`)}<p>${link('top', '冒頭へ戻る')}</p></section></main></body></html>`;
   // HTML is disabled in Markdown; URL filtering also covers entity/control-character
   // spellings after HTML parsing. Images stay textual so opening a report is offline.
   return new HTMLRewriter()

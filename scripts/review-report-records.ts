@@ -99,6 +99,7 @@ export function trialEvidence(data: ReportRecords) {
 }
 
 async function record(root: string, path: string, json = false): Promise<SavedRecord> {
+  let text: string | null = null;
   try {
     const canonical = await realpath(path);
     assert(
@@ -106,11 +107,11 @@ async function record(root: string, path: string, json = false): Promise<SavedRe
       '関連記録がsymlinkまたは実行保存先の外を参照しています',
     );
     assert((await lstat(canonical)).isFile(), '通常ファイルではありません');
-    const text = await readFile(canonical, 'utf8');
+    text = await readFile(canonical, 'utf8');
     const value: unknown = json ? JSON.parse(text) : undefined;
     return { path, text, value };
   } catch (error) {
-    return { path, text: null, problem: String(error) };
+    return { path, text, problem: String(error) };
   }
 }
 

@@ -1,3 +1,4 @@
+import { validatedJsonMembers } from './review-report-json.ts';
 import { isRecord } from './values.ts';
 
 export interface LogEvent {
@@ -5,8 +6,11 @@ export interface LogEvent {
   raw: string;
   type: string;
   operation: string;
-  input?: unknown;
-  output?: unknown;
+  outputBytes?: number;
+  inputJson?: string;
+  outputJson?: string;
+  errorJson?: string;
+  reference?: { source: string; tool: string };
   result: string;
   timestamp?: string;
   itemId?: string;
@@ -32,26 +36,41 @@ const items: Record<string, string> = {
   todo_list: '作業一覧',
 };
 
-function itemValues(row: LogEvent, item: Record<string, unknown>) {
-  switch (item.type) {
-    case 'command_execution':
-      row.input = item.command;
-      row.output = item.aggregated_output;
-      break;
-    case 'mcp_tool_call':
-      row.operation += `: ${typeof item.server === 'string' ? item.server : '未記録・形式未確認'} / ${typeof item.tool === 'string' ? item.tool : '未記録・形式未確認'}`;
-      row.input = item.arguments;
-      row.output = item.result ?? item.error;
-      break;
-    case 'web_search':
-      row.input = item.query;
-      break;
-    default:
-      row.output = item.text ?? item.changes ?? item.items;
+function itemValues(
+  row: LogEvent,
+  item: Record<string, unknown>,
+  source: Map<string, string | undefined>,
+) {
+  const inputKey: Record<string, string> = {
+    command_execution: 'command',
+    mcp_tool_call: 'arguments',
+    web_search: 'query',
+  };
+  const key =
+    typeof item.type === 'string' && Object.hasOwn(inputKey, item.type)
+      ? inputKey[item.type]
+      : undefined;
+  row.inputJson = key ? source.get(key) : undefined;
+  const outputKeys =
+    item.type === 'command_execution'
+      ? ['aggregated_output']
+      : item.type === 'mcp_tool_call'
+        ? ['result']
+        : ['text', 'changes', 'items'];
+  row.outputJson = outputKeys.map((name) => source.get(name)).find((value) => value !== undefined);
+  row.errorJson = item.type === 'mcp_tool_call' ? source.get('error') : undefined;
+  row.reference = referenceRead(source);
+
+  if (item.type === 'mcp_tool_call') {
+    row.operation += `: ${typeof item.server === 'string' ? item.server : '未記録・形式未確認'} / ${typeof item.tool === 'string' ? item.tool : '未記録・形式未確認'}`;
   }
 }
 
-function describeItem(row: LogEvent, item: Record<string, unknown>) {
+function describeItem(
+  row: LogEvent,
+  item: Record<string, unknown>,
+  source: Map<string, string | undefined>,
+) {
   row.itemId = typeof item.id === 'string' && item.id ? item.id : undefined;
   row.itemType = typeof item.type === 'string' ? item.type : undefined;
   row.operation =
@@ -61,7 +80,7 @@ function describeItem(row: LogEvent, item: Record<string, unknown>) {
   if (!row.itemType || !Object.hasOwn(items, row.itemType)) {
     row.problems.push('未対応の項目・表示内容は未確認');
   }
-  itemValues(row, item);
+  itemValues(row, item, source);
   row.result =
     {
       'item.started': '開始',
@@ -104,20 +123,33 @@ function describeEvent(value: unknown, line: number, raw: string): LogEvent {
   }
   row.type = value.type;
   row.timestamp = typeof value.timestamp === 'string' ? value.timestamp : undefined;
+  const members = validatedJsonMembers(raw);
   const item = isRecord(value.item) ? value.item : {};
   if (['item.started', 'item.updated', 'item.completed'].includes(row.type)) {
-    describeItem(row, item);
+    describeItem(row, item, validatedJsonMembers(members.get('item')));
   } else if (Object.hasOwn(lifecycle, row.type)) {
     row.operation = lifecycle[row.type] ?? row.type;
     row.result = row.operation;
-    row.output = value.error ?? value.message ?? value.usage;
+    row.outputJson = ['error', 'message', 'usage']
+      .map((key) => members.get(key))
+      .find((entry) => entry !== undefined);
   } else {
     row.problems.push('未対応イベント・表示内容は未確認');
   }
+  const outputJson = row.outputJson ?? row.errorJson;
+  const output: unknown = outputJson?.startsWith('"') ? JSON.parse(outputJson) : undefined;
+  row.outputBytes = typeof output === 'string' ? Buffer.byteLength(output, 'utf8') : undefined;
+  inspectEvent(row, item);
+  return row;
+}
+
+function inspectEvent(row: LogEvent, item: Record<string, unknown>) {
   if (
     row.type === 'error' ||
     row.type.endsWith('.failed') ||
     item.status === 'failed' ||
+    (item.error !== null && item.error !== undefined) ||
+    (isRecord(item.result) && item.result.isError === true) ||
     (typeof item.exit_code === 'number' && item.exit_code !== 0)
   ) {
     row.problems.push('失敗の記録（原因・品質への影響は未確認）');
@@ -125,7 +157,52 @@ function describeEvent(value: unknown, line: number, raw: string): LogEvent {
   if (item.status === 'interrupted') {
     row.problems.push('中断の記録（結果は原文で確認）');
   }
-  return row;
+  if (
+    ['mcp_tool_call', 'command_execution'].includes(row.itemType ?? '') &&
+    row.type === 'item.completed' &&
+    !hasRecordedOutput(row)
+  ) {
+    row.problems.push('応答欠落・結果は未確認');
+  }
+}
+
+export function hasRecordedOutput(row: LogEvent): boolean {
+  return [row.outputJson, row.errorJson].some((value) => value !== undefined && value !== 'null');
+}
+
+function stringMember(members: Map<string, string | undefined>, key: string) {
+  const member = members.get(key);
+  const value: unknown = member === undefined ? undefined : JSON.parse(member);
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+// Only named, explicit read tools. Shell commands, searches and model claims are
+// not proof of a read; ambiguous duplicate members do not supply a target.
+function referenceRead(members: Map<string, string | undefined>): LogEvent['reference'] {
+  if (stringMember(members, 'type') !== 'mcp_tool_call') {
+    return;
+  }
+  const tool = stringMember(members, 'tool');
+  const args = validatedJsonMembers(members.get('arguments'));
+  let source: string | undefined;
+  if (tool && ['read_source', 'read_file', 'read_text_file'].includes(tool)) {
+    source = readPath(args);
+  } else if (tool && ['read_url', 'fetch_url', 'web_fetch'].includes(tool)) {
+    const url = stringMember(args, 'url');
+    source = url && /^https?:\/\//i.test(url) ? url : undefined;
+  }
+  return source && tool
+    ? { source, tool: `${stringMember(members, 'server') ?? '提供元未記録'} / ${tool}` }
+    : undefined;
+}
+
+function readPath(args: Map<string, string | undefined>) {
+  const path = stringMember(args, 'path');
+  const file = stringMember(args, 'file_path');
+  if ((args.has('path') && !path) || (args.has('file_path') && !file)) {
+    return;
+  }
+  return path && file && path !== file ? undefined : (path ?? file);
 }
 
 // Retain every row, including updates and failures. Only link unambiguous IDs in this file.

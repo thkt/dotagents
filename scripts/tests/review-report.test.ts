@@ -98,7 +98,7 @@ test('CLI renders recorded requirements, observations and independent verdicts w
     const finding = (await select(html, `#finding-${index}`)).text;
     expect(finding).toContain('真偽の裁定: 真の指摘');
     expect(finding).toContain('修正状況open');
-    expect((await select(html, `#finding-${index} h3`)).text).toBe(
+    expect((await select(html, `#finding-${index} > details > summary`)).text).toContain(
       f.result.review?.items[index]?.impact ?? '',
     );
   }
@@ -112,35 +112,35 @@ test('CLI renders recorded requirements, observations and independent verdicts w
   );
   const logs = (await select(html, '#logs')).text;
   expect(logs.indexOf('ホスト · 検証')).toBeLessThan(logs.indexOf('ホスト · レビュー依頼'));
-  const actions = (
-    await select(html, '#logs tr[id] .event-input, #logs tr[id] td > strong, #logs tr[id] td > div')
-  ).text;
-  expect(actions).toContain('bun test');
+  const actions = (await select(html, '#logs .activity-list')).text;
+  expect((await select(html, '#logs [id$="-line-1"] .event-input')).text).toContain('bun test');
   expect(actions).toContain('終了コード 0');
   expect(actions).toContain('fixture / read_source');
   expect(actions).toContain('page.ts');
   expect(actions).toContain('2026-09-21T01:00:00.400Z');
   expect(actions).toContain('同じIDの対応行 2');
-  const responses = (await select(html, '#logs tr[id] .event-output')).text;
+  const responses = (await select(html, '#logs .event-output')).text;
   expect(responses).toContain('&lt;img src=x onerror=alert(1)&gt; synthetic failure');
-  expect(responses).toContain('{&quot;content&quot;:&quot;公開可能な模擬応答&quot;}');
-  expect((await select(html, '#logs tr[id] .response-size')).text).toContain('46 B');
-  const originals = (await select(html, '#logs tr[id] details pre')).text;
+  expect(responses).toContain('&quot;content&quot;: &quot;公開可能な模擬応答&quot;');
+  expect((await select(html, '#logs .response-size')).text).toContain('46 B');
+  const originals = (await select(html, '#logs .activity-list details details pre')).text;
   expect(originals).toContain(
-    '&quot;aggregated_output&quot;:&quot;&lt;img src=x onerror=alert(1)&gt; synthetic failure&quot;',
+    '&quot;aggregated_output&quot;: &quot;&lt;img src=x onerror=alert(1)&gt; synthetic failure&quot;',
   );
-  expect(originals).toContain(
-    '&quot;result&quot;:{&quot;content&quot;:&quot;公開可能な模擬応答&quot;}',
+  expect(originals).toContain('&quot;content&quot;: &quot;公開可能な模擬応答&quot;');
+  expect((await select(html, 'details[open], details #logs, details .activity-list')).count).toBe(
+    0,
   );
-  expect((await select(html, '#logs details tr[id], #logs details .event-output')).count).toBe(0);
-  expect((await select(html, '#results details #reproduction')).count).toBe(0);
-  const top = (await select(html, 'header, #attention')).text;
+  expect((await select(html, '#reproduction > details > summary')).text).toContain(
+    '対象コードの動作確認',
+  );
+  const top = (await select(html, '#top, #summary')).text;
   expect(top).toContain('レビュー試験 · 表示サンプル');
   expect(top).toContain('2026-09-21T01:00:00Z');
   expect(top).toContain('2026-09-21T02:00:00Z');
   expect(top).toContain('条件を満たす');
   expect(top).not.toContain('ready_for_human_review');
-  expect((await select(html, 'header')).text).not.toContain(f.input);
+  expect((await select(html, '#top')).text).not.toContain(f.input);
   expect((await select(html, '#finding-1')).text).toContain(
     '長い日本語の要求を確認するとき、境界条件と未計測の事項を省略すると誤解が起こり得る。'.repeat(
       12,
@@ -160,6 +160,26 @@ test('CLI renders recorded requirements, observations and independent verdicts w
   const observation = await readFile(incomplete, 'utf8');
   expect((await select(observation, '#conclusion')).text).toContain('条件を満たす');
   expect((await select(observation, '#attention')).text).toContain('既知の欠陥の見落としは未確認');
+  const judgment = f.result.adjudication.findings[0];
+  assert(judgment);
+  for (const [index, value] of [false, 0, '', null].entries()) {
+    judgment.reproduction = value;
+    await writeFile(f.input, JSON.stringify(f.result));
+    const output = join(f.root, `finding-observation-${index}.html`);
+    await generateReviewReport(f.input, output);
+    const rendered = await readFile(output, 'utf8');
+    const reproduction = await select(
+      rendered,
+      '#finding-0 .finding-party:nth-child(2) .detail-panel:nth-child(3) .field-content',
+    );
+    expect(reproduction.text).toBe(
+      value === null
+        ? 'この指摘に対する再現は未確認です。'
+        : value === ''
+          ? '&quot;&quot;'
+          : String(value),
+    );
+  }
 });
 
 test('host conclusions stay distinct from model status, missing evidence and execution failure', async () => {
@@ -170,7 +190,7 @@ test('host conclusions stay distinct from model status, missing evidence and exe
     await writeFile(f.input, JSON.stringify(f.result));
     await generateReviewReport(f.input, f.output);
     const html = await readFile(f.output, 'utf8');
-    const top = (await select(html, 'header, #attention')).text;
+    const top = (await select(html, '#top, #summary')).text;
     if (mode === 'empty') {
       expect(top).toContain('条件を満たす');
       expect((await select(html, '#attention')).text).toBe('');
@@ -189,7 +209,7 @@ test('host conclusions stay distinct from model status, missing evidence and exe
       expect(top).toContain('結論は未確認');
       expect((await select(html, '#finding-1')).text).toContain('真偽の裁定: 未確認');
       expect((await select(html, '#finding-1')).text).toContain('修正状況fixed');
-      expect((await select(html, 'header')).text).toContain('ホスト判断（UTC）: 未記録・未確認');
+      expect((await select(html, '#top')).text).toContain('ホスト判断（UTC）: 未記録・未確認');
     }
     if (mode === 'stopped') {
       expect(top).toContain('実行失敗');
@@ -219,7 +239,7 @@ test('old records keep unknown dates and criteria; absent evidence never supplie
   await writeFile(f.input, JSON.stringify(old));
   await generateReviewReport(f.input, f.output);
   const html = await readFile(f.output, 'utf8');
-  const top = (await select(html, 'header, #attention')).text;
+  const top = (await select(html, '#top, #summary')).text;
   expect(top).toContain('レビュー試験 · 不明');
   expect(top).toContain('結論は未確認');
   expect(top).not.toContain(f.issue.updatedAt);
@@ -282,7 +302,7 @@ test('unsafe Markdown and raw logs cannot create executable elements, URLs or re
   ]) {
     expect(observations).toContain(literal);
   }
-  expect((await select(html, '#reproduction details pre')).text).toBe(
+  expect((await select(html, '#reproduction .disclosure-body > details pre')).text).toBe(
     Bun.escapeHTML(JSON.stringify(f.result.reproduction, null, 2)),
   );
   expect(
@@ -390,9 +410,10 @@ test('missing targets, malformed related records and escaped symlinks remain vis
   const malformedHtml = await readFile(malformed.output, 'utf8');
   expect(malformed.warnings.filter((warning) => warning.includes('final.json'))).toHaveLength(1);
   expect((await select(malformedHtml, '#attention')).text).toMatch(/final\.json.*SyntaxError/);
-  expect((await select(malformedHtml, '#logs')).text).toMatch(
+  expect((await select(malformedHtml, '#records')).text).toMatch(
     /final\.json[\s\S]*記録欠落・読取不能/,
   );
+  expect((await select(malformedHtml, '#records .saved-text')).text).toContain('{truncated');
   expect((await select(malformedHtml, '#finding-0')).text).toContain('真偽の裁定: 真の指摘');
   expect((await select(malformedHtml, '#logs')).text).toContain('item.completed');
   await writeFile(finalPath, savedFinal);
@@ -416,7 +437,11 @@ test('missing targets, malformed related records and escaped symlinks remain vis
       '関連記録の失敗・不足・不整合',
     );
     expect((await select(corruptHtml, '#record-warnings')).text).toContain(additionsPath);
-    expect((await select(corruptHtml, '#targets')).text).toContain(Bun.escapeHTML(content));
+    for (const token of content.match(/"(?:\\.|[^"\\])*"|true|false/g) ?? []) {
+      expect((await select(corruptHtml, '#targets .saved-text')).text).toContain(
+        Bun.escapeHTML(token),
+      );
+    }
     if (index === 0) {
       expect((await select(corruptHtml, '#targets')).text).toContain('intact text');
       expect((await select(corruptHtml, '#targets')).text).toContain(
@@ -533,9 +558,7 @@ test('visible action rows retain partial records and do not invent cross-actor e
   await generateReviewReport(f.input, f.output);
   expect(await contents(join(f.root, 'records'))).toEqual(before);
   const html = await readFile(f.output, 'utf8');
-  const actions = (
-    await select(html, '#logs tr[id] td > strong, #logs tr[id] td > div, #logs tr[id] td > p')
-  ).text;
+  const actions = (await select(html, '#logs .activity-list')).text;
   for (const expected of [
     '中断',
     '未対応イベント',
@@ -545,15 +568,182 @@ test('visible action rows retain partial records and do not invent cross-actor e
   ]) {
     expect(actions).toContain(expected);
   }
-  expect(actions).not.toContain('同じIDの対応行');
-  expect((await select(html, '#logs tr[id] .response-size')).text).toContain('18 B');
+  expect((await select(html, '#logs article[id$="-line-1"] .event-meta a')).count).toBe(0);
+  expect((await select(html, '#logs .response-size')).text).toContain('18 B');
   expect((await select(html, '#logs')).text).toContain('別ログ・主体間の全体順序');
   expect((await select(html, '#logs')).text).toContain('review-2: 実行中の保存記録');
   expect((await select(html, '#attention')).text).toContain('中断');
-  expect((await select(html, '#logs details tr[id], #logs details .event-output')).count).toBe(0);
-  expect((await select(html, '#logs tr[id] details pre')).text).toContain('{truncated');
-  expect((await select(html, '#logs tr[id] details pre')).text).toContain(
-    '&quot;aggregated_output&quot;:&quot;記録済み応答&quot;',
+  expect((await select(html, 'details[open], details #logs, details .activity-list')).count).toBe(
+    0,
+  );
+  expect((await select(html, '#logs .activity-list details details pre')).text).toContain(
+    '{truncated',
+  );
+  expect((await select(html, '#logs .activity-list details details pre')).text).toContain(
+    '&quot;aggregated_output&quot;: &quot;記録済み応答&quot;',
   );
   expect((await select(html, 'script')).count).toBe(0);
+});
+
+test('saved inputs and outputs preserve JSON lexemes, whitespace and non-JSON text', async () => {
+  const f = await fixture();
+  const whitespace = '\n \t  \n';
+  const notJson = '<pre><script>globalThis.REPORT_EXECUTED=true</script> {unfinished';
+  await writeFile(join(f.verification, 'review-1.stdout'), whitespace);
+  await writeFile(join(f.verification, 'review-1.stderr'), notJson);
+  const log = join(f.actor, 'events.jsonl');
+  await writeFile(
+    log,
+    (await readFile(log, 'utf8')) +
+      String.raw`{"type":"item.completed","item":{"type":"mcp_tool_call","server":"fixture","tool":"read_file","arguments":{"path":"first-path"},"arguments":{"path":"last-path"},"status":"completed","result":"first-response","result":"last-response"}}` +
+      '\n',
+  );
+  const before = await contents(join(f.root, 'records'));
+  await generateReviewReport(f.input, f.output);
+  expect(await contents(join(f.root, 'records'))).toEqual(before);
+  const html = await readFile(f.output, 'utf8');
+  for (const selector of ['#logs .event-input', '#logs .event-output']) {
+    const text = (await select(html, selector)).text;
+    for (const token of [
+      '9007199254740993',
+      '1E+09',
+      '&quot;same&quot;: 1',
+      '&quot;same&quot;: 2',
+      String.raw`\u0061  b`,
+    ]) {
+      expect(text).toContain(token);
+    }
+    expect(text).not.toContain('9007199254740992');
+  }
+  const output = (await select(html, '#logs .event-output')).text;
+  expect(output).toContain('重複キーにより抽出不能');
+  expect(output).not.toContain('last-response');
+  expect((await select(html, '#logs .saved-text')).text).toContain('first-response');
+  expect((await select(html, '#logs .saved-text')).text).toContain('last-response');
+  expect((await select(html, '#references')).text).not.toContain('last-path');
+  expect((await select(html, '#records .saved-text')).text).toContain(whitespace);
+  expect((await select(html, '#records .saved-text')).text).toContain(Bun.escapeHTML(notJson));
+  expect((await select(html, '#logs .event-output')).text).toContain(
+    '&lt;script&gt;globalThis.REPORT_EXECUTED',
+  );
+  expect(
+    (await select(html, 'details[open], script, iframe, img, [onload], [onerror]')).count,
+  ).toBe(0);
+  expect((await select(html, 'style[data-library="basecoat-css@1.0.2"]')).text).toContain('.card');
+  expect((await select(html, 'script[src], link[rel="stylesheet"]')).count).toBe(0);
+});
+
+test('reference reads link only explicit unambiguous targets and retain each failed or incomplete event', async () => {
+  const f = await fixture('pending');
+  const log = join(f.dir, 'review-codex-incomplete', 'events.jsonl');
+  const read = (args: string, tool = 'read_file') =>
+    `{"type":"item.completed","item":{"type":"mcp_tool_call","server":"fixture","tool":"${tool}","arguments":${args},"status":"completed","result":null}}`;
+  const ambiguous = [
+    read('{"path":"not-explicit-a.md","file_path":"not-explicit-b.md"}'),
+    read('{"path":"duplicate-a.md","path":"duplicate-b.md"}'),
+    read('{"path":null,"file_path":"ambiguous-null.md"}'),
+    read('{"path":"not-a-read.md"}', 'search'),
+    JSON.stringify({
+      type: 'item.completed',
+      item: {
+        type: 'command_execution',
+        command: 'cat shell-only.md',
+        aggregated_output: 'read',
+        exit_code: 0,
+      },
+    }),
+    read('{"url":"https://example.com/saved-page"}', 'read_url'),
+    read('{"path":"iserror.md"}').replace('"result":null', '"result":{"isError":true}'),
+    read('{"path":"error.md"}').replace('"result":null', '"error":{"message":"transport failed"}'),
+    read('{"path":"null-result.md"}').replace(
+      '"status":"completed","result":null',
+      '"status":"failed","result":null,"error":{"message":"transport failed with null result"}',
+    ),
+    read('{"path":"both.md"}').replace(
+      '"result":null',
+      '"result":{"partial":9007199254740993},"error":{"message":"partial failure","same":1,"same":2}',
+    ),
+    read('{"path":"null-error.md"}').replace('"result":null', '"result":null,"error":null'),
+    read('{"path":"repeated-error.md"}').replace(
+      '"result":null',
+      '"result":null,"error":"first error","err\\u006fr":"last error"',
+    ),
+  ];
+  await writeFile(log, (await readFile(log, 'utf8')) + '\n' + ambiguous.join('\n'));
+  await generateReviewReport(f.input, f.output);
+  const html = await readFile(f.output, 'utf8');
+  const references = (await select(html, '#references')).text;
+  expect((await select(html, '#references tbody tr')).count).toBe(10);
+  for (const index of [5, 6, 7, 8]) {
+    expect((await select(html, `#references tbody tr:nth-child(${index})`)).text).toContain(
+      '失敗の記録',
+    );
+  }
+  for (const [index, expected, recorded] of [
+    [6, 'transport failed', true],
+    [7, 'transport failed with null result', true],
+    [8, 'partial failure', true],
+    [9, 'null', false],
+    [10, '重複キーにより抽出不能', false],
+  ] as const) {
+    const selector = `#references tbody tr:nth-child(${index})`;
+    const reference = (await select(html, selector)).text;
+    const href = (await select(html, `${selector} a`)).attributes[0]?.href;
+    assert.ok(href);
+    const output = (await select(html, `${href} .event-output`)).text;
+    expect(output).toContain(expected);
+    expect((await select(html, `${href} .saved-text`)).text).toContain(
+      index === 10 ? 'first error' : expected,
+    );
+    expect(reference.includes('応答記録あり')).toBe(recorded);
+    expect(reference.includes('応答欠落')).toBe(!recorded);
+    expect((await select(html, `${href} > details > summary`)).text.includes('応答欠落')).toBe(
+      !recorded,
+    );
+    if (index === 7) {
+      expect(output).toContain('result');
+      expect(output).toContain('null');
+      expect(output).toContain('error');
+    }
+    if (index === 8) {
+      expect(output).toContain('9007199254740993');
+      expect(output).toContain('&quot;same&quot;: 1');
+      expect(output).toContain('&quot;same&quot;: 2');
+    }
+    if (index === 10) {
+      expect(output).not.toContain('first error');
+      expect(output).not.toContain('last error');
+    }
+  }
+  for (const expected of [
+    'unavailable.md',
+    'fixture / read_file',
+    '開始',
+    '更新',
+    '失敗',
+    '応答欠落',
+    '完了',
+    'https://example.com/saved-page',
+    '応答は未記録・未確認',
+  ]) {
+    expect(references).toContain(expected);
+  }
+  for (const excluded of [
+    'README.md',
+    'not-explicit',
+    'duplicate-',
+    'ambiguous-null',
+    'not-a-read',
+    'shell-only',
+  ]) {
+    expect(references).not.toContain(excluded);
+  }
+  const ids = (await select(html, '#logs [id]')).attributes.map((entry) => entry.id);
+  for (const ref of (await select(html, '#references a')).attributes) {
+    expect(ids).toContain(ref.href?.slice(1));
+  }
+  const visible = (await select(html, '#logs .activity-list summary')).text;
+  expect(visible).toContain('失敗');
+  expect(visible).toContain('応答欠落');
+  expect((await select(html, '#logs .saved-text')).text).toContain('duplicate-a.md');
 });
