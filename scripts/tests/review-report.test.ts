@@ -102,33 +102,37 @@ test('CLI renders recorded requirements, observations and independent verdicts w
       f.result.review?.items[index]?.impact ?? '',
     );
   }
-  expect((await select(html, '#usage')).text).toContain('1234.5');
-  expect((await select(html, '#usage')).text).toContain('入力トークン120');
+  const metrics = (await select(html, '#usage .metrics')).text;
+  expect(metrics).toContain('実時間1234.5 ms');
+  expect(metrics).toContain('入力トークン120 tokens');
+  expect(metrics).toContain('出力トークン35 tokens');
   expect((await select(html, '#usage')).text).toContain('キャッシュ入力トークン20');
-  expect((await select(html, '#usage')).text).toContain('出力トークン35');
   expect((await select(html, '#usage')).text).toContain(
     'delegated model totals remain unconfirmed',
   );
   const logs = (await select(html, '#logs')).text;
   expect(logs.indexOf('ホスト · 検証')).toBeLessThan(logs.indexOf('ホスト · レビュー依頼'));
-  const actions = (await select(html, '#logs li[id]')).text;
-  expect(actions).toContain('入力・対象: bun test');
+  const actions = (
+    await select(html, '#logs tr[id] .event-input, #logs tr[id] td > strong, #logs tr[id] td > div')
+  ).text;
+  expect(actions).toContain('bun test');
   expect(actions).toContain('終了コード 0');
   expect(actions).toContain('fixture / read_source');
   expect(actions).toContain('page.ts');
   expect(actions).toContain('2026-09-21T01:00:00.400Z');
   expect(actions).toContain('同じIDの対応行 2');
-  const responses = (await select(html, '#logs li[id] > p')).text;
-  expect(responses).toContain('応答: &lt;img src=x onerror=alert(1)&gt; synthetic failure');
-  expect(responses).toContain('応答: {&quot;content&quot;:&quot;公開可能な模擬応答&quot;}');
-  const originals = (await select(html, '#logs li[id] details pre')).text;
+  const responses = (await select(html, '#logs tr[id] .event-output')).text;
+  expect(responses).toContain('&lt;img src=x onerror=alert(1)&gt; synthetic failure');
+  expect(responses).toContain('{&quot;content&quot;:&quot;公開可能な模擬応答&quot;}');
+  expect((await select(html, '#logs tr[id] .response-size')).text).toContain('46 B');
+  const originals = (await select(html, '#logs tr[id] details pre')).text;
   expect(originals).toContain(
     '&quot;aggregated_output&quot;:&quot;&lt;img src=x onerror=alert(1)&gt; synthetic failure&quot;',
   );
   expect(originals).toContain(
     '&quot;result&quot;:{&quot;content&quot;:&quot;公開可能な模擬応答&quot;}',
   );
-  expect((await select(html, '#logs details li[id]')).count).toBe(0);
+  expect((await select(html, '#logs details tr[id], #logs details .event-output')).count).toBe(0);
   expect((await select(html, '#results details #reproduction')).count).toBe(0);
   const top = (await select(html, 'header, #attention')).text;
   expect(top).toContain('レビュー試験 · 表示サンプル');
@@ -169,18 +173,17 @@ test('host conclusions stay distinct from model status, missing evidence and exe
     const top = (await select(html, 'header, #attention')).text;
     if (mode === 'empty') {
       expect(top).toContain('条件を満たす');
-      expect(top).not.toContain('使用量が未計測・欠落');
       expect((await select(html, '#attention')).text).toBe('');
       expect((await select(html, '#usage')).text).toContain('使用量が未計測・欠落');
       expect((await select(html, '#targets')).text).toContain('slice(offset, offset + limit)');
       expect((await select(html, '#review')).text).toContain('記録された指摘: 0件');
     }
     if (mode === 'pending' || mode === 'stopped') {
-      expect(top).not.toContain('使用量が未計測・欠落');
+      expect((await select(html, '#attention')).text).not.toContain('使用量が未計測・欠落');
       expect((await select(html, '#usage')).text).toContain('使用量が未計測・欠落');
       expect((await select(html, '.attention')).text).toContain('関連記録の失敗・不足・不整合');
       expect(top).toContain('events.jsonl');
-      expect((await select(html, '#usage')).text).toContain('入力トークン未記録・未確認');
+      expect((await select(html, '#usage')).text).toContain('入力トークン未計測・未確認');
     }
     if (mode === 'pending') {
       expect(top).toContain('結論は未確認');
@@ -221,7 +224,7 @@ test('old records keep unknown dates and criteria; absent evidence never supplie
   expect(top).toContain('結論は未確認');
   expect(top).not.toContain(f.issue.updatedAt);
   expect(top).not.toContain('条件を満たす');
-  expect((await select(html, '#results')).text).toContain('現在の基準を遡及適用しません');
+  expect((await select(html, '#criteria')).text).toContain('現在の基準を遡及適用しません');
   assert(f.result.trial);
   assert(f.result.adjudication?.findings[0]);
   f.result.trial.provenance = 'live_model';
@@ -530,23 +533,26 @@ test('visible action rows retain partial records and do not invent cross-actor e
   await generateReviewReport(f.input, f.output);
   expect(await contents(join(f.root, 'records'))).toEqual(before);
   const html = await readFile(f.output, 'utf8');
-  const actions = (await select(html, '#logs li[id] > div, #logs li[id] > p')).text;
+  const actions = (
+    await select(html, '#logs tr[id] td > strong, #logs tr[id] td > div, #logs tr[id] td > p')
+  ).text;
   for (const expected of [
     '中断',
     '未対応イベント',
     '不正・未完の行',
-    '時刻: 未記録・未確認',
+    '時刻は未記録・未確認',
     '記録済み応答',
   ]) {
     expect(actions).toContain(expected);
   }
   expect(actions).not.toContain('同じIDの対応行');
+  expect((await select(html, '#logs tr[id] .response-size')).text).toContain('18 B');
   expect((await select(html, '#logs')).text).toContain('別ログ・主体間の全体順序');
   expect((await select(html, '#logs')).text).toContain('review-2: 実行中の保存記録');
   expect((await select(html, '#attention')).text).toContain('中断');
-  expect((await select(html, '#logs details li[id]')).count).toBe(0);
-  expect((await select(html, '#logs li[id] details pre')).text).toContain('{truncated');
-  expect((await select(html, '#logs li[id] details pre')).text).toContain(
+  expect((await select(html, '#logs details tr[id], #logs details .event-output')).count).toBe(0);
+  expect((await select(html, '#logs tr[id] details pre')).text).toContain('{truncated');
+  expect((await select(html, '#logs tr[id] details pre')).text).toContain(
     '&quot;aggregated_output&quot;:&quot;記録済み応答&quot;',
   );
   expect((await select(html, 'script')).count).toBe(0);
