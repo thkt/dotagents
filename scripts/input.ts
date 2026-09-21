@@ -221,3 +221,126 @@ export function assertState(value: unknown): asserts value is State {
   assert(optionalString(value.captureSource), 'Invalid saved capture source');
   assert(optionalString(value.source) && validResult(value.result), 'Invalid saved result');
 }
+
+// The host-side, case-level result written by verify-review.ts after Issue #138.
+// Missing observations remain null; this reader never derives verdicts from prose.
+export interface ReviewReport {
+  id: string;
+  name: 'correct' | 'defective';
+  baseCommit: string;
+  elapsedMs: number | null;
+  modelMs: number | null;
+  stop: StopReason | null;
+  review: Review | null;
+  usage?: {
+    totals: { input_tokens: number; cached_input_tokens: number; output_tokens: number } | null;
+    completedTurns: number;
+    scope: string;
+  } | null;
+  reproduction?: Record<string, unknown> | null;
+  adjudication?: {
+    status: string;
+    knownDefect: string | null;
+    missedKnownDefect: boolean | null;
+    findings: { id: string; verdict: string; reproduction: unknown; reason: string | null }[];
+    instruction: string;
+  } | null;
+  limitations: string[];
+}
+
+export function assertReviewReport(value: unknown): asserts value is ReviewReport {
+  assert(isRecord(value), 'Expected case-level verify-review result');
+  assert(
+    typeof value.id === 'string' && /^case-[A-Za-z0-9_-]+$/.test(value.id),
+    'Invalid case id (historical formats are unsupported)',
+  );
+  assert(value.name === 'correct' || value.name === 'defective', 'Invalid case name');
+  assert(
+    typeof value.baseCommit === 'string' &&
+      /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value.baseCommit),
+    'Invalid baseCommit',
+  );
+  for (const key of ['elapsedMs', 'modelMs']) {
+    assert(value[key] === null || nonnegative(value[key]), `Invalid ${key}`);
+  }
+  assert(
+    value.stop === null || stopReasons.some((reason) => reason === value.stop),
+    'Invalid stop',
+  );
+  assert(value.review === null || isReview(value.review), 'Unsupported or invalid review format');
+  assert(
+    isArray(value.limitations) && value.limitations.every((v) => typeof v === 'string'),
+    'Invalid limitations',
+  );
+  assertReportUsage(value.usage);
+  assertReportReproduction(value.reproduction);
+  if (value.adjudication !== undefined && value.adjudication !== null) {
+    assertReportAdjudication(value.adjudication);
+  }
+}
+
+function assertReportUsage(value: unknown) {
+  if (value === undefined || value === null) {
+    return;
+  }
+  assert(
+    isRecord(value) && count(value.completedTurns) && typeof value.scope === 'string',
+    'Invalid usage',
+  );
+  const totals = value.totals;
+  assert(
+    totals === null ||
+      (isRecord(totals) &&
+        ['input_tokens', 'cached_input_tokens', 'output_tokens'].every((key) =>
+          count(totals[key]),
+        )),
+    'Invalid usage.totals',
+  );
+}
+
+function assertReportReproduction(value: unknown) {
+  if (value === undefined || value === null) {
+    return;
+  }
+  assert(isRecord(value), 'Invalid reproduction');
+  assert(
+    ['input', 'expected', 'actual'].every((key) => key in value),
+    'Incomplete reproduction',
+  );
+  assert(
+    typeof value.source === 'string' && typeof value.oracle === 'string',
+    'Invalid reproduction paths',
+  );
+}
+
+function assertReportAdjudication(value: unknown) {
+  assert(
+    isRecord(value) && typeof value.status === 'string' && value.status.length > 0,
+    'Invalid adjudication.status',
+  );
+  assert(
+    value.knownDefect === null || typeof value.knownDefect === 'string',
+    'Invalid knownDefect',
+  );
+  assert(
+    value.missedKnownDefect === null || typeof value.missedKnownDefect === 'boolean',
+    'Invalid missedKnownDefect',
+  );
+  assert(typeof value.instruction === 'string' && isArray(value.findings), 'Invalid adjudication');
+  const ids = new Set<string>();
+  for (const finding of value.findings) {
+    assert(
+      isRecord(finding) && typeof finding.id === 'string' && !ids.has(finding.id),
+      'Invalid or duplicate adjudication finding id',
+    );
+    ids.add(finding.id);
+    assert(
+      ['demonstrated', 'false_positive', 'unconfirmed'].includes(String(finding.verdict)),
+      'Invalid adjudication verdict',
+    );
+    assert(
+      'reproduction' in finding && (finding.reason === null || typeof finding.reason === 'string'),
+      'Invalid adjudication evidence',
+    );
+  }
+}

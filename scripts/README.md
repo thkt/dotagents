@@ -7,7 +7,7 @@
 - ハーネスの導入や検証は[READMEのセットアップと検証](../README.md#セットアップと検証)、変更とレビューの方針は[DEVELOPMENT.md](../.codex/DEVELOPMENT.md)を参照してください。制御CLIや実モデルの起動は不要です。
 - 何を変更するか未確定の相談は[scoping](../skills/scoping/SKILL.md)で要求を整理し、[対話と方針の決定](../.codex/DEVELOPMENT.md#対話と方針の決定)に従って合意済みIssueへつなぎます。
 
-中断後の確認は[結果と再実行](#結果と再実行)、公開担当の操作は[PRの公開](#prの公開)、PRと人のレビュー・承認は[レビューを助ける説明](../.codex/DEVELOPMENT.md#レビューを助ける説明)を参照してください。公開の許可と範囲は[implement](../skills/implement/SKILL.md)と[IssueからPR作成](#issueからpr作成)で確認します。共通check内の制御テストは模擬コマンドを使いますが、ここで説明するCLI試行は実モデルを呼びます。
+中断後の確認は[結果と再実行](#結果と再実行)、公開担当の操作は[PRの公開](#prの公開)、PRと人のレビュー・承認は[レビューを助ける説明](../.codex/DEVELOPMENT.md#レビューを助ける説明)を参照してください。公開の許可と範囲は[implement](../skills/implement/SKILL.md)と[IssueからPR作成](#issueからpr作成)で確認します。共通check内の制御テストは模擬コマンドを使いますが、development・実モデル確認のCLI試行は実モデルを呼びます。[保存結果のHTML生成](#保存済み評価のローカルhtml)は呼びません。
 
 ## IssueからPR作成
 
@@ -412,6 +412,56 @@ cwd、prompt、target record、差分・追加ファイル、checkログ、actor
 正誤ラベルを分離した2ケースの実測と裁定は[Issue #138の検証記録](../docs/evidence/review-blinding-138.md)を参照してください。
 
 Issue #66の試行結果は[2026-09-15の実モデル検証記録](../docs/evidence/review-foundation-66.json)にあります。実行時のコードのhash、fixture、指摘の裁定、時間、使用量と未確認範囲を保持した過去の証拠であり、書き換えません。当時は`defective` / `correct`の保存先がレビュー入力に現れる非盲検条件でした。判断への影響は未測定で、過去の結果が誤りだったとも、今回の変更で精度や速度が改善したとも断定しません。後続の変更に対する検証成功を示すものではありません。
+
+### 保存済み評価のローカルHTML
+
+[review-report.ts](review-report.ts)は、[verify-review.ts](verify-review.ts)が保存したケース単位の結果を、一つの静的HTMLへ表示します。生成・閲覧に実モデル、ブラウザー自動起動、常駐サーバーは不要です。
+
+```sh
+bun scripts/review-report.ts /absolute/run/host/case-ID/result.json /existing/external/reports/case-ID.html
+```
+
+出力先の親ディレクトリは先に用意してください。入力run内、このハーネス内、`.git`を持つcheckout内には出力できません。親のsymlinkも実体へ解決して確認し、既存ファイルや出力ファイルのsymlinkは上書きせず拒否します。生成したHTMLをローカルのブラウザーで開いてください。生成時点の表示なので、裁定などの元記録を更新した場合は別の出力名で同じコマンドを実行します。レポートから状態変更・再判定・再実行・承認・マージはできません。
+
+対応するのは、#138採用後の`RUN/host/CASE/result.json`と現在のレビュー形式です。ケースIDとディレクトリの一致、結果の必須項目、状態・数値・レビュー構造を検査します。通常のdevelopmentの結果、#138以前の配置や旧レビュー形式は変換せず拒否します。不正JSON・対象外形式は入力パスと理由をstderrへ出し、終了コード1で出力せず終了します。中断で`result.json`自体が残っていないrunから、結果を推定する機能はありません。
+
+関連記録は同じrunの次の場所から読み取ります。元のJSON、ログ、評価用checkoutは変更しません。関連ファイルや途中のディレクトリがsymlinkなら、その内容を証拠として取り込みません。
+
+| 記録 | 表示・確認できること |
+| --- | --- |
+| `CASE/issue.json`、`host/environment.json`、`host/cases.json`、`CASE/config.json` | 要求本文、対象・環境・実行条件の保存値 |
+| `host/CASE/result.json` | 制御の終了理由、モデルのレビュー、指摘ID・修正状況、ホストの裁定、再現入力・期待値・実結果、時間・使用量・限界 |
+| `CASE/verification/state.json`、`review-N.target.json`・`.diff`・`.additions.json`・`.json` | 制御呼出しの保存順、レビュー対象ID・基準版、レビュー当時の要求・差分・追加ファイルの保存内容 |
+| `CASE/verification/{check,review,repair,capture}-N.{stdout,stderr,prompt}`、`CASE/{review,repair}-codex-*/{events.jsonl,stderr.log,final.json}` | 呼出しごとの記録、JSONLの行順、記録されたツール実行・失敗 |
+
+追加ファイルの通常ファイルは、保存されたbase64を復号してUTF-8の本文をエスケープ表示し、JSON原文も残します。不正なbase64、UTF-8として読めない内容、改行・タブ・復帰以外のC0制御文字やDELを含む内容は、本文を表示できない旨を記録欄に示します。symlinkは保存された参照先の文字列だけを表示し、参照先の内容は読み込みません。
+
+関連記録が欠ける、読めない、JSONが不正、対象ID・基準版・要求・ケース対応表の照合ができない場合も、読める結果からHTMLを生成し、冒頭と入力記録欄へ不足を表示します。`state.events`の非zero終了・timeout、JSONLのerror・failed・非zeroの`item.exit_code`も冒頭に示します。それ以外の自由文から失敗や原因を推測しません。JSONLの不正行・未完の行は警告と原文を保持します。原本の改変を防ぐ署名検証や、記録の完全性・真正性の保証は行いません。生成中の元記録の同時更新は避けてください。
+
+要求、ケースの再現、指摘、同じ対象IDの保存記録へページ内リンクで進み、詳細は折り畳みから読めます。要求・合格条件から再現への構造化対応表はこの形式にないため、文章に明示された対応を照合してください。指摘と裁定はIDで結び、対応する裁定がなければ未確認を表示します。記録された`accepted`を欠陥なし、`needs_changes`を検出成功には変換しません。`fixed`などの修正状況と真偽の裁定も別です。現在のcheckout、パス先のoracle、別試行や再生成品を過去の証拠として読み込みません。対象記録のhashや保存差分だけで元の全成果物を復元できるとは扱いません。
+
+時間・トークンは保存値を表示します。集計範囲はレビューCLIの完了ターンであり、欠落をゼロにせず、子モデルを含む総量は未確認、金額は未計測と表示します。actorのランダム名から呼出し間の時系列・対応・因果関係を作らず、記録にない参照コンテキストも補いません。長いログも省略せずHTML内へ埋め込むため、ファイルサイズと表示負荷は元の記録量に依存します。詳細内の文字列検索は折り畳みを開いて使ってください。
+
+文章は固定済みのBun 1.4.2の[Markdown API](https://bun.com/docs/runtime/markdown)で描画します。見出し、段落、強調、リスト、表、コード、リンクを扱い、raw HTMLは無効にします。描画後のリンクはHTTP(S)とページ内参照だけを有効にし、画像は代替文字列にします。ログ・JSONはエスケープした文字列で表示し、スクリプトや外部リソースの読込みもCSPで制限します。[TanStack Markdown](https://tanstack.com/markdown/latest/docs/overview)の独立したHTML入口・安全な既定値・対応構文を候補として確認しましたが、本用途は既存BunのAPIで扱えます。alphaの追加依存とその更新管理を増やさず、Reactも導入しません。TanStack版との実測比較や性能上の優位は主張しません。
+
+HTMLは生ログとホスト側のパスを含むため、実runの生成物をそのまま公開しないでください。出力はモード`0600`で新規作成します。公開用の表示確認は次の模擬データを使います。
+
+#### このHTMLのホスト確認・撮影
+
+```sh
+bun scripts/verify-review-report.ts
+```
+
+このコマンドはcheckout外の新しい一時ディレクトリに公開可能な模擬記録と`html/normal.html`・`pending.html`・`empty.html`・`stopped.html`を生成し、実際のパスを返します。モデル・ブラウザー・サーバーは起動しません。`normal`は裁定済みの複数指摘と保存ログ、`pending`は裁定待ち・使用量欠落・関連ログ不足、`empty`はaccepted・指摘なし・裁定待ち、`stopped`はreview_failed・レビューと再現の欠落を含みます。normalにもツールの非zero終了を意図的に含め、後続の結果で失敗記録を隠さないことを確認します。すべて模擬値であり、実モデルの測定結果ではありません。
+
+[Issue #149のホスト確認合意](https://github.com/thkt/dotagents/issues/149)により、今回は`.dotagents.json`の`capture: null`を維持します。担当ホストは、実装版を固定して次を行い、結果・対象版・画像の場所を既存の証拠記録と独立評価へ渡してください。共通checkの成功とブラウザーでの確認は別の結果です。
+
+1. 生成した4ファイルをローカルのブラウザーで開きます。同じ保存先の`records/host/case-*/result.json`、`records/case-*/issue.json`、対象・ログと表示を照合し、要求から再現・裁定根拠・同じ試行の記録へ辿れること、対応がない部分は未確認と分かることを確認します。
+2. normalで再現の`[30,40]`と`[]`、指摘のopen／fixedとdemonstrated／false_positiveの区別、実時間1234.5ms・モデル時間900ms・トークン120／20／35を照合します。pendingでfixed／unconfirmedの併存、使用量の欠落、emptyで指摘なしと裁定待ち、stoppedで実行失敗と採点未確認が隠れないことを確認します。子モデル総量・金額をゼロと表示していないことも確認します。
+3. 狭い画面と通常幅で長い日本語・複数指摘・ログを読み、Tab・Enterでページ内リンク、Tab・EnterまたはSpaceで折り畳みを操作します。フォーカスが見え、リンク先へ移動でき、条件・根拠が欠けず読めることを確認します。
+4. fixtureに含むscript、実行可能なURL、ログのHTMLが実行されず、開発者ツールで`globalThis.REPORT_EXECUTED`が`undefined`であること、ネットワークで画像の外部取得がないことも確認します。通常と未確認の違いが伝わるnormal・pendingの画像をcheckout外へ保存します。画像の対象版と表示照合結果を既存の独立評価へ渡し、変更したこのREADMEの日本語・事実・条件・限界も評価対象に含めます。
+
+公開を担当するホストは、公開可能な画像だけを[既存の添付手順](#prへの画像動画の添付)で同じPRに添付し、PRでの実表示を確認します。ブラウザー確認・撮影・独立評価・同じheadの`checks`／`verify`が残っている間は公開完了・readyと扱いません。共通checkのテストは入力境界・描画結果を対象とし、ブラウザー操作や読みやすさの改善効果を保証しません。
 
 ## scopingの切替と手順確認
 

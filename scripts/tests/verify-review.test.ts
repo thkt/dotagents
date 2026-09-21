@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { generateReviewReport } from '../review-report.ts';
 import { events, object, reviewReplySource } from './support/correction.ts';
 
 async function json(path: string) {
@@ -106,6 +107,17 @@ async function inspectCase(root: string, entry: Record<string, unknown>) {
         ],
   );
   expect(object(result.usage).completedTurns).toBe(1);
+  // Reuse this producer trial to catch drift between saved records and the HTML reader.
+  const report = await generateReviewReport(
+    join(root, 'host', entry.id, 'result.json'),
+    join(dirname(root), `${entry.id}.html`),
+  );
+  const html = await readFile(report.output, 'utf8');
+  expect(html).toContain(String(object(result.review).status));
+  expect(html).toContain('pending_host_adjudication');
+  expect(html).toContain(`<pre>${Bun.escapeHTML(String(source['page.test.ts']))}</pre>`);
+  expect(html).toContain(`<pre>${Bun.escapeHTML(String(source['README.md']))}</pre>`);
+  expect(report.warnings).toEqual([]);
 }
 
 test('probe conceals answer metadata through the real review input path and retains host adjudication', async () => {
