@@ -110,6 +110,7 @@ async function prepareRevision(
   runDirectory: string | undefined,
   repo: string,
   number: string,
+  issueText: string,
   base: string,
   target: Awaited<ReturnType<typeof readTarget>>,
   localOnly: boolean,
@@ -137,7 +138,7 @@ async function prepareRevision(
       baseBranch: target.config.baseBranch,
       repository,
       issue: number,
-      issueText: prior.original,
+      issueText,
       runDirectory: resolve(runDirectory),
       actor: target.actor,
       repositoryId: target.repositoryId,
@@ -201,17 +202,6 @@ async function selectStart(args: string[], io: typeof runtime) {
   const reports =
     prior?.config.reports ??
     researchHandoff(base, parsed.values['start-commit'], parsed.values.report ?? []);
-  const revision = await prepareRevision(
-    prior,
-    parsed.values['request-file'],
-    parsed.values['run-dir'],
-    repo,
-    number,
-    base,
-    target,
-    localOnly,
-    io,
-  );
   const issue = [
     'gh',
     'issue',
@@ -224,7 +214,18 @@ async function selectStart(args: string[], io: typeof runtime) {
   ];
   const original = await checked(io, issue, repo);
   const requirements = issueValue(original);
-  assert(!prior || prior.original === original, 'Agreed Issue changed since previous publication');
+  const revision = await prepareRevision(
+    prior,
+    parsed.values['request-file'],
+    parsed.values['run-dir'],
+    repo,
+    number,
+    original,
+    base,
+    target,
+    localOnly,
+    io,
+  );
   const references = knowledgeReferences(original);
   const inputs = prior ? [] : [...reports, ...references];
   await verifyStartInputs(repo, base, target.text, inputs, io);

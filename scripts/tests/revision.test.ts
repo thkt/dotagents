@@ -29,7 +29,15 @@ const issue = JSON.stringify({
   title: 'Visible result',
   body: 'Keep result visible',
   state: 'OPEN',
+  updatedAt: '2026-09-20T00:00:00Z',
 });
+const updatedRequirements = {
+  title: 'Visible result with reset',
+  body: 'Keep result visible and clear it on reset',
+  state: 'OPEN',
+  updatedAt: '2026-09-21T00:00:00Z',
+};
+const updatedIssue = JSON.stringify(updatedRequirements);
 const ok = (stdout = '') => ({ stdout, stderr: '', code: 0, timedOut: false, ms: 1 });
 
 // Real Git and the existing development/publish entry points; only external responses are simulated.
@@ -68,6 +76,7 @@ async function fixture(root: string, media = false, setup: string[][] = []) {
   );
   const hooks: {
     mode: string;
+    issueText: string;
     implementations: number;
     pushes: number;
     edits: number;
@@ -76,6 +85,7 @@ async function fixture(root: string, media = false, setup: string[][] = []) {
     beforeActor?: () => Promise<void>;
   } = {
     mode: '',
+    issueText: issue,
     implementations: 0,
     pushes: 0,
     edits: 0,
@@ -130,8 +140,8 @@ async function fixture(root: string, media = false, setup: string[][] = []) {
   function issueReply() {
     return ok(
       hooks.mode === 'issue_after_push' && hooks.pushes > 1
-        ? issue.replace('Keep result visible', 'Changed requirement')
-        : issue,
+        ? hooks.issueText.replace('Keep result visible', 'Changed requirement')
+        : hooks.issueText,
     );
   }
   function undoDraft(argv: string[]) {
@@ -263,7 +273,7 @@ async function fixture(root: string, media = false, setup: string[][] = []) {
         reviewFormat: 4,
         baseCommit: config.baseCommit ?? initialBase,
         configHash: hash(JSON.stringify(config)),
-        issueHash: hash(issue),
+        issueHash: hash(hooks.issueText),
         source: await snapshot(config.cwd),
         repair: 0,
         review: 1,
@@ -766,7 +776,7 @@ for (const changed of ['none', 'actor', 'draft']) {
   });
 }
 
-for (const boundary of ['reservation', 'setup']) {
+for (const boundary of ['reservation', 'setup', 'issue_during_setup']) {
   test(`revision rejects changes at the start boundary: ${boundary}`, async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-start-')));
     try {
@@ -787,14 +797,23 @@ for (const boundary of ['reservation', 'setup']) {
             changed = true;
           }
         }
-        if (boundary === 'setup' && argv.join(' ') === setup.join(' ')) {
-          f.pr.body += '\nConcurrent edit during setup';
+        if (boundary !== 'reservation' && argv.join(' ') === setup.join(' ')) {
+          if (boundary === 'issue_during_setup') {
+            f.hooks.issueText = updatedIssue;
+          } else {
+            f.pr.body += '\nConcurrent edit during setup';
+          }
           await writeFile(join(f.cwd, 'untracked.txt'), 'Preserve setup work');
           changed = true;
         }
         return result;
       };
-      const reason = boundary === 'reservation' ? /Revision request changed/ : /PR body changed/;
+      const reason =
+        boundary === 'reservation'
+          ? /Revision request changed/
+          : boundary === 'issue_during_setup'
+            ? /Agreed Issue changed/
+            : /PR body changed/;
       await assert.rejects(() => develop(f.args, f.io), reason);
       expect(changed).toBe(true);
       expect(f.commands.filter(({ argv }) => argv.join(' ') === setup.join(' '))).toHaveLength(
@@ -819,11 +838,73 @@ for (const boundary of ['reservation', 'setup']) {
       });
       expect(result.reason).toMatch(reason);
       expect(result.nextAction).toContain('without resuming this run');
-      if (boundary === 'setup') {
+      if (boundary !== 'reservation') {
         expect(await readFile(join(f.cwd, 'untracked.txt'), 'utf8')).toBe('Preserve setup work');
       }
       expect(await readFile(join(f.prior, 'verification/state.json'), 'utf8')).toBe(priorState);
       expect(await readFile(join(f.prior, 'result.json'), 'utf8')).toBe(priorResult);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const [mode, current, reason] of [
+  ['closed', { state: 'CLOSED' }, /Issue must be open/],
+  ['empty_title', { title: ' ' }, /Issue must be open/],
+  ['empty_body', { body: ' ' }, /Issue must be open/],
+  ['prior_issue_tampered', {}, /Previous Issue evidence differs/],
+  ['changed_after_snapshot', {}, /Agreed Issue changed during revision/],
+] as const) {
+  test(`revision rejects invalid start requirements: ${mode}`, async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-issue-')));
+    try {
+      const f = await fixture(root, false, [['git', 'status', '--porcelain']]);
+      f.hooks.issueText = JSON.stringify({ ...updatedRequirements, ...current });
+      if (mode === 'prior_issue_tampered') {
+        await writeFile(join(f.prior, 'issue.json'), updatedIssue);
+      }
+      const priorFiles = ['issue.json', 'verification/state.json', 'result.json'];
+      const priorEvidence = await Promise.all(
+        priorFiles.map((path) => readFile(join(f.prior, path), 'utf8')),
+      );
+      const initialVerifications = f.hooks.verifications;
+      const execute = f.io.command;
+      let issueReads = 0;
+      f.io.command = async (...args) => {
+        const result = await execute(...args);
+        if (args[0][1] === 'issue') {
+          expect(args[0]).toEqual([
+            'gh',
+            'issue',
+            'view',
+            '99',
+            '--repo',
+            'team/component',
+            '--json',
+            'title,body,state,updatedAt',
+          ]);
+          issueReads++;
+          if (mode === 'changed_after_snapshot' && issueReads === 1) {
+            // Even a timestamp-only change after pinning must stop preparation.
+            f.hooks.issueText = updatedIssue.replace('2026-09-21', '2026-09-22');
+          }
+        }
+        return result;
+      };
+      await assert.rejects(() => develop(f.args, f.io), reason);
+      expect(f.hooks.implementations).toBe(1);
+      expect(f.hooks.verifications).toBe(initialVerifications);
+      expect(f.hooks.pushes).toBe(1);
+      expect(f.hooks.edits).toBe(0);
+      expect(f.commands.some(({ argv }) => argv.join(' ') === 'git status --porcelain')).toBe(
+        false,
+      );
+      expect(git(f.cwd, 'rev-parse', 'HEAD')).toBe(f.oldHead);
+      expect(await readdir(root)).not.toContain('revision');
+      expect(
+        await Promise.all(priorFiles.map((path) => readFile(join(f.prior, path), 'utf8'))),
+      ).toEqual(priorEvidence);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -909,7 +990,7 @@ for (const [change, expected] of Object.entries(verificationChanges)) {
 }
 
 for (const [mode, reason] of [
-  ['normal', null],
+  ['updated_issue', null],
   ['issue_changed', /Agreed Issue changed during revision/],
   ['body_changed', /Revision PR body changed/],
   ['locked_body_changed', /EEXIST/],
@@ -919,7 +1000,14 @@ for (const [mode, reason] of [
     const originalPath = process.env.PATH;
     try {
       const f = await fixture(root);
-      const priorFiles = ['result.json', 'verification/state.json', 'pr.json'];
+      f.hooks.issueText = updatedIssue;
+      const priorFiles = [
+        'issue.json',
+        'result.json',
+        'verification-config.json',
+        'verification/state.json',
+        'pr.json',
+      ];
       const priorEvidence = await Promise.all(
         priorFiles.map((path) => readFile(join(f.prior, path), 'utf8')),
       );
@@ -929,7 +1017,7 @@ for (const [mode, reason] of [
       await mkdir(bin);
       const gh = join(bin, 'gh');
       const liveIssue = join(root, 'issue.json');
-      await writeFile(liveIssue, issue + '\n');
+      await writeFile(liveIssue, updatedIssue + '\n');
       await writeFile(
         gh,
         `#!${process.execPath}
@@ -955,7 +1043,7 @@ import {readFileSync,writeFileSync} from 'node:fs';
 const role = process.argv[2];
 ${reviewReplySource}
 if(role === 'check') {
- if (${mode === 'issue_changed'}) writeFileSync(${JSON.stringify(liveIssue)}, ${JSON.stringify(issue.replace('Keep result visible', 'Changed requirements'))});
+ if (${mode === 'issue_changed'}) writeFileSync(${JSON.stringify(liveIssue)}, ${JSON.stringify(updatedIssue.replace('Keep result visible', 'Changed requirements'))});
  process.exit(readFileSync('result.txt','utf8') === 'corrected' ? 0 : 1);
 }
 if(role === 'repair') { writeFileSync('result.txt','corrected'); console.log(JSON.stringify({status:'repaired',findings:'Reset corrected'})); }
@@ -1037,7 +1125,14 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
       expect(state.repair).toBe(1);
       expect(state.review).toBe(1);
       expect(state.checks).toBe(2);
-      expect(state.issueHash).toBe(hash(issue + '\n'));
+      expect(state.issueHash).toBe(hash(updatedIssue + '\n'));
+      expect(verifiedConfig.revision.issueText).toBe(updatedIssue);
+      expect(await readFile(join(f.dir, 'issue.json'), 'utf8')).toBe(updatedIssue);
+      expect(await readFile(join(f.dir, 'implementation.prompt'), 'utf8')).toContain(updatedIssue);
+      expect(await readFile(join(verification, 'review-1.prompt'), 'utf8')).toContain(updatedIssue);
+      expect(
+        await Promise.all(priorFiles.map((path) => readFile(join(f.prior, path), 'utf8'))),
+      ).toEqual(priorEvidence);
       const reads = (await readFile(join(root, 'reads'), 'utf8')).trim().split('\n');
       expect(reads.filter((role) => role === 'issue').length).toBeGreaterThan(1);
       expect(reads).toEqual(reads.filter((role) => role === 'pr').flatMap(() => ['issue', 'pr']));
