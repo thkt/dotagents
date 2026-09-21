@@ -8,7 +8,6 @@ import { createHash } from 'node:crypto';
 import { parseArgs } from 'node:util';
 import { run, snapshot } from './correction.ts';
 import { previousRun, checkRevision, revisionContext } from './revision.ts';
-import type { Revision } from './revision.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
 import { command, assertRunning, withInterrupts } from './process.ts';
 import { isRecord, outside } from './values.ts';
@@ -22,7 +21,7 @@ import {
   verifyReportBase,
   verifyReports,
 } from './research-handoff.ts';
-import type { Config, State, ReportReference, StopReason } from './input.ts';
+import type { Config, State, ReportReference, StopReason, Revision } from './input.ts';
 import { knowledgeReferences, readKnowledge } from './knowledge.ts';
 
 const runtime = { command, verify: run, publish };

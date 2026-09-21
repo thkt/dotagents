@@ -370,6 +370,7 @@ SIGKILLやOS停止は捕捉できません。CLIだけが強制終了すると�
 ## 検証
 
 現在の共通checkの順序やハーネスの検証範囲は[README](../README.md#セットアップと検証)を、書式や型情報を用いるlintおよびテスト完了の方針は[DEVELOPMENT.md](../.codex/DEVELOPMENT.md#typescriptの書き方)を参照してください。
+未使用コードの検査対象、fallowの解析失敗の扱い、重複・複雑度・循環依存の調査コマンドは[READMEのコードベース調査](../README.md#未使用コード検査とコードベース調査)を参照してください。追加調査は共通checkの失敗条件に含めません。
 制御テストは `scripts/tests/` に配置し、対象の責務に合わせて分割しています。
 
 | 対象 | テスト |
@@ -380,6 +381,7 @@ SIGKILLやOS停止は捕捉できません。CLIだけが強制終了すると�
 | 撮影設定の解決・実行判定・外部出力 | [capture.test.ts](tests/capture.test.ts)、[capture-browser-errors.test.ts](tests/capture-browser-errors.test.ts) |
 | 撮影・媒体の保持と再利用 | [correction-capture.test.ts](tests/correction-capture.test.ts) |
 | テスト実行完了の判定 | [test-runner.test.ts](tests/test-runner.test.ts) |
+| 未使用コードの検出・解析失敗、TS整形の対象と出力 | [codebase-checks.test.ts](tests/codebase-checks.test.ts) |
 
 撮影アダプターの実動作はホスト専用の一時fixtureでも確認できます。既存のPlaywright依存と導入済みブラウザーを持つ対象repoを明示します。依存の導入や対象repoへの書き込みは行わず、OSの一時ディレクトリにfixture、媒体、ログを保持します。ブラウザーを起動するためsandbox内では実行しません。
 

@@ -8,7 +8,7 @@ import { knowledgeContext } from './knowledge.ts';
 import type { SelectedKnowledge } from './knowledge.ts';
 
 type Git = (...args: string[]) => Promise<string>;
-export function reportReferences(inputs: string[]): ReportReference[] {
+function reportReferences(inputs: string[]): ReportReference[] {
   const reports = inputs.map((input) => {
     const [path, blob, extra] = input.split('=');
     assert(extra === undefined, `Expected reviewed Git blob ID: ${path}`);

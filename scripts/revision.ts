@@ -3,60 +3,15 @@ import { readFile, realpath, access, readdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { assertConfig, assertState } from './input.ts';
+import type { Revision } from './input.ts';
 import { isRecord } from './values.ts';
 import { readTarget } from './target.ts';
 import { assertRunning } from './process.ts';
 import type { Reader } from './target.ts';
 
-export interface Revision {
-  previousRun: string;
-  requestFile: string;
-  request: string;
-  url: string;
-  body: string;
-  head: string;
-  branch: string;
-  baseBranch: string;
-  repository: string;
-  issue: string;
-  issueText: string;
-  runDirectory: string;
-  actor: string;
-  repositoryId: number;
-  targetText: string;
-  localOnly: boolean;
-}
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 async function json(path: string): Promise<unknown> {
   return JSON.parse(await readFile(path, 'utf8'));
-}
-export function assertRevision(value: unknown): asserts value is Revision | undefined {
-  if (value === undefined) {
-    return;
-  }
-  assert(isRecord(value), 'Invalid revision input');
-  for (const key of [
-    'previousRun',
-    'requestFile',
-    'request',
-    'url',
-    'body',
-    'head',
-    'branch',
-    'baseBranch',
-    'repository',
-    'issue',
-    'issueText',
-    'runDirectory',
-    'actor',
-    'targetText',
-  ]) {
-    assert(typeof value[key] === 'string' && value[key].trim(), `Invalid revision ${key}`);
-  }
-  assert(
-    typeof value.repositoryId === 'number' && typeof value.localOnly === 'boolean',
-    'Invalid revision target',
-  );
 }
 
 export async function previousRun(
@@ -284,7 +239,7 @@ export function revisionContext(revision?: Revision) {
 }
 
 // Existing result.json is the execution entry point; no separate retry ledger.
-export async function reconcileExecutions(revision: Revision, cwd: string) {
+async function reconcileExecutions(revision: Revision, cwd: string) {
   const parent = dirname(revision.previousRun);
   assert(
     dirname(revision.runDirectory) === parent,
@@ -295,12 +250,7 @@ export async function reconcileExecutions(revision: Revision, cwd: string) {
     if (!entry.isDirectory() || dir === revision.runDirectory) {
       continue;
     }
-    const record = await readFile(join(dir, 'result.json'), 'utf8').catch((error: unknown) => {
-      if (isRecord(error) && error.code === 'ENOENT') {
-        return undefined;
-      }
-      throw error;
-    });
+    const record = await optionalFile(join(dir, 'result.json'));
     if (record === undefined) {
       continue;
     }
@@ -316,15 +266,17 @@ export async function reconcileExecutions(revision: Revision, cwd: string) {
   }
 }
 
+async function optionalFile(path: string) {
+  return readFile(path, 'utf8').catch((error: unknown) => {
+    if (isRecord(error) && error.code === 'ENOENT') {
+      return undefined;
+    }
+    throw error;
+  });
+}
+
 async function inactiveVerification(dir: string) {
-  const state = await readFile(join(dir, 'verification/state.json'), 'utf8').catch(
-    (error: unknown) => {
-      if (isRecord(error) && error.code === 'ENOENT') {
-        return undefined;
-      }
-      throw error;
-    },
-  );
+  const state = await optionalFile(join(dir, 'verification/state.json'));
   if (state) {
     const value: unknown = JSON.parse(state);
     assert(
