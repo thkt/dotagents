@@ -205,12 +205,12 @@ function attention(data: ReportRecords, evidence: ReadonlyMap<string, string>) {
 
 function requirements(data: ReportRecords) {
   const issue = data.issue.value;
-  return `<article id="requirements" tabindex="-1"><h3>元の要求・対象・実行条件</h3>${isRecord(issue) && typeof issue.body === 'string' ? prose(issue.body) : '<p class="warning">元の要求本文は未確認です。</p>'}<dl>${field('ケースID', data.result.id)}${field('ケースの記録名', data.result.name)}${field('基準版', data.result.baseCommit)}${field('レビュー対象ID', data.result.review?.targetId)}${field('制御上の終了理由', data.result.stop ? stops[data.result.stop] : null)}${field('モデルの回答', modelStatus(data.result.review?.status))}</dl>${details('内部コード・裁定状態', raw({ stop: data.result.stop, modelStatus: data.result.review?.status, adjudicationStatus: data.result.adjudication?.status }))}${recordView(data.issue, 'issue-record')}${recordView(data.environment, 'environment-record')}${recordView(data.cases, 'cases-record')}${recordView(data.config, 'config-record')}</article>`;
+  return `<article id="requirements" tabindex="-1"><h3>元の要求・対象・実行条件</h3>${isRecord(issue) && typeof issue.body === 'string' ? prose(issue.body) : '<p class="warning">元の要求本文は未確認です。</p>'}<dl>${field('ケースID', data.result.id)}${field('ケースの記録名', data.result.name)}${field('基準版', data.result.baseCommit)}${field('レビュー対象ID', data.result.review?.targetId)}${field('制御上の終了理由', data.result.stop ? stops[data.result.stop] : null)}${field('モデルの回答', modelStatus(data.result.review?.status))}</dl>${details('内部コード・裁定状態', raw({ stop: data.result.stop, modelStatus: data.result.review?.status, adjudicationStatus: data.result.adjudication?.status }))}</article>`;
 }
 
 function results(data: ReportRecords, evidence: ReadonlyMap<string, string>) {
   const { result } = data;
-  return `<section id="results" tabindex="-1"><h2>根拠と再現</h2><p>評価欄は解析した要約です。保存時の字句は${link('result-record', 'result.jsonの原文')}で確認してください。</p><p>期待値・実結果と適用基準を照合します。試験用コードの失敗と、レビューによる欠陥検出の成功は別です。</p><div class="card evidence-links"><h3>判断の根拠</h3><p>${link('criteria', '適用した問い・達成基準')} / ${link('conclusion', '記録された結論と理由')}</p><ul>${result.trial?.judgment.evidence.map((ref) => `<li>${evidence.has(ref) ? link(evidence.get(ref) ?? '', ref) : `${escape(ref)} — 対応する証拠は未確認`}</li>`).join('') || '<li>対応は未記録・未確認</li>'}</ul><p class="muted">ログ全体への参照では、個別行動との対応は未確認です。</p></div><article id="reproduction" class="card detail-card" tabindex="-1">${details('対象コードの動作確認', `<p class="muted">解析した値の要約。保存時の字句は${link('result-record', 'result.jsonの原文')}で確認してください。</p><div class="reproduction-layout">${panel('入力 · 条件', labeledValues(result.reproduction?.input), 'input-panel')}<div class="comparison observations">${panel('出力 · 期待値', labeledValues(result.reproduction?.expected), 'output-panel')}${panel('出力 · 実結果', labeledValues(result.reproduction?.actual), 'output-panel')}</div></div>${details('再現記録の全項目（解析した要約）', raw(result.reproduction))}`)}</article>${details('既知の欠陥・裁定記録', `<dl>${field('既知の欠陥', result.adjudication?.knownDefect)}${field('既知の欠陥の見落とし', result.adjudication?.missedKnownDefect)}</dl>${raw(result.adjudication)}`)}<p class="source-links">${link('requirements', '元の要求・対象・条件')} / ${link('targets', '保存されたレビュー対象')}</p></section>`;
+  return `<section id="results" tabindex="-1"><h2>根拠と再現</h2><div class="card detail-card"><header><h3>判断の根拠</h3></header><div class="evidence-links"><p>${link('criteria', '適用した問い・達成基準')} / ${link('conclusion', '記録された結論と理由')}</p><ul>${result.trial?.judgment.evidence.map((ref) => `<li>${evidence.has(ref) ? link(evidence.get(ref) ?? '', ref) : `${escape(ref)} — 対応する証拠は未確認`}</li>`).join('') || '<li>対応は未記録・未確認</li>'}</ul><p class="muted">ログ全体への参照では、個別行動との対応は未確認です。</p></div></div><article id="reproduction" class="card detail-card" tabindex="-1">${details('対象コードの動作確認', `<p class="muted">解析した値の要約。保存時の字句は${link('result-record', 'result.jsonの原文')}で確認してください。</p><div class="reproduction-layout">${panel('入力 · 条件', labeledValues(result.reproduction?.input), 'input-panel')}<div class="comparison observations">${panel('出力 · 期待値', labeledValues(result.reproduction?.expected), 'output-panel')}${panel('出力 · 実結果', labeledValues(result.reproduction?.actual), 'output-panel')}</div></div><p>${link('reproduction-record', '再現記録の全項目（解析した要約）')} / ${link('review', '指摘の検証')}</p>`)}</article>${knownDefect(data)}<p class="source-links">${link('requirements', '元の要求・対象・条件')} / ${link('targets', '保存されたレビュー対象')}</p></section>`;
 }
 
 const verdicts: Record<string, string> = {
@@ -250,14 +250,36 @@ function reviews(data: ReportRecords) {
   const review = data.result.review;
   return `<section id="review" tabindex="-1"><h2>指摘の検証</h2>${
     review
-      ? `${review.items.length ? review.items.map((item, index) => findingView(item, index, data)).join('') : '<p>記録された指摘: 0件。指摘なしは欠陥なしの証明ではありません。</p>'}${details('モデルのレビュー本文（解析した値）', prose(review.findings))}${details(
+      ? review.items.length
+        ? review.items.map((item, index) => findingView(item, index, data)).join('')
+        : '<p>記録された指摘: 0件。指摘なしは欠陥なしの証明ではありません。</p>'
+      : '<p class="warning">レビュー未記録。採点できた結果は確認できません。</p>'
+  }</section>`;
+}
+
+function reviewRecords(data: ReportRecords) {
+  const review = data.result.review;
+  return `<div class="card record-group"><header><h3>モデルのレビュー記録</h3><p>解析した値です。モデル申告の参照文書は、ログで確認した読取りとは別です。${link('result-record', 'result.jsonの原文')}</p></header>${
+    review
+      ? `${details('モデルのレビュー本文（解析した値）', prose(review.findings))}${details(
           '評価観点・モデルが申告した参照文書・引き継ぎ',
           `${Object.entries(review.assessments)
             .map(([label, text]) => `<h3>${escape(label)}</h3>${prose(text)}`)
             .join('')}${raw(review.documents)}${review.handoff.map(prose).join('')}`,
         )}`
-      : '<p class="warning">レビュー未記録。採点できた結果は確認できません。</p>'
-  }</section>`;
+      : '<p class="record-content warning">モデルのレビューは未記録です。</p>'
+  }</div>`;
+}
+
+function knownDefect(data: ReportRecords) {
+  const missed = data.result.adjudication?.missedKnownDefect;
+  const detection =
+    missed === false
+      ? '見落としなし（ホスト確認済み）'
+      : missed === true
+        ? '見落としあり（ホスト確認済み）'
+        : 'ホストによる確認待ち';
+  return `<div class="card detail-card"><header><h3>試験に仕込んだ欠陥</h3><p>レビューが見つけられるかを確かめるための、試験用コードの欠陥です。ハーネス自身の欠陥を示す欄ではありません。</p></header><div class="known-defect"><div>${recordedValue(data.result.adjudication?.knownDefect ?? undefined)}</div><span class="badge" data-variant="outline">${detection}</span></div><footer>${link('result-record', '裁定の原データ（result.json）')}</footer></div>`;
 }
 
 function metric(label: string, value: number | null | undefined, unit: string) {
@@ -329,7 +351,7 @@ function controlLogs(data: ReportRecords) {
 }
 
 function logs(data: ReportRecords) {
-  return `<section id="logs" tabindex="-1"><h2>行動ログ</h2><p class="context-note">主体ごとの保存順です。別ログ・主体間の全体順序、親子関係、制御呼出しとの対応は未確認です。操作行を開くと保存された入出力を表示します。操作名・状態は解析した要約です。数値の精度や重複キー、エスケープの確認には原文を使ってください。</p>${controlLogs(data)}<h3 class="group-heading">モデルのツール実行・イベント</h3><p>開始と完了は同じファイルの一意なID・項目種別が一致する場合だけリンクします。失敗・中断・更新も元の行に残します。時刻・入力・応答は保存値だけを示し、操作から内容の理解・有効利用、空白時間の原因は判断しません。</p>${data.logs.some((entry) => entry.events) ? '' : '<p class="warning">読み取れるJSONLがなく、モデル側の操作は未確認です。</p>'}${data.logs.map(actorLog).join('')}</section>`;
+  return `<section id="logs" tabindex="-1"><h2>行動ログ</h2><p class="context-note">主体ごとの保存順です。別ログ・主体間の全体順序、親子関係、制御呼出しとの対応は未確認です。操作行を開くと保存された入出力と原文を表示します。操作名・状態は解析した要約です。</p>${controlLogs(data)}<h3 class="group-heading">モデルのツール実行・イベント</h3><div class="context-note">開始・完了は同じファイルの一意なID・項目種別が一致する場合だけリンクし、失敗・中断・更新も残します。保存された操作から内容の理解・有効利用や空白時間の原因は判断できません。</div>${data.logs.some((entry) => entry.events) ? '' : '<p class="warning">読み取れるJSONLがなく、モデル側の操作は未確認です。</p>'}${data.logs.map(actorLog).join('')}</section>`;
 }
 
 function references(data: ReportRecords) {
@@ -366,19 +388,23 @@ function overview(data: ReportRecords, title: string) {
     .join('')}</nav>`;
 }
 
+function records(data: ReportRecords) {
+  const trial = data.result.trial;
+  return `<section id="records" tabindex="-1"><h2>記録詳細</h2><p class="context-note">JSON原文は文字列外の空白だけを整形します。文字列の空白・エスケープ、数値の表記、キー順序と重複キーを保持します。非JSON・空白だけの記録は修復しません。評価欄の解析した要約とは区別してください。</p>${references(data)}<div class="card record-group"><header><h3>実行・判断の情報</h3></header>${details('由来・日時・入力記録', `<dl>${field('由来', trial?.provenance)}${field('実行開始（UTC）', trial?.startedAt)}${field('実行終了（UTC）', trial?.finishedAt)}${field('ホスト判断（UTC）', trial?.judgment.at)}${field('HTML生成日時（評価日時ではありません）', new Date().toISOString())}</dl><p class="path">入力: ${escape(data.input.path)}</p>`)}</div><div class="card detail-card">${details('元の要求・評価対象', requirements(data))}</div><div class="card record-group"><header><h3>呼出しの入出力・関連原記録</h3></header>${data.logs.map((entry, index) => (!entry.events ? recordView(entry, `log-${index}`) : '')).join('')}</div>${reviewRecords(data)}<div class="card record-group"><header><h3>評価・実行条件の原記録</h3></header><article id="reproduction-record" class="record-entry" tabindex="-1">${details('対象コードの再現記録（解析した要約）', `<p>result.jsonのreproductionの全項目です。保存時の正確な字句は${link('result-record', 'result.jsonの原文')}で確認してください。</p>${raw(data.result.reproduction)}`)}</article>${recordView(data.issue, 'issue-record')}${recordView(data.environment, 'environment-record')}${recordView(data.cases, 'cases-record')}${recordView(data.config, 'config-record')}${recordView(data.input, 'result-record')}${recordView(data.state, 'state-record')}</div><article id="targets" class="card record-group" tabindex="-1"><header><h3>レビュー対象の原記録</h3></header>${data.targets.map((entry, index) => recordView(entry, `target-${index}`)).join('') || '<p class="record-content warning">保存対象記録がありません。</p>'}</article><div class="card detail-card">${details('この表示で判断できる範囲', `<p>ハーネス全体の合否ではありません。試験用コードの失敗と、欠陥を正しく指摘するレビュー試験の成功は別です。モデル状態・制御終了・修正状況・真偽の裁定・試験の結論を区別します。表示側で合否・原因・証拠の対応やログ間の因果関係を補いません。現在のcheckout、oracleのパス先、別試行を過去の根拠として読み込まず、記録の真正性・完全性は保証しません。元記録を更新した場合は別名で再生成してください。状態変更・再実行・採点・承認・マージの操作はありません。</p>${data.result.limitations.map(prose).join('')}`)}</div><p>${link('top', '冒頭へ戻る')}</p></section>`;
+}
+
 export async function renderReport(data: ReportRecords) {
   const evidence = trialEvidence(data);
   const title =
     isRecord(data.issue.value) && typeof data.issue.value.title === 'string'
       ? data.issue.value.title
       : data.result.id;
-  const trial = data.result.trial;
   const basecoat = await readFile(
     new URL('./basecoat.cdn.min.css', import.meta.resolve('basecoat-css')),
     'utf8',
   );
   const css = await readFile(new URL('./review-report.css', import.meta.url), 'utf8');
-  const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; base-uri 'none'; form-action 'none'"><meta name="referrer" content="no-referrer"><title>レビュー試験 — ${escape(title)}</title><style data-library="basecoat-css@1.0.2">${basecoat}</style><style>${css}</style></head><body><main>${overview(data, title)}${usage(data, evidence)}${logs(data)}${results(data, evidence)}${reviews(data)}<section id="records" tabindex="-1"><h2>記録詳細</h2><p class="context-note">JSON原文は文字列外の空白だけを整形します。文字列の空白・エスケープ、数値の表記、キー順序と重複キーを保持します。非JSON・空白だけの記録は修復しません。評価欄の解析した要約とは区別してください。</p>${references(data)}<div class="card record-group"><header><h3>呼出しの入出力・関連原記録</h3></header>${data.logs.map((entry, index) => (!entry.events ? recordView(entry, `log-${index}`) : '')).join('')}</div>${details('由来・日時・入力記録', `<dl>${field('由来', trial?.provenance)}${field('実行開始（UTC）', trial?.startedAt)}${field('実行終了（UTC）', trial?.finishedAt)}${field('ホスト判断（UTC）', trial?.judgment.at)}${field('HTML生成日時（評価日時ではありません）', new Date().toISOString())}</dl><p class="path">入力: ${escape(data.input.path)}</p>`)}${details('元の要求・対象・環境', requirements(data))}${recordView(data.input, 'result-record')}${recordView(data.state, 'state-record')}<article id="targets" tabindex="-1">${details('保存されたレビュー対象と関連記録', data.targets.map((entry, index) => recordView(entry, `target-${index}`)).join('') || '<p class="warning">保存対象記録がありません。</p>')}</article>${details('この表示で判断できる範囲', `<p>ハーネス全体の合否ではありません。試験用コードの失敗と、欠陥を正しく指摘するレビュー試験の成功は別です。モデル状態・制御終了・修正状況・真偽の裁定・試験の結論を区別します。表示側で合否・原因・証拠の対応やログ間の因果関係を補いません。現在のcheckout、oracleのパス先、別試行を過去の根拠として読み込まず、記録の真正性・完全性は保証しません。元記録を更新した場合は別名で再生成してください。状態変更・再実行・採点・承認・マージの操作はありません。</p>${data.result.limitations.map(prose).join('')}`)}<p>${link('top', '冒頭へ戻る')}</p></section></main></body></html>`;
+  const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; base-uri 'none'; form-action 'none'"><meta name="referrer" content="no-referrer"><title>レビュー試験 — ${escape(title)}</title><style data-library="basecoat-css@1.0.2">${basecoat}</style><style>${css}</style></head><body><main>${overview(data, title)}${usage(data, evidence)}${logs(data)}${results(data, evidence)}${reviews(data)}${records(data)}</main></body></html>`;
   // HTML is disabled in Markdown; URL filtering also covers entity/control-character
   // spellings after HTML parsing. Images stay textual so opening a report is offline.
   return new HTMLRewriter()

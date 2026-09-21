@@ -102,6 +102,9 @@ test('CLI renders recorded requirements, observations and independent verdicts w
       f.result.review?.items[index]?.impact ?? '',
     );
   }
+  expect((await select(html, '#results .known-defect')).text).toContain(
+    'slice uses limit as end index見落としなし（ホスト確認済み）',
+  );
   const metrics = (await select(html, '#usage .metrics')).text;
   expect(metrics).toContain('実時間1234.5 ms');
   expect(metrics).toContain('入力トークン120 tokens');
@@ -160,6 +163,12 @@ test('CLI renders recorded requirements, observations and independent verdicts w
   const observation = await readFile(incomplete, 'utf8');
   expect((await select(observation, '#conclusion')).text).toContain('条件を満たす');
   expect((await select(observation, '#attention')).text).toContain('既知の欠陥の見落としは未確認');
+  expect((await select(observation, '#results .known-defect')).text).toContain(
+    'ホストによる確認待ち',
+  );
+  expect((await select(observation, '#results .known-defect')).text).not.toContain(
+    'ホスト確認済み',
+  );
   const judgment = f.result.adjudication.findings[0];
   assert(judgment);
   for (const [index, value] of [false, 0, '', null].entries()) {
@@ -225,6 +234,9 @@ test('host conclusions stay distinct from model status, missing evidence and exe
       expect((await select(html, '#finding-1')).text).toContain('修正状況fixed');
     }
     if (mode === 'missed') {
+      expect((await select(html, '#results .known-defect')).text).toContain(
+        '見落としあり（ホスト確認済み）',
+      );
       expect(top).toContain('条件未達');
       expect(top).toContain('既知の欠陥の見落とし');
       expect((await select(html, '#review')).text).toContain('記録された指摘: 0件');
@@ -302,7 +314,7 @@ test('unsafe Markdown and raw logs cannot create executable elements, URLs or re
   ]) {
     expect(observations).toContain(literal);
   }
-  expect((await select(html, '#reproduction .disclosure-body > details pre')).text).toBe(
+  expect((await select(html, '#reproduction-record pre')).text).toBe(
     Bun.escapeHTML(JSON.stringify(f.result.reproduction, null, 2)),
   );
   expect(
