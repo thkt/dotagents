@@ -16,7 +16,12 @@ import { publish, checkPublishedPr, PublicationError } from './publish.ts';
 import { waitForCi } from './ci.ts';
 import type { CiResult } from './ci.ts';
 import { readTarget, issueNumber, targetCommand, pushArguments } from './target.ts';
-import { researchContext, researchHandoff, verifyReports } from './research-handoff.ts';
+import {
+  researchContext,
+  researchHandoff,
+  verifyReportBase,
+  verifyReports,
+} from './research-handoff.ts';
 import type { Config, State, ReportReference, StopReason } from './input.ts';
 import { knowledgeReferences, readKnowledge } from './knowledge.ts';
 
@@ -227,6 +232,10 @@ async function selectStart(args: string[], io: typeof runtime) {
     io,
   );
   const references = knowledgeReferences(original);
+  if (prior) {
+    // Match correction's PR-wide base, not the published head where evidence may be revised.
+    await verifyReportBase(prior.state.baseCommit, [...reports, ...references], git);
+  }
   const inputs = prior ? [] : [...reports, ...references];
   await verifyStartInputs(repo, base, target.text, inputs, io);
   const knowledge = await readKnowledge(references, git);
