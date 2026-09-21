@@ -1,0 +1,26 @@
+{
+  "$schema": "./node_modules/fallow/schema.json",
+  "entry": [
+    "scripts/capture.ts",
+    "scripts/check-unused.ts",
+    "scripts/codex-actor.ts",
+    "scripts/correction.ts",
+    "scripts/development.ts",
+    "scripts/knowledge.ts",
+    "scripts/publish.ts",
+    "scripts/target.ts",
+    "scripts/test.ts",
+    "scripts/verify-capture.ts",
+    "scripts/verify-review.ts",
+    "scripts/tests/**/*.test.ts"
+  ],
+  "includeEntryExports": true,
+  "rules": {
+    "unused-files": "error",
+    "unused-exports": "error",
+    "unused-types": "error",
+    "unused-dependencies": "error",
+    "unused-dev-dependencies": "error",
+    "unused-optional-dependencies": "error"
+  }
+}

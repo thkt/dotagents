@@ -285,7 +285,7 @@ export function revisionContext(revision?: Revision) {
 }
 
 // Existing result.json is the execution entry point; no separate retry ledger.
-export async function reconcileExecutions(revision: Revision, cwd: string) {
+async function reconcileExecutions(revision: Revision, cwd: string) {
   const parent = dirname(revision.previousRun);
   assert(
     dirname(revision.runDirectory) === parent,
