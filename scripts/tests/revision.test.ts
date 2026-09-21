@@ -19,8 +19,9 @@ import type { PublishInput } from '../publish.ts';
 import { run, snapshot } from '../correction.ts';
 import { command, withInterrupts } from '../process.ts';
 import { assertConfig } from '../input.ts';
-import { reviewReplySource } from './support/correction.ts';
-import type { Config, State } from '../input.ts';
+import { checkRevision } from '../revision.ts';
+import { correctionConfig, reviewReplySource } from './support/correction.ts';
+import type { Config, State, Revision } from '../input.ts';
 import { isRecord } from '../values.ts';
 import { readKnowledge } from '../knowledge.ts';
 import { initializeTarget, githubTarget, git, targetConfig } from './support/target.ts';
@@ -401,6 +402,89 @@ async function readObject(path: string) {
   const value: unknown = JSON.parse(await readFile(path, 'utf8'));
   assert(isRecord(value));
   return value;
+}
+
+function revisionInput(root: string): Revision {
+  return {
+    previousRun: join(root, 'previous'),
+    runDirectory: join(root, 'current'),
+    requestFile: join(root, 'request.txt'),
+    request: 'Keep the agreed scope',
+    url: 'https://github.com/team/component/pull/100',
+    body: 'Closes #99',
+    head: 'a'.repeat(40),
+    branch: 'codex/revision',
+    baseBranch: 'main',
+    repository: 'team/component',
+    issue: '99',
+    issueText: issue,
+    actor: 'operator',
+    repositoryId: 123,
+    targetText: '{}',
+    localOnly: false,
+  };
+}
+
+test('configuration validates revision input before execution', () => {
+  const config = correctionConfig('/revision-config');
+  const revision = revisionInput('/revision-config');
+  expect(() => assertConfig(config)).not.toThrow();
+  expect(() => assertConfig({ ...config, revision })).not.toThrow();
+  for (const [value, reason] of [
+    [null, /Invalid revision input/],
+    [{ ...revision, request: ' ' }, /Invalid revision request/],
+    [{ ...revision, head: undefined }, /Invalid revision head/],
+    [{ ...revision, repositoryId: '123' }, /Invalid revision target/],
+    [{ ...revision, localOnly: 'false' }, /Invalid revision target/],
+  ] as const) {
+    expect(() => assertConfig({ ...config, revision: value })).toThrow(reason);
+  }
+});
+
+for (const file of ['result.json', 'verification/state.json']) {
+  test(`revision reconciles optional ${file} without swallowing failures`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'revision-records-'));
+    try {
+      const revision = revisionInput(root);
+      const cwd = join(root, 'checkout');
+      const sibling = join(root, 'sibling');
+      await mkdir(join(sibling, 'verification'), { recursive: true });
+      if (file === 'verification/state.json') {
+        await writeFile(
+          join(sibling, 'result.json'),
+          JSON.stringify({ checkout: cwd, reason: 'Stopped', publication: 'not_attempted' }),
+        );
+      }
+      // A later, deliberately changed request identifies successful reconciliation
+      // without simulating GitHub or starting the complete development workflow.
+      await writeFile(revision.requestFile, 'Changed request');
+      let externalReads = 0;
+      const check = () =>
+        checkRevision(revision, cwd, async () => {
+          externalReads++;
+          throw new Error('Unexpected external operation');
+        });
+      const path = join(sibling, file);
+      await assert.rejects(check, /Revision request changed/); // ENOENT is optional.
+      await writeFile(path, '');
+      if (file === 'result.json') {
+        await assert.rejects(check, SyntaxError);
+      } else {
+        await assert.rejects(check, /Revision request changed/); // Empty state stays optional.
+      }
+      await writeFile(path, '{');
+      await assert.rejects(check, SyntaxError);
+      expect(await readFile(path, 'utf8')).toBe('{');
+      await rm(path);
+      await mkdir(path);
+      await assert.rejects(check, { code: 'EISDIR' });
+      expect(await readdir(path)).toEqual([]);
+      expect(await readFile(revision.requestFile, 'utf8')).toBe('Changed request');
+      expect(externalReads).toBe(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 }
 
 test('standalone revision validates external configuration and binds it to the publication target', async () => {

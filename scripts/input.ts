@@ -1,9 +1,55 @@
 import assert from 'node:assert/strict';
-import { assertRevision } from './revision.ts';
-import type { Revision } from './revision.ts';
 import { isReview } from './review.ts';
 import type { Review } from './review.ts';
 import { isArray, isRecord, relativeDirectory } from './values.ts';
+
+export interface Revision {
+  previousRun: string;
+  requestFile: string;
+  request: string;
+  url: string;
+  body: string;
+  head: string;
+  branch: string;
+  baseBranch: string;
+  repository: string;
+  issue: string;
+  issueText: string;
+  runDirectory: string;
+  actor: string;
+  repositoryId: number;
+  targetText: string;
+  localOnly: boolean;
+}
+
+function assertRevision(value: unknown): asserts value is Revision | undefined {
+  if (value === undefined) {
+    return;
+  }
+  assert(isRecord(value), 'Invalid revision input');
+  for (const key of [
+    'previousRun',
+    'requestFile',
+    'request',
+    'url',
+    'body',
+    'head',
+    'branch',
+    'baseBranch',
+    'repository',
+    'issue',
+    'issueText',
+    'runDirectory',
+    'actor',
+    'targetText',
+  ]) {
+    assert(typeof value[key] === 'string' && value[key].trim(), `Invalid revision ${key}`);
+  }
+  assert(
+    typeof value.repositoryId === 'number' && typeof value.localOnly === 'boolean',
+    'Invalid revision target',
+  );
+}
 
 export type ActorRole = 'repair' | 'review';
 export interface ReportReference {
