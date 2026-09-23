@@ -57,14 +57,77 @@ async function fixture(status: 'stopped' | 'verified_local' | 'published_draft')
 test('run report distinguishes local verification from publication and links only recorded evidence', async () => {
   const { dir } = await fixture('verified_local');
   try {
+    const statePath = join(dir, 'verification/state.json');
+    const state: unknown = JSON.parse(await readFile(statePath, 'utf8'));
+    assert(state && typeof state === 'object');
+    const reviewHistory = [
+      {
+        findings: '保存済みの指摘を確認した。',
+        targetId: 'fixture-target',
+        assessments: {
+          code: '確認した',
+          requirements: '確認した',
+          tests: '確認した',
+          documentation: '確認した',
+        },
+        documents: [],
+        handoff: [],
+        status: 'accepted',
+        items: [
+          {
+            id: 'R1-1',
+            introducedIn: 'fixture-target',
+            kind: 'defect',
+            area: 'code',
+            required: true,
+            location: { path: 'src/example.ts', line: 1 },
+            disposition: 'fixed',
+            condition: `<script>の表示条件。${'長い条件文。'.repeat(16)}全文の末尾`,
+            impact: '誤表示',
+            evidence: '保存ログ',
+            action: '修正する',
+            reason: '修正後に確認した',
+          },
+        ],
+      },
+    ];
+    await writeFile(
+      statePath,
+      JSON.stringify({
+        ...state,
+        checks: 2,
+        events: [
+          {
+            role: 'check',
+            code: 124,
+            timedOut: true,
+            prefix: join(dir, 'verification/check-timeout'),
+          },
+          { role: 'check', code: 0, timedOut: false, prefix: join(dir, 'verification/check-1') },
+        ],
+        reviewHistory,
+      }),
+    );
     const path = await writeRunReport(dir);
     const html = await readFile(path, 'utf8');
     expect(html).toContain('ローカル検証済み');
     expect(html).toContain('2026-09-23T01:02:03.000Z');
     expect(html).toContain('2026-09-23T01:03:04.000Z');
-    expect(html).toContain('1回記録');
+    expect(html).toContain('2回記録');
     expect(html).toContain('href="./verification/check-1.stdout"');
     expect(html).not.toContain('href="./verification/check-1.stderr"');
+    expect(html).toContain('1 · ホスト · 検証');
+    expect(html).toContain('時間切れ</span>');
+    expect(html).toContain('<dt>終了コード</dt><dd>124</dd>');
+    expect(html).toContain('<dt>ログ保存先の接頭辞</dt>');
+    expect(html).toContain('指摘 R1-1 · &lt;script&gt;の表示条件');
+    expect(html).toContain('修正済み');
+    expect(html).toContain('全文の末尾');
+    for (const detail of ['誤表示', '保存ログ', '修正する', '修正後に確認した']) {
+      expect(html).toContain(detail);
+    }
+    expect(html).toContain('href="./verification/state.json">verification/state.json</a>');
+    expect(html).not.toContain('<th>verification/state.json</th>');
     expect(html).not.toContain('Draft公開・CI確認済み');
     expect(html).not.toContain('https://github.com/team/component/pull/100');
   } finally {
