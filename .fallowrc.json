@@ -16,6 +16,12 @@
     "scripts/tests/**/*.test.ts"
   ],
   "includeEntryExports": true,
+  "ignoreDependencies": [
+    "@textlint-rule/textlint-rule-no-invalid-control-character",
+    "textlint-rule-ja-no-redundant-expression",
+    "textlint-rule-no-nfd",
+    "textlint-rule-no-zero-width-spaces"
+  ],
   "rules": {
     "unused-files": "error",
     "unused-exports": "error",

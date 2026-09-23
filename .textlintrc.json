@@ -1,0 +1,8 @@
+{
+  "rules": {
+    "@textlint-rule/no-invalid-control-character": true,
+    "no-zero-width-spaces": true,
+    "no-nfd": true,
+    "ja-no-redundant-expression": { "severity": "warning" }
+  }
+}
