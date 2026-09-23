@@ -1,11 +1,63 @@
 import assert from 'node:assert/strict';
 import { test, expect } from 'bun:test';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initializeTarget, git, githubTarget, targetConfig } from './support/target.ts';
 import { readTarget, pushArguments, issueNumber } from '../target.ts';
+
+test('target CLI resolves another checkout and enforces Issue and write arguments', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'target-cli-')));
+  const cwd = join(root, 'checkout');
+  const bin = join(root, 'bin');
+  try {
+    await mkdir(cwd);
+    await mkdir(bin);
+    await initializeTarget(cwd);
+    const gh = join(bin, 'gh');
+    await writeFile(
+      gh,
+      `#!/bin/sh
+case "$*" in
+  'api repos/team/component') echo '{"full_name":"team/component","id":123,"permissions":{"push":false}}' ;;
+  'api repos/team/component/branches/release') echo '{"name":"release"}' ;;
+  'api user') echo '{"login":"reader"}' ;;
+  *) exit 1 ;;
+esac
+`,
+    );
+    await chmod(gh, 0o755);
+    const run = (...args: string[]) =>
+      spawnSync(process.execPath, [join(import.meta.dir, '../target.ts'), cwd, ...args], {
+        cwd: root,
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, GH_HOST: 'github.com' },
+        encoding: 'utf8',
+        timeout: 10000,
+      });
+    const issue = 'https://github.com/team/component/issues/12';
+    const valid = run(issue);
+    expect(valid.status).toBe(0);
+    expect(valid.stderr).toBe('');
+    expect(JSON.parse(valid.stdout)).toMatchObject({
+      cwd,
+      repositoryId: 123,
+      actor: 'reader',
+      config: targetConfig,
+    });
+    const denied = run(issue, '--write');
+    expect(denied.status).toBe(1);
+    expect(denied.stdout).toBe('');
+    expect(denied.stderr).toContain('GitHub push permission required');
+    const wrongIssue = run('https://github.com/other/component/issues/12');
+    expect(wrongIssue.status).toBe(1);
+    expect(wrongIssue.stdout).toBe('');
+    expect(wrongIssue.stderr).toContain('Issue does not match target repository');
+    expect(git(cwd, 'status', '--porcelain')).toBe('');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('push uses the verified HTTPS target despite pushInsteadOf and rejects insteadOf', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'push-target-'));

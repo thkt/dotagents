@@ -4,10 +4,27 @@
 
 ## 読む順序
 
+- このREADMEの[共有入口と利用条件](#共有入口と利用条件): メンバーが依存する入口、必要な版、結果の参照先。
 - [開発方針](.codex/DEVELOPMENT.md): 要求・公開範囲の合意、文書・テスト・独立評価、人のマージ判断とmain保護。
 - [制御CLI](scripts/README.md): 対象設定、起動、上限、中断、公開。
 - [実装開始の共有知識](docs/knowledge/implementation-start.md): JSON正本から生成した目的・概念・規則。選択・改訂の操作は[制御CLI](scripts/README.md#共有知識の選択)。
 - [調査成果](research/README.md): 再利用する根拠、未採用の提案、Gitによる共有と引き継ぎ。
+
+## 共有入口と利用条件
+
+メンバーが依存してよい入口は、次のスキル、対象設定、文書で案内するCLIと結果の参照方法です。変更時は[開発方針](.codex/DEVELOPMENT.md#変更に応じた確認)に従い、利用条件と観測できる結果を照合します。
+
+| 入口 | 利用条件と参照先 |
+| --- | --- |
+| `scoping` | 要求・検証方法・合意を整理し、Issueまたは公開しない下書きへ渡します。[スキル](skills/scoping/SKILL.md)から必要な参照を辿ります |
+| `implement` | 合意済みIssueを受け取り、信頼するスキル実体からCLIを解決して対象repoを指定します。[スキル](skills/implement/SKILL.md)と[通常起動](scripts/README.md#issueからpr作成)・[既存PR修正](scripts/README.md#既存prの修正)に従います |
+| 対象repoの `.dotagents.json` | checkoutルートのコミット済み設定を使います。repo・remote・base branch、setup・check・CI・必要媒体を明示します。[設定形式と拒否条件](scripts/README.md#対象repoの設定)が正本です |
+| 文書で案内するCLI・package script | 呼出し方と用途は[CLI手順](scripts/README.md)、導入・checkは[セットアップと検証](#セットアップと検証)で確認します。通常利用と担当者向けの単独試行を区別します |
+| 実行結果 | developmentのrun保存先で `result.json` から理由・次の対応・証拠を辿ります。`report.html`は保存結果の表示です。[結果と再実行](scripts/README.md#結果と再実行)で下位state・生ログと生成できない条件を確認します |
+
+共通登録されたスキルが信頼する同じハーネス実体を参照することが前提です。利用するハーネスのcommitと実体パスを確認し、その版の手順・lockfileを使います。ハーネスはBun 1.4.2、Git、gh、Codex CLIを使い、現在の対応環境はmacOSホストとgithub.comです。Git・gh・Codex CLIの共通の最低版は定めていません。必要な機能や既存認証は[CLI手順](scripts/README.md#issueからpr作成)で確認し、対象repoの言語・検証ツールは対象設定に従います。登録変更は[保全と登録変更の方針](.codex/DEVELOPMENT.md#旧資産の保全と登録変更)に従い、新しいタスクで実体・版・対象解決を確認します。
+
+内部のTypeScript export、参照されているだけのファイル、fallowの`entry`全体を公開契約にはしません。静的な未使用判定は、上記の入口やrepo外の利用の互換性を証明しません。メンバーごとの環境と、repo外から内部exportを使う実例は未確認です。利用実態が見つかった場合は対象と必要な保証を明示し、合意する範囲を見直します。
 
 ## セットアップと検証
 
