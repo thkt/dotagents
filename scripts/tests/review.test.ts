@@ -80,6 +80,69 @@ test('host assigns stable IDs by attempt and response order, independently of fi
   expect(parseReview(raw, 'target-1', 1)).toEqual(review);
 });
 
+const invalidFields: [string, (reply: ReturnType<typeof reviewResponse>) => void][] = [
+  [
+    'blank findings',
+    (reply) => {
+      reply.findings = ' \n\t';
+    },
+  ],
+  [
+    'blank assessment',
+    (reply) => {
+      reply.assessments.tests = '\u3000';
+    },
+  ],
+  [
+    'blank finding detail',
+    (reply) => {
+      object(reply.newItems[0]).evidence = '\uFEFF';
+    },
+  ],
+  [
+    'blank handoff',
+    (reply) => {
+      object(reply).handoff = [' '];
+    },
+  ],
+  [
+    'unknown area',
+    (reply) => {
+      object(reply.newItems[0]).area = 'security';
+    },
+  ],
+  [
+    'non-boolean requirement',
+    (reply) => {
+      object(reply.newItems[0]).required = 'true';
+    },
+  ],
+  [
+    'missing item detail',
+    (reply) => {
+      delete object(reply.newItems[0]).action;
+    },
+  ],
+  [
+    'extra assessment',
+    (reply) => {
+      object(reply.assessments).extra = 'Unsolicited';
+    },
+  ],
+  [
+    'extra location',
+    (reply) => {
+      object(object(reply.newItems[0]).location).extra = true;
+    },
+  ],
+  [
+    'non-array items',
+    (reply) => {
+      object(reply).newItems = {};
+    },
+  ],
+];
+
 const invalidInitial: [string, (reply: ReturnType<typeof reviewResponse>) => void, string][] = [
   [
     'target',
@@ -130,6 +193,11 @@ const invalidInitial: [string, (reply: ReturnType<typeof reviewResponse>) => voi
     },
     'Missing or invalid',
   ],
+  ...invalidFields.map(([name, mutate]): [string, typeof mutate, string] => [
+    name,
+    mutate,
+    'Missing or invalid',
+  ]),
 ];
 for (const [name, mutate, reason] of invalidInitial) {
   test(`parseReview rejects ${name}`, () => {
@@ -140,6 +208,61 @@ for (const [name, mutate, reason] of invalidInitial) {
     expect(() => parseReview(JSON.stringify(reply), 'target-1', 1)).toThrow(reason);
   });
 }
+
+test('review locations preserve nullable paths, safe positive lines and untrimmed text', () => {
+  const reply = reviewResponse();
+  reply.findings = '  Keep original review text\n';
+  for (const location of [
+    { path: null, line: null },
+    { path: ' scripts/review.ts ', line: null },
+    { path: 'scripts/review.ts', line: 1 },
+    { path: 'scripts/review.ts', line: Number.MAX_SAFE_INTEGER },
+  ]) {
+    object(reply.newItems[0]).location = location;
+    const review = parseReview(JSON.stringify(reply), 'target-1', 1);
+    expect(review.items[0]?.location).toEqual(location);
+    expect(review.findings).toBe(reply.findings);
+  }
+  for (const location of [
+    { path: null, line: 1 },
+    { path: '', line: null },
+    { path: ' \t', line: null },
+    { path: 42, line: null },
+    { path: 'scripts/review.ts' },
+    ...[0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '1'].map((line) => ({
+      path: 'scripts/review.ts',
+      line,
+    })),
+  ]) {
+    object(reply.newItems[0]).location = location;
+    expect(() => parseReview(JSON.stringify(reply), 'target-1', 1)).toThrow('Missing or invalid');
+  }
+});
+
+test('document references require strict nonblank fields and unique paths', () => {
+  const reply = reviewResponse();
+  const document = {
+    path: 'README.md',
+    role: 'current',
+    reason: 'Operating instructions',
+  } as const;
+  object(reply).documents = [document];
+  expect(parseReview(JSON.stringify(reply), 'target-1', 1).documents).toEqual([document]);
+  for (const change of [
+    { path: ' ' },
+    { reason: '' },
+    { role: 'unknown' },
+    { role: undefined },
+    { extra: true },
+  ]) {
+    object(reply).documents = [{ ...document, ...change }];
+    expect(() => parseReview(JSON.stringify(reply), 'target-1', 1)).toThrow('Missing or invalid');
+  }
+  object(reply).documents = [document, { ...document, reason: 'Another reference' }];
+  expect(() => parseReview(JSON.stringify(reply), 'target-1', 1)).toThrow(
+    'Duplicate document reference',
+  );
+});
 
 // Retain orchestration coverage for parser rejection and file-version binding.
 for (const [name, mutation, reason] of [

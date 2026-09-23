@@ -1,185 +1,56 @@
 import assert from 'node:assert/strict';
-import { isArray, isRecord } from './values.ts';
+import { z } from 'zod';
 
 export const reviewModel = { model: 'gpt-6-astra', reasoningEffort: 'high' };
-const reviewStatuses = ['accepted', 'needs_changes'] as const;
-const findingKinds = ['defect', 'concern'] as const;
-const reviewAreas = ['code', 'requirements', 'tests', 'documentation'] as const;
-const dispositions = ['open', 'fixed', 'not_applicable'] as const;
-const documentRoles = ['current', 'historical', 'proposal'] as const;
-const text = { type: 'string', minLength: 1 };
-const object = (properties: Record<string, unknown>) => ({
-  type: 'object',
-  additionalProperties: false,
-  required: Object.keys(properties),
-  properties,
+const text = z.string().min(1).regex(/\S/);
+const disposition = z.enum(['open', 'fixed', 'not_applicable']);
+const newItem = z.strictObject({
+  kind: z.enum(['defect', 'concern']),
+  area: z.enum(['code', 'requirements', 'tests', 'documentation']),
+  required: z.boolean(),
+  location: z
+    .strictObject({
+      path: text.nullable(),
+      line: z.number().int().min(1).nullable(),
+    })
+    // Cross-field validation remains a runtime check; JSON Schema conversion
+    // does not encode this refinement (the previous output schema did not either).
+    .refine((value) => value.line === null || value.path !== null),
+  condition: text,
+  impact: text,
+  evidence: text,
+  action: text,
+  reason: text,
 });
-const choice = (values: readonly string[]) => ({ type: 'string', enum: values });
-const list = (items: unknown) => ({ type: 'array', items });
-export const reviewSchema = object({
+const reviewResponse = z.strictObject({
   findings: text,
   targetId: text,
-  assessments: object({ code: text, requirements: text, tests: text, documentation: text }),
-  updates: list(object({ id: text, disposition: choice(dispositions), reason: text })),
-  newItems: list(
-    object({
-      kind: choice(findingKinds),
-      area: choice(reviewAreas),
-      required: { type: 'boolean' },
-      location: object({
-        path: { type: ['string', 'null'] },
-        line: { type: ['integer', 'null'], minimum: 1 },
-      }),
-      condition: text,
-      impact: text,
-      evidence: text,
-      action: text,
+  assessments: z.strictObject({ code: text, requirements: text, tests: text, documentation: text }),
+  updates: z.array(z.strictObject({ id: text, disposition, reason: text })),
+  newItems: z.array(newItem),
+  documents: z.array(
+    z.strictObject({
+      path: text,
+      role: z.enum(['current', 'historical', 'proposal']),
       reason: text,
     }),
   ),
-  documents: list(object({ path: text, role: choice(documentRoles), reason: text })),
-  handoff: list(text),
+  handoff: z.array(text),
 });
+export const reviewSchema = z.toJSONSchema(reviewResponse);
 
-export interface ReviewItem {
-  id: string;
-  introducedIn: string;
-  kind: (typeof findingKinds)[number];
-  area: (typeof reviewAreas)[number];
-  required: boolean;
-  location: { path: string | null; line: number | null };
-  condition: string;
-  impact: string;
-  evidence: string;
-  action: string;
-  disposition: (typeof dispositions)[number];
-  reason: string;
-}
-export interface Review {
-  status: (typeof reviewStatuses)[number];
-  findings: string;
-  targetId: string;
-  assessments: { code: string; requirements: string; tests: string; documentation: string };
-  items: ReviewItem[];
-  documents: { path: string; role: (typeof documentRoles)[number]; reason: string }[];
-  handoff: string[];
-}
-const oneOf = (value: unknown, choices: readonly string[]) =>
-  typeof value === 'string' && choices.includes(value);
-const nonempty = (value: unknown): value is string => typeof value === 'string' && !!value.trim();
-function fields(value: unknown, keys: string[]): value is Record<string, unknown> {
-  return (
-    isRecord(value) &&
-    Object.keys(value).length === keys.length &&
-    keys.every((key) => key in value)
-  );
-}
-function location(value: unknown) {
-  return (
-    fields(value, ['path', 'line']) &&
-    (value.path === null || nonempty(value.path)) &&
-    (value.line === null ||
-      (nonempty(value.path) && Number.isSafeInteger(value.line) && Number(value.line) > 0))
-  );
-}
-type NewReviewItem = Omit<ReviewItem, 'id' | 'introducedIn' | 'disposition'>;
-function newItem(value: unknown): value is NewReviewItem {
-  if (
-    !fields(value, [
-      'kind',
-      'area',
-      'required',
-      'location',
-      'condition',
-      'impact',
-      'evidence',
-      'action',
-      'reason',
-    ])
-  ) {
-    return false;
-  }
-  return (
-    ['condition', 'impact', 'evidence', 'action', 'reason'].every((key) => nonempty(value[key])) &&
-    oneOf(value.kind, findingKinds) &&
-    oneOf(value.area, reviewAreas) &&
-    typeof value.required === 'boolean' &&
-    location(value.location)
-  );
-}
-function item(value: unknown): value is ReviewItem {
-  if (!isRecord(value)) {
-    return false;
-  }
-  const { id, introducedIn, disposition, ...details } = value;
-  return (
-    nonempty(id) && nonempty(introducedIn) && oneOf(disposition, dispositions) && newItem(details)
-  );
-}
-function document(value: unknown): value is Review['documents'][number] {
-  return (
-    fields(value, ['path', 'role', 'reason']) &&
-    nonempty(value.path) &&
-    nonempty(value.reason) &&
-    oneOf(value.role, documentRoles)
-  );
-}
-type ReviewResponse = Omit<Review, 'status' | 'items'> & {
-  updates: Pick<ReviewItem, 'id' | 'disposition' | 'reason'>[];
-  newItems: NewReviewItem[];
-};
-function reviewDetails(value: Record<string, unknown>) {
-  return (
-    nonempty(value.findings) &&
-    nonempty(value.targetId) &&
-    fields(value.assessments, ['code', 'requirements', 'tests', 'documentation']) &&
-    Object.values(value.assessments).every(nonempty) &&
-    isArray(value.documents) &&
-    value.documents.every(document) &&
-    isArray(value.handoff) &&
-    value.handoff.every(nonempty)
-  );
-}
+// Stored records keep the complete host-owned identity and status. Reuse the
+// response fields so reading a saved review validates the same item details.
+const reviewItem = newItem.extend({ id: text, introducedIn: text, disposition });
+const reviewRecord = reviewResponse.omit({ updates: true, newItems: true }).extend({
+  status: z.enum(['accepted', 'needs_changes']),
+  items: z.array(reviewItem),
+});
+export type ReviewItem = z.infer<typeof reviewItem>;
+export type Review = z.infer<typeof reviewRecord>;
+
 export function isReview(value: unknown): value is Review {
-  return (
-    fields(value, [
-      'status',
-      'findings',
-      'targetId',
-      'assessments',
-      'items',
-      'documents',
-      'handoff',
-    ]) &&
-    oneOf(value.status, reviewStatuses) &&
-    reviewDetails(value) &&
-    isArray(value.items) &&
-    value.items.every(item)
-  );
-}
-function isReviewResponse(value: unknown): value is ReviewResponse {
-  return (
-    fields(value, [
-      'findings',
-      'targetId',
-      'assessments',
-      'updates',
-      'newItems',
-      'documents',
-      'handoff',
-    ]) &&
-    reviewDetails(value) &&
-    isArray(value.newItems) &&
-    value.newItems.every(newItem) &&
-    isArray(value.updates) &&
-    value.updates.every(
-      (update) =>
-        fields(update, ['id', 'disposition', 'reason']) &&
-        nonempty(update.id) &&
-        oneOf(update.disposition, dispositions) &&
-        nonempty(update.reason),
-    )
-  );
+  return reviewRecord.safeParse(value).success;
 }
 export function parseReview(
   stdout: string,
@@ -187,8 +58,9 @@ export function parseReview(
   attempt: number,
   previous?: Review,
 ): Review {
-  const value: unknown = JSON.parse(stdout);
-  assert(isReviewResponse(value), 'Missing or invalid review fields');
+  const parsed = reviewResponse.safeParse(JSON.parse(stdout));
+  assert(parsed.success, 'Missing or invalid review fields');
+  const value = parsed.data;
   assert(value.targetId === targetId, 'Review target mismatch');
   const priorItems = previous?.items ?? [];
   const ids = new Set(priorItems.map((item) => item.id));
