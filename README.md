@@ -22,7 +22,7 @@ Bun 1.4.2を使います。checkはlint、書式、Biomeの認知的複雑度15�
 
 `bun run check:unused`は、未使用ファイル・export・型・依存（dev・optionalを含む）の指摘を失敗にします。[実行入口](scripts/check-unused.ts)はfallowの終了失敗を引き継ぎ、終了0でもJSONの`workspace_diagnostics`に`degrades_analysis: true`があれば不合格にします。構文解析の中断や読取り不能などで不完全になった解析を、指摘なしの成功と扱わないためです。結果のJSONには指摘位置と診断が残ります。設定不正や起動失敗も成功に変換しません。CIの`checks`も同じ`bun run check`を使います。
 
-[.fallowrc.json](.fallowrc.json)の`entry`には、外部から起動するCLIと`scripts/tests/**/*.test.ts`を指定し、`includeEntryExports`で入口のexportも検査します。`entry`は自動発見への追加指定です。使用判定を調べる場合は`bunx --no-install fallow list`で入口を、`bunx --no-install fallow dead-code --trace scripts/values.ts:isRecord`でexportの参照を確認してください。現在、入口以外のファイルや依存を除外する例外は設けていません。
+[.fallowrc.json](.fallowrc.json)の`entry`には、外部から起動するCLIと`scripts/tests/**/*.test.ts`を指定し、`includeEntryExports`で入口のexportも検査します。`entry`は自動発見への追加指定です。`framework`ではOxlintが読み込む[ローカルプラグイン](scripts/lint/anti-slop/index.ts)の入口と`default` exportの利用を宣言します。このexportの利用は通常lintの実行テストでも確認します。他のexportやファイル・依存の未使用検査は維持します。使用判定を調べる場合は`bunx --no-install fallow list`で入口を、`bunx --no-install fallow dead-code --trace scripts/values.ts:isRecord`でexportの参照を確認してください。
 
 整形は`bun run format`、書式確認は`bun run format:check`を使います。Oxfmtには`scripts`を渡し、[.oxfmtrc.json](.oxfmtrc.json)のignore指定で従来どおり`scripts/**/*.ts`だけを対象にします。package scriptにTSのglobを渡すと、fallowが整形対象を入口として追加し、未参照ファイルを見逃すためです。CLI・テストやformat設定を変えた際は、入口と検出条件も確認してください。
 

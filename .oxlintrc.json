@@ -31,11 +31,20 @@
         "typescript/no-unsafe-call": "error",
         "typescript/no-unsafe-member-access": "error",
         "typescript/no-unsafe-argument": "error",
-        "typescript/no-unsafe-return": "error"
+        "typescript/no-unsafe-return": "error",
+        "typescript/no-unsafe-type-assertion": "error",
+        "oxc/no-accumulating-spread": "error",
+        "anti-slop/no-reduce-accumulator-copy": "error"
       }
     }
   ],
   "options": {
     "typeAware": true
-  }
+  },
+  "jsPlugins": [
+    {
+      "name": "anti-slop",
+      "specifier": "./scripts/lint/anti-slop/index.ts"
+    }
+  ]
 }

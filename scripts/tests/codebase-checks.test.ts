@@ -24,8 +24,8 @@ async function fixture() {
   return cwd;
 }
 
-function run(cwd: string, script: string) {
-  const result = spawnSync(process.execPath, ['run', script], {
+function run(cwd: string, script: string, ...args: string[]) {
+  const result = spawnSync(process.execPath, ['run', script, ...args], {
     cwd,
     encoding: 'utf8',
     timeout: 15000,
@@ -33,6 +33,124 @@ function run(cwd: string, script: string) {
   expect(result.error).toBeUndefined();
   return result;
 }
+
+test('lint rejects unsafe assertions and accumulator copies while preserving checked inputs and local mutation', async () => {
+  const cwd = await fixture();
+  try {
+    await writeFile(
+      join(cwd, 'scripts/tests/trial-allowed.ts'),
+      `export function checked(input: unknown) {
+        if (typeof input !== 'string') { throw new Error('Expected string'); }
+        return input.toUpperCase();
+      }
+      function isNumber(input: unknown): input is number { return typeof input === 'number'; }
+      export function guarded(input: unknown) { return isNumber(input) ? input + 1 : 0; }
+      export const literal = { mode: 'safe' } as const;
+      export const widened = 1 as number | string;
+      export const local = [1, 2].reduce<number[]>((acc, item) => {
+        acc.push(item); return acc;
+      }, []);
+      export const copies = [{ id: 1 }].reduce<{ id: number }[]>((acc, item) => {
+        acc.push({ ...item }, Object.assign({}, item)); return acc;
+      }, []);
+      export const joined = ['a', 'b'].reduce((acc, item) => acc.concat(item), '');
+      export const assigned = [{ id: 1 }].reduce<Record<string, number>>((acc, item) =>
+        Object.assign(acc, item), {});
+      export const shadowed = [{ id: 1 }].reduce((acc, item) => {
+        { const acc = item; Object.assign({}, acc); }
+        return acc;
+      }, {});
+      export const reassigned = [{ id: 1 }].reduce((acc, item) => {
+        acc = item;
+        return Object.assign({}, acc);
+      }, { id: 0 });
+      export function custom(Object: { assign: (target: object, source: object, item: object) => object }) {
+        return [{ id: 1 }].reduce((acc, item) => Object.assign({}, acc, item), {});
+      }
+      `,
+    );
+    const allowed = run(cwd, 'lint');
+    expect(allowed.status, allowed.stdout + allowed.stderr).toBe(0);
+
+    const cases = [
+      {
+        path: 'scripts/trial-chain.ts',
+        source: "export const value = { id: 'text' } as unknown as { id: number };",
+        code: 'typescript(no-unsafe-type-assertion)',
+      },
+      {
+        path: 'scripts/tests/trial-widen.ts',
+        source:
+          "const value: unknown = { id: 'text' }; export const result = value as { id: number };",
+        code: 'typescript(no-unsafe-type-assertion)',
+      },
+      {
+        path: 'scripts/trial-concat.ts',
+        source:
+          'export const result = [1, 2].reduce<number[]>((acc, item) => acc.concat(item), []);',
+        code: 'anti-slop(no-reduce-accumulator-copy)',
+      },
+      {
+        path: 'scripts/tests/trial-assign-concat.ts',
+        source: `export const result = [1, 2].reduce<number[]>((acc, item) => {
+          acc = acc.concat(item); return acc;
+        }, []);`,
+        code: 'anti-slop(no-reduce-accumulator-copy)',
+      },
+      {
+        path: 'scripts/tests/trial-assign.ts',
+        source: `export const result = [{ id: 1 }].reduce<Record<string, number>>((acc, item) =>
+          Object.assign({}, acc, item), {});`,
+        code: 'anti-slop(no-reduce-accumulator-copy)',
+      },
+      {
+        path: 'scripts/tests/trial-assign-self.ts',
+        source: `export const result = [{ id: 1 }].reduce<Record<string, number>>((acc, item) => {
+          acc = Object.assign({}, acc, item); return acc;
+        }, {});`,
+        code: 'anti-slop(no-reduce-accumulator-copy)',
+      },
+      {
+        path: 'scripts/trial-spread.ts',
+        source: 'export const result = [1, 2].reduce<number[]>((acc, item) => [...acc, item], []);',
+        code: 'oxc(no-accumulating-spread)',
+      },
+      {
+        path: 'scripts/tests/trial-object-spread.ts',
+        source: `export const result = [{ id: 1 }].reduce<Record<string, number>>((acc, item) =>
+          ({ ...acc, ...item }), {});`,
+        code: 'oxc(no-accumulating-spread)',
+      },
+      {
+        path: 'scripts/tests/trial-alias.ts',
+        source: `export const result = [1, 2].reduceRight<number[]>((acc, item) => {
+          const alias = acc; const next = Array.from(alias); next.push(item); return next;
+        }, []);`,
+        code: 'anti-slop(no-reduce-accumulator-copy)',
+      },
+    ];
+    for (const { path, source } of cases) {
+      await writeFile(join(cwd, path), source);
+    }
+    // Every probe must typecheck: a parser/type failure must not stand in for the lint rule.
+    const types = run(cwd, 'typecheck');
+    expect(types.status, types.stdout + types.stderr).toBe(0);
+    const result = run(cwd, 'lint', '--format', 'json');
+    expect(result.status).toBe(1);
+    const report: unknown = JSON.parse(result.stdout);
+    expect(report).toHaveProperty(
+      'diagnostics',
+      expect.arrayContaining(
+        cases.map(({ path, code }): unknown =>
+          expect.objectContaining({ filename: path, code, severity: 'error' }),
+        ),
+      ),
+    );
+    expect(report).toHaveProperty('diagnostics.length', cases.length);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
 
 test('unused check detects unreachable code but preserves real entries and imported exports', async () => {
   const cwd = await fixture();
