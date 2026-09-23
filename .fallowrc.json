@@ -8,6 +8,7 @@
     "scripts/development.ts",
     "scripts/knowledge.ts",
     "scripts/publish.ts",
+    "scripts/skill-eval.ts",
     "scripts/target.ts",
     "scripts/test.ts",
     "scripts/verify-capture.ts",
