@@ -13,6 +13,8 @@ description: 合意済みGitHub Issueの実装依頼で、文書変更を含め�
 
 文書のみの変更も同じ入口で扱う。実装に伴う更新と共通の[文書更新の方針](../../.codex/DEVELOPMENT.md#ドキュメントの更新)を適用する。何を変更するか未確定の相談やレビューだけの依頼は、その依頼の範囲で扱う。
 
+テストを作成・更新する際、今回の失敗条件と既存検証の差を具体化する例が必要なら[テストを選ぶ参照資料](references/testing.md)を読む。該当条件がなければ追加テストや資料の一律読取はしない。
+
 ```sh
 bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to/target-checkout
 ```
