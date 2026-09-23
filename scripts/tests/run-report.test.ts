@@ -94,6 +94,8 @@ test('stopped run keeps its reason as escaped text without implying an evaluatio
         '{unfinished',
         JSON.stringify({ type: 'turn.failed', error: 'Synthetic failure' }),
         '{"type":"item.completed","item":{"type":"mcp_tool_call","arguments":{"id":9007199254740993},"result":1e400}}',
+        '{"type":"constructor"}',
+        '{"type":"__proto__"}',
       ].join('\n') + '\n',
     );
     const html = await readFile(await writeRunReport(dir), 'utf8');
@@ -105,7 +107,9 @@ test('stopped run keeps its reason as escaped text without implying an evaluatio
     expect(html).toContain('turn.failed');
     expect(html).toContain('9007199254740993');
     expect(html).toContain('1e400');
-    expect(html).toContain('3/4行表示');
+    expect(html).toContain('5/6行表示');
+    expect(html).toContain('行 5 · constructor');
+    expect(html).toContain('行 6 · __proto__');
     expect(html).toContain('href="./setup-1.stderr"');
     expect(html).toContain('href="./implementation.stderr"');
     expect(html).toContain('setup-1.stdout');
