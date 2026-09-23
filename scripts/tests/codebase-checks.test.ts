@@ -192,6 +192,43 @@ test('unused check detects unreachable code but preserves real entries and impor
   }
 });
 
+test('unused check rejects runtime import cycles but allows type-only references', async () => {
+  const cwd = await fixture();
+  try {
+    await writeFile(
+      join(cwd, 'scripts/tests/trial-cycle.test.ts'),
+      `import { readMarker } from '../trial-cycle.ts';
+      export function marker() { return 1; }
+      console.log(readMarker());`,
+    );
+    const module = join(cwd, 'scripts/trial-cycle.ts');
+    await writeFile(
+      module,
+      `import type { marker } from './tests/trial-cycle.test.ts';
+      export function readMarker(): ReturnType<typeof marker> { return 1; }`,
+    );
+    const allowed = run(cwd, 'check:unused');
+    expect(allowed.status, allowed.stdout + allowed.stderr).toBe(0);
+
+    await writeFile(
+      module,
+      `import { marker } from './tests/trial-cycle.test.ts';
+      export function readMarker() { return marker(); }`,
+    );
+    const result = run(cwd, 'check:unused');
+    expect(result.status).toBe(1);
+    const report: unknown = JSON.parse(result.stdout);
+    expect(report).toMatchObject({ total_issues: 1 });
+    expect(report).toHaveProperty('circular_dependencies.length', 1);
+    expect(report).toHaveProperty(
+      'circular_dependencies.0.files',
+      expect.arrayContaining(['scripts/trial-cycle.ts', 'scripts/tests/trial-cycle.test.ts']),
+    );
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('unused check fails for a dependency alone, degraded parsing, and invalid configuration', async () => {
   const cwd = await fixture();
   try {

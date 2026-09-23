@@ -13,6 +13,7 @@ try {
       '--unused-exports',
       '--unused-types',
       '--unused-deps',
+      '--circular-deps',
       '--fail-on-issues',
       '--format',
       'json',
