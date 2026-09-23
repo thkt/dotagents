@@ -20,6 +20,7 @@
 | `implement` | 合意済みIssueを受け取り、信頼するスキル実体からCLIを解決して対象repoを指定します。[スキル](skills/implement/SKILL.md)と[通常起動](scripts/README.md#issueからpr作成)・[既存PR修正](scripts/README.md#既存prの修正)に従います |
 | 対象repoの `.dotagents.json` | checkoutルートのコミット済み設定を使います。repo・remote・base branch、setup・check・CI・必要媒体を明示します。[設定形式と拒否条件](scripts/README.md#対象repoの設定)が正本です |
 | 文書で案内するCLI・package script | 呼出し方と用途は[CLI手順](scripts/README.md)、導入・checkは[セットアップと検証](#セットアップと検証)で確認します。通常利用と担当者向けの単独試行を区別します |
+| 指示変更のeval | 関連する改善作業で、版・ケース・モデル・有限上限を固定して比較します。[実行条件と報告](scripts/README.md#指示変更時の同条件eval)から手動で開始し、定期実行や全PRの必須ゲートにはしません |
 | 実行結果 | developmentのrun保存先で `result.json` から理由・次の対応・証拠を辿ります。`report.html`は保存結果の表示です。[結果と再実行](scripts/README.md#結果と再実行)で下位state・生ログと生成できない条件を確認します |
 
 共通登録されたスキルが信頼する同じハーネス実体を参照することが前提です。利用するハーネスのcommitと実体パスを確認し、その版の手順・lockfileを使います。ハーネスはBun 1.4.2、Git、gh、Codex CLIを使い、現在の対応環境はmacOSホストとgithub.comです。Git・gh・Codex CLIの共通の最低版は定めていません。必要な機能や既存認証は[CLI手順](scripts/README.md#issueからpr作成)で確認し、対象repoの言語・検証ツールは対象設定に従います。登録変更は[保全と登録変更の方針](.codex/DEVELOPMENT.md#旧資産の保全と登録変更)に従い、新しいタスクで実体・版・対象解決を確認します。

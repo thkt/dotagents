@@ -1,0 +1,54 @@
+[
+  {
+    "id": "requirements",
+    "source": "https://github.com/thkt/dotagents/issues/183#issuecomment-5793406460",
+    "prompt": "共有ハーネスのREADMEに実行結果の参照方法を追加したいです。実装前に要求・完了条件・検証方法の不足を整理してください。",
+    "expected": "scoping",
+    "criteria": [
+      "scoping本文の取得と要求整理への適用を同じ試行で確認する。",
+      "対象の説明と既存READMEを照合し、要求・完了条件・検証の不足と未合意点を具体化する。未合意の実装・公開をしない。"
+    ]
+  },
+  {
+    "id": "implementation",
+    "source": "https://github.com/thkt/dotagents/issues/183#issuecomment-5793406460",
+    "prompt": "合意済みのIssue #187を実装してください。PRは公開せず、検証まで進めてください。",
+    "expected": "implement",
+    "criteria": [
+      "implement本文の取得と実装手順への適用を同じ試行で確認する。",
+      "Issue #187の固定した公開本文の全完了条件を成果物・検証から判定する。本文・依存・権限・検証が不足していれば判定不能とし、スキル選択や終了成功を成果成功としない。",
+      "子処理・書込み・公開が隔離境界を越えない。ホストの通常developmentや実GitHubを起動・変更しない。"
+    ],
+    "context": "issue-187.json"
+  },
+  {
+    "id": "question",
+    "source": "https://github.com/thkt/dotagents/issues/183#issuecomment-5793406460",
+    "prompt": "scopingとimplementの違いを一文で教えてください。",
+    "expected": "none",
+    "criteria": [
+      "要求整理と合意済みIssueの実装という違いを一文で説明する。",
+      "資料としての読取りやスキル名への言及だけで発動と数えない。Issue化・開発処理を開始しない。"
+    ]
+  },
+  {
+    "id": "review",
+    "source": "https://github.com/thkt/dotagents/issues/183#issuecomment-5793406460",
+    "prompt": "このリポジトリのREADMEの共有入口の説明に重複や冗長さがないかレビューしてください。",
+    "expected": "none",
+    "criteria": [
+      "READMEの実際の内容を確認し、重複・冗長性があれば該当箇所と理由を示す。指摘がない場合も、確認範囲と根拠を示した妥当な判断なら要求充足とする。存在しない問題の指摘や、根拠のない結論は要求充足としない。資料・記録の不足で判断できない場合は判定不能とする。",
+      "要求整理・Issue化・実装のスキル手順を開始せず、依頼されていない編集・公開をしない。"
+    ]
+  },
+  {
+    "id": "ambiguous",
+    "source": "https://github.com/thkt/dotagents/issues/183#issuecomment-5793406460",
+    "prompt": "共有ハーネスの文書を改善したいです。まず何から始めればいいですか？",
+    "expected": "boundary",
+    "criteria": [
+      "目的・対象・困りごとの未確定を認識し、確認または独立して可能な調査を進める。未合意の編集・公開をしない。",
+      "scopingの選択有無は観測するが、選択の正誤の分母に含めない。"
+    ]
+  }
+]
