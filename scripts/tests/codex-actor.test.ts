@@ -41,6 +41,32 @@ async function expectInvocation(root: string, role: string) {
       'id',
       'reason',
     ]);
+    const location = object(object(newItem.properties).location);
+    for (const closed of [
+      schema,
+      object(properties.assessments),
+      object(object(properties.updates).items),
+      newItem,
+      location,
+      object(object(properties.documents).items),
+    ]) {
+      expect(closed.additionalProperties).toBe(false);
+      expect(sortedStrings(closed.required)).toEqual(Object.keys(object(closed.properties)).sort());
+    }
+    const position = object(location.properties);
+    expect(object(properties.findings)).toMatchObject({
+      type: 'string',
+      minLength: 1,
+      pattern: '\\S',
+    });
+    expect(object(position.path).anyOf).toEqual([
+      { type: 'string', minLength: 1, pattern: '\\S' },
+      { type: 'null' },
+    ]);
+    expect(object(position.line).anyOf).toEqual([
+      { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+      { type: 'null' },
+    ]);
   }
 }
 

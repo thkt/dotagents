@@ -418,6 +418,7 @@ test('invalid saved state is retained and rejected before execution', async () =
       { disposition: undefined },
       { disposition: 'accepted' },
       { condition: undefined },
+      { location: { path: null, line: 1 } },
       { unexpected: true },
     ].map(
       (change) =>

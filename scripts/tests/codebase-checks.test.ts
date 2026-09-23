@@ -249,8 +249,10 @@ test('unused check fails for a dependency alone, degraded parsing, and invalid c
     });
     await writeFile(join(cwd, 'package.json'), manifest);
 
-    // Fallow itself exits zero for this partial parse with no unused findings.
-    await appendFile(join(cwd, 'scripts/tests/review.test.ts'), '\nconst broken = ;\n');
+    // Isolate the parse error from real imports so it cannot create unused findings.
+    // Fallow itself exits zero; the wrapper must still reject the incomplete analysis.
+    const brokenSource = join(cwd, 'scripts/tests/trial-parse.test.ts');
+    await writeFile(brokenSource, 'const broken = ;\n');
     const parsing = run(cwd, 'check:unused');
     expect(parsing.status).toBe(1);
     expect(parsing.stderr).toContain('Incomplete fallow analysis');
@@ -259,10 +261,14 @@ test('unused check fails for a dependency alone, degraded parsing, and invalid c
     expect(partial).toHaveProperty(
       'workspace_diagnostics',
       expect.arrayContaining([
-        expect.objectContaining({ kind: 'source-parse-degraded', degrades_analysis: true }),
+        expect.objectContaining({
+          path: 'scripts/tests/trial-parse.test.ts',
+          kind: 'source-parse-degraded',
+          degrades_analysis: true,
+        }),
       ]),
     );
-    await cp(join(repo, 'scripts/tests/review.test.ts'), join(cwd, 'scripts/tests/review.test.ts'));
+    await rm(brokenSource);
 
     await writeFile(join(cwd, '.fallowrc.json'), '{broken');
     const config = run(cwd, 'check:unused');
