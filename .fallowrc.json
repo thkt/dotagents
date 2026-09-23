@@ -22,5 +22,24 @@
     "unused-dependencies": "error",
     "unused-dev-dependencies": "error",
     "unused-optional-dependencies": "error"
-  }
+  },
+  "framework": [
+    {
+      "name": "local-oxlint-plugin",
+      "usedExports": [
+        {
+          "pattern": "scripts/lint/anti-slop/index.ts",
+          "exports": [
+            "default"
+          ]
+        }
+      ],
+      "enablers": [
+        "oxlint"
+      ],
+      "entryPoints": [
+        "scripts/lint/anti-slop/index.ts"
+      ]
+    }
+  ]
 }

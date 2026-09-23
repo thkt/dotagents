@@ -193,12 +193,41 @@ Oxlintはcorrectness検査に加え、同じTS範囲で次をerrorにします�
 | `prefer-const` / `no-var` | 再代入しなければ`const`、再代入には`let` |
 | `eqeqeq` | `===` / `!==`で比較する |
 | `curly` | 制御構文の本体を波括弧で囲む |
+| `typescript/no-unsafe-type-assertion` | アサーションで型を狭めず、値検査・型ガードで絞り込む |
+| `oxc/no-accumulating-spread` | reduceの蓄積結果をspreadで反復コピーしない |
+| `anti-slop/no-reduce-accumulator-copy` | reduceの蓄積結果をconcatやObject.assign等で反復コピーしない |
 
 strict型検査はtscで行い、認知的複雑度の上限15はBiomeの`noExcessiveCognitiveComplexity`だけで検査します。OxfmtとOxlintに型の整合性や要求達成まで保証させるものではありません。ルールの追加や緩和は検証定義の変更として、目的と検出力への影響をPRで説明します。
 
 Oxlintの`typeAware`を有効にし、TSには`no-floating-promises`（`ignoreVoid: false`）、`no-misused-promises`、`await-thenable`、`no-unsafe-assignment` / `call` / `member-access` / `argument` / `return`をerrorで適用します。correctnessの型情報を必要とするルールも有効です。設定は[.oxlintrc.json](../.oxlintrc.json)、型検査の対象・条件は[tsconfig.json](../tsconfig.json)で確認できます。
 
 設定・保存状態のJSONは[input.ts](../scripts/input.ts)でunknownから必要な形・値を確認し、テスト側も期待値を独立に検証します。型アサーション、明示的any、disableでの回避はしません。型検査は外部データの正しさを保証せず、不正入力の拒否も保存履歴の真正性や完全な意味的一貫性を保証しません。
+
+[Issue #178](https://github.com/thkt/dotagents/issues/178)の3ルールはテストを含む`scripts/**/*.ts`の`bun run lint`で適用します。`value as unknown as T`などの危険な絞り込みは、外部入力を値検査や型ガードで確かめてから使います。型アサーション、`unknown`・`typeof`、filter/mapを一律には禁止しません。
+
+例えば文字列の入力は次のように検査します。複合的な値には必要なプロパティ・値を確認する型ガードを使います。
+
+```ts
+function checkedText(input: unknown): string {
+  if (typeof input !== 'string') {
+    throw new Error('Expected string');
+  }
+  return input;
+}
+```
+
+`reduce`内の蓄積値のspread・concat・`Object.assign({}, acc, item)`による反復コピーは、新しく作ったローカルの蓄積先への追加に直します。
+
+```ts
+const result: number[] = [];
+for (const item of items) {
+  result.push(item);
+}
+```
+
+オブジェクトもローカルの蓄積先に追加し、入力や共有値は変更しません。入力要素単体のコピーと文字列concatは許容します。
+
+独自ルールは標準ルールが扱わないコピーだけを補います。[原版・MITライセンス・更新手順と検出限界](../scripts/lint/anti-slop/README.md)を確認してください。必要な処理を妨げる場合は、disableで通さず具体例から適用範囲を再検討します。
 
 ## テストの実行完了
 
