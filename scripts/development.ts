@@ -23,6 +23,7 @@ import {
 } from './research-handoff.ts';
 import type { Config, State, ReportReference, StopReason, Revision } from './input.ts';
 import { knowledgeReferences, readKnowledge } from './knowledge.ts';
+import { writeRunReport } from './run-report.ts';
 
 const runtime = { command, verify: run, publish };
 // Applied separately to each local verification command and the CI wait.
@@ -31,6 +32,9 @@ const checkTimeMs = 540000;
 const hostCommandTimeMs = 660000;
 
 type DevelopmentResult = {
+  startedAt: string;
+  finishedAt?: string;
+  terminal?: true;
   status: 'stopped' | 'verified_local' | 'published_draft';
   phase: 'preparation' | 'implementation' | 'verification' | 'publication' | 'ci';
   operation: string;
@@ -261,6 +265,7 @@ async function prepare(
   args: string[],
   io: typeof runtime,
   allocated: (result: DevelopmentResult) => void,
+  startedAt: string,
 ) {
   const {
     parsed,
@@ -305,6 +310,7 @@ async function prepare(
   const cwd = prior ? repo : join(canonical, 'checkout');
   const branch = prior?.branch ?? `codex/development-${number}`;
   const result: DevelopmentResult = {
+    startedAt,
     status: 'stopped',
     phase: 'preparation',
     operation: 'prepare worktree',
@@ -766,12 +772,18 @@ async function ship(
 }
 
 export async function develop(args: string[], io = runtime) {
+  const startedAt = new Date().toISOString();
   let result: DevelopmentResult | undefined;
   let failure: unknown;
   try {
-    const context = await prepare(args, io, (allocated) => {
-      result = allocated;
-    });
+    const context = await prepare(
+      args,
+      io,
+      (allocated) => {
+        result = allocated;
+      },
+      startedAt,
+    );
     const outcome = context.result;
     console.error(
       `Development #${context.number}; checkout: ${context.cwd}; evidence: ${context.dir}`,
@@ -801,7 +813,30 @@ export async function develop(args: string[], io = runtime) {
     result.reason = errorMessage(error);
   }
   assert(result);
+  result.finishedAt = new Date().toISOString();
+  result.terminal = true;
   await saveResult(result, failure);
+  let report: string;
+  try {
+    report = await writeRunReport(result.evidence);
+  } catch (error) {
+    const regenerate = [
+      'bun',
+      resolve(import.meta.dir, 'run-report.ts'),
+      result.evidence,
+      '--output',
+      join(result.evidence, 'report-new.html'),
+    ]
+      .map((argument) => `'${argument.replaceAll("'", "'\\''")}'`)
+      .join(' ');
+    throw new Error(
+      `Run ${result.status}: ${result.reason}. Result remains in ${join(result.evidence, 'result.json')}; report generation failed: ${errorMessage(error)}. Regenerate from saved records with ${regenerate}`,
+      { cause: new AggregateError([failure ?? result.reason, error]) },
+    );
+  }
+  if (io === runtime) {
+    console.error(`Local run report: ${report}`);
+  }
   if (result.status === 'stopped') {
     throw new Error(
       `${result.reasonCode ?? 'stopped'}: ${result.reason} Next: ${result.nextAction} Result: ${join(result.evidence, 'result.json')}`,

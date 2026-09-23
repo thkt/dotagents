@@ -304,6 +304,14 @@ PR本文のdraft公開・CI・公開後確認・ready切替は本文作成時点
 
 `status`は`stopped`、ローカル検証完了の`verified_local`、draft公開と同じ対象のCI確認完了の`published_draft`です。`phase`は`preparation`・`implementation`・`verification`（撮影・独立評価・修正を含む）・`publication`・`ci`を示します。具体的な処理は`operation`、終了理由は`reason`、既知の理由コードは`reasonCode`、次の対応は`nextAction`、残る作業は`remaining`で確認します。setupは`setup-N`、初回実装は`initial implementation`として区別し、`details`のログ接頭辞に`.stdout`・`.stderr`を付けて読みます。検証は`verification/state.json`とそこから参照するログを確認します。例外文から細かい原因コードは推測しません。
 
+新しいrunでは、終端の`result.json`を保存した後に同じ証拠保存先へ`report.html`を1枚作ります。初回実装・既存PR修正・`--no-publish`・停止をそれぞれ1実行として扱います。新しいrunの中間保存は`terminal: true`を持たないため、再生成入口で終端結果として受理しません。`startedAt`と`finishedAt`はその実行のUTC日時で、HTML生成日時とは別です。保存先確定前の失敗や終端結果を保存できない場合はHTMLを約束しません。画面は保存済みの結果・検証state・モデルイベントを読むだけで、欠けた日時や別ログ間の順序を推定せず、モデル・check・公開を再実行しません。モデル操作の長文は抜粋と明示し、入力・出力と原記録へのリンクを分けます。関連記録の一部が不正でも読めた結果を表示し、注意と原記録への導線を残します。`published_draft`、独立評価のaccepted、CI、公開後の本文確認、ready、人の承認は別の状態です。HTMLと生ログはローカル限定で、PRへ自動添付しません。
+
+HTML生成に失敗した場合も元の`result.json`は変更せず、エラーを表示します。保存済みの新しいrunから再生成するには、既存HTMLを上書きしない別名を指定します。古いrunの変換・再評価や停止runの再開には使いません。
+
+```sh
+bun scripts/run-report.ts /absolute/path/to/run --output /absolute/path/to/run/report-new.html
+```
+
 既知の検証停止では、`nextAction`に理由別の対応と`verification/state.json`への参照を返します。担当AIは既存の許可範囲で事実を調べ、ホスト環境の変更に追加権限が必要ならその許可を求めます。環境の調査自体を一律に人の判断待ちにはしません。
 
 | 検証の`reasonCode` | 対応と再判定に必要な条件 |

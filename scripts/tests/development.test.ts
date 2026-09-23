@@ -90,6 +90,9 @@ async function stopped(f: DevelopmentFixture, reason: RegExp) {
   expect(saved.evidence).toBe(f.dir);
   expect(saved.issue).toContain('/issues/99');
   expect(saved.startCommit).toMatch(/^[a-f0-9]{40}$/);
+  expect(saved.startedAt).toMatch(/^\d{4}-\d\d-\d\dT/);
+  expect(saved.finishedAt).toMatch(/^\d{4}-\d\d-\d\dT/);
+  expect(await readFile(join(f.dir, 'report.html'), 'utf8')).toContain('停止');
   expect(saved.remaining).toContain('human_review');
   return saved;
 }
@@ -118,6 +121,7 @@ async function verifiedLocal(f: DevelopmentFixture) {
   expect(await savedResult(f.dir)).toEqual(result);
   expect(result.evidence).toBe(f.dir);
   expect(result.status).toBe('verified_local');
+  expect(await readFile(join(f.dir, 'report.html'), 'utf8')).toContain('ローカル検証済み');
   expect(result.remaining).toContain('publication');
   expect(result.remaining).toContain('human_review');
   expect(existsSync(join(f.dir, 'pr.md'))).toBe(false);
@@ -203,6 +207,51 @@ testDevelopment(
   },
   { ciChecks: [] },
 );
+
+testDevelopment('report failure preserves a verified local result', async (f) => {
+  f.args.push('--no-publish');
+  const verify = f.verify;
+  f.verify = async (config) => {
+    const state = await verify(config);
+    await writeFile(join(f.dir, 'report.html'), 'existing report');
+    return state;
+  };
+  await assert.rejects(
+    () => runDevelopment(f),
+    (error: unknown) =>
+      error instanceof Error &&
+      error.message.includes('Run verified_local') &&
+      error.message.includes('report generation failed') &&
+      error.message.includes(`'${f.dir}'`) &&
+      error.message.includes("run-report.ts'") &&
+      error.message.includes("report-new.html'"),
+  );
+  expect((await savedResult(f.dir)).status).toBe('verified_local');
+  expect(await readFile(join(f.dir, 'report.html'), 'utf8')).toBe('existing report');
+  expect(f.calls.reviews).toBe(1);
+  noPublication(f);
+});
+
+testDevelopment('report failure preserves an earlier stop', async (f) => {
+  const local = f.localCommand;
+  f.localCommand = async (argv, cwd, input, timeout, prefix) => {
+    if (argv[0] === 'sh') {
+      await writeFile(join(f.dir, 'report.html'), 'existing report');
+      return { ...ok(), code: 1, stderr: 'setup failed' };
+    }
+    return local(argv, cwd, input, timeout, prefix);
+  };
+  await assert.rejects(
+    () => runDevelopment(f),
+    /Run stopped:.*setup failed.*report generation failed/,
+  );
+  const saved = await savedResult(f.dir);
+  expect(saved).toMatchObject({ status: 'stopped', phase: 'implementation', operation: 'setup-1' });
+  expect(saved.reason).toContain('setup failed');
+  expect(await readFile(join(f.dir, 'report.html'), 'utf8')).toBe('existing report');
+  expect(f.calls.implementations).toBe(0);
+  noPublication(f);
+});
 
 for (const [name, replacement, reason] of [
   ['wrong_repo', ['team/component', 'other/repo'], /GitHub repository mismatch/],
