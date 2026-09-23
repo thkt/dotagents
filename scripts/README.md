@@ -484,6 +484,22 @@ Issue #66の試行結果は[2026-09-15の実モデル検証記録](../docs/evide
 
 制御テストによる受け渡し、実モデルの意味判断、実際のGitHub公開は別の確認です。模擬応答が通っただけで文章の意味が正しいとは扱いません。文体統一・保護対象の機械比較・校正前後の別モデル照合は廃止しており、既存評価が同じ検査を代替すると説明しません。
 
+## 人向け文書の静的lint
+
+変更したREADME・設計書・操作説明・研究や検証の記録など、人向けMarkdownだけを明示して実行します。PR本文は標準入力から渡します。対象を自動収集しないため、Issue本文・下書き、`AGENTS.md`、`SKILL.md`、プロンプト、テストfixture、生成物は通常の対象に含めません。
+
+```sh
+bun run lint:docs -- README.md scripts/README.md
+set -o pipefail
+gh pr view 123 --json body --jq .body | bun run lint:docs -- --stdin --stdin-filename pr.md
+```
+
+`pipefail`により、PR本文の取得失敗をlintの成功として扱いません。
+
+制御文字・ゼロ幅スペース・分解された濁点はエラー、冗長表現は修正を選べる警告です。自動修正の`--fix`は通常実行に含めません。全既存文書の一括修正や、共通`bun run check`・CIへの追加は行わず、変更した文書で必要なときに実行します。警告やエラーを直す際も原資料と意味を確認します。
+
+4規則はtextlintが設定ファイルから読み込むため、静的な未使用依存検査では`.fallowrc.json`にその4件だけを除外しています。
+
 ## PRの公開
 
 公開担当は信頼するハーネスから対象checkoutを指定し、ユーザーの既存gh認証を使います。App設定、署名鍵、installation tokenは不要です。環境変数のtokenが保存済み認証より優先される場合もあるため、実効主体を `gh api user` で確認します。対象hostはgithub.comです。`GH_HOST`が別hostを指定している場合はGitHub操作前に停止します。認証情報をrepo、ログ、PR本文へ保存しません。

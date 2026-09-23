@@ -5,6 +5,7 @@
   "packageManager": "bun@1.4.2",
   "scripts": {
     "test:control": "bun scripts/test.ts bun",
+    "lint:docs": "textlint --config .textlintrc.json",
     "typecheck": "tsc --noEmit",
     "format": "oxfmt --write scripts",
     "format:check": "oxfmt --check scripts",
@@ -24,11 +25,16 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.12",
     "@oxlint/plugins": "1.80.0",
+    "@textlint-rule/textlint-rule-no-invalid-control-character": "3.0.0",
     "@types/bun": "1.4.1",
     "fallow": "3.27.0",
     "oxfmt": "0.66.0",
     "oxlint": "1.80.0",
     "oxlint-tsgolint": "7.0.2001",
+    "textlint": "15.8.0",
+    "textlint-rule-ja-no-redundant-expression": "4.0.1",
+    "textlint-rule-no-nfd": "2.0.2",
+    "textlint-rule-no-zero-width-spaces": "1.0.1",
     "typescript": "7.0.2"
   }
 }
