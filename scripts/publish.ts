@@ -5,7 +5,7 @@ import { parseArgs } from 'node:util';
 import { isRecord } from './values.ts';
 import { assertConfig } from './input.ts';
 import { checkRevision } from './revision.ts';
-import type { Revision } from './revision.ts';
+import type { Revision } from './input.ts';
 import { readTarget } from './target.ts';
 import { command as runCommand, assertRunning, withInterrupts } from './process.ts';
 

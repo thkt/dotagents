@@ -1,0 +1,150 @@
+import { expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { appendFile, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+
+const repo = resolve(import.meta.dir, '../..');
+
+async function fixture() {
+  const cwd = await mkdtemp(join(tmpdir(), 'codebase-checks-'));
+  for (const path of [
+    'scripts',
+    'package.json',
+    '.fallowrc.json',
+    '.oxfmtrc.json',
+    '.oxlintrc.json',
+    'biome.json',
+    'tsconfig.json',
+    '.gitignore',
+  ]) {
+    await cp(join(repo, path), join(cwd, path), { recursive: true });
+  }
+  await symlink(join(repo, 'node_modules'), join(cwd, 'node_modules'), 'dir');
+  return cwd;
+}
+
+function run(cwd: string, script: string) {
+  const result = spawnSync(process.execPath, ['run', script], {
+    cwd,
+    encoding: 'utf8',
+    timeout: 15000,
+  });
+  expect(result.error).toBeUndefined();
+  return result;
+}
+
+test('unused check detects unreachable code but preserves real entries and imported exports', async () => {
+  const cwd = await fixture();
+  try {
+    expect(run(cwd, 'check:unused').status).toBe(0);
+    // Reuse Issue #174's file/export controls; add the entry-export and type boundaries.
+    await writeFile(join(cwd, 'scripts/trial-unused.ts'), 'export const trialUnusedFile = 712;\n');
+    await writeFile(join(cwd, 'scripts/trial-used.ts'), 'export const trialUsedExport = 421;\n');
+    await appendFile(
+      join(cwd, 'scripts/values.ts'),
+      '\nexport const trialUnusedExport = 913;\nexport type TrialUnusedType = { marker: string };\n',
+    );
+    await appendFile(
+      join(cwd, 'scripts/tests/review.test.ts'),
+      '\nimport { trialUsedExport } from "../trial-used.ts"; console.log(trialUsedExport);\n' +
+        'export const trialEntryUnused = 17;\n',
+    );
+    const result = run(cwd, 'check:unused');
+    expect(result.status).toBe(1);
+    const report: unknown = JSON.parse(result.stdout);
+    expect(report).toMatchObject({
+      total_issues: 4,
+      unused_files: [{ path: 'scripts/trial-unused.ts' }],
+      unused_types: [{ path: 'scripts/values.ts', export_name: 'TrialUnusedType' }],
+    });
+    expect(report).toHaveProperty(
+      'unused_exports',
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'scripts/values.ts', export_name: 'trialUnusedExport' }),
+        expect.objectContaining({
+          path: 'scripts/tests/review.test.ts',
+          export_name: 'trialEntryUnused',
+        }),
+      ]),
+    );
+    expect(result.stdout).not.toContain('"export_name":"trialUsedExport"');
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('unused check fails for a dependency alone, degraded parsing, and invalid configuration', async () => {
+  const cwd = await fixture();
+  try {
+    const manifest = await readFile(join(cwd, 'package.json'), 'utf8');
+    await writeFile(
+      join(cwd, 'package.json'),
+      manifest.replace(
+        '"devDependencies": {',
+        '"devDependencies": {"trial-unused-dependency":"1.0.0",',
+      ),
+    );
+    const dependency = run(cwd, 'check:unused');
+    expect(dependency.status).toBe(1);
+    const report: unknown = JSON.parse(dependency.stdout);
+    expect(report).toMatchObject({
+      total_issues: 1,
+      unused_dev_dependencies: [{ package_name: 'trial-unused-dependency' }],
+    });
+    await writeFile(join(cwd, 'package.json'), manifest);
+
+    // Fallow itself exits zero for this partial parse with no unused findings.
+    await appendFile(join(cwd, 'scripts/tests/review.test.ts'), '\nconst broken = ;\n');
+    const parsing = run(cwd, 'check:unused');
+    expect(parsing.status).toBe(1);
+    expect(parsing.stderr).toContain('Incomplete fallow analysis');
+    const partial: unknown = JSON.parse(parsing.stdout);
+    expect(partial).toMatchObject({ total_issues: 0 });
+    expect(partial).toHaveProperty(
+      'workspace_diagnostics',
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'source-parse-degraded', degrades_analysis: true }),
+      ]),
+    );
+    await cp(join(repo, 'scripts/tests/review.test.ts'), join(cwd, 'scripts/tests/review.test.ts'));
+
+    await writeFile(join(cwd, '.fallowrc.json'), '{broken');
+    const config = run(cwd, 'check:unused');
+    expect(config.status).toBe(1);
+    expect(config.stderr).toContain('fallow failed (2)');
+    expect(config.stdout).toContain('Failed to parse config file');
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('format checks and writes root and nested TS without changing other scripts files', async () => {
+  const cwd = await fixture();
+  try {
+    await mkdir(join(cwd, 'scripts/nested'));
+    const typescript = ['scripts/trial-format.ts', 'scripts/nested/trial-format.ts'];
+    const excluded = ['scripts/trial-format.md', 'scripts/nested/trial-format.js'];
+    const source = 'const probe={value:"unformatted"}\n';
+    for (const path of [...typescript, ...excluded]) {
+      await writeFile(join(cwd, path), source);
+    }
+    const check = run(cwd, 'format:check');
+    expect(check.status).toBe(1);
+    for (const path of typescript) {
+      expect(check.stdout + check.stderr).toContain(path);
+    }
+    expect(run(cwd, 'format').status).toBe(0);
+    expect(run(cwd, 'format:check').status).toBe(0);
+    for (const path of typescript) {
+      expect(await readFile(join(cwd, path), 'utf8')).toBe(
+        "const probe = { value: 'unformatted' };\n",
+      );
+    }
+    for (const path of excluded) {
+      expect(await readFile(join(cwd, path), 'utf8')).toBe(source);
+    }
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});

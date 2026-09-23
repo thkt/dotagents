@@ -39,6 +39,8 @@ CI未確認時もPR URLと取得済みの公開結果・ログを保持し、非
 
 人が採用したレビュー指摘・期待する結果・許可範囲と、必要な過去指摘・出典を一つの文章ファイルにまとめ、前回の公開runを指定します。PRコメントの自動収集・自動採用は行いません。対象は、このハーネスで検証・公開したopen PRで、現在のgh主体が作者である同一repoのbranchです。#103以降の`result.json`、対象・Issue・検証設定・state・公開対象の記録が揃うrunを使います。
 
+開始前に担当ホストは、既存の要求精査で現在のIssueが人の合意済みであり、今回の明示的な修正依頼と許可範囲が整合することを確認します。前回公開後にIssueを更新した場合も、この確認を経て同じPRの新runを開始できます。本文の差分やOPEN状態だけで人の合意を自動判定しません。未合意の要求変更は人の合意へ戻します。
+
 ```sh
 bun /absolute/path/to/trusted/scripts/development.ts 99 \
   --repo /absolute/path/to/previous-run/checkout \
@@ -49,15 +51,19 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
 
 `--run-dir`は前回runと同じ親ディレクトリ内の新しい保存先を指定します。既存の`result.json`を使って同じcheckoutの未完了・公開結果不明の実行を照合するためです。新しい保存先を確保した後、結果の初期記録を先に置き、要求・設定・修正入力を保存してからsetup直前に対象と並行する実行を照合します。ここで不一致があれば、`phase: implementation`・`operation: check revision before setup`で停止しますが、setupや担当AIは起動していません。停止理由・既知のPR URL・次の対応は新runの`result.json`で確認できます。別の再開台帳は作りません。前回run・state・ログは読み取り参照に限り、修正入力・検証設定・評価・結果は新runへ保存します。
 
-前回のPR・Issue・公開commit・checkout・主体・対象設定をGit/GitHubの実状態と照合します。checkoutは記録した公開headと一致し、追跡対象・未追跡の作業差分がないことが必要です。既存本文は開始時に読み取り、固定した修正入力とともに担当者へ渡します。未完了の実行、結果不明、対象不一致、残った作業があれば開始せず、記録と作業を保ったまま原因・次の対応を返します。別checkoutの自動作成、stash、作業差分の移植、rebase、旧stateの変換・再開は行いません。
+前回記録にあるrepo・Issue番号・PR・公開commit・checkout・主体・対象設定をGit/GitHubの実状態と照合します。checkoutは記録した公開headと一致し、追跡対象・未追跡の作業差分がないことが必要です。既存本文は開始時に読み取り、固定した修正入力とともに担当者へ渡します。未完了の実行、結果不明、対象不一致、残った作業があれば開始せず、記録と作業を保ったまま原因・次の対応を返します。別checkoutの自動作成、stash、作業差分の移植、rebase、旧stateの変換・再開は行いません。
 
-新しい明示的な修正依頼ごとに初回修正を行い、追加修正・独立評価の回数上限は設けません。モデル時間制限も設けず、check・capture・CI等は通常developmentの時間枠と処理を共用します。過去のaccepted・check・capture成功や指摘IDは新runへ移しません。修正入力の変更、Issue・主体・設定・PRの本文・head・baseなどの変化は工程境界で停止します。人が要求・許可範囲を変更する場合は合意へ戻します。
+前回のIssue内容は前回stateのhashと照合し、保存記録の整合性を検査します。現在のIssueには前回との内容一致を求めず、同じrepo・Issue番号のOPENな要求で、空でないtitle・bodyがあることを確認します。開始時に取得したtitle・body・state・updatedAtを今回の固定入力とし、新runの`issue.json`と修正の検証設定へ保存します。前回のIssueとstateは書き換えません。この条件は採用後に開始する新runへ適用し、停止した実行の再開や旧記録の移行には使いません。
+
+新しい明示的な修正依頼ごとに初回修正を行い、追加修正・独立評価の回数上限は設けません。モデル時間制限も設けず、check・capture・CI等は通常developmentの時間枠と処理を共用します。過去のaccepted・check・capture成功や指摘IDは新runへ移しません。固定後のIssue変更は開始準備中も拒否し、setup前・実装前や後続の工程境界で検出したら停止します。修正入力・主体・権限・設定・PRの本文・head・baseなどの変化も引き続き停止対象です。人が要求・許可範囲を変更する場合は合意へ戻し、新しい明示的な依頼で別のrunを開始します。
 
 検証入口の修正対象照合はcorrectionが担当します。設定・保存先、lock、保存stateを確認してから、修正入力・Issue・対象・主体・権限・PR・remote ref・並行runを照合します。同時に異常がある場合、保存先・lock・stateの異常で先に停止し、その時点では外部対象の変化を照合しません。検証後とsetup・モデル実行・commit・push・本文更新・draft/ready切替をまたぐ再照合は継続します。
 
 対象不一致や中断までに空のverificationディレクトリが残る場合があります。取得した自分のlockはfinallyで解放し、既存lockは取得・削除しません。入口で対象不一致を検出した場合はstateやモデル実行記録を新規作成せず、作業と旧runの記録を保持します。
 
-評価の差分は前回から保持したPR全体の基点から作ります。公開headは今回の修正の開始点として別に渡し、独立評価はIssue全体と採用した修正要求の両方を確認します。既存本文の変更説明、未確認事項、添付リンクは現在も必要か評価し、必要な内容をacceptedな評価の公開用説明へ含めます。過去の生成本文を再帰的に追加せず、以前の全文は実行証拠に保持します。
+評価の差分は前回から保持したPR全体の基点から作ります。公開headは今回の修正の開始点として別に渡し、独立評価は今回固定した合意済みIssue全体と採用した修正要求の両方でPR全体を確認します。既存本文の変更説明、未確認事項、添付リンクは現在も必要か評価し、必要な内容をacceptedな評価の公開用説明へ含めます。過去の生成本文を再帰的に追加せず、以前の全文は実行証拠に保持します。
+
+引き継いだ調査報告と今回のIssueで選んだ共有知識は、初回修正前に同じPR全体の基点のpath・blobと照合します。参照pathの欠落や版違いではsetup・初回修正を開始しません。公開headで資料が改訂されていても参照の基点・blobを置き換えず、初回修正・追加修正・独立評価へ同じ基点と選択内容を渡します。担当者は元の参照と現在の資料の差分を評価します。前回runのIssue・参照・保存記録は変更しません。
 
 公開時は検証済み成果物をcommitし、push前に対象・主体・権限・既存本文・head・refを照合します。同じhead repository・branchを使う対象外のopen PRがあれば、別base向けも含め、draft化・push・本文更新の前に停止します。共有branchの影響と許可範囲を照合し、対象外のPRを自動でdraftへ戻しません。readyなら`gh pr ready --undo`でdraftへ戻し、同じ対象・本文・headとdraft状態を読み戻してからpushします。既にdraftなら切替を重ねません。本文更新前・更新後と添付前にも必要なdraft状態を確認し、不明・不一致なら後続の公開変更を止めます。
 
@@ -364,6 +370,7 @@ SIGKILLやOS停止は捕捉できません。CLIだけが強制終了すると�
 ## 検証
 
 現在の共通checkの順序やハーネスの検証範囲は[README](../README.md#セットアップと検証)を、書式や型情報を用いるlintおよびテスト完了の方針は[DEVELOPMENT.md](../.codex/DEVELOPMENT.md#typescriptの書き方)を参照してください。
+未使用コードの検査対象、fallowの解析失敗の扱い、重複・複雑度・循環依存の調査コマンドは[READMEのコードベース調査](../README.md#未使用コード検査とコードベース調査)を参照してください。追加調査は共通checkの失敗条件に含めません。
 制御テストは `scripts/tests/` に配置し、対象の責務に合わせて分割しています。
 
 | 対象 | テスト |
@@ -374,6 +381,7 @@ SIGKILLやOS停止は捕捉できません。CLIだけが強制終了すると�
 | 撮影設定の解決・実行判定・外部出力 | [capture.test.ts](tests/capture.test.ts)、[capture-browser-errors.test.ts](tests/capture-browser-errors.test.ts) |
 | 撮影・媒体の保持と再利用 | [correction-capture.test.ts](tests/correction-capture.test.ts) |
 | テスト実行完了の判定 | [test-runner.test.ts](tests/test-runner.test.ts) |
+| 未使用コードの検出・解析失敗、TS整形の対象と出力 | [codebase-checks.test.ts](tests/codebase-checks.test.ts) |
 
 撮影アダプターの実動作はホスト専用の一時fixtureでも確認できます。既存のPlaywright依存と導入済みブラウザーを持つ対象repoを明示します。依存の導入や対象repoへの書き込みは行わず、OSの一時ディレクトリにfixture、媒体、ログを保持します。ブラウザーを起動するためsandbox内では実行しません。
 
