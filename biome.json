@@ -8,14 +8,10 @@
 	"formatter": { "enabled": false },
 	"assist": { "enabled": false },
 	"linter": {
-		"enabled": true,
 		"rules": {
 			"preset": "none",
 			"complexity": {
-				"noExcessiveCognitiveComplexity": {
-					"level": "error",
-					"options": { "maxAllowedComplexity": 15 }
-				}
+				"noExcessiveCognitiveComplexity": "error"
 			}
 		}
 	}
