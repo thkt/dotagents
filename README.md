@@ -36,6 +36,8 @@ bun run check
 
 Bun 1.4.2を使います。checkはlint、書式、Biomeの認知的複雑度15、型、fallowの未使用コード・循環依存検査、共有知識の生成物照合、ハーネスの制御テストの順に実行します。fallow 3.27.0も版固定の開発依存として上記setupで導入します。Playwrightや商品アプリの依存は導入しません。対象repoではそのrepoの検証を指定してください。商品・既存媒体・旧App版コードと実測履歴は[trial repo](https://github.com/thkt/dotagents-workflow-trial/blob/d0134086ad9bdddb5ed2693327cb1ffb0859c4a2/README.md)に残っています。
 
+[biome.json](biome.json)は、版固定したBiome 2.5.14の既定値（linterの有効化と認知的複雑度の上限15）を使い、`noExcessiveCognitiveComplexity`を`error`に指定しています。Biomeの版更新時は、この既定値と上限超過時のerrorによる拒否を再確認してください。
+
 ### 未使用コード検査とコードベース調査
 
 `bun run check:unused`は、未使用ファイル・export・型・依存（dev・optionalを含む）と実行時importの循環の指摘を失敗にします。[実行入口](scripts/check-unused.ts)はfallowの終了失敗を引き継ぎ、終了0でもJSONの`workspace_diagnostics`に`degrades_analysis: true`があれば不合格にします。構文解析の中断や読取り不能などで不完全になった解析を、指摘なしの成功と扱わないためです。結果のJSONには指摘位置と診断が残ります。設定不正や起動失敗も成功に変換しません。CIの`checks`も同じ`bun run check`を使います。
