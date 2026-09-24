@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, symlink, writeFile, readFile, rm, rename, chmod } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   correctionConfig,
   correctionFixture,
@@ -155,6 +156,33 @@ if(role==='review') console.log(JSON.stringify(reviewReply(stage===3?'accepted':
     'accepted',
   ]);
   expect(new Set(history.map((review) => review.targetId)).size).toBe(4);
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const prompt = await readFile(join(t.config.runDir, `review-${attempt}.prompt`), 'utf8');
+    const context = object(JSON.parse(prompt.split('Host context: ')[1]?.split('\n')[0] ?? ''));
+    const target = object(JSON.parse(await readFile(String(context.targetRecord), 'utf8')));
+    expect(context.targetId).toBe(target.targetId);
+    if (attempt === 1) {
+      expect(target.latestRepair).toBeNull();
+      continue;
+    }
+    const prefix = join(t.config.runDir, `repair-${attempt - 1}`);
+    const raw = await readFile(`${prefix}.stdout`, 'utf8');
+    const repairEvent = events(state.events)
+      .map(object)
+      .find((event) => event.prefix === prefix);
+    expect(target.latestRepair).toEqual({
+      attempt: attempt - 1,
+      prefix,
+      sourceBefore: repairEvent?.source,
+      sourceAfter: target.source,
+      stdoutHash: createHash('sha256').update(raw).digest('hex'),
+    });
+    expect(object(target.latestRepair).sourceBefore).not.toBe(target.source);
+    expect(JSON.parse(raw)).toEqual({
+      status: 'repaired',
+      findings: `Completed stage ${attempt - 1}`,
+    });
+  }
   expect(history.at(-1)).toMatchObject({ items: [{ id: 'R1-1', disposition: 'fixed' }] });
   const recorded = events(state.events).map(object);
   const source = await snapshot(t.config.cwd);
