@@ -1,5 +1,7 @@
 # Issue #90: 共有モデルの接続と確認範囲
 
+この文書はIssue #90の実装・評価中に書いた当時の検証記録です。本文の「本PR」「今回」「未完了」は記録時点の状態を指します。最終的な採用差分、評価、CIは、マージ済みの[PR #92](https://github.com/thkt/dotagents/pull/92)で確認してください。
+
 対象は[Issue #90](https://github.com/thkt/dotagents/issues/90)の2026-09-17T11:38:02Z版の要求です。比較元は`765adbb29c51747b2d4ada473ca03a3e40ed7651`、比較先は本PRの成果物です。人の採用判断とは別の実装・検証記録です。現在の操作は[CLI手順](../../scripts/README.md#共有知識の選択)、定義は[JSON正本](../knowledge/implementation-start.json)と[生成説明](../knowledge/implementation-start.md)を参照してください。
 
 ## 根拠と判断のつながり
