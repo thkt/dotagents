@@ -1342,59 +1342,21 @@ for (const [phase, change, reason] of [
   });
 }
 
-for (const [change, expected] of [
-  ['content', /Required report has uncommitted content/],
-  ['index', /Required start inputs have uncommitted changes/],
-  ['setup', /Required report has uncommitted content/],
-  ['blob', /Required report differs from reviewed version/],
-  ['missing', /Required report is missing from start commit/],
-] as const) {
-  testStartInput(`selected knowledge is a required start input: ${change}`, async (fixture) => {
-    const { repo, args, hooks, io, dir } = fixture;
-    const path = 'model.json';
-    const content = await readFile(
-      new URL('../../docs/knowledge/implementation-start.json', import.meta.url),
-      'utf8',
-    );
-    await writeFile(join(repo, path), content);
-    await git(repo, 'add', path);
-    await git(repo, 'commit', '-m', 'knowledge');
-    const base = await git(repo, 'rev-parse', 'HEAD');
-    const blob = await git(repo, 'rev-parse', `HEAD:${path}`);
-    hooks.issue = JSON.stringify({
-      title: 'Selected knowledge',
-      state: 'OPEN',
-      body:
-        '```dotagents-knowledge\n' +
-        JSON.stringify([
-          {
-            path: change === 'missing' ? 'absent.json' : path,
-            blob: change === 'blob' ? 'a'.repeat(40) : blob,
-            ids: ['start-identity'],
-          },
-        ]) +
-        '\n```',
-    });
-    if (change === 'content' || change === 'index') {
-      await writeFile(join(repo, path), content + '\n');
-      if (change === 'index') {
-        await git(repo, 'add', path);
-        await writeFile(join(repo, path), content);
-      }
-    }
-    if (change === 'setup') {
-      hooks.changeDuring = async (event, cwd) => {
-        if (event === 'setup') {
-          await writeFile(join(cwd, path), content + '\n');
-        }
-      };
-    }
+testStartInput(
+  'legacy knowledge stops before setup or implementation',
+  async ({ args, base, hooks, io, dir }) => {
     args.push('--start-commit', base);
-    await assert.rejects(() => develop(args, io), expected);
-    expect(hooks.setups).toBe(change === 'setup' ? 1 : 0);
+    hooks.issue = JSON.stringify({
+      title: 'Legacy selection',
+      state: 'OPEN',
+      body: '```dotagents-knowledge\n[]\n```',
+    });
+    await assert.rejects(() => develop(args, io), /Legacy dotagents-knowledge.*new Issue.*new run/);
+    expect(hooks.setups).toBe(0);
+    expect(existsSync(join(dir, 'checkout'))).toBe(false);
     expect(existsSync(join(dir, 'implementation.prompt'))).toBe(false);
-  });
-}
+  },
+);
 
 for (const location of ['checkout', 'git', 'symlink'] as const) {
   testStartInput(

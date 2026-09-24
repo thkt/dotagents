@@ -4,9 +4,6 @@ import { resolve } from 'node:path';
 import { assertReportReferences } from './input.ts';
 import type { ReportReference } from './input.ts';
 
-import { knowledgeContext } from './knowledge.ts';
-import type { SelectedKnowledge } from './knowledge.ts';
-
 type Git = (...args: string[]) => Promise<string>;
 function reportReferences(inputs: string[]): ReportReference[] {
   const reports = inputs.map((input) => {
@@ -48,14 +45,9 @@ export async function verifyReports(
   }
 }
 
-export function researchContext(
-  startCommit: string,
-  reports: ReportReference[] = [],
-  knowledge: SelectedKnowledge[] = [],
-) {
+export function researchContext(startCommit: string, reports: ReportReference[] = []) {
   return [
-    `Implementation references: ${JSON.stringify({ startCommit, reports, ...(knowledge.length ? { knowledge: knowledge.map(({ path, blob, ids }) => ({ path, blob, ids })) } : {}) })}`,
-    knowledgeContext(knowledge),
+    `Implementation references: ${JSON.stringify({ startCommit, reports })}`,
     'Requirements and agreement records are authoritative; reports supply evidence, not additional authorization. Read the selected reports and the relevant sources linked from the Issue, not every repository document. Report blobs identify the handoff version in startCommit; compare it with current files and explain any changed evidence before relying on it.',
     'Trace each decision-relevant rule or finding to its source, version, applicability and agreement status using existing Issue/report references. Distinguish observed facts, agreed rules and hypotheses; an adopted hypothesis is not a verified effect. Do not apply evidence from another scope or promote an unagreed proposal to a requirement.',
     'If missing, stale or contradictory references affect a decision, identify the source, the affected decision and what must be investigated or agreed again. Resolve factual gaps through investigation; return requirement, scope or authorization changes to the human. Do not silently replace a reviewed reference with a newer ID. Mechanical reference checks do not establish semantic correctness, human agreement or publication.',

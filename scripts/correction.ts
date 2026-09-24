@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict';
 import { checkRevision, revisionContext } from './revision.ts';
-import { issueText } from './issue.ts';
+import { assertNoLegacyKnowledge, issueText } from './issue.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
 import { parseReview, reviewInstructions, reviewSummary } from './review.ts';
 import type { Review } from './review.ts';
 import { researchContext, verifyReportBase } from './research-handoff.ts';
-import { knowledgeReferences, readKnowledge } from './knowledge.ts';
-import type { SelectedKnowledge } from './knowledge.ts';
 import { assertConfig, assertState } from './input.ts';
 import { outside } from './values.ts';
 import type { Config, State, ActorRole, StopReason, CaptureDecision } from './input.ts';
@@ -515,7 +513,6 @@ async function reviewTarget(
   config: Config,
   state: State,
   issue: string,
-  knowledge: SelectedKnowledge[],
   repairsSinceReview: RepairReference[],
 ) {
   const prefix = resolve(config.runDir, `review-${state.review + 1}`);
@@ -545,7 +542,6 @@ async function reviewTarget(
     baseCommit: state.baseCommit,
     reports: config.reports ?? [],
     revision: config.revision,
-    knowledge,
     source: state.source,
     latestRepair: repairsSinceReview.at(-1) ?? null,
     repairsSinceReview,
@@ -604,14 +600,13 @@ async function evaluate(
   state: State,
   issue: string,
   persist: Persist,
-  knowledge: SelectedKnowledge[],
   repairsSinceReview: RepairReference[],
 ): Promise<{ stop?: StopReason; findings?: string }> {
   // Do not create an apparent attempt if the existing execution budget is exhausted.
   if (modelLimitReached(config, state, 'review')) {
     return { stop: 'execution_limit' };
   }
-  const target = await reviewTarget(config, state, issue, knowledge, repairsSinceReview);
+  const target = await reviewTarget(config, state, issue, repairsSinceReview);
   if ('stop' in target) {
     return { stop: target.stop };
   }
@@ -621,7 +616,7 @@ async function evaluate(
     revisionContext(config.revision),
     `Host context: ${JSON.stringify({ targetId: target.targetId, attempt: state.review + 1, targetRecord: `${target.prefix}.target.json`, diff: `${target.prefix}.diff`, additions: `${target.prefix}.additions.json`, previous: history.at(-1) ?? null })}`,
     `Requirements:\n${issue}`,
-    researchContext(state.baseCommit, config.reports, knowledge),
+    researchContext(state.baseCommit, config.reports),
   ].join('\n');
   const before = await targetChange(config, state);
   if (before) {
@@ -675,7 +670,6 @@ async function cycle(
   state: State,
   issue: string,
   persist: Persist,
-  knowledge: SelectedKnowledge[],
   repairsSinceReview: RepairReference[],
 ): Promise<StopReason | RepairReference[]> {
   const currentIssue = await readIssue(config);
@@ -692,7 +686,7 @@ async function cycle(
     findings += `\nPrevious independent review (historical; verify current artifacts):\n${summarizeReviews(state)}`;
   }
   if (!findings) {
-    const result = await evaluate(config, state, issue, persist, knowledge, repairsSinceReview);
+    const result = await evaluate(config, state, issue, persist, repairsSinceReview);
     if (result.stop) {
       return result.stop;
     }
@@ -713,7 +707,7 @@ async function cycle(
         : null,
     ),
     `Requirements:\n${issue}\nFailure evidence:\n${findings}`,
-    researchContext(state.baseCommit, config.reports, knowledge),
+    researchContext(state.baseCommit, config.reports),
   ].join('\n');
   const beforeRepair = await readIssue(config);
   await revisionUnchanged(config, beforeRepair);
@@ -796,30 +790,27 @@ async function execute(config: Config): Promise<State> {
   if (state?.active) {
     throw Error(interruptionMessage);
   }
+  if (state) {
+    assertNoLegacyKnowledge(await readFile(resolve(config.runDir, 'issue.txt'), 'utf8'));
+  }
   const issue = await readEntryIssue(config, !state);
+  assertNoLegacyKnowledge(issue);
   const base =
     state?.baseCommit ??
     config.baseCommit ??
     (await command(['git', 'rev-parse', 'HEAD'], config.cwd, '', 10000)).stdout.trim();
   assert(/^[a-f0-9]{40,64}$/.test(base), 'Review requires a base commit');
-  const references = knowledgeReferences(issue);
   const git = async (...args: string[]) => {
     const result = await command(['git', ...args], config.cwd, '', 10000);
     assert(result.code === 0 && !result.timedOut, 'Cannot verify report base');
     return result.stdout.trim();
   };
-  await verifyReportBase(base, [...(config.reports ?? []), ...references], git);
+  await verifyReportBase(base, config.reports ?? [], git);
   if (state?.result) {
-    // The unchanged selection and immutable base blobs were validated during preparation.
-    // ls-tree alone does not detect a missing blob object; check availability without extraction.
-    for (const { blob } of references) {
-      await git('cat-file', '-e', `${blob}^{blob}`);
-    }
     const unchanged =
       state.issueHash === digest(issue) && state.source === (await snapshot(config.cwd));
     return { ...state, result: unchanged ? state.result : 'target_changed_after_stop' };
   }
-  const knowledge = await readKnowledge(references, git);
   state ??= {
     reviewFormat: 4,
     issueFormat: 1,
@@ -840,7 +831,7 @@ async function execute(config: Config): Promise<State> {
   // explanations from old state or neighboring runs, or duplicate their text.
   let result: StopReason | RepairReference[] = [];
   while (typeof result !== 'string') {
-    result = await cycle(config, state, issue, persist, knowledge, result);
+    result = await cycle(config, state, issue, persist, result);
   }
   state.result = result;
   await saveTerminal(path, state);

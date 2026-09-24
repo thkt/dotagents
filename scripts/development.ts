@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { reviewModel } from './review.ts';
-import { issueText } from './issue.ts';
+import { assertNoLegacyKnowledge, issueText } from './issue.ts';
 import { prBody } from './pr-body.ts';
 import { mkdir, readFile, writeFile, realpath, rename } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
@@ -23,7 +23,6 @@ import {
   verifyReports,
 } from './research-handoff.ts';
 import type { Config, State, ReportReference, StopReason, Revision } from './input.ts';
-import { knowledgeReferences, readKnowledge } from './knowledge.ts';
 import { writeRunReport } from './run-report.ts';
 
 const runtime: {
@@ -232,6 +231,7 @@ async function selectStart(args: string[], io: typeof runtime) {
   const rawIssue = await checkedOutput(io, issue, repo);
   const original = issueText(rawIssue);
   const requirements = issueValue(original);
+  assertNoLegacyKnowledge(original);
   const revision = await prepareRevision(
     prior,
     parsed.values['request-file'],
@@ -244,14 +244,12 @@ async function selectStart(args: string[], io: typeof runtime) {
     localOnly,
     io,
   );
-  const references = knowledgeReferences(original);
   if (prior) {
     // Match correction's PR-wide base, not the published head where evidence may be revised.
-    await verifyReportBase(prior.state.baseCommit, [...reports, ...references], git);
+    await verifyReportBase(prior.state.baseCommit, reports, git);
   }
-  const inputs = prior ? [] : [...reports, ...references];
+  const inputs = prior ? [] : reports;
   await verifyStartInputs(repo, base, target.text, inputs, io);
-  const knowledge = await readKnowledge(references, git);
   return {
     parsed,
     repo,
@@ -268,7 +266,6 @@ async function selectStart(args: string[], io: typeof runtime) {
     rawIssue,
     requirements,
     inputs,
-    knowledge,
   };
 }
 
@@ -294,7 +291,6 @@ async function prepare(
     rawIssue,
     requirements,
     inputs,
-    knowledge,
   } = await selectStart(args, io);
   const git = (...argv: string[]) => checked(io, ['git', ...argv], repo);
   const common = await realpath(
@@ -379,7 +375,6 @@ async function prepare(
     target,
     reports,
     inputs,
-    knowledge,
     revision,
     reviewBase: prior?.state.baseCommit ?? base,
   };
@@ -453,7 +448,7 @@ async function implement(context: Context, io: typeof runtime) {
     `Requirements:\n${original}`,
     revisionContext(context.revision),
     `Issue: https://github.com/${context.target.config.repository}/issues/${context.number}`,
-    researchContext(context.reviewBase, context.reports, context.knowledge),
+    researchContext(context.reviewBase, context.reports),
   ].join('\n');
   await writeFile(join(dir, 'implementation.prompt'), prompt);
   const actor = [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'repair', dir];

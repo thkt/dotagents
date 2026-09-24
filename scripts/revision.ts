@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { assertConfig, assertState } from './input.ts';
 import type { Revision } from './input.ts';
 import { isRecord } from './values.ts';
-import { issueText } from './issue.ts';
+import { assertNoLegacyKnowledge, issueText } from './issue.ts';
 import { readTarget } from './target.ts';
 import { assertRunning } from './process.ts';
 import type { Reader } from './target.ts';
@@ -83,6 +83,7 @@ export async function previousRun(
     'Previous published target is inconsistent; reconcile GitHub',
   );
   const original = await readFile(join(dir, 'issue.json'), 'utf8');
+  assertNoLegacyKnowledge(original);
   // Only legacy runs hashed raw stdout while development saved trimmed JSON.
   assert(original === issueText(original), 'Previous Issue evidence differs');
   assert(
