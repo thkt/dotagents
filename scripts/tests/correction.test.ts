@@ -1,4 +1,5 @@
 import { test, expect, afterEach } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, symlink, writeFile, readFile, rm, rename, chmod } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -517,3 +518,102 @@ test('repair reply contract rejects malformed values and preserves diagnostic fi
     findings,
   });
 });
+
+for (const failure of ['base', 'retrieval']) {
+  test(`initial Issue evidence survives reuse after ${failure} failure before state`, async () => {
+    const t = await trial('normal', { baseCommit: 'invalid' });
+    const raw = ' {"title":"要求","body":"  本文\\n"}\n';
+    t.config.issue = [
+      process.execPath,
+      '-e',
+      `process.stdout.write(${JSON.stringify(raw)}); process.stderr.write('first diagnostic'); process.exit(${failure === 'retrieval' ? 1 : 0});`,
+    ];
+    await writeFile(t.configFile, JSON.stringify(t.config));
+    const first = t.execute();
+    expect(first.status).toBe(1);
+    expect(first.stderr).toContain(
+      failure === 'base' ? 'Review requires a base commit' : 'Issue unavailable',
+    );
+    const paths = ['issue.stdout', 'issue.stderr'];
+    const evidence = [raw, 'first diagnostic'];
+    if (failure === 'base') {
+      paths.push('issue.txt');
+      evidence.push('{"title":"要求","body":"  本文\\n"}');
+    }
+    const readEvidence = () =>
+      Promise.all(paths.map((path) => readFile(join(t.config.runDir, path), 'utf8')));
+    expect(await readEvidence()).toEqual(evidence);
+    expect(existsSync(join(t.config.runDir, 'state.json'))).toBe(false);
+    const marker = join(t.root, 'retrieved-again');
+    t.config.issue = [
+      process.execPath,
+      '-e',
+      `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'called'); process.stdout.write('second'); process.stderr.write('second diagnostic');`,
+    ];
+    await writeFile(t.configFile, JSON.stringify(t.config));
+    const repeated = t.execute();
+    expect(repeated.status).toBe(1);
+    expect(await readEvidence()).toEqual(evidence);
+    expect(repeated.stderr).toContain('Initial Issue evidence already exists');
+    expect(existsSync(marker)).toBe(false);
+    expect(existsSync(join(t.config.runDir, 'state.json'))).toBe(false);
+    expect(existsSync(join(t.config.runDir, 'lock'))).toBe(false);
+    expect(existsSync(join(t.config.runDir, 'issue.txt'))).toBe(failure === 'base');
+  });
+}
+
+for (const json of [true, false]) {
+  test(`Issue evidence preserves requirements and rereads one representation: json=${json}`, async () => {
+    const t = await trial('normal');
+    const requirements = {
+      title: '日本語 🐈',
+      body: '  本文\n\n末尾  \n',
+      state: 'OPEN',
+      updatedAt: '1',
+    };
+    const text = json ? JSON.stringify(requirements) : '  平文の要求\n\n末尾  \n';
+    const raw = json ? ` \n${text}\n` : text;
+    const input = join(t.root, 'issue.txt');
+    await writeFile(input, raw);
+    t.config.issue = ['cat', input];
+    await writeFile(t.configFile, JSON.stringify(t.config));
+    expect(t.execute().status).toBe(0);
+    const state = await t.state();
+    expect(state.issueHash).toBe(createHash('sha256').update(text).digest('hex'));
+    expect(state.issueFormat).toBe(1);
+    expect(await readFile(join(t.config.runDir, 'issue.txt'), 'utf8')).toBe(text);
+    expect(await readFile(join(t.config.runDir, 'issue.stdout'), 'utf8')).toBe(raw);
+    const target = object(
+      JSON.parse(await readFile(join(t.config.runDir, 'review-1.target.json'), 'utf8')),
+    );
+    expect(target.issue).toEqual({ hash: state.issueHash, content: text });
+    expect(await readFile(join(t.config.runDir, 'check-1.stdout'), 'utf8')).toBe(
+      'source must be correct\n',
+    );
+    await writeFile(input, text);
+    expect(t.execute().status).toBe(0);
+    const changes = json
+      ? [
+          { title: '別題' },
+          { body: requirements.body + ' ' },
+          { state: 'CLOSED' },
+          { updatedAt: '2' },
+        ].map((change) => JSON.stringify({ ...requirements, ...change }))
+      : [text.trim(), text + '\n'];
+    for (const changed of changes) {
+      await writeFile(input, changed);
+      const result = t.execute();
+      expect(result.status).toBe(1);
+      expect(object(JSON.parse(result.stdout)).result).toBe('target_changed_after_stop');
+      expect(await t.state()).toEqual(state);
+    }
+    expect(await readFile(join(t.config.runDir, 'issue.stdout'), 'utf8')).toBe(raw);
+    const legacy = JSON.stringify({ ...state, issueFormat: undefined });
+    await writeFile(join(t.config.runDir, 'state.json'), legacy);
+    const stopped = t.execute();
+    expect(stopped.status).toBe(1);
+    expect(stopped.stderr).toContain('Historical Issue format cannot be resumed');
+    expect(await readFile(join(t.config.runDir, 'state.json'), 'utf8')).toBe(legacy);
+    expect(await readFile(join(t.config.runDir, 'issue.stdout'), 'utf8')).toBe(raw);
+  });
+}

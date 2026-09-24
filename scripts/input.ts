@@ -134,6 +134,7 @@ export interface State {
   reviewHistory: Review[];
   configHash: string;
   issueHash: string;
+  issueFormat?: 1;
   repair: number;
   review: number;
   checks: number;
@@ -239,6 +240,7 @@ export function assertState(value: unknown): asserts value is State {
     'Historical review format cannot be converted or resumed; preserve existing run',
   );
   assert(value.reviewFormat === 4, 'Invalid review format');
+  assert(value.issueFormat === undefined || value.issueFormat === 1, 'Invalid Issue format');
   assert(
     typeof value.configHash === 'string' && typeof value.issueHash === 'string',
     'Invalid saved hashes',

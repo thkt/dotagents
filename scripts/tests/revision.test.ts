@@ -19,7 +19,8 @@ import type { PublishInput } from '../publish.ts';
 import { run, snapshot } from '../correction.ts';
 import { command, withInterrupts } from '../process.ts';
 import { assertConfig } from '../input.ts';
-import { checkRevision } from '../revision.ts';
+import { checkRevision, previousRun } from '../revision.ts';
+import { readTarget } from '../target.ts';
 import { correctionConfig, reviewReplySource } from './support/correction.ts';
 import type { Config, State, Revision } from '../input.ts';
 import { isRecord } from '../values.ts';
@@ -306,7 +307,8 @@ async function fixture(root: string, media = false, setup: string[][] = [], know
         reviewFormat: 4,
         baseCommit: config.baseCommit ?? initialBase,
         configHash: hash(JSON.stringify(config)),
-        issueHash: hash(hooks.issueText),
+        issueFormat: 1,
+        issueHash: hash(hooks.issueText.trim()),
         source: await snapshot(config.cwd),
         repair: 0,
         review: 1,
@@ -1270,13 +1272,28 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
         ).toEqual(priorEvidence);
         if (entryFailure) {
           expect(await readdir(verification)).toEqual(
-            mode === 'locked_body_changed' ? ['lock'] : [],
+            mode === 'locked_body_changed' ? ['lock'] : ['issue.stderr', 'issue.stdout'],
           );
           if (mode === 'locked_body_changed') {
             expect(await readFile(join(verification, 'lock/owner'), 'utf8')).toBe(
               'existing execution',
             );
+            return;
           }
+          assert(config);
+          const retryConfig = config;
+          const paths = await readdir(verification);
+          const evidence = await Promise.all(
+            paths.map((path) => readFile(join(verification, path), 'utf8')),
+          );
+          const reads = await readFile(join(root, 'reads'), 'utf8');
+          await writeFile(liveIssue, 'changed after failed PR reconciliation');
+          await assert.rejects(() => run(retryConfig), /Initial Issue evidence already exists/);
+          expect(await readdir(verification)).toEqual(paths);
+          expect(
+            await Promise.all(paths.map((path) => readFile(join(verification, path), 'utf8'))),
+          ).toEqual(evidence);
+          expect(await readFile(join(root, 'reads'), 'utf8')).toBe(reads);
         } else {
           expect(await readObject(join(verification, 'state.json'))).toMatchObject({
             repair: 0,
@@ -1299,7 +1316,8 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
       expect(state.repair).toBe(1);
       expect(state.review).toBe(1);
       expect(state.checks).toBe(2);
-      expect(state.issueHash).toBe(hash(currentIssue + '\n'));
+      expect(state.issueHash).toBe(hash(currentIssue));
+      expect(await readFile(join(verification, 'issue.stdout'), 'utf8')).toBe(currentIssue + '\n');
       expect(verifiedConfig.revision.issueText).toBe(currentIssue);
       expect(await readFile(join(f.dir, 'issue.json'), 'utf8')).toBe(currentIssue);
       const referenceBlob = git(f.cwd, 'rev-parse', `${f.initialBase}:${knowledgePath}`);
@@ -1368,6 +1386,40 @@ test('a revision reserves existing result evidence before another initial actor 
     await successfulRevision(f, 'success');
     expect(reconciled).toBe(true);
     expect(f.hooks.implementations).toBe(2);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('previous Issue evidence uses exact new hashes and confines newline compatibility to legacy records', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-evidence-')));
+  try {
+    const f = await fixture(root);
+    const target = await readTarget(f.cwd, async (argv, cwd) =>
+      (await f.io.command(argv, cwd, '', 10000)).stdout.trim(),
+    );
+    const path = join(f.prior, 'verification/state.json');
+    const original = await readObject(path);
+    const evidence = join(f.prior, 'issue.json');
+    for (const issueFormat of [undefined, 1]) {
+      for (const suffix of ['', '\n']) {
+        const state = JSON.stringify({ ...original, issueFormat, issueHash: hash(issue + suffix) });
+        await writeFile(path, state);
+        await writeFile(evidence, issue);
+        const read = () => previousRun(f.prior, f.cwd, '99', target);
+        if (issueFormat === 1 && suffix) {
+          await assert.rejects(read, /Previous Issue evidence differs/);
+        } else {
+          await read();
+          for (const changed of [issue.replace('Keep result visible', 'Changed'), issue + '\n']) {
+            await writeFile(evidence, changed);
+            await assert.rejects(read, /Previous Issue evidence differs/);
+            expect(await readFile(evidence, 'utf8')).toBe(changed);
+          }
+        }
+        expect(await readFile(path, 'utf8')).toBe(state);
+      }
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

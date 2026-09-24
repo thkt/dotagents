@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { assertConfig, assertState } from './input.ts';
 import type { Revision } from './input.ts';
 import { isRecord } from './values.ts';
+import { issueText } from './issue.ts';
 import { readTarget } from './target.ts';
 import { assertRunning } from './process.ts';
 import type { Reader } from './target.ts';
@@ -81,9 +82,11 @@ export async function previousRun(
     'Previous published target is inconsistent; reconcile GitHub',
   );
   const original = await readFile(join(dir, 'issue.json'), 'utf8');
-  // correction records command stdout, including its trailing newline.
+  // Only legacy runs hashed raw stdout while development saved trimmed JSON.
+  assert(original === issueText(original), 'Previous Issue evidence differs');
   assert(
-    state.issueHash === hash(original) || state.issueHash === hash(original + '\n'),
+    state.issueHash === hash(original) ||
+      (state.issueFormat === undefined && state.issueHash === hash(original + '\n')),
     'Previous Issue evidence differs',
   );
   return {
@@ -114,7 +117,7 @@ export async function checkRevision(
     body?: string;
     captureBody?: boolean;
     draft?: 'ensure' | 'require';
-    issue?: string;
+    issue?: string; // Comparison text already converted by the acquiring caller.
     target?: Awaited<ReturnType<typeof readTarget>>;
   } = {},
 ) {
@@ -124,22 +127,22 @@ export async function checkRevision(
     'Revision request changed; preserve work and obtain a new explicit request',
   );
   assert(
-    (
-      issue ??
-      (await read(
-        [
-          'gh',
-          'issue',
-          'view',
-          revision.issue,
-          '--repo',
-          revision.repository,
-          '--json',
-          'title,body,state,updatedAt',
-        ],
-        cwd,
-      ))
-    ).trim() === revision.issueText,
+    (issue ??
+      issueText(
+        await read(
+          [
+            'gh',
+            'issue',
+            'view',
+            revision.issue,
+            '--repo',
+            revision.repository,
+            '--json',
+            'title,body,state,updatedAt',
+          ],
+          cwd,
+        ),
+      )) === revision.issueText,
     'Agreed Issue changed during revision',
   );
   target ??= await readTarget(cwd, read, !revision.localOnly);

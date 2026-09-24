@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { checkRevision, revisionContext } from './revision.ts';
+import { issueText } from './issue.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
 import { parseReview, reviewInstructions, reviewSummary } from './review.ts';
 import type { Review } from './review.ts';
@@ -131,11 +132,26 @@ async function validate(config: Config) {
   }
 }
 
-async function readIssue(config: Config) {
-  const result = await command(config.issue, config.cwd, '', 30000);
+async function readIssue(config: Config, record = false) {
+  if (record) {
+    const files = await readdir(config.runDir);
+    assert(
+      !files.some((name) => ['issue.stdout', 'issue.stderr', 'issue.txt'].includes(name)),
+      'Initial Issue evidence already exists; preserve existing run and use a new run',
+    );
+  }
+  const result = await command(
+    config.issue,
+    config.cwd,
+    '',
+    30000,
+    record ? resolve(config.runDir, 'issue') : undefined,
+  );
+
   if (result.code !== 0 || result.timedOut || !result.stdout.trim()) {
     throw Error('Issue unavailable');
   }
+  const text = issueText(result.stdout);
   if (config.revision) {
     await checkRevision(
       config.revision,
@@ -145,10 +161,13 @@ async function readIssue(config: Config) {
         assert(result.code === 0 && !result.timedOut, 'Revision target unavailable');
         return result.stdout.trim();
       },
-      { issue: result.stdout },
+      { issue: text },
     );
   }
-  return result.stdout;
+  if (record) {
+    await writeFile(resolve(config.runDir, 'issue.txt'), text, { flag: 'wx' });
+  }
+  return text;
 }
 
 function modelLimitReached(config: Config, state: State, role: ActorRole) {
@@ -705,6 +724,10 @@ async function execute(config: Config): Promise<State> {
   try {
     const value: unknown = JSON.parse(await readFile(path, 'utf8'));
     assertState(value);
+    assert(
+      value.issueFormat === 1,
+      'Historical Issue format cannot be resumed; preserve existing run and use a new run',
+    );
     state = value;
   } catch (error) {
     if (!isMissing(error)) {
@@ -718,7 +741,7 @@ async function execute(config: Config): Promise<State> {
   if (state?.active) {
     throw Error(interruptionMessage);
   }
-  const issue = await readIssue(config);
+  const issue = await readIssue(config, !state);
   const base =
     state?.baseCommit ??
     config.baseCommit ??
@@ -744,6 +767,7 @@ async function execute(config: Config): Promise<State> {
   const knowledge = await readKnowledge(references, git);
   state ??= {
     reviewFormat: 4,
+    issueFormat: 1,
     baseCommit: base,
     reviewHistory: [],
     configHash,
