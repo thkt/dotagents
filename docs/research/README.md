@@ -12,6 +12,10 @@
 | 共有モデルで用語と責任の境界を表す試行を参照するとき | [用語と責任境界の試行](domain-boundary-trial-20260920.md) |
 | fallowとKnipの採用前の比較条件・測定値を確認するとき | [fallow・Knipのローカル比較](fallow-trial-20260921.md) |
 | 実行予約と中断後の再起動をモデル化した範囲を確認するとき | [TLA+の限定試行](formal-state-trial-20260921.md) |
+| #58の撮影検証の対象版・実測・失敗と未確認範囲を確認するとき | [Issue #58の検証記録](harness-review-2026-09-14.md) |
+| 正誤ラベルを分離した各条件1回のレビュー結果と独立裁定を確認するとき | [Issue #138の検証記録](review-blinding-138.md) |
+| 固定事例による冗長性レビューの検出・見落としと、一般化できない範囲を確認するとき | [Issue #120の限定検証](review-redundancy-120.md) |
+| 共有モデルの引き継ぎで確認した制御条件と、時間・手戻りの未計測範囲を確認するとき | [Issue #90の検証記録](shared-knowledge-90.md) |
 
 このディレクトリには、当時の試行記録と未採用・未合意のIssue草案も含みます。`docs/research/`への移動と公開は内容の採用や現行版での再検証を意味しません。本文中の「ローカル保存」「未公開」は記録時点の状態です。現在の要求・実装・方針を判断するときは、対象版と後続のIssue・PRを確認してください。
 
@@ -27,4 +31,4 @@ Issueの記述と出典リンクで足りる場合は報告を作りません。
 
 過去の調査（当時のarchive仕様を含み、現行手順ではありません）: [scopingの調査成果を共有する保存先](https://github.com/thkt/dotagents/blob/78a8ccee4829ac0bfe61bed5fdb9d0efdd62b772/research/scoping-research-storage.md)。
 
-現在の手順は[wiki](../wiki/README.md)、重要な選択理由は[decisions](../decisions/README.md)へ残します。[共通手順](../../skills/references/documents.md)で原本と現行説明を分担してください。
+現在の手順は[wiki](../wiki/README.md)、重要な選択理由は[decisions](../decisions/README.md)へ残します。検証結果の現在の扱いは[検証結果を観測した範囲で使う](../wiki/evidence-scope.md)、実装・修正・独立評価への根拠の引き継ぎは[判断に使う根拠を同じ版で引き継ぐ](../wiki/reference-handoff.md)を参照してください。[共通手順](../../skills/references/documents.md)で原本と現行説明を分担してください。

@@ -41,7 +41,7 @@ Chosen option: "選択した知識と版を既存の参照へ結び、ホスト�
 
 ### Evidence and Scope
 
-[採用commit](https://github.com/thkt/dotagents/commit/5eca806df08ba870bb2dd037957e56ca63711fcb)と[当時の検証記録](../evidence/shared-knowledge-90.md)を参照してください。記録内の模擬検証は実モデルの意味判断や時間改善の実測ではありません。`date`は採用commitの日付です。合意者の個人名は今回再確認していません。
+[採用commit](https://github.com/thkt/dotagents/commit/5eca806df08ba870bb2dd037957e56ca63711fcb)と[当時の検証記録](../research/shared-knowledge-90.md)を参照してください。記録内の模擬検証は実モデルの意味判断や時間改善の実測ではありません。`date`は採用commitの日付です。合意者の個人名は今回再確認していません。
 
 現行への適用は、今回のIssueに選んだ根拠の引き継ぎです。JSONやMarkdownという格納形式そのものを全リポジトリへ固定する判断ではありません。
 
