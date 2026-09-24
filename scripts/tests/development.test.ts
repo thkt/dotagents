@@ -30,10 +30,11 @@ import type { DevelopmentFixture } from './support/development.ts';
 
 const reportPath = 'docs/research/result-behavior.md';
 const reportContent = 'Reviewed finding: keep the result visible until reset.\n';
-const secondReport = 'docs/research/result-validation.md';
+const secondReport = 'docs/wiki/result-validation.md';
 
 async function commitReport(repo: string) {
   await mkdir(join(repo, 'docs/research'), { recursive: true });
+  await mkdir(join(repo, 'docs/wiki'), { recursive: true });
   await writeFile(join(repo, reportPath), reportContent);
   await writeFile(join(repo, secondReport), 'Existing result tests cover reset and empty input.\n');
   await git(repo, 'add', '--', reportPath, secondReport);

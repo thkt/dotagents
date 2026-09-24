@@ -71,5 +71,10 @@ export function researchHandoff(base: string, startCommit: string | undefined, i
       'Start commit differs from handoff; reconcile the reviewed references',
     );
   }
-  return reportReferences(inputs);
+  const reports = reportReferences(inputs);
+  assert(
+    reports.every(({ path }) => path.startsWith('docs/')),
+    'New report handoffs must use docs/; preserve legacy references in existing runs',
+  );
+  return reports;
 }
