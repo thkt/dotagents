@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { reviewModel } from './review.ts';
+import { issueText } from './issue.ts';
 import { prBody } from './pr-body.ts';
 import { mkdir, readFile, writeFile, realpath, rename } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
@@ -61,10 +62,14 @@ type DevelopmentResult = {
   remaining: string[];
 };
 
-async function checked(io: typeof runtime, argv: string[], cwd: string, prefix?: string) {
+async function checkedOutput(io: typeof runtime, argv: string[], cwd: string, prefix?: string) {
   const result = await io.command(argv, cwd, '', hostCommandTimeMs, prefix);
   assert(result.code === 0 && !result.timedOut, `Command failed: ${argv[0]}; ${result.stderr}`);
-  return result.stdout.trim();
+  return result.stdout;
+}
+
+async function checked(io: typeof runtime, argv: string[], cwd: string, prefix?: string) {
+  return (await checkedOutput(io, argv, cwd, prefix)).trim();
 }
 
 function issueValue(text: string) {
@@ -224,7 +229,8 @@ async function selectStart(args: string[], io: typeof runtime) {
     '--json',
     'title,body,state,updatedAt',
   ];
-  const original = await checked(io, issue, repo);
+  const rawIssue = await checkedOutput(io, issue, repo);
+  const original = issueText(rawIssue);
   const requirements = issueValue(original);
   const revision = await prepareRevision(
     prior,
@@ -259,6 +265,7 @@ async function selectStart(args: string[], io: typeof runtime) {
     revision,
     issue,
     original,
+    rawIssue,
     requirements,
     inputs,
     knowledge,
@@ -284,6 +291,7 @@ async function prepare(
     revision,
     issue,
     original,
+    rawIssue,
     requirements,
     inputs,
     knowledge,
@@ -347,6 +355,7 @@ async function prepare(
   }
   const remote = await git('remote', 'get-url', target.config.remote);
   await writeFile(join(dir, 'issue.json'), original);
+  await writeFile(join(dir, 'issue.stdout'), rawIssue);
   await writeFile(join(dir, 'target.json'), JSON.stringify(target, null, 2));
   assert((await git('rev-parse', 'HEAD')) === base, 'Start HEAD changed during preparation');
   if (revision) {
@@ -471,7 +480,7 @@ async function implement(context: Context, io: typeof runtime) {
     throw Error(`Human decision required: ${reply.findings}`);
   }
   assert(
-    (await checked(io, context.issue, cwd)) === original,
+    issueText(await checkedOutput(io, context.issue, cwd)) === original,
     'Requirements changed during implementation',
   );
   const config = {
