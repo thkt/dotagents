@@ -91,19 +91,35 @@ test('one model produces human and AI definitions while preserving selection and
     const input = model();
     expect(parseKnowledge(input)).toEqual(input);
     await writeFile(path, JSON.stringify(input));
-    await generateKnowledge(path, false);
-    const original = await readFile(join(root, 'model.md'), 'utf8');
+    const destination = join(root, 'wiki/model.md');
+    const selection = { globs: ['src/start.ts'], scenes: ['plan', 'implement'] };
+    await generateKnowledge(path, false, destination, selection);
+    const original = await readFile(destination, 'utf8');
+    expect(original).toStartWith(
+      '---\nglobs: ["src/start.ts"]\nscenes: ["plan","implement"]\n---\n\n# Example knowledge',
+    );
+    await assert.rejects(
+      () => generateKnowledge(path, true, destination, { ...selection, scenes: ['implement'] }),
+      /Knowledge Markdown is stale/,
+    );
     const changed = model();
     const rule = changed.nodes[0];
     assert(rule);
     rule.statement = 'Keep the reviewed input and its version.';
     await writeFile(path, JSON.stringify(changed));
-    await assert.rejects(() => generateKnowledge(path, true), /Knowledge Markdown is stale/);
-    await generateKnowledge(path, false);
-    await generateKnowledge(path, true);
-    const explanation = await readFile(join(root, 'model.md'), 'utf8');
+    await assert.rejects(
+      () => generateKnowledge(path, true, destination, selection),
+      /Knowledge Markdown is stale/,
+    );
+    await generateKnowledge(path, false, destination, selection);
+    await generateKnowledge(path, true, destination, selection);
+    const explanation = await readFile(destination, 'utf8');
+    expect(explanation).toContain('../model.json');
     const selected = selectKnowledge(changed, reference);
     const ai = renderKnowledge(selected);
+    expect(ai).toStartWith('# Example knowledge\n');
+    expect(ai).not.toContain('globs:');
+    expect(ai).not.toContain('scenes:');
     expect(original).not.toContain(rule.statement);
     expect(explanation).toContain(rule.statement);
     expect(ai).toContain(rule.statement);

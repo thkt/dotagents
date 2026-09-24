@@ -7,8 +7,10 @@
 - このREADMEの[共有入口と利用条件](#共有入口と利用条件): メンバーが依存する入口、必要な版、結果の参照先。
 - [開発方針](.codex/DEVELOPMENT.md): 要求・公開範囲の合意、文書・テスト・独立評価、人のマージ判断とmain保護。
 - [制御CLI](scripts/README.md): 対象設定、起動、上限、中断、公開。
-- [実装開始の共有知識](docs/knowledge/implementation-start.md): JSON正本から生成した目的・概念・規則。選択・改訂の操作は[制御CLI](scripts/README.md#共有知識の選択)。
+- [実装開始の共有知識](docs/wiki/implementation-start.md): JSON正本から生成した目的・概念・規則。選択・改訂の操作は[制御CLI](scripts/README.md#共有知識の選択)。
 - [調査成果](docs/research/README.md): 再利用する根拠、未採用の提案、Gitによる共有と引き継ぎ。
+
+- [現在の知識](docs/wiki/README.md)・[判断記録](docs/decisions/README.md): このrepoの手順・構造と、その選択理由。Claude／Codex共通の[読む・残す方法](skills/references/documents.md)を使います。
 
 ## 共有入口と利用条件
 
