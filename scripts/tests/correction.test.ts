@@ -342,7 +342,7 @@ for (const [name, change, reason] of [
   ['missing cwd', { cwd: undefined }, 'Invalid cwd'],
   [
     'report without base',
-    { reports: [{ path: 'research/reset.md', blob: 'a'.repeat(40) }] },
+    { reports: [{ path: 'docs/research/reset.md', blob: 'a'.repeat(40) }] },
     'Required reports need baseCommit',
   ],
   [
@@ -350,8 +350,8 @@ for (const [name, change, reason] of [
     {
       baseCommit: 'a'.repeat(40),
       reports: [
-        { path: 'research/reset.md', blob: 'a'.repeat(40) },
-        { path: 'research/reset.md', blob: 'b'.repeat(40) },
+        { path: 'docs/research/reset.md', blob: 'a'.repeat(40) },
+        { path: 'docs/research/reset.md', blob: 'b'.repeat(40) },
       ],
     },
     'Duplicate required report',

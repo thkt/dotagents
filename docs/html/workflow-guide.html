@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
-<meta name="source-commit" content="7134d2ffa441985ee00d2dd1a6b6e79f5e9cc4ae">
+<meta name="source-commit" content="ac171da5faa41794fbd564139bcbdd15e2c64f85">
 <meta name="description" content="初めてハーネスを導入する人向けに、導入準備から要求整理・実装・PRまでを解説。差し戻しの調査と見直し、関係者への動作説明、リリース・運用・振り返りの共通の観点も収録。">
 <title>AIと進める開発、その判断のつなぎ方。 | dotagents</title>
 <style>
@@ -141,7 +141,7 @@ bun run check
 <tr><td>skills配下の<code>agents/openai.yaml</code></td><td data-label="このフローでの役割">スキルの表示名、短い説明、起動例</td><td data-label="誰がどう使うか">スキルの入口で使う情報。このrepoではこれらの項目が記載されている</td></tr>
 <tr><td><code>.dotagents.json</code></td><td data-label="このフローでの役割">このハーネス用の対象repo設定</td><td data-label="誰がどう使うか">CLIが値を読み、操作先の照合と設定されたコマンドの実行に使う</td></tr>
 <tr><td><code>skills/scoping/references/sufficiency.md</code></td><td data-label="このフローでの役割">要求整理で「次の判断に必要な根拠が揃ったか」を考える六つの問い</td><td data-label="誰がどう使うか">担当AIが現在の根拠と合意を評価する。必要な決定と不足はIssue・下書きに残す</td></tr>
-<tr><td><code>research/</code>の報告、設計資料、既存コード・テスト</td><td data-label="このフローでの役割">要求や実装方針を考える根拠</td><td data-label="誰がどう使うか">担当AIが対象版と適用範囲を確かめ、今回必要なものを選ぶ。提案・過去の結果・現行方針を区別する</td></tr>
+<tr><td><code>docs/research/</code>の報告、設計資料、既存コード・テスト</td><td data-label="このフローでの役割">要求や実装方針を考える根拠</td><td data-label="誰がどう使うか">担当AIが対象版と適用範囲を確かめ、今回必要なものを選ぶ。提案・過去の結果・現行方針を区別する</td></tr>
 <tr><td><code>package.json</code>、テスト定義、CIのYAML</td><td data-label="このフローでの役割">検証の実行方法と確かめる振る舞い</td><td data-label="誰がどう使うか">対象repoのツールやGitHub Actionsが実行する。このrepoの<code>package.json</code>には共通checkの構成がある</td></tr>
 <tr><td>開発の<code>result.json</code>、検証の<code>state.json</code>、評価結果、ログ、媒体</td><td data-label="このフローでの役割">終了位置・理由・次の対応と、実行内容の根拠</td><td data-label="誰がどう使うか">担当AIが<code>result.json</code>から必要な詳細へ進む。保存不能はstderr／例外で確認する。要求整理の決定や不足はIssue・下書きから辿る</td></tr>
 </tbody>
@@ -215,7 +215,7 @@ bun run check
 <p>モデルがないrepoは既存のIssueと報告で進められます。モデルを必須化する新しい工程・CLI引数・台帳は追加しません。アプリ固有の知識へ広げる範囲は今後の判断です。反する観測は影響するID・根拠・Issue判断へ結び、事実不足は調査、要求・権限の変更は人の合意へ戻します。モデルの改訂だけで要求を自動変更しません。</p>
 </div><details class="evidence"><summary>この章の位置づけと根拠</summary><p>共有モデルの形式・選択・生成は<a data-source="scripts/README.md#共有知識の選択">CLI手順</a>と<a data-source="docs/knowledge/implementation-start.md">生成説明</a>を参照。現行の役割は <a data-source=".codex/DEVELOPMENT.md">開発方針（<span data-commit="short"></span>）</a> と <a data-source="skills/scoping/references/sufficiency.md">十分性の判断（<span data-commit="short"></span>）</a> を参照。</p></details></section>
 <section id="scoping" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">04</span><h2>依頼を、判断できる要求にする</h2></header><div class="chapter-body"><p>scopingは、依頼本文と対象リポジトリから始まります。既存のIssueや合意があれば読み、すでに決まっていることを聞き直さず、今回決めることを特定します。</p>
-<p>調査では、現在のコード、テスト、依存の版、関連する方針を照合します。過去の調査を使うときは、<a data-source="research/README.md#読む条件と参照先">読む条件と参照先</a>も手掛かりに原文を選び、現在への適用を確認します。該当する資料がなければ検索を続けます。UIなら既存部品、画面、操作状態、キーボードや画面幅の条件を確認します。ロジックなら入力と出力、値の制約、失敗や非同期処理、責任の所在を確認します。</p>
+<p>調査では、現在のコード、テスト、依存の版、関連する方針を照合します。過去の調査を使うときは、<a data-source="docs/research/README.md#読む条件と参照先">読む条件と参照先</a>も手掛かりに原文を選び、現在への適用を確認します。該当する資料がなければ検索を続けます。UIなら既存部品、画面、操作状態、キーボードや画面幅の条件を確認します。ロジックなら入力と出力、値の制約、失敗や非同期処理、責任の所在を確認します。</p>
 <p>資料・コード・ログ・テストで判断できず、観測結果が次の方針を変える場合は、許可された環境で小さな実験・試作・再現を選びます。実行前に、何を決めるか、どの結果で仮説を支持・除外できるかを定め、本番コードから分離した一時領域で確かめます。既存の根拠で足りる場合は実験を増やしません。</p>
 <p>観測した版・環境・入力と適用限界を残します。並行実行・中断・外部状態・永続化が問いなら、それを観測できる環境が必要です。インメモリの成功を実システムの保証にはしません。判断に十分な根拠が得られたら止め、結果を区別できなければ未確認として次の調査や人の判断へ戻します。詳しい条件は<a data-source="skills/scoping/references/sufficiency.md#観測で解消できる不明点">十分性判断の実験条件</a>を参照します。</p>
 <p>既存部品、標準API、導入済みライブラリで目的を満たせるかも調べます。既存コードがあることだけで、今回の適切な見本と判断することはありません。適用できる理由と、今回足りない部分を選びます。Storybookなどの特定の資料がないことだけで停止する運用でもありません。</p>
@@ -239,7 +239,7 @@ bun run check
 <p>Issueには、目的、今回の範囲、完了条件、対象repoのセットアップ・検証方法、必要な画像や動画と保存先、合意の根拠をまとめます。実装方法の細部は担当者が判断できる余地を残します。実験の計測手順や試行回数は、成果物の要求と区別します。</p>
 <p>案だけ・公開しない依頼では、必要な調査とIssue本文の下書き・精査まで進め、公開用の書込み権限確認を必須にしません。Issueを公開・更新するときは、既存Issueとの重複を調べ、公開前に対象repo、GitHubの実効ユーザーと権限を確認します。担当AIは要求の抜け・矛盾・曖昧さと、合意・根拠との一致を精査します。必要な独立評価と人の合意を揃え、要求の精査を完了します。公開・更新後はIssueを読み戻し、その結果で本文・対象repo・URLと、今回の決定・合意範囲・根拠・未解決事項・次の判断をまとめて確認します。同じ本文の確認を終えたら、必要な報告の引き継ぎへ進みます。</p>
 <p>通信断などで結果が不明な間は、担当AIが一覧と本文で実状態を確認し、再試行や公開完了の扱いを保留します。本文・判明した状態・残る確認を保持し、重複作成を避けます。権限不足では本文を保全して必要な対応を人へ伝えます。本文の不足・不一致は要求精査へ戻し、事実は調査し、要求や許可は人が判断します。判断を左右する不足があれば依存作業を止め、解消後に再評価します。</p>
-<p>Issueの記述と出典リンクで足りれば報告書は作りません。再利用する根拠や長い検証結果が必要な場合だけ、問い、出典と版・確認日、結論、適用条件、未解決事項を対象repoの <code>research/</code> へ直接保存・改訂します。既存内容、Git差分、版、共有範囲を確認し、無確認で上書きしません。内部評価、秘密情報、生ログを自動で取り込むこともありません。</p>
+<p>Issueの記述と出典リンクで足りれば報告書は作りません。再利用する根拠や長い検証結果が必要な場合だけ、問い、出典と版・確認日、結論、適用条件、未解決事項を対象repoの <code>docs/research/</code> へ直接保存・改訂します。既存内容、Git差分、版、共有範囲を確認し、無確認で上書きしません。内部評価、秘密情報、生ログを自動で取り込むこともありません。</p>
 <h3>保存した資料を、実装するAIが読める状態にする</h3>
 <p>新規implementは、開始元のコミット済みHEADから作業場所を作ります。そのため必要な調査報告も、そのHEADに含まれていることを確認します。未コミットの報告を脇へ移して作業場所をcleanにしても、実装先には引き継がれません。</p>
 <p>実装へ渡すときは、今回必要な報告だけを選び、開始commit、報告パス、確認済み本文を識別するGitのblob IDを指定します。必要な報告がなければ、その判断を明示します。報告のローカル保存、コミット、公開はそれぞれ確認します。報告commit後の版照合やIssue更新後の読戻しには、変更前の確認を流用しません。共有後は、報告のパス、コミット、公開先をIssueからたどれるようにします。別のcloneやworktreeで使う場合も、現在の要求に照らして根拠を選び直します。</p>
@@ -448,7 +448,7 @@ bun run check
 </thead>
 <tbody>
 <tr><td>GitHub Issueと合意記録</td><td data-label="残すもの">目的、要求、完了条件、検証方法、範囲の合意</td><td data-label="使い方">実装と評価が参照する要求の正本</td></tr>
-<tr><td>対象repoの <code>research/</code></td><td data-label="残すもの">再利用する調査、出典、版、適用条件、未解決事項</td><td data-label="使い方">必要な報告をコミットに含め、確認済みの版への参照を実装・修正・独立評価へ渡す</td></tr>
+<tr><td>対象repoの <code>docs/research/</code></td><td data-label="残すもの">再利用する調査、出典、版、適用条件、未解決事項</td><td data-label="使い方">必要な報告をコミットに含め、確認済みの版への参照を実装・修正・独立評価へ渡す</td></tr>
 <tr><td>対象repoの共有モデル</td><td data-label="残すもの">目的・概念・規則、根拠、適用条件、合意・未確認の状態</td><td data-label="使い方">JSONを正本とし説明を生成。Issueで選んだIDと版から、同じ定義を各工程へ渡す</td></tr>
 <tr><td>対象repoの既存文書</td><td data-label="残すもの">採用した仕様、方針、操作、設定、制約</td><td data-label="使い方">現在有効な説明として更新する</td></tr>
 <tr><td>checkout外の実装・検証の実行保存先</td><td data-label="残すもの">終了案内の<code>result.json</code>、表示用の<code>report.html</code>、要求、内部評価、ログ、下位state、消費量、公開結果</td><td data-label="使い方">結果から行動・評価・原記録へ進む。HTMLが作れないときは保存済み結果を読み、下位stateと旧runを保全する</td></tr>
@@ -456,10 +456,10 @@ bun run check
 <tr><td>PRと対象repoで合意した証拠保存先</td><td data-label="残すもの">差分、検証結果、必要な媒体、対象commit、未確認事項</td><td data-label="使い方">人がレビューし、判断する</td></tr>
 </tbody>
 </table>
-<p>必要な調査報告は <code>research/</code> の既存ファイルを直接編集し、原資料との照合と既存の評価を経て、Git差分で共有します。専用archiveによるコピーや上書き拒否はありません。既存内容の保全は担当者が確認します。旧セッション、評価、lockは履歴として保持し、変換・再開しません。</p>
+<p>必要な調査報告は <code>docs/research/</code> の既存ファイルを直接編集し、原資料との照合と既存の評価を経て、Git差分で共有します。専用archiveによるコピーや上書き拒否はありません。既存内容の保全は担当者が確認します。旧セッション、評価、lockは履歴として保持し、変換・再開しません。</p>
 <p>検証結果の同一性確認は、要求本文と、Git追跡ファイル・ignoreされていない未追跡ファイルのパス、内容、モードなどを対象にします。ignoredな依存や生成物まで一致を保証する仕組みではありません。信頼する単一実行で使い、別の作業が同じcheckoutを書き換える状況を避けます。</p>
 <p>旧入口や旧run、未追跡・ignored資産、別worktree、失敗記録は保全します。現在の日常入口はscopingとimplementです。登録切替や復帰に影響する変更では、対象資産の保全・復元確認と、新しいタスクからの検出・実行確認を行います。通常のタスクごとに移行手順をやり直す運用ではありません。</p>
-</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="research/README.md">research/README.md</a> · <a data-source="skills/scoping/references/session.md">skills/scoping/references/session.md</a></p></details></section>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="docs/research/README.md">docs/research/README.md</a> · <a data-source="skills/scoping/references/session.md">skills/scoping/references/session.md</a></p></details></section>
 <section id="harness-eval" class="chapter"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">補足</span><h2>指示変更の効果を、必要なときに比較する</h2></header><div class="chapter-body">
 <p><code>scoping</code>・<code>implement</code>や適用される<code>AGENTS.md</code>の変更で、既存の根拠だけでは効果を判断できない場合に使う手動の同条件evalです。通常の開発run、定期実行、全PRのCIに自動接続されません。レビュー試験専用HTMLの案は取り下げましたが、レビュー品質の観測に使う既存の<code>verify-review.ts</code>と記録は残ります。</p>
 <ol>
