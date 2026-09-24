@@ -2,6 +2,8 @@
 
 確認日: 2026-09-21。依頼者の「やってみよう」に基づく、一つの経路に絞ったローカル試行。現行コードの新しい欠陥は見つからなかった。現行設計の抽象モデルは設定した不変条件を満たし、意図的に保護を外したモデルでは反例が出た。ただし、外した3つの保護は既存テストでも検出できたため、この経路にモデル検査を常設する追加価値はまだ確認できない。
 
+資料整理では結果の記録だけを残し、TLA+モデル・設定・再現スクリプトのディレクトリは削除した。この報告だけでは同じ条件のモデル検査やコード試行を再実行できない。
+
 ## 問いと対象
 
 [mizchi氏の投稿](https://x.com/mizchi/status/2100247122390262014)を受け、共有状態と並行実行の順序を形式的に調べることで、既存テストにない欠陥を見つけられるか試した。今回はZ3との比較ではなく、[TLA+とTLC](https://lamport.azurewebsites.net/tla/tla.html)で停止・再実行の一部を表現した。
@@ -16,7 +18,7 @@
 
 ## モデルと実装の対応
 
-モデルは[RunReservation.tla](formal-state-trial-20260921/RunReservation.tla)。`active`はディスクに保存された予約を表し、実行中のメモリー上の値とは区別した。
+試行時のモデルは`RunReservation.tla`だった。`active`はディスクに保存された予約を表し、実行中のメモリー上の値とは区別した。
 
 | モデルの操作 | 実装で参照した責務 |
 | --- | --- |
@@ -31,7 +33,7 @@
 
 ## 結果
 
-TLCは幅優先探索、worker数1、seed 1、fingerprint 0、heap上限512MBで実行した。設定は同じディレクトリの5つのcfgに保存している。
+TLCは幅優先探索、worker数1、seed 1、fingerprint 0、heap上限512MBで実行した。試行時の設定は5つのcfgに保存していたが、現在は保管していない。
 
 | 条件 | TLCの結果 | 異なる状態数 | 経過時間 |
 | --- | --- | ---: | ---: |
@@ -47,7 +49,7 @@ TLCは幅優先探索、worker数1、seed 1、fingerprint 0、heap上限512MBで
 
 ### 実コードでの照合
 
-固定版をcheckout外へ取り出し、模擬コマンドと実際の子プロセス・SIGTERMを使った。[probe.ts](formal-state-trial-20260921/probe.ts)が再現手順である。Codex等の外部モデルやGitHub公開は呼んでいない。
+固定版をcheckout外へ取り出し、模擬コマンドと実際の子プロセス・SIGTERMを使った。試行時は`probe.ts`を再現手順に使った。Codex等の外部モデルやGitHub公開は呼んでいない。
 
 - 現行コード: checkの起動を確認してSIGTERMを送り、同じ設定で再呼出しすると残存予約を理由に拒否した。checkの起動記録は1件のままだった。
 - `hostCommand()`の予約保存をコマンド終了後へ移した一時コピー: 中断後にも予約が残らず、再呼出しでcheckが起動し、記録は2件になった。
@@ -68,27 +70,9 @@ TLCは幅優先探索、worker数1、seed 1、fingerprint 0、heap上限512MBで
 - ロック取得と保存の原子性、処理可能な割り込みでの子プロセス停止を前提にしている。電源断時の永続性、ファイルシステム障害、異なるrunDirから同じcheckoutを操作する競合、要求・sourceの版変更、公開処理、ネットワーク、上限・複数修正サイクル、活性はモデル化していない。
 - モデルと実装を機械的に対応付ける証明や、別評価者による独立評価は未実施。今回の結果はハーネス全体の正しさの証明ではない。共通checkへの組み込みや恒久テストの追加も行っていない。
 
-## 再実行と保存状態
+## 再現資料の保存状態
 
-モデルのSHA-256は`e0ba951442c0b84a7f84ccc4081d5b97c5d0cb0ad766282e8a106709583a089c`。補助ファイルをcheckout外の一時ディレクトリへコピーして実行する。Javaとjarには上記の版を用意する。
-
-```sh
-trial_dir=$(mktemp -d)
-cp -R docs/research/formal-state-trial-20260921/. "$trial_dir/"
-mkdir "$trial_dir/baseline"
-git archive e2f19c21b7a450ff967be37524c1cb68cb1bb526 scripts | tar -x -C "$trial_dir/baseline"
-bun "$trial_dir/probe.ts"
-```
-
-モデル検査は、コピー先を作業ディレクトリとして次の形で実行する。`baseline.cfg`を他の4設定へ変える。TLCの起動にはローカル通信ソケットが必要で、この環境ではsandbox外での実行が必要だった。
-
-```sh
-"$trial_java" -Xmx512m -XX:+UseParallelGC -Djava.rmi.server.hostname=127.0.0.1 \
-  -cp "$trial_tools" tlc2.TLC -workers 1 -seed 1 -fp 0 \
-  -config baseline.cfg RunReservation.tla
-```
-
-今回の報告・モデル・設定・再現スクリプトはローカルの未commit資料。生ログと一時コピーはcheckout外へ保持し、外部公開していない。実行コード・通常テスト・依存設定は変更していない。
+試行時のモデルのSHA-256は`e0ba951442c0b84a7f84ccc4081d5b97c5d0cb0ad766282e8a106709583a089c`。TLCの実行にはローカル通信ソケットが必要で、当時の環境ではsandbox外で実行した。生ログと一時コピーはcheckout外に置き、repoには含めていない。モデル・設定・再現スクリプトも資料整理で削除したため、ここでは結果と当時の条件のみを保持する。
 
 ## 次の判断
 

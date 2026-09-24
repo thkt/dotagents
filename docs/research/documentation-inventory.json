@@ -1045,6 +1045,21 @@
         "sha256": "b340c66ce9b8c772c72e727328a8ba91209f1b32ca84acf0eb2a1c62f097dcec",
         "comparisonWithInventory": "different_public_revision_meaning_reviewed",
         "meaningReview": "Distinguishes the historical research path and local exclusion from the current docs/research location and the single archived probe exclusion in .fallowrc.json. Historical measurement values and adoption conclusions are unchanged."
+      },
+      "laterSourceDisposition": {
+        "observedOn": "2026-09-24",
+        "commit": "9017f3c3b95e2c2b3fb8ac8f6d90ca5c87fdffc8",
+        "pullRequest": "https://github.com/thkt/dotagents/pull/260",
+        "presence": "revised_report_in_later_pr_tree",
+        "version": {
+          "path": "docs/research/fallow-trial-20260921.md",
+          "commit": "9017f3c3b95e2c2b3fb8ac8f6d90ca5c87fdffc8",
+          "url": "https://github.com/thkt/dotagents/blob/9017f3c3b95e2c2b3fb8ac8f6d90ca5c87fdffc8/docs/research/fallow-trial-20260921.md",
+          "gitBlob": "1e92ad972afa2edd280494024c782f4742260ea4",
+          "sha256": "edef50dc336d8e1ca18e86c32187e43bc8b5ede420574f775aa5c5f1723a5b2e"
+        },
+        "meaningReview": "Keeps historical Fallow measurements; states the experimental directory was removed and no dedicated current Fallow exclusion remains.",
+        "adoptionChange": "No change to the trial result or adoption classification is inferred from the archive edit."
       }
     },
     {
@@ -1266,6 +1281,21 @@
         "sha256": "7a7c36dd8a0a6c877811c1c70cd58786817fc10297b2dcc37a286067c96d4e61",
         "comparisonWithInventory": "same_as_initial_inventory",
         "meaningReview": "Same recorded source content; previous semantic classification is unchanged."
+      },
+      "laterSourceDisposition": {
+        "observedOn": "2026-09-24",
+        "commit": "9017f3c3b95e2c2b3fb8ac8f6d90ca5c87fdffc8",
+        "pullRequest": "https://github.com/thkt/dotagents/pull/260",
+        "presence": "revised_report_in_later_pr_tree",
+        "version": {
+          "path": "docs/research/formal-state-trial-20260921.md",
+          "commit": "9017f3c3b95e2c2b3fb8ac8f6d90ca5c87fdffc8",
+          "url": "https://github.com/thkt/dotagents/blob/9017f3c3b95e2c2b3fb8ac8f6d90ca5c87fdffc8/docs/research/formal-state-trial-20260921.md",
+          "gitBlob": "115f10d56c1b5078375c70ef7b8ab2089381e5a2",
+          "sha256": "e24432646641ca37b21c1825dae4d85945d8161e3ea65daecc54fa66ae594ebb"
+        },
+        "meaningReview": "Keeps results and historical conditions only; removes model/configuration/script links and reproduction commands. Current report alone cannot rerun the same trial.",
+        "adoptionChange": "No change to the trial result or adoption classification is inferred from the archive edit."
       }
     },
     {
@@ -1314,6 +1344,24 @@
         "sha256": "e0ba951442c0b84a7f84ccc4081d5b97c5d0cb0ad766282e8a106709583a089c",
         "comparisonWithInventory": "same_as_initial_inventory",
         "meaningReview": "Same recorded source content; previous semantic classification is unchanged."
+      },
+      "laterSourceDisposition": {
+        "observedOn": "2026-09-24",
+        "commit": "9017f3c3b95e2c2b3fb8ac8f6d90ca5c87fdffc8",
+        "pullRequest": "https://github.com/thkt/dotagents/pull/260",
+        "presence": "absent_from_later_pr_tree",
+        "retainedLocation": "git_history_at_previous_published_commit",
+        "history": {
+          "url": "https://github.com/thkt/dotagents/blob/a1b7f968966fda2fe71039368aa95333e5caefae/docs/research/formal-state-trial-20260921/RunReservation.tla",
+          "commit": "a1b7f968966fda2fe71039368aa95333e5caefae",
+          "path": "docs/research/formal-state-trial-20260921/RunReservation.tla",
+          "gitBlob": "aed487a2174fc26e6ffd7198012906f3c0308d91",
+          "sha256": "e0ba951442c0b84a7f84ccc4081d5b97c5d0cb0ad766282e8a106709583a089c",
+          "comparisonWithInventory": "same_as_initial_inventory",
+          "meaningReview": "Same recorded source content; previous semantic classification is unchanged."
+        },
+        "reason": "The dependency PR removed the experimental model, configurations and reproduction script, keeping the report of results only. This migration does not restore them.",
+        "limit": "The current report alone does not reproduce the same model check or code trial."
       }
     },
     {
@@ -1362,6 +1410,24 @@
         "sha256": "564726f9ad728cdd715b72d5b46abf76957cbbfa65dac58259fa3ce2afa715ef",
         "comparisonWithInventory": "same_as_initial_inventory",
         "meaningReview": "Same recorded source content; previous semantic classification is unchanged."
+      },
+      "laterSourceDisposition": {
+        "observedOn": "2026-09-24",
+        "commit": "9017f3c3b95e2c2b3fb8ac8f6d90ca5c87fdffc8",
+        "pullRequest": "https://github.com/thkt/dotagents/pull/260",
+        "presence": "absent_from_later_pr_tree",
+        "retainedLocation": "git_history_at_previous_published_commit",
+        "history": {
+          "url": "https://github.com/thkt/dotagents/blob/a1b7f968966fda2fe71039368aa95333e5caefae/docs/research/formal-state-trial-20260921/baseline.cfg",
+          "commit": "a1b7f968966fda2fe71039368aa95333e5caefae",
+          "path": "docs/research/formal-state-trial-20260921/baseline.cfg",
+          "gitBlob": "427b57259a2f343a269863ea88035e131ba567f4",
+          "sha256": "564726f9ad728cdd715b72d5b46abf76957cbbfa65dac58259fa3ce2afa715ef",
+          "comparisonWithInventory": "same_as_initial_inventory",
+          "meaningReview": "Same recorded source content; previous semantic classification is unchanged."
+        },
+        "reason": "The dependency PR removed the experimental model, configurations and reproduction script, keeping the report of results only. This migration does not restore them.",
+        "limit": "The current report alone does not reproduce the same model check or code trial."
       }
     },
     {
@@ -1410,6 +1476,24 @@
         "sha256": "0f77747913f3e0cf54688aab7226b41d377f2c2e996da3ccb7fb30c53726f1d0",
         "comparisonWithInventory": "same_as_initial_inventory",
         "meaningReview": "Same recorded source content; previous semantic classification is unchanged."
+      },
+      "laterSourceDisposition": {
+        "observedOn": "2026-09-24",
+        "commit": "9017f3c3b95e2c2b3fb8ac8f6d90ca5c87fdffc8",
+        "pullRequest": "https://github.com/thkt/dotagents/pull/260",
+        "presence": "absent_from_later_pr_tree",
+        "retainedLocation": "git_history_at_previous_published_commit",
+        "history": {
+          "url": "https://github.com/thkt/dotagents/blob/a1b7f968966fda2fe71039368aa95333e5caefae/docs/research/formal-state-trial-20260921/ignore-active.cfg",
+          "commit": "a1b7f968966fda2fe71039368aa95333e5caefae",
+          "path": "docs/research/formal-state-trial-20260921/ignore-active.cfg",
+          "gitBlob": "c3faf8372f6be4c4a41d88131819659fdffb8f49",
+          "sha256": "0f77747913f3e0cf54688aab7226b41d377f2c2e996da3ccb7fb30c53726f1d0",
+          "comparisonWithInventory": "same_as_initial_inventory",
+          "meaningReview": "Same recorded source content; previous semantic classification is unchanged."
+        },
+        "reason": "The dependency PR removed the experimental model, configurations and reproduction script, keeping the report of results only. This migration does not restore them.",
+        "limit": "The current report alone does not reproduce the same model check or code trial."
       }
     },
     {
@@ -1458,6 +1542,24 @@
         "sha256": "03aafdfe9d4a15955b89a0295a0188d162ebf6ff42a67add1583232c54515649",
         "comparisonWithInventory": "same_as_initial_inventory",
         "meaningReview": "Same recorded source content; previous semantic classification is unchanged."
+      },
+      "laterSourceDisposition": {
+        "observedOn": "2026-09-24",
+        "commit": "9017f3c3b95e2c2b3fb8ac8f6d90ca5c87fdffc8",
+        "pullRequest": "https://github.com/thkt/dotagents/pull/260",
+        "presence": "absent_from_later_pr_tree",
+        "retainedLocation": "git_history_at_previous_published_commit",
+        "history": {
+          "url": "https://github.com/thkt/dotagents/blob/a1b7f968966fda2fe71039368aa95333e5caefae/docs/research/formal-state-trial-20260921/late-reservation.cfg",
+          "commit": "a1b7f968966fda2fe71039368aa95333e5caefae",
+          "path": "docs/research/formal-state-trial-20260921/late-reservation.cfg",
+          "gitBlob": "784ceab8e0006fa10c423d191bd008ee268ee7bd",
+          "sha256": "03aafdfe9d4a15955b89a0295a0188d162ebf6ff42a67add1583232c54515649",
+          "comparisonWithInventory": "same_as_initial_inventory",
+          "meaningReview": "Same recorded source content; previous semantic classification is unchanged."
+        },
+        "reason": "The dependency PR removed the experimental model, configurations and reproduction script, keeping the report of results only. This migration does not restore them.",
+        "limit": "The current report alone does not reproduce the same model check or code trial."
       }
     },
     {
@@ -1506,6 +1608,24 @@
         "sha256": "f55c7b536aee64014feacc371580d7609a01b8d9bc5206a71ceb845eba07d095",
         "comparisonWithInventory": "same_as_initial_inventory",
         "meaningReview": "Same recorded source content; previous semantic classification is unchanged."
+      },
+      "laterSourceDisposition": {
+        "observedOn": "2026-09-24",
+        "commit": "9017f3c3b95e2c2b3fb8ac8f6d90ca5c87fdffc8",
+        "pullRequest": "https://github.com/thkt/dotagents/pull/260",
+        "presence": "absent_from_later_pr_tree",
+        "retainedLocation": "git_history_at_previous_published_commit",
+        "history": {
+          "url": "https://github.com/thkt/dotagents/blob/a1b7f968966fda2fe71039368aa95333e5caefae/docs/research/formal-state-trial-20260921/no-lock.cfg",
+          "commit": "a1b7f968966fda2fe71039368aa95333e5caefae",
+          "path": "docs/research/formal-state-trial-20260921/no-lock.cfg",
+          "gitBlob": "5fadcc0447a59756a04b79d376be856c249f7e3b",
+          "sha256": "f55c7b536aee64014feacc371580d7609a01b8d9bc5206a71ceb845eba07d095",
+          "comparisonWithInventory": "same_as_initial_inventory",
+          "meaningReview": "Same recorded source content; previous semantic classification is unchanged."
+        },
+        "reason": "The dependency PR removed the experimental model, configurations and reproduction script, keeping the report of results only. This migration does not restore them.",
+        "limit": "The current report alone does not reproduce the same model check or code trial."
       }
     },
     {
@@ -1554,6 +1674,24 @@
         "sha256": "e7023a61616a8aa88ce3dcd87c5745038bec650b8475dc02c8f58128db1d7d9d",
         "comparisonWithInventory": "same_as_initial_inventory",
         "meaningReview": "Same recorded source content; previous semantic classification is unchanged."
+      },
+      "laterSourceDisposition": {
+        "observedOn": "2026-09-24",
+        "commit": "9017f3c3b95e2c2b3fb8ac8f6d90ca5c87fdffc8",
+        "pullRequest": "https://github.com/thkt/dotagents/pull/260",
+        "presence": "absent_from_later_pr_tree",
+        "retainedLocation": "git_history_at_previous_published_commit",
+        "history": {
+          "url": "https://github.com/thkt/dotagents/blob/a1b7f968966fda2fe71039368aa95333e5caefae/docs/research/formal-state-trial-20260921/probe.ts",
+          "commit": "a1b7f968966fda2fe71039368aa95333e5caefae",
+          "path": "docs/research/formal-state-trial-20260921/probe.ts",
+          "gitBlob": "7e7b67f58b556ab680f114cbf3c8c9afb3142ca3",
+          "sha256": "e7023a61616a8aa88ce3dcd87c5745038bec650b8475dc02c8f58128db1d7d9d",
+          "comparisonWithInventory": "same_as_initial_inventory",
+          "meaningReview": "Same recorded source content; previous semantic classification is unchanged."
+        },
+        "reason": "The dependency PR removed the experimental model, configurations and reproduction script, keeping the report of results only. This migration does not restore them.",
+        "limit": "The current report alone does not reproduce the same model check or code trial."
       }
     },
     {
@@ -1602,6 +1740,24 @@
         "sha256": "01e18a0760553cdbddfc151313730a13c540d606662045b0a4a712e8c74df5c9",
         "comparisonWithInventory": "same_as_initial_inventory",
         "meaningReview": "Same recorded source content; previous semantic classification is unchanged."
+      },
+      "laterSourceDisposition": {
+        "observedOn": "2026-09-24",
+        "commit": "9017f3c3b95e2c2b3fb8ac8f6d90ca5c87fdffc8",
+        "pullRequest": "https://github.com/thkt/dotagents/pull/260",
+        "presence": "absent_from_later_pr_tree",
+        "retainedLocation": "git_history_at_previous_published_commit",
+        "history": {
+          "url": "https://github.com/thkt/dotagents/blob/a1b7f968966fda2fe71039368aa95333e5caefae/docs/research/formal-state-trial-20260921/terminal.cfg",
+          "commit": "a1b7f968966fda2fe71039368aa95333e5caefae",
+          "path": "docs/research/formal-state-trial-20260921/terminal.cfg",
+          "gitBlob": "cddc3a242bdec3d3645ec0496291657f932ea003",
+          "sha256": "01e18a0760553cdbddfc151313730a13c540d606662045b0a4a712e8c74df5c9",
+          "comparisonWithInventory": "same_as_initial_inventory",
+          "meaningReview": "Same recorded source content; previous semantic classification is unchanged."
+        },
+        "reason": "The dependency PR removed the experimental model, configurations and reproduction script, keeping the report of results only. This migration does not restore them.",
+        "limit": "The current report alone does not reproduce the same model check or code trial."
       }
     },
     {
@@ -8978,5 +9134,31 @@
     },
     "mergeStateAtClassification": "not_merged",
     "latestPublicationReviewCiAndMergeStatus": "https://github.com/thkt/dotagents/pull/260"
+  },
+  "laterResearchArchiveObservation": {
+    "observedOn": "2026-09-24",
+    "pullRequest": "https://github.com/thkt/dotagents/pull/260",
+    "commit": "9017f3c3b95e2c2b3fb8ac8f6d90ca5c87fdffc8",
+    "previousRecordedCommit": "a1b7f968966fda2fe71039368aa95333e5caefae",
+    "sourceFilesInLaterTree": 112,
+    "unchangedFromPreviousPublishedVersion": 110,
+    "revisedReports": [
+      "docs/research/fallow-trial-20260921.md",
+      "docs/research/formal-state-trial-20260921.md"
+    ],
+    "removedAuxiliaryFiles": [
+      "docs/research/formal-state-trial-20260921/RunReservation.tla",
+      "docs/research/formal-state-trial-20260921/baseline.cfg",
+      "docs/research/formal-state-trial-20260921/ignore-active.cfg",
+      "docs/research/formal-state-trial-20260921/late-reservation.cfg",
+      "docs/research/formal-state-trial-20260921/no-lock.cfg",
+      "docs/research/formal-state-trial-20260921/probe.ts",
+      "docs/research/formal-state-trial-20260921/terminal.cfg"
+    ],
+    "historyReferenceCommit": "a1b7f968966fda2fe71039368aa95333e5caefae",
+    "classificationSnapshot": "The initial 130-entry classification and the earlier 119 published-source version records are retained unchanged. Later removals and revised reports are recorded separately per entry.",
+    "currentLimit": "The formal-state report preserves results and conditions, but cannot reproduce the trial by itself. The seven removed assets remain referenced at the earlier Git commit; they are not restored to the current tree.",
+    "latestPublicationReviewCiAndMergeStatus": "https://github.com/thkt/dotagents/pull/260",
+    "adoption": "Archive edits do not change the recorded adoption state of proposals or prove completion of this workflow migration."
   }
 }

@@ -12,7 +12,7 @@
 
 共有ハーネスを使う実行が終了し、切替直前にも稼働がないことを確認して、`~/.agents`のmainをマージ済みcommit `16d70c23918d69d4dbc01795ac1a886938ee573d`へfast-forwardした。未commit文書2件と未追跡87ファイルを`/private/tmp/dotagents-main-sync-final-m8fh8ytj`へ保全し、文書の差分と資料の内容・モード・symlinkを照合した。稼働中の実行があった前2回はGit・依存の変更前に保留しており、過去のrunや別worktreeは変更していない。
 
-事前の隔離コピーでは、保存済み実験の`research/formal-state-trial-20260921/probe.ts`だけが未使用ファイルとして検出された。この当時の1パスを`.git/info/exclude`へ加える対応を隔離コピーで検証し、共有checkoutにも反映した。実験ファイル本体は保持し、共有のfallow設定や検出基準は変更していない。隔離コピーの`bun run check`は366件成功・0件失敗（6754 assertions、114.09秒）だった。現在のファイル位置は`docs/research/formal-state-trial-20260921/probe.ts`であり、公開後の検査では`.fallowrc.json`の`ignorePatterns`でこの保存済み実験ファイルだけを除外する。
+事前の隔離コピーでは、保存済み実験の`research/formal-state-trial-20260921/probe.ts`だけが未使用ファイルとして検出された。この当時の1パスを`.git/info/exclude`へ加える対応を隔離コピーで検証し、共有checkoutにも反映した。隔離コピーの`bun run check`は366件成功・0件失敗（6754 assertions、114.09秒）だった。この実験用ディレクトリは後の資料整理で削除したため、現在のFallow設定に専用の除外指定はない。
 
 同期後の共有checkoutで`bun install --frozen-lockfile --ignore-scripts`によりfallow 3.27.0を導入し、`bun run check`が366件成功・0件失敗（6754 assertions、103.61秒）となった。fallowの未使用指摘は0件、解析不全もなし。HEADとorigin/mainの一致、lockfileが採用commitのままであること、既存の文書変更と保存資料の保持を確認した。検証ログは`/private/tmp/dotagents-main-sync-final-m8fh8ytj/shared-check.log`に保持している。
 

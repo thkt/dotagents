@@ -10,6 +10,12 @@
 
 その後、[PR #260](https://github.com/thkt/dotagents/pull/260)のcommit `a1b7f968966fda2fe71039368aa95333e5caefae`で、research資料119件すべての公開を確認しました。原本が読める状態と、mainへの統合・採用完了は区別します。119件のうち113件は初回のhash、1件は後の記録済みhashと一致しました。残る5件は索引の追記、歴史的なパスと現在の除外設定の区別、削除済みコードや当時のローカル資料への参照修正であり、その差分を確認しました。公開版のcommit・blob・hashとリンクは`publishedSourceVersion`に残しています。公開後のレビュー・CI・マージの最新状態は対応PRで確認します。
 
+### 後続の資料整理
+
+同じPRのcommit `9017f3c3b95e2c2b3fb8ac8f6d90ca5c87fdffc8`では、TLA+モデル・cfg・再現スクリプトの7ファイルが削除され、research資料は112件になりました。110件は上記の公開版とhashが一致し、変更された2件の報告も確認しました。初回130件の分類と119件の公開版記録は当時のsnapshotとして保持し、後続の状態を`laterResearchArchiveObservation`と各項目の`laterSourceDisposition`へ追記しています。
+
+[formal-stateの報告](https://github.com/thkt/dotagents/blob/9017f3c3b95e2c2b3fb8ac8f6d90ca5c87fdffc8/docs/research/formal-state-trial-20260921.md)は結果と当時の条件だけを保持し、この報告単独では同じ試行を再実行できません。削除された7件は[削除前のGit履歴](https://github.com/thkt/dotagents/tree/a1b7f968966fda2fe71039368aa95333e5caefae/docs/research/formal-state-trial-20260921)へ接続し、現在のツリーへ復活させていません。[fallowの報告](https://github.com/thkt/dotagents/blob/9017f3c3b95e2c2b3fb8ac8f6d90ca5c87fdffc8/docs/research/fallow-trial-20260921.md)も、当時の除外と、現在は実験ファイル用の除外を持たないことを区別しています。資料整理を、試行の効果や提案の採用状態を変える根拠にはしません。
+
 ## 全件の分類
 
 一つの現物または歴史原本を一つの項目とし、同じ資料の旧・新パスを別件に数えません。
