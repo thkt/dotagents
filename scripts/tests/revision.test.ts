@@ -1649,11 +1649,11 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
         expect(prompt).toContain(currentIssue);
         expect(prompt).toContain(`"startCommit":"${f.initialBase}"`);
         expect(prompt).toContain(
-          `正本: ${knowledgePath} / Git blob: ${referenceBlob} / 選択ID: start-identity`,
+          `正本: ${knowledgePath} / Git blob: ${referenceBlob} / この表示に含むID: start-identity`,
         );
         expect(prompt).toContain('# 実装開始の目的・概念・規則');
         expect(prompt).not.toContain('# Published model revision');
-        expect(prompt).not.toContain('## preserve-work (');
+        expect(prompt).not.toContain('## preserve-work —');
       }
       expect(
         await Promise.all(priorFiles.map((path) => readFile(join(f.prior, path), 'utf8'))),

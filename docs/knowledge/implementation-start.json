@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
   "title": "実装開始の目的・概念・規則",
-  "scope": "thkt/dotagentsの実装開始条件。#85・PR #89の採用内容を#90の初回対象として表現する。",
+  "scope": "thkt/dotagentsで新しいIssueの初回実装を始める際の条件を中心に扱う。#85・PR #89を採用した#90の内容に基づく。既存PRの修正では各定義の適用条件を確認し、初回実装の隔離条件を流用しない。",
   "sources": [
     {
       "id": "issue-90",
       "url": "https://github.com/thkt/dotagents/issues/90",
       "version": "updatedAt 2026-09-17T11:38:02Z（実装依頼で提示された本文）",
-      "scope": "初回対象、#85の採用済み要求と共有モデルの範囲。#85・PR #89のオンライン本文は今回再取得できていない",
+      "scope": "初回対象、#85の採用済み要求と共有モデルの範囲。モデル作成時は#85・PR #89をIssue #90の引用と採用コードで照合",
       "status": "agreed"
     },
     {
       "id": "issue-85",
       "url": "https://github.com/thkt/dotagents/issues/85",
       "version": "PR #89 採用commit 7c869f80bd95ea01b47e1ffd35f89e2899657bf2",
-      "scope": "開始条件の合意への参照。内容はIssue #90の引用と採用コードで照合し、オンライン本文の再取得とは区別する",
+      "scope": "開始条件の合意への参照。モデル作成時はIssue #90の引用と採用コードで照合",
       "status": "agreed"
     },
     {
       "id": "pr-89",
       "url": "https://github.com/thkt/dotagents/pull/89",
       "version": "7c869f80bd95ea01b47e1ffd35f89e2899657bf2",
-      "scope": "ローカルGitのmerge履歴と採用差分。PR本文や当時のCI結果を再検証した記録ではない",
+      "scope": "採用commitのmerge履歴と差分。PR本文や当時のCI結果の検証根拠ではない",
       "status": "observed"
     },
     {
@@ -80,7 +80,7 @@
       "kind": "concept",
       "status": "agreed",
       "statement": "元checkoutは既存作業の場所、開始commitは実装元の版、隔離worktreeは新しい成果物の場所である。対象設定は実行・検証方法、選択した必要報告とモデルは根拠であり、Issueと合意記録が今回の要求と許可範囲を定める。",
-      "question": "本文、index、モード、HEAD、場所、参照一致と要求合意を同じものとして扱っていないか。",
+      "question": "本文、Git index（ステージ領域）、モード、HEAD、場所、参照一致と要求合意を同じものとして扱っていないか。",
       "scope": "development入口。修正中の成果物差分と開始時の未確認差分を区別する。",
       "sources": [
         "issue-90",
@@ -126,7 +126,7 @@
       "facet": "nomology",
       "kind": "rule",
       "status": "agreed",
-      "statement": "開始HEAD、.dotagents.json、選択した必要入力を照合する。必要入力は開始commitの通常ファイルで確認済みblob・checkout本文が一致し、indexやモードを含む未commit差分がないことを要求する。欠落や違いでは停止し、未確認のIDへ差し替えない。報告を指定するCLIでは--start-commitも必要である。",
+      "statement": "開始HEAD、.dotagents.json、選択した必要入力を照合する。必要入力は開始commitの通常ファイルで確認済みblob・checkout本文が一致し、Git indexやモードを含む未commit差分がないことを要求する。欠落や違いでは停止し、未確認のIDへ差し替えない。報告を指定するCLIでは--start-commitも必要である。",
       "question": "本文一致だけで開始可能と説明すると、どの版や状態の違いを見落とすか。",
       "scope": "開始時の選択済み入力。必要報告も開始commit指定もない入口では起動時HEADを使う。モデル選択はIssueの版付き参照から取得する。",
       "sources": [
@@ -157,7 +157,7 @@
       "status": "agreed",
       "statement": "照合済み開始commitから隔離worktreeを作る。元checkoutの無関係な追跡差分・未追跡ファイルは内容、モード、追跡状態を保ち、隔離先へ移さない。開始のためのstash、reset、clean、一括add、無関係な差分のcommitを要求しない。",
       "question": "必要入力の確定のために、無関係な作業まで退避やcommitを強いていないか。",
-      "scope": "新規development実行。既存runや同名branchは再利用せず、旧記録を変換・削除しない。",
+      "scope": "新しいIssueの初回実装。既存runや同名branchは再利用せず、旧記録を変換・削除しない。既存PRを修正する実行には適用しない。",
       "sources": [
         "issue-85",
         "issue-90",
@@ -221,7 +221,7 @@
       "facet": "nomology",
       "kind": "observation",
       "status": "observed",
-      "statement": "採用済み検証定義には、必要報告や設定のindexを変更した後で本文を元へ戻しても停止するケースがある。本文一致だけで開始可能という説明ではこの条件を表せない。これは既存検証条件による確認例であり、新しい実障害の発生報告ではない。",
+      "statement": "採用済み検証定義には、必要報告や設定のGit indexを変更した後で本文を元へ戻しても停止するケースがある。本文一致だけで開始可能という説明ではこの条件を表せない。これは既存検証条件による確認例であり、新しい実障害の発生報告ではない。",
       "question": "観測した検証条件から、どの概念や規則の説明不足へ戻れるか。",
       "scope": "start-testsのconfig_index・report_index。今回の実行結果は対象差分の検証記録で別に確認する。",
       "sources": [
@@ -231,11 +231,11 @@
       "relations": [
         {
           "to": "start-identity",
-          "meaning": "本文・index・モードを含む説明が必要"
+          "meaning": "本文・Git index・モードを含む説明が必要"
         },
         {
           "to": "start-objects",
-          "meaning": "本文とindexの区別"
+          "meaning": "本文とGit indexの区別"
         },
         {
           "to": "revisit-identity",

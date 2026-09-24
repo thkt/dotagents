@@ -202,16 +202,31 @@ function gitBlob(content: string) {
   const bytes = Buffer.from(content);
   return createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
 }
+const kindLabels: Record<ReturnType<typeof node>['kind'], string> = {
+  purpose: '目的',
+  concept: '概念',
+  rule: '規則',
+  hypothesis: '仮説',
+  observation: '観測',
+  proposal: '提案',
+};
+const statusLabels: Record<ReturnType<typeof node>['status'], string> = {
+  agreed: '合意済み',
+  observed: '確認済み',
+  unverified: '未検証',
+  proposed: '提案中',
+};
 export function renderKnowledge(selected: SelectedKnowledge) {
   return (
     [
       `# ${selected.title}`,
-      `正本: ${selected.path} / Git blob: ${selected.blob} / 選択ID: ${selected.ids.join(', ')}`,
+      `正本: ${selected.path} / Git blob: ${selected.blob} / この表示に含むID: ${selected.ids.join(', ')}`,
       `適用範囲: ${selected.scope}`,
       'これは対象repoの知識です。今回の要求・許可はIssueと合意記録、実行制御は信頼するホストが担当します。形式照合は意味・合意・効果を保証しません。関係先のIDは参照であり、未選択の定義を要求へ追加しません。',
       ...selected.nodes.map((node) =>
         [
-          `## ${node.id} (${node.facet} / ${node.kind} / ${node.status})`,
+          `## ${node.id} — ${kindLabels[node.kind]}（${statusLabels[node.status]}）`,
+          `分類: ${node.facet} / ${node.kind} / ${node.status}`,
           node.statement,
           `問い直す前提: ${node.question}`,
           `適用条件: ${node.scope}`,
