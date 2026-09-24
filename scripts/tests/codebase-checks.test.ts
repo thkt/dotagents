@@ -6,18 +6,23 @@ import { join, resolve } from 'node:path';
 
 const repo = resolve(import.meta.dir, '../..');
 
-async function fixture() {
+async function fixture(scope: 'graph' | 'lint' | 'format') {
   const cwd = await mkdtemp(join(tmpdir(), 'codebase-checks-'));
-  for (const path of [
-    'scripts',
-    'package.json',
-    '.fallowrc.json',
-    '.oxfmtrc.json',
-    '.oxlintrc.json',
-    'biome.json',
-    'tsconfig.json',
-    '.gitignore',
-  ]) {
+  const inputs = {
+    // Fallow needs the real reference graph, entry points and tool configuration.
+    graph: [
+      'scripts',
+      '.fallowrc.json',
+      '.oxfmtrc.json',
+      '.oxlintrc.json',
+      'biome.json',
+      'tsconfig.json',
+    ],
+    // Local checks use the production configuration and plugin, plus each test's probes.
+    lint: ['scripts/lint/anti-slop', '.oxlintrc.json', 'tsconfig.json'],
+    format: ['.oxfmtrc.json'],
+  };
+  for (const path of ['package.json', '.gitignore', ...inputs[scope]]) {
     await cp(join(repo, path), join(cwd, path), { recursive: true });
   }
   await symlink(join(repo, 'node_modules'), join(cwd, 'node_modules'), 'dir');
@@ -35,8 +40,9 @@ function run(cwd: string, script: string, ...args: string[]) {
 }
 
 test('lint rejects unsafe assertions and accumulator copies while preserving checked inputs and local mutation', async () => {
-  const cwd = await fixture();
+  const cwd = await fixture('lint');
   try {
+    await mkdir(join(cwd, 'scripts/tests'), { recursive: true });
     await writeFile(
       join(cwd, 'scripts/tests/trial-allowed.ts'),
       `export function checked(input: unknown) {
@@ -161,7 +167,7 @@ test('lint rejects unsafe assertions and accumulator copies while preserving che
 });
 
 test('unused check detects unreachable code but preserves real entries and imported exports', async () => {
-  const cwd = await fixture();
+  const cwd = await fixture('graph');
   try {
     expect(run(cwd, 'check:unused').status).toBe(0);
     // Reuse Issue #174's file/export controls; add the entry-export and type boundaries.
@@ -201,7 +207,7 @@ test('unused check detects unreachable code but preserves real entries and impor
 });
 
 test('unused check rejects runtime import cycles but allows type-only references', async () => {
-  const cwd = await fixture();
+  const cwd = await fixture('graph');
   try {
     await writeFile(
       join(cwd, 'scripts/tests/trial-cycle.test.ts'),
@@ -238,7 +244,7 @@ test('unused check rejects runtime import cycles but allows type-only references
 });
 
 test('unused check fails for a dependency alone, degraded parsing, and invalid configuration', async () => {
-  const cwd = await fixture();
+  const cwd = await fixture('graph');
   try {
     const manifest = await readFile(join(cwd, 'package.json'), 'utf8');
     await writeFile(
@@ -289,9 +295,9 @@ test('unused check fails for a dependency alone, degraded parsing, and invalid c
 });
 
 test('format checks and writes root and nested TS without changing other scripts files', async () => {
-  const cwd = await fixture();
+  const cwd = await fixture('format');
   try {
-    await mkdir(join(cwd, 'scripts/nested'));
+    await mkdir(join(cwd, 'scripts/nested'), { recursive: true });
     const typescript = ['scripts/trial-format.ts', 'scripts/nested/trial-format.ts'];
     const excluded = ['scripts/trial-format.md', 'scripts/nested/trial-format.js'];
     const source = 'const probe={value:"unformatted"}\n';
