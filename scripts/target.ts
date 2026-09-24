@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { isRecord, relativeDirectory } from './values.ts';
+import { isCommandArray, isRecord, relativeDirectory } from './values.ts';
 
 export type Reader = (argv: string[], cwd: string) => Promise<string>;
 export interface TargetConfig {
@@ -15,13 +15,7 @@ export interface TargetConfig {
   capture: null | { command: string[]; destination: string; required: boolean };
 }
 function argv(value: unknown): value is string[] {
-  return (
-    Array.isArray(value) &&
-    value.length > 0 &&
-    typeof value[0] === 'string' &&
-    value[0].trim().length > 0 &&
-    value.every((part) => typeof part === 'string')
-  );
+  return isCommandArray(value) && value[0].trim().length > 0;
 }
 function assertTarget(value: unknown): asserts value is TargetConfig {
   assert(isRecord(value), 'Missing target configuration');
