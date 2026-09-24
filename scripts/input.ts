@@ -64,9 +64,9 @@ export function assertReportReferences(value: unknown): asserts value is ReportR
     assert(isRecord(report), 'Invalid required report');
     assert(
       relativeDirectory(report.path) &&
-        report.path.startsWith('docs/research/') &&
+        /^(?:research|docs\/research|docs\/wiki|docs\/decisions)\//.test(report.path) &&
         report.path.endsWith('.md'),
-      'Required report must be a repo-relative docs/research/*.md path',
+      'Required report must be a repo-relative Markdown path under docs/research/, docs/wiki/, docs/decisions/ or legacy research/',
     );
     assert(
       typeof report.blob === 'string' && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(report.blob),
