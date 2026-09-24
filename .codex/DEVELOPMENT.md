@@ -200,7 +200,7 @@ CIの`checks`は依存を固定して導入し、このハーネスの`bun run c
 
 ## TypeScriptの書き方
 
-`scripts/**/*.ts`の書式はOxfmt 0.66.0に統一します。`bun run format`で整形し、`bun run format:check`で書き換えずに確認します。共通の `bun run check` にも書式確認を含めるため、CIでも同じ条件を適用します。2スペース・single quote・セミコロン・行幅100を基本とし、importの並べ替えは有効にしません。
+`scripts/**/*.ts`の書式はOxfmt 0.68.0に統一します。`bun run format`で整形し、`bun run format:check`で書き換えずに確認します。共通の `bun run check` にも書式確認を含めるため、CIでも同じ条件を適用します。2スペース・single quote・セミコロン・行幅100を基本とし、importの並べ替えは有効にしません。
 
 Oxlintはcorrectness検査に加え、同じTS範囲で次をerrorにします。
 

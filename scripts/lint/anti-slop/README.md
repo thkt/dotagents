@@ -22,6 +22,6 @@
 
 更新時は上記commitと候補版の対象2ファイル・ライセンスを比較し、ローカルの関数分割・const初期値取得の共有化と検出条件への影響を確認します。他ルールや新たな適用範囲は自動で取り込まず、要求が変わる場合は人の合意へ戻します。採用するcommit・ライセンス・ローカル変更の説明も同時に更新します。
 
-Oxlintと`@oxlint/plugins`は1.80.0に揃え、package.jsonとbun.lockで固定します。API更新時は両方の版と型定義を照合し、インストールスクリプトを無効にしてlockfileを更新します。セットアップには既存の`bun install --frozen-lockfile --ignore-scripts`を使います。
+Oxlintと`@oxlint/plugins`は1.83.0に揃え、package.jsonとbun.lockで固定します。API更新時は両方の版と型定義を照合し、インストールスクリプトを無効にしてlockfileを更新します。セットアップには既存の`bun install --frozen-lockfile --ignore-scripts`を使います。
 
 [codebase-checks.test.ts](../../tests/codebase-checks.test.ts)は設定を一時checkoutのルートに置き、実際の`bun run lint`で許容例と違反例を検査します。違反例自体の型検査成功に加え、指定ルール・対象ファイル・error・終了1を照合するため、読込みだけの成功や無関係な型エラーを導入成功と扱いません。更新後は`bun run check`と変更文書を含む既存の独立評価へ進み、公開時は同じPR headの`checks`・`verify`を確認します。
