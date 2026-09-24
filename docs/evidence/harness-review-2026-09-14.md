@@ -2,9 +2,9 @@
 
 [Issue](https://github.com/thkt/dotagents/issues/58) / [PR](https://github.com/thkt/dotagents/pull/60) / [操作手順](../../scripts/README.md)
 
-この報告はIssue #58の過去の検証結果を保全する固定資料です。下記の本文と[正本JSON](harness-review-2026-09-14.json)は当時の結果・判断・未確認事項を記録しており、現在の変更の検証成功を示すものではありません。JSON内の生成・確認の案内も当時の記録です。
+この報告はIssue #58の過去の検証結果を保全する固定資料です。下記の本文は当時の結果・判断・未確認事項を記録しており、現在の変更の検証成功を示すものではありません。詳細な測定データと当時の生成・確認の案内を含む[旧JSON](https://github.com/thkt/dotagents/blob/f06b3d62e9a033ee594ce46291cbba8c5b781144/docs/evidence/harness-review-2026-09-14.json)はGit履歴から参照できます。
 
-[Issue #161](https://github.com/thkt/dotagents/issues/161)の合意により、専用生成器とコマンドを終了しました。この報告の再生成、形式検査、JSONとMarkdownの自動一致検査は通常の開発経路から外れ、`bun run check`でも一致確認しません。記録の根拠として正本JSONを引き続き参照できます。
+[Issue #161](https://github.com/thkt/dotagents/issues/161)の合意により、専用生成器とコマンドを終了しました。この報告の再生成、形式検査、JSONとMarkdownの自動一致検査は通常の開発経路から外れ、`bun run check`でも一致確認しません。
 
 当時の[生成器](https://github.com/thkt/dotagents/blob/e0264ad7803965074af5e998e06f04643408ed88/scripts/evidence.ts)と[変更前の運用案内](https://github.com/thkt/dotagents/blob/e0264ad7803965074af5e998e06f04643408ed88/docs/evidence/harness-review-2026-09-14.md)はGit履歴から参照できます。
 
@@ -12,7 +12,7 @@
 
 対象版: [`1babf0de087b49dcb89f61bde8e2cae6c54a759a`](https://github.com/thkt/dotagents/tree/1babf0de087b49dcb89f61bde8e2cae6c54a759a)。修正前: `c6a2100a450842fefc2f236c2efc99abbad01a4f`。
 
-対象版のソースのSHA-256、コマンド、環境、シナリオ別の結果、媒体のサイズとSHA-256をJSONに記録しています。結果を再利用する際は、対象ファイルのSHA-256を照合してください。
+対象版のソースのSHA-256、コマンド、環境、シナリオ別の結果、媒体のサイズとSHA-256は旧JSONに記録されています。結果を再利用する際は、対象ファイルのSHA-256を照合してください。
 
 レポートの集計と診断は保存した実行ログから抽出し、終了コードとcheckoutの不変性は完了した検証実行で確認しました。ホスト固有の絶対パスは`<fixture>`へ置き換え、元のログは実行ホストに保持しています。
 

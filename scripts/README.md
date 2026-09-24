@@ -458,7 +458,7 @@ cwd、prompt、target record、差分・追加ファイル、checkログ、actor
 
 正誤ラベルを分離した2ケースの実測と裁定は[Issue #138の検証記録](../docs/evidence/review-blinding-138.md)を参照してください。
 
-Issue #66の試行結果は[2026-09-15の実モデル検証記録](../docs/evidence/review-foundation-66.json)にあります。実行時のコードのhash、fixture、指摘の裁定、時間、使用量と未確認範囲を保持した過去の証拠であり、書き換えません。当時は`defective` / `correct`の保存先がレビュー入力に現れる非盲検条件でした。判断への影響は未測定で、過去の結果が誤りだったとも、今回の変更で精度や速度が改善したとも断定しません。後続の変更に対する検証成功を示すものではありません。
+Issue #66の試行結果は[2026-09-15の実モデル検証記録](https://github.com/thkt/dotagents/blob/f06b3d62e9a033ee594ce46291cbba8c5b781144/docs/evidence/review-foundation-66.json)としてGit履歴で参照できます。実行時のコードのhash、fixture、指摘の裁定、時間、使用量と未確認範囲を保持した過去の証拠であり、書き換えません。当時は`defective` / `correct`の保存先がレビュー入力に現れる非盲検条件でした。判断への影響は未測定で、過去の結果が誤りだったとも、今回の変更で精度や速度が改善したとも断定しません。後続の変更に対する検証成功を示すものではありません。
 
 ## scopingの切替と手順確認
 
