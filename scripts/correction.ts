@@ -136,6 +136,12 @@ async function readIssue(config: Config) {
   if (result.code !== 0 || result.timedOut || !result.stdout.trim()) {
     throw Error('Issue unavailable');
   }
+  return result.stdout;
+}
+
+// Use only the Issue just read at this boundary; checkRevision reads the remaining
+// revision inputs afresh. Keep its failures ahead of the generic Issue hash check.
+async function revisionUnchanged(config: Config, issue: string) {
   if (config.revision) {
     await checkRevision(
       config.revision,
@@ -145,10 +151,9 @@ async function readIssue(config: Config) {
         assert(result.code === 0 && !result.timedOut, 'Revision target unavailable');
         return result.stdout.trim();
       },
-      { issue: result.stdout },
+      { issue },
     );
   }
-  return result.stdout;
 }
 
 function modelLimitReached(config: Config, state: State, role: ActorRole) {
@@ -625,7 +630,9 @@ async function cycle(
   persist: Persist,
   knowledge: SelectedKnowledge[],
 ): Promise<StopReason | null> {
-  if (digest(await readIssue(config)) !== state.issueHash) {
+  const currentIssue = await readIssue(config);
+  await revisionUnchanged(config, currentIssue);
+  if (digest(currentIssue) !== state.issueHash) {
     return 'requirements_changed';
   }
   const host = await verifyHost(config, state, persist);
@@ -658,7 +665,9 @@ async function cycle(
     `Requirements:\n${issue}\nFailure evidence:\n${findings}`,
     researchContext(state.baseCommit, config.reports, knowledge),
   ].join('\n');
-  if (digest(await readIssue(config)) !== state.issueHash) {
+  const beforeRepair = await readIssue(config);
+  await revisionUnchanged(config, beforeRepair);
+  if (digest(beforeRepair) !== state.issueHash) {
     return 'requirements_changed';
   }
   const repaired = await runModel(config, state, 'repair', prompt, persist);
@@ -674,7 +683,9 @@ async function cycle(
 }
 
 async function targetChange(config: Config, state: State): Promise<StopReason | null> {
-  if (digest(await readIssue(config)) !== state.issueHash) {
+  const issue = await readIssue(config);
+  await revisionUnchanged(config, issue);
+  if (digest(issue) !== state.issueHash) {
     return 'requirements_changed';
   }
   if ((await snapshot(config.cwd)) !== state.source) {
@@ -719,6 +730,7 @@ async function execute(config: Config): Promise<State> {
     throw Error(interruptionMessage);
   }
   const issue = await readIssue(config);
+  await revisionUnchanged(config, issue);
   const base =
     state?.baseCommit ??
     config.baseCommit ??
