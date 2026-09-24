@@ -516,7 +516,7 @@ async function reviewTarget(
   state: State,
   issue: string,
   knowledge: SelectedKnowledge[],
-  latestRepair: RepairReference | null,
+  repairsSinceReview: RepairReference[],
 ) {
   const prefix = resolve(config.runDir, `review-${state.review + 1}`);
   const additions: Addition[] = [];
@@ -529,14 +529,14 @@ async function reviewTarget(
     check && check.code === 0 && !check.timedOut && check.source === state.source,
     'Review requires successful check of current source',
   );
-  if (latestRepair) {
+  for (const repair of repairsSinceReview) {
     try {
       assert(
-        digest(await readFile(`${latestRepair.prefix}.stdout`)) === latestRepair.stdoutHash,
+        digest(await readFile(`${repair.prefix}.stdout`)) === repair.stdoutHash,
         'Repair response changed',
       );
     } catch (error) {
-      state.findings = `Cannot hand off repair response at ${latestRepair.prefix}.stdout: ${error instanceof Error ? error.message : String(error)}; preserve the run and investigate before further evaluation.`;
+      state.findings = `Cannot hand off repair response at ${repair.prefix}.stdout: ${error instanceof Error ? error.message : String(error)}; preserve the run and investigate before further evaluation.`;
       return { stop: 'invalid_repair' as const };
     }
   }
@@ -547,7 +547,8 @@ async function reviewTarget(
     revision: config.revision,
     knowledge,
     source: state.source,
-    latestRepair,
+    latestRepair: repairsSinceReview.at(-1) ?? null,
+    repairsSinceReview,
     files,
     check: {
       command: config.check,
@@ -604,13 +605,13 @@ async function evaluate(
   issue: string,
   persist: Persist,
   knowledge: SelectedKnowledge[],
-  latestRepair: RepairReference | null,
+  repairsSinceReview: RepairReference[],
 ): Promise<{ stop?: StopReason; findings?: string }> {
   // Do not create an apparent attempt if the existing execution budget is exhausted.
   if (modelLimitReached(config, state, 'review')) {
     return { stop: 'execution_limit' };
   }
-  const target = await reviewTarget(config, state, issue, knowledge, latestRepair);
+  const target = await reviewTarget(config, state, issue, knowledge, repairsSinceReview);
   if ('stop' in target) {
     return { stop: target.stop };
   }
@@ -675,8 +676,8 @@ async function cycle(
   issue: string,
   persist: Persist,
   knowledge: SelectedKnowledge[],
-  latestRepair: RepairReference | null,
-): Promise<StopReason | RepairReference> {
+  repairsSinceReview: RepairReference[],
+): Promise<StopReason | RepairReference[]> {
   const currentIssue = await readIssue(config);
   await revisionUnchanged(config, currentIssue);
   if (digest(currentIssue) !== state.issueHash) {
@@ -691,11 +692,13 @@ async function cycle(
     findings += `\nPrevious independent review (historical; verify current artifacts):\n${summarizeReviews(state)}`;
   }
   if (!findings) {
-    const result = await evaluate(config, state, issue, persist, knowledge, latestRepair);
+    const result = await evaluate(config, state, issue, persist, knowledge, repairsSinceReview);
     if (result.stop) {
       return result.stop;
     }
     findings = result.findings;
+    // The completed review has consumed these explanations. Check failures do not.
+    repairsSinceReview = [];
   }
   const prompt = [
     'Repair only within these agreed requirements. Read the current files and fix the root cause.',
@@ -730,13 +733,16 @@ async function cycle(
     return 'human_decision_required';
   }
   assert(state.source);
-  return {
-    attempt: state.repair,
-    prefix: resolve(config.runDir, `repair-${state.repair}`),
-    sourceBefore: state.source,
-    sourceAfter: await snapshot(config.cwd),
-    stdoutHash: digest(repaired.stdout),
-  };
+  return [
+    ...repairsSinceReview,
+    {
+      attempt: state.repair,
+      prefix: resolve(config.runDir, `repair-${state.repair}`),
+      sourceBefore: state.source,
+      sourceAfter: await snapshot(config.cwd),
+      stdoutHash: digest(repaired.stdout),
+    },
+  ];
 }
 
 async function targetChange(config: Config, state: State): Promise<StopReason | null> {
@@ -832,7 +838,7 @@ async function execute(config: Config): Promise<State> {
   await persist();
   // Only repairs completed by this execution are handed off. Never discover
   // explanations from old state or neighboring runs, or duplicate their text.
-  let result: StopReason | RepairReference | null = null;
+  let result: StopReason | RepairReference[] = [];
   while (typeof result !== 'string') {
     result = await cycle(config, state, issue, persist, knowledge, result);
   }
