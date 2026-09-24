@@ -4,6 +4,7 @@ import { mkdir, writeFile, readFile, rm, symlink, chmod } from 'node:fs/promises
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { reviewReplySource, correctionFixture, object, events } from './support/correction.ts';
+import { git } from './support/target.ts';
 
 const { trial, cleanup } = correctionFixture();
 afterEach(cleanup);
@@ -103,10 +104,6 @@ for (const kind of [
   test(`capture preserves existing media only for Markdown changes: ${kind}`, async () => {
     const t = await trial('media_scope');
     const { cwd } = t.config;
-    const git = (...args: string[]) => {
-      const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
-      expect(result.status).toBe(0);
-    };
     const media = join(cwd, 'trial/evidence/generated/desktop.png');
     await mkdir(join(cwd, 'trial/evidence/generated'), { recursive: true });
     await writeFile(join(cwd, 'source.txt'), 'correct');
@@ -114,14 +111,23 @@ for (const kind of [
     await writeFile(join(cwd, 'app.js'), 'original');
     await writeFile(media, 'retained');
     await prepareInitialMediaInput(cwd, kind);
-    git('add', '.');
-    git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'baseline');
+    git(cwd, 'add', '.');
+    git(
+      cwd,
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@example.com',
+      'commit',
+      '-qm',
+      'baseline',
+    );
     if (kind === 'ignored-executable-mode') {
-      git('config', 'core.filemode', 'false');
+      git(cwd, 'config', 'core.filemode', 'false');
     }
     await changeInitialMediaInput(cwd, kind);
     if (kind === 'staged-doc') {
-      git('add', 'README.md');
+      git(cwd, 'add', 'README.md');
     }
     t.config.capture =
       kind === 'command-doc'
@@ -149,16 +155,22 @@ for (const kind of [
 test('documentation repair keeps media unchanged through both checks and reviews', async () => {
   const t = await trial('docs');
   const { cwd } = t.config;
-  const git = (...args: string[]) => {
-    expect(spawnSync('git', args, { cwd }).status).toBe(0);
-  };
   const media = join(cwd, 'trial/evidence/generated/desktop.png');
   await mkdir(join(cwd, 'trial/evidence/generated'), { recursive: true });
   await writeFile(join(cwd, 'source.txt'), 'correct');
   await writeFile(join(cwd, 'README.md'), 'original');
   await writeFile(media, 'retained');
-  git('add', '.');
-  git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'baseline');
+  git(cwd, 'add', '.');
+  git(
+    cwd,
+    '-c',
+    'user.name=Test',
+    '-c',
+    'user.email=test@example.com',
+    'commit',
+    '-qm',
+    'baseline',
+  );
   await rm(join(cwd, 'README.md'));
   t.config.capture = [process.execPath, join(t.root, 'helper.js'), 'capture'];
   await writeFile(t.configFile, JSON.stringify(t.config));
