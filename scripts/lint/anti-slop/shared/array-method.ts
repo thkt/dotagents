@@ -50,6 +50,23 @@ export function arrayMethodTarget(
   return null;
 }
 
+/** Read the first initializer declared by a plain const identifier, without interpreting its value. */
+export function getConstInitializer(variable: Variable): ESTree.Node | null {
+  for (const definition of variable.defs) {
+    if (
+      definition.type === 'Variable' &&
+      definition.node.type === 'VariableDeclarator' &&
+      definition.node.id.type === 'Identifier' &&
+      definition.node.init !== null &&
+      definition.node.parent.type === 'VariableDeclaration' &&
+      definition.node.parent.kind === 'const'
+    ) {
+      return definition.node.init;
+    }
+  }
+  return null;
+}
+
 function isArrayAnnotation(type: ESTree.TSType): boolean {
   if (type.type === 'TSArrayType' || type.type === 'TSTupleType') {
     return true;
@@ -111,17 +128,6 @@ export function isKnownArrayExpression(
       return isArrayAnnotation(annotation);
     }
   }
-  for (const definition of variable.defs) {
-    if (
-      definition.type === 'Variable' &&
-      definition.node.type === 'VariableDeclarator' &&
-      definition.node.id.type === 'Identifier' &&
-      definition.node.init !== null &&
-      definition.node.parent.type === 'VariableDeclaration' &&
-      definition.node.parent.kind === 'const'
-    ) {
-      return isKnownArrayExpression(sourceCode, definition.node.init, visited);
-    }
-  }
-  return false;
+  const initializer = getConstInitializer(variable);
+  return initializer !== null && isKnownArrayExpression(sourceCode, initializer, visited);
 }
