@@ -193,7 +193,7 @@ async function selectStart(args: string[], io: typeof runtime) {
   });
   assert(
     parsed.positionals.length === 1,
-    'Usage: bun scripts/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report research/NAME.md=BLOB] [--previous-run DIRECTORY --request-file PATH]',
+    'Usage: bun scripts/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report docs/research/NAME.md=BLOB] [--previous-run DIRECTORY --request-file PATH]',
   );
   const repo = await realpath(parsed.values.repo ?? process.cwd());
   const git = (...argv: string[]) => checked(io, ['git', ...argv], repo);

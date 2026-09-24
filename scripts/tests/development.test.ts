@@ -28,12 +28,12 @@ import { initializeTarget, githubTarget, targetConfig } from './support/target.t
 import { git, issue, ok, mediaCapture, testDevelopment } from './support/development.ts';
 import type { DevelopmentFixture } from './support/development.ts';
 
-const reportPath = 'research/result-behavior.md';
+const reportPath = 'docs/research/result-behavior.md';
 const reportContent = 'Reviewed finding: keep the result visible until reset.\n';
-const secondReport = 'research/result-validation.md';
+const secondReport = 'docs/research/result-validation.md';
 
 async function commitReport(repo: string) {
-  await mkdir(join(repo, 'research'));
+  await mkdir(join(repo, 'docs/research'), { recursive: true });
   await writeFile(join(repo, reportPath), reportContent);
   await writeFile(join(repo, secondReport), 'Existing result tests cover reset and empty input.\n');
   await git(repo, 'add', '--', reportPath, secondReport);
@@ -1202,13 +1202,14 @@ function testStartInput(
 }
 
 const handoffFailures = {
-  missing: /Required report is missing from start commit.*research\/result-behavior.md/,
-  uncommitted: /Required report is missing from start commit.*research\/result-behavior.md/,
-  modified: /Required report has uncommitted content.*research\/result-behavior.md/,
-  different_blob: /Required report differs from reviewed version.*research\/result-behavior.md/,
+  missing: /Required report is missing from start commit.*docs\/research\/result-behavior.md/,
+  uncommitted: /Required report is missing from start commit.*docs\/research\/result-behavior.md/,
+  modified: /Required report has uncommitted content.*docs\/research\/result-behavior.md/,
+  different_blob:
+    /Required report differs from reviewed version.*docs\/research\/result-behavior.md/,
   different_start: /Start commit differs from handoff/,
   no_start: /Required reports need --start-commit/,
-  setup_modified: /Required report has uncommitted content.*research\/result-behavior.md/,
+  setup_modified: /Required report has uncommitted content.*docs\/research\/result-behavior.md/,
 };
 
 for (const [mode, reason] of Object.entries(handoffFailures)) {
@@ -1217,7 +1218,7 @@ for (const [mode, reason] of Object.entries(handoffFailures)) {
     if (mode === 'missing' || mode === 'uncommitted') {
       await git(repo, 'reset', '--hard', beforeReport);
       if (mode === 'uncommitted') {
-        await mkdir(join(repo, 'research'));
+        await mkdir(join(repo, 'docs/research'), { recursive: true });
         await writeFile(join(repo, reportPath), reportContent);
       }
     }
