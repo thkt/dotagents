@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="source-commit" content="7134d2ffa441985ee00d2dd1a6b6e79f5e9cc4ae">
+<meta name="description" content="初めてハーネスを導入する人向けに、導入準備から要求整理・実装・PRまでを解説。差し戻しの調査と見直し、関係者への動作説明、リリース・運用・振り返りの共通の観点も収録。">
+<title>AIと進める開発、その判断のつなぎ方。 | dotagents</title>
+<style>
+:root{--paper:#f7f6f0;--ink:#28372e;--muted:#536359;--line:#d0d6cb;--green:#235c45;--soft:#e6ece0;--pending:#885019;--pending-bg:#f5ead4;--white:#fffefb;--sans:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;--serif:"Hiragino Mincho ProN","Yu Mincho",Georgia,serif}*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:26px}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.95;letter-spacing:.025em}a{color:var(--green);text-underline-offset:.22em;text-decoration-thickness:1px;overflow-wrap:anywhere}a:hover{text-decoration-thickness:2px}button,summary,a{touch-action:manipulation}button{font:inherit;cursor:pointer}a:focus-visible,button:focus-visible,summary:focus-visible{outline:3px solid var(--green);outline-offset:4px}::selection{background:#cfe0ca}p{margin:0 0 1.35em}strong{font-weight:650}code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.88em;overflow-wrap:anywhere}p code,li code,td code{background:var(--soft);padding:.08em .3em;border-radius:3px}ul,ol{padding-left:1.45em;margin:0 0 1.5em}li{padding-left:.18em;margin:.5em 0}h1,h2,h3{overflow-wrap:anywhere;text-wrap:pretty}h1{font-family:var(--serif);font-weight:600;letter-spacing:.005em;line-height:1.5;font-size:clamp(36px,4.7vw,66px);margin:26px 0 35px}h2{font-size:clamp(24px,2.6vw,31px);line-height:1.6;letter-spacing:.025em;font-weight:650;margin:0}h3{font-size:20px;line-height:1.7;margin:2.5em 0 1em;font-weight:650}table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.85;margin:26px 0 34px;table-layout:fixed}th,td{padding:16px 14px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;overflow-wrap:anywhere}th{font-weight:650;color:var(--green);background:var(--soft)}td:first-child,th:first-child{width:24%}.skip-link{position:absolute;left:20px;top:-100px;background:var(--white);padding:12px;z-index:5}.skip-link:focus{top:10px}.page-wrap{max-width:1220px;padding:0 44px;margin:0 auto}.masthead{border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:20px;align-items:center;padding:24px 0;line-height:1.4}.brand{white-space:nowrap;font-family:ui-monospace,monospace;letter-spacing:-.06em;font-size:23px;text-decoration:none;font-weight:600}.edition{font-size:12px;letter-spacing:.14em;color:var(--muted)}.hero{padding:64px 0 48px}.eyebrow{color:var(--green);font-size:12px;letter-spacing:.19em;font-weight:650;text-transform:uppercase}.hero-copy{max-width:800px}.hero-copy p:first-child{font-size:20px;line-height:1.9}.hero-copy p:last-child{font-size:13px;color:var(--muted);padding-top:6px;max-width:740px}.top-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:28px}.top-actions a,.reading-controls button{padding:10px 17px;min-height:44px;font-size:14px;text-decoration:none;border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:3px}.top-actions a:first-child{background:var(--green);border-color:var(--green);color:var(--white)}.top-actions a:hover,.reading-controls button:hover{box-shadow:inset 0 0 0 1px currentColor}.draft-line{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;padding:17px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-size:13px}.draft-line strong{color:var(--pending)}.draft-line a{margin-left:auto}.article-layout{display:grid;grid-template-columns:215px minmax(0,1fr);gap:60px;align-items:start;padding-top:50px}.toc{position:sticky;top:26px;padding-bottom:20px}.toc-title{font-size:12px;font-weight:600;letter-spacing:.12em;margin-bottom:15px}.toc ol{list-style:none;padding:0;margin:0}.toc li{padding:0;margin:0}.toc a{font-size:13px;color:var(--muted);text-decoration:none;display:flex;align-items:baseline;gap:12px;min-height:36px;padding:5px 0}.toc a span{font-size:11px;font-family:ui-monospace,monospace;color:var(--muted)}.toc a.active{color:var(--green);font-weight:650}.toc a.active span{color:var(--green)}.reading-controls{border-top:1px solid var(--line);margin-top:20px;padding-top:18px}.reading-controls button{font-size:12px;padding:8px 10px;width:100%;text-align:left}.reading-controls p{font-size:12px;color:var(--muted);margin:9px 0 0}.chapter{padding:0 0 50px;margin:0 0 54px;border-bottom:1px solid var(--line);scroll-margin-top:26px}.chapter-heading{display:flex;gap:16px;align-items:baseline;margin-bottom:26px}.chapter-index{font-family:ui-monospace,monospace;font-size:13px;line-height:1.5;color:var(--green);flex-shrink:0}.evidence{font-size:12px;color:var(--muted);margin-top:25px}.evidence summary{cursor:pointer;min-height:35px;padding:6px 0}.evidence p{margin:5px 0 0;line-height:2}.evidence a{font-family:ui-monospace,monospace;font-size:11px}.pending{border-left:3px solid var(--pending);padding-left:26px}.pending .chapter-index{color:var(--pending)}.pending .chapter-body>p:last-child{font-size:14px;color:var(--pending)}#overview .chapter-body>ol{counter-reset:flow;list-style:none;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:0 24px;border-top:1px solid var(--line);margin:26px 0}#overview .chapter-body>ol li{position:relative;margin:0;padding:22px 0 22px 40px;border-bottom:1px solid var(--line);font-size:14px;line-height:1.85}#overview .chapter-body>ol li:before{counter-increment:flow;content:counter(flow,decimal-leading-zero);font:13px/1.5 ui-monospace,monospace;color:var(--green);position:absolute;left:0;top:25px}#overview .chapter-body>ol strong{display:block;font-size:16px;margin-bottom:4px}#overview .chapter-body>ol li:last-child{grid-column:1/-1}#overview .chapter-body>ol li:last-child strong{color:var(--green)}#sources .chapter-body{font-size:13px}#sources ul{padding:0;list-style:none;columns:2;column-gap:30px}#sources li{break-inside:avoid;margin:0;padding:8px 0;line-height:1.75}footer{display:flex;justify-content:space-between;flex-wrap:wrap;gap:16px;padding:0 0 32px;color:var(--muted);font-size:12px}footer a{font-size:12px}[hidden]{display:none!important}
+@media(min-width:1200px){.hero-copy{max-width:850px}.hero{padding-top:78px}}
+@media(max-width:960px){.page-wrap{padding:0 28px}.article-layout{grid-template-columns:175px minmax(0,1fr);gap:32px}.toc a{font-size:12px}.toc a span{font-size:10px}.edition{font-size:11px;letter-spacing:.08em}}
+@media(max-width:720px){body{font-size:16px;line-height:1.95}.page-wrap{padding:0 22px}.masthead{padding:20px 0}.brand{font-size:21px}.edition{max-width:160px;text-align:right;font-size:10px;line-height:1.7}.hero{padding:40px 0 32px}h1{font-size:38px;margin:20px 0 28px}.hero-copy p:first-child{font-size:18px}.article-layout{display:block;padding-top:30px}.toc{position:static;border-bottom:1px solid var(--line);margin-bottom:36px;padding-bottom:26px}.toc ol{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px}.toc a{font-size:12px;min-height:40px;line-height:1.6;gap:8px}.reading-controls{margin-top:15px;display:flex;gap:15px;align-items:center}.reading-controls button{width:auto;white-space:nowrap;font-size:12px}.reading-controls p{margin:0;font-size:11px}.draft-line{gap:8px 15px;line-height:1.8}.draft-line a{margin-left:0}.chapter{margin-bottom:40px;padding-bottom:36px}.chapter-heading{gap:12px;margin-bottom:22px}h2{font-size:24px}h3{font-size:19px}.chapter-index{font-size:12px}.pending{padding-left:16px}.top-actions{gap:10px}.top-actions a{font-size:13px;padding:10px 14px}th,td{padding:13px 9px;font-size:12px}td:first-child,th:first-child{width:25%}#sources ul{columns:1}}
+@media(max-width:420px){.page-wrap{padding:0 17px}h1{font-size:clamp(28px,8.2vw,32px)}#overview .chapter-body>ol{grid-template-columns:1fr}#overview .chapter-body>ol li{padding:18px 0 18px 36px}#overview .chapter-body>ol li:before{top:21px}h2{font-size:22px}.toc ol{gap:3px 10px}.toc a{font-size:11px}.toc a span{font-size:10px}.reading-controls p{font-size:11px}.chapter-heading{gap:9px}table{table-layout:auto}th,td{font-size:12px;padding:12px 7px}#roles table,#records table,#stops table{display:block}#roles thead,#records thead,#stops thead{display:none}#roles tbody,#records tbody,#stops tbody{display:block}#roles tr,#records tr,#stops tr{display:block;padding:13px 0;border-bottom:1px solid var(--line)}#roles td,#records td,#stops td{display:block;width:auto;border:0;padding:4px 0;font-size:14px}td[data-label]:before{content:attr(data-label) '：';font-size:12px;color:var(--muted)}#roles td:first-child,#records td:first-child,#stops td:first-child{font-weight:650;color:var(--green)}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+@media print{body{background:white;color:#172a20;font-size:10pt;line-height:1.8}.page-wrap{max-width:none;padding:0}.toc,.top-actions,.reading-controls,.draft-line a,footer a{display:none}.article-layout{display:block;padding-top:24px}.hero{padding:25px 0}h1{font-size:31pt}h2{font-size:18pt}h3{font-size:13pt}.chapter{margin-bottom:25px;padding-bottom:22px}.chapter-heading{break-after:avoid}p,li{orphans:3;widows:3}tr{break-inside:avoid}a{color:inherit}.evidence{display:none}.pending{border-left-width:2px}#sources ul{columns:1}#overview .chapter-body>ol{display:block}.masthead{padding:10px 0}.edition{font-size:9pt}footer{font-size:9pt}@page{margin:18mm}}
+
+/* Consultation additions: approved direction and proposed execution remain visibly separate. */
+.proposed{border-left:3px solid var(--pending);padding-left:26px}.proposed .chapter-index{color:var(--pending)}.proposed .chapter-body>p:first-child{color:var(--pending);font-size:15px}.toc{max-height:calc(100vh - 52px);overflow-y:auto;scrollbar-width:thin}.toc a{min-height:32px;padding-top:3px;padding-bottom:3px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--soft);padding:16px 20px;line-height:1.7;border-radius:3px}#setup table td:first-child{width:30%}#overview .chapter-body>p:last-child{padding-left:16px;border-left:2px solid var(--pending);font-size:14px;color:var(--pending)}
+@media(max-width:720px){.toc{max-height:none;overflow:visible}.toc a{min-height:40px}.proposed{padding-left:16px}}
+@media(max-width:420px){#setup table,#post-review table{display:block}#setup thead,#post-review thead{display:none}#setup tbody,#post-review tbody{display:block}#setup tr,#post-review tr{display:block;padding:13px 0;border-bottom:1px solid var(--line)}#setup td,#post-review td{display:block;width:auto;border:0;padding:4px 0;font-size:14px}#setup td:first-child,#post-review td:first-child{width:auto;font-weight:650;color:var(--green)}}
+@media print{.toc{display:none}.proposed{border-left-width:2px}}
+
+#checks-and-materials .chapter-body>p:first-child{font-size:14px;color:var(--muted)}
+#checks-and-materials table{font-size:14px;line-height:1.85}
+#checks-and-materials th{font-size:13px}
+@media(max-width:900px){#checks-and-materials table,#checks-and-materials tbody,#checks-and-materials tr,#checks-and-materials td{display:block;width:auto}#checks-and-materials thead{display:none}#checks-and-materials tr{padding:16px 0;border-bottom:1px solid var(--line)}#checks-and-materials td{border:0;padding:5px 0}#checks-and-materials td:first-child{font-weight:650;color:var(--green)}#checks-and-materials td[data-label]:before{content:attr(data-label) '：';display:block;font-size:12px;color:var(--muted)}}
+
+@media(max-width:900px){#context-principles table,#context-principles tbody,#context-principles tr,#context-principles td{display:block;width:auto}#context-principles thead{display:none}#context-principles tr{padding:16px 0;border-bottom:1px solid var(--line)}#context-principles td{border:0;padding:5px 0}#context-principles td:first-child{font-weight:650;color:var(--green)}#context-principles td[data-label]:before{content:attr(data-label) "：";display:block;font-size:12px;color:var(--muted)}}
+
+.guide-scope{font-size:14px;color:var(--muted)}.guide-scope summary{cursor:pointer;font-size:13px;padding:8px 0}.guide-scope p{margin-top:16px}.guide-scope p:first-of-type{font-size:15px}.hero{padding:36px 0 30px}.hero h1{font-family:var(--sans);font-size:clamp(28px,3.5vw,44px);line-height:1.5;margin:18px 0 24px}.hero-copy p:first-child{font-size:18px}.hero-copy{max-width:820px}.article-layout{gap:44px;padding-top:32px}.chapter{margin-bottom:30px;padding-bottom:30px}.chapter-heading{margin-bottom:18px}.chapter-heading h2{font-size:clamp(21px,2.2vw,27px)}.chapter-body>p{font-size:15px;line-height:1.95}.chapter-more{margin-top:16px;border:1px solid var(--line);border-radius:7px;background:var(--white)}.chapter-more>summary{padding:12px 16px;cursor:pointer;font-size:13px;color:var(--green);min-height:46px}.chapter-expanded{padding:8px 20px 18px}.chapter-expanded>:last-child{margin-bottom:0}.chapter-expanded>h3:first-child{margin-top:12px}.chapter-more[open]>summary{border-bottom:1px solid var(--line);margin-bottom:14px}.reading-controls button{background:var(--white)}.evidence{margin-top:13px}#sources .chapter-expanded{font-size:13px}.proposed .chapter-more{background:#fffcf5}
+@media(max-width:720px){.hero{padding:28px 0}.hero h1{font-size:30px}.article-layout{padding-top:24px}.toc{margin-bottom:28px}.chapter-expanded{padding:4px 14px 16px}.chapter{margin-bottom:24px;padding-bottom:24px}}
+@media print{.chapter-more{border:0}.chapter-more>summary{display:none}.chapter-expanded{padding:0}.hero h1{font-size:28pt}}
+</style>
+</head>
+<body>
+<noscript><p>参照版と根拠リンクの表示にはJavaScriptが必要です。本文はそのまま読めます。</p></noscript>
+<a class="skip-link" href="#overview">本文へ移動</a>
+<div class="page-wrap">
+<header class="masthead"><a href="#top" class="brand" aria-label="dotagents ページ先頭">dotagents<span aria-hidden="true"> /</span></a><span class="edition">DEVELOPMENT FLOW · 2026.09.24</span></header>
+<div class="hero" id="top"><div class="eyebrow">A field guide to the workflow</div><h1>AIと進める開発、<br>その判断のつなぎ方。</h1><div class="hero-copy"><p>AIに開発を任せるとき、何を伝え、どこまで任せ、何を確かめて受け入れるか。このページは、初めてハーネスを導入する人が、一連の流れをつかむためのガイドです。</p>
+<p>ここでいう<strong>ハーネス</strong>は、AIの役割、実行手順、検証、停止条件、記録を組み合わせて、開発の進め方を支える仕組みです。dotagentsを例に、依頼から変更を作成し、人のレビューへ渡すまでの流れを読み解きます。</p>
+<p>入口は2つあります。要求を整理する <strong>scoping</strong> と、合意したGitHub Issueから実装・検証・PR作成を進める <strong>implement</strong> です。まず全体像と導入準備を確認し、次に各工程で誰が何を判断するかをたどります。</p>
+<p>記事の範囲には、ハーネスを使って開発するアプリ・サービスのリリース、稼働確認、振り返りまでを含めます。要求整理から人のマージ判断までは、現行の文書やコードに基づく説明です。既存PRの修正は、人が採用した指摘から同じ開発CLIで検証・更新まで進みます。PRの説明をQA・デザイナー・企画側が確認できる資料へ自動でつなぐ仕組みは、今後の設計方針として区別します。リリース以降については、アプリごとに異なる運用を検討するための共通の判断や確認の流れを説明します。具体的な手順は、各アプリで定めるものとして区別しています。</p>
+</div><div class="top-actions"><a href="workflow-map.html">工程と接続を図で見る →</a><a href="#overview">全体像から読む <span aria-hidden="true">↘</span></a><a href="#setup">導入前に揃えるもの</a></div></div>
+<div class="draft-line"><strong>現行実装と照合</strong><span>2026.09.24 · <span data-commit="short"></span></span><a href="#sources">確認した版と範囲へ →</a></div>
+<div class="article-layout"><aside class="toc"><nav aria-label="目次"><div class="toc-title">CONTENTS / 目次</div><ol><li><a href="#overview"><span aria-hidden="true">01</span>全体像</a></li><li><a href="#setup"><span aria-hidden="true">02</span>導入準備と言葉</a></li><li><a href="#roles"><span aria-hidden="true">03</span>責任の分担</a></li><li><a href="#checks-and-materials"><span aria-hidden="true">＋</span>資料と確認の対応</a></li><li><a href="#context-principles"><span aria-hidden="true">＋</span>コンテキスト整備の原則</a></li><li><a href="#scoping"><span aria-hidden="true">04</span>要求を整理する</a></li><li><a href="#issue"><span aria-hidden="true">05</span>Issueへ引き継ぐ</a></li><li><a href="#start"><span aria-hidden="true">06</span>実装を始める</a></li><li><a href="#build"><span aria-hidden="true">07</span>検証と独立評価</a></li><li><a href="#writing"><span aria-hidden="true">08</span>文書の内容を確かめる</a></li><li><a href="#capture"><span aria-hidden="true">09</span>画面の証拠を揃える</a></li><li><a href="#publish"><span aria-hidden="true">10</span>PRを公開する</a></li><li><a href="#human"><span aria-hidden="true">11</span>人が判断する</a></li><li><a href="#post-review"><span aria-hidden="true">12</span>差し戻しへの対応</a></li><li><a href="#handoff"><span aria-hidden="true">13</span>関係者への引き継ぎ</a></li><li><a href="#after-merge"><span aria-hidden="true">14</span>リリースから振り返り</a></li><li><a href="#stops"><span aria-hidden="true">15</span>停止と戻り先</a></li><li><a href="#records"><span aria-hidden="true">16</span>成果物の保存</a></li><li><a href="#harness-eval"><span aria-hidden="true">＋</span>指示変更時の比較eval</a></li><li><a href="#questions"><span aria-hidden="true">17</span>合意と今後の実装</a></li><li><a href="#sources"><span aria-hidden="true">18</span>出典</a></li></ol></nav><div class="reading-controls" hidden><button id="reading-mode" type="button" aria-pressed="false">要点だけ読む</button><p id="reading-status" aria-live="polite">すべての説明を表示しています。</p></div></aside><main><section id="overview" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">01</span><h2>まず、流れを一枚でつかむ</h2></header><div class="chapter-body"><p>流れの中心は、<strong>要求を揃える → Issueに合意を残す → 実装する → 確かめる → PRで伝える → 人が判断する</strong>、という受け渡しです。</p>
+<ol>
+<li><strong>依頼を受け取る。</strong> 誰の何を改善するのか、対象はどこかを確認する。</li>
+<li><strong>調べ、対話する。</strong> 現状と根拠を調べ、人にしか決められないことを尋ねる。</li>
+<li><strong>要求を合意し、Issueへ残す。</strong> 範囲、完了条件、検証方法、合意の根拠を揃える。</li>
+<li><strong>実装する。</strong> 合意済みIssueと必要な根拠を受け取り、新規実装は隔離worktree、既存PR修正は照合済みcheckoutで変更を作る。</li>
+<li><strong>検証し、独立評価する。</strong> 必要な撮影・checkを行い、別のAIがコード・テスト・文書を評価する。不備は修正へ戻す。</li>
+<li><strong>draftで公開し、確認後にreadyへ移す。</strong> 担当AIが実際の本文・必要媒体と同じcommitのCIを確認し、最新の対象を再照合してレビュー可能な状態へ移す。</li>
+<li><strong>人がレビューし、マージを判断する。</strong> 要求、差分、検証結果、残る不明点を照合する。</li>
+</ol>
+<p>戻り先は、不足の種類によって変わります。事実が足りなければ調査へ、意図や許可が未確定なら人への確認へ、成果物に不備があれば修正へ戻ります。要求そのものが変わったら、古い合意や検証結果をそのまま使って進めません。</p>
+<p>scopingはIssueと調査の引き継ぎまでを担当します。その呼び出しの中で商品実装を始めることはありません。implementは合意済みIssueの実装依頼、または人が採用した既存PRの修正依頼から始まります。</p>
+<p>ハーネス自身の指示を改善するときの<a href="#harness-eval">同条件eval</a>は、必要な変更だけで手動実行する別の入口です。通常の実装・独立評価・CIへ自動で挟まず、レビュー試験専用HTMLも通常経路に含めません。</p>
+<p>人のレビューで指摘を受けたら、<strong>指摘を調べる → 見直す範囲を判断する → 必要な調査・合意・修正へ戻る</strong>という往復が入ります。要求の前提が変われば、Issue作成から見直すこともあります。</p>
+<p>マージした変更は、PRの説明や画像・動画を基にした<strong>変更の説明と確認ガイド</strong>へまとめ、QA・デザイナー・企画側が確かめられる状態につなげます。その先の<strong>リリース → 稼働確認 → 振り返り → 次の要求整理</strong>は、各アプリに当てはめる共通の考え方として説明します。既存PR修正の往復は導入済みです。関係者向けの確認ガイドの自動作成・共有は、今後の設計方針です。</p>
+<p>要求整理はIssueへの反映、開発はdraft PRの作成・更新、必要な公開後確認、readyへの切替と読戻しを区切りにします。人が採用した修正依頼は新しい実行として扱い、旧runや成功結果を再開・流用しません。</p>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="README.md">README.md</a></p></details></section>
+<section id="setup" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">02</span><h2>初めて使う前に、揃えるもの</h2></header><div class="chapter-body"><p>初めて導入するときは、対象のアプリ・サービス、AIに任せる範囲、検証方法、人が判断する場面を揃えます。このハーネスが現在対応するのは、明示的に設定したGitHubリポジトリ、macOSホスト、github.comです。</p>
+<h3>最初に確認するもの</h3>
+<ol>
+<li><strong>対象のリポジトリと要求。</strong> どのアプリを変更するか、どこに要求を残すか、誰が範囲とマージを判断するかを確認します。まだ作るものが決まっていなければ、scopingから始めます。</li>
+<li><strong>実行環境と認証。</strong> ハーネスはBun、Git、gh、Codex CLIを使います。Bunは1.4.2を指定しています。スキルが利用先から検出され、信頼するCLIと対象repoを参照できることも確かめます。</li>
+<li><strong>対象repoの設定。</strong> <code>.dotagents.json</code> に、repo、remote、base branch、セットアップ、check、必要なCI名、撮影の要否と保存先を明示します。対象アプリの技術構成と要求に合わせます。</li>
+<li><strong>検証で確かめる振る舞い。</strong> どの操作や結果が合格なのか、既存テストで何を守れるか、画像や動画が必要かを決めます。CIのないrepoは空のCI配列を明示し、公開しない実行でローカル検証まで進められます。公開する開発実行には、1件以上の必要CI設定が要ります。</li>
+<li><strong>公開と運用の手順。</strong> アプリのマージとリリースの関係、稼働確認、問題があったときの対応を確認します。この記事では共通の考え方を説明し、担当、実行手段、確認条件は対象アプリの運用に合わせて揃えます。</li>
+</ol>
+<p>ハーネスの導入時には、信頼するハーネスのcheckoutで依存関係を揃え、共通checkを実行します。これはハーネス自身の確認です。対象アプリのテストや実際の公開が成功したことまでは示しません。</p>
+<pre><code class="language-sh">bun install --frozen-lockfile --ignore-scripts
+bun run check
+</code></pre>
+<p>日常の入口は <code>scoping</code> と <code>implement</code> です。詳細な設定例、実行コマンド、スキル登録、中断時の手順は出典のCLIガイドと根拠の保存・引き継ぎ手順を参照してください。修正・独立評価だけを設定して試す <code>correction.ts</code> もありますが、通常のIssue実装は <code>development.ts</code> を通します。</p>
+<h3>このページで使う言葉</h3>
+<table>
+<thead>
+<tr><th>言葉</th><th>このページでの意味</th></tr>
+</thead>
+<tbody>
+<tr><td>repo・リポジトリ</td><td data-label="このページでの意味">コード、文書、変更履歴を管理する場所</td></tr>
+<tr><td>Issue</td><td data-label="このページでの意味">目的、要求、完了条件、合意を残すGitHub上の記録</td></tr>
+<tr><td>PR（Pull Request）</td><td data-label="このページでの意味">変更内容を共有し、レビューと取り込みの判断をする場</td></tr>
+<tr><td>commit</td><td data-label="このページでの意味">変更内容を記録した版。検証した版と公開する版を対応づける単位</td></tr>
+<tr><td>check</td><td data-label="このページでの意味">対象repoで合意した、ローカルの検証コマンド</td></tr>
+<tr><td>CI</td><td data-label="このページでの意味">GitHub上などで実行する自動検証。このハーネスではGitHub上の結果を照合する</td></tr>
+<tr><td>CLI</td><td data-label="このページでの意味">ターミナルからコマンドで操作する入口</td></tr>
+<tr><td>checkout・worktree</td><td data-label="このページでの意味">ファイルを編集・検証する作業場所。worktreeを使って元の場所と分離する</td></tr>
+</tbody>
+</table>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="README.md">README.md</a> · <a data-source=".dotagents.json">.dotagents.json</a> · <a data-source="package.json">package.json</a> · <a data-source="scripts/README.md">scripts/README.md</a> · <a data-source="skills/scoping/references/session.md">session.md</a></p></details></section>
+<section id="roles" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">03</span><h2>誰が、何を受け持つのか</h2></header><div class="chapter-body"><p>ここでいう「ホスト」は、AIへの仕事の依頼、検証コマンドの実行、結果の保存、公開前後の照合を担当する実行側です。CLIが自動で行う処理と、操作する担当者が確認する作業の両方があります。</p>
+<table>
+<thead>
+<tr><th>担当</th><th>受け持つこと</th><th>次へ渡すもの</th></tr>
+</thead>
+<tbody>
+<tr><td>依頼者・合意する人</td><td data-label="受け持つこと">目的、優先順位、範囲、許容条件、必要な権限を決める</td><td data-label="次へ渡すもの">誰が何に合意したかを確認できる記録</td></tr>
+<tr><td>要求整理の担当AI</td><td data-label="受け持つこと">事実を調べ、問いと案を作り、要求と検証方法を整理する</td><td data-label="次へ渡すもの">合意済みIssueと再利用できる調査報告</td></tr>
+<tr><td>実装・修正の担当AI</td><td data-label="受け持つこと">Issueの範囲でコード、テスト、文書、撮影定義を用意する</td><td data-label="次へ渡すもの">作業差分と、変更または判断待ちの理由</td></tr>
+<tr><td>ホスト・CLI</td><td data-label="受け持つこと">対象と権限の照合、実行制御、撮影、check、draft公開と同じheadのCI確認を行う</td><td data-label="次へ渡すもの">対象の版に対応した検証記録とdraft PR</td></tr>
+<tr><td>公開後確認の担当AI</td><td data-label="受け持つこと">実際の本文・必要媒体を根拠と照合し、ready直前の再照合、切替と読戻しを行う</td><td data-label="次へ渡すもの">確認した版・結果・未確認事項と、レビュー可能なPR</td></tr>
+<tr><td>独立評価の担当AI</td><td data-label="受け持つこと">要求全文に対し、実装・テスト・文書・証拠を読み取り専用で評価する</td><td data-label="次へ渡すもの">受入可能か、何を直す必要があるかの所見</td></tr>
+<tr><td>レビュー・マージを判断する人</td><td data-label="受け持つこと">差分、要求の達成、検証の妥当性、未確認事項を確かめる</td><td data-label="次へ渡すもの">対象repoの条件に沿った承認とマージ判断</td></tr>
+</tbody>
+</table>
+<p>これは責任の分担です。担当人数を規定するものではありません。実際に誰がそれぞれを担当するかは、対象repoの運用に従います。</p>
+<p>独立評価のAIが受入可能と答えても、人の承認が済んだことにはなりません。公開前の評価は、これから公開担当と人へ渡すための判断です。</p>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source=".codex/OUTCOME.md">.codex/OUTCOME.md</a> · <a data-source="scripts/README.md">scripts/README.md</a></p><p>実装内部では、コマンド実行と中断管理を<a data-source="scripts/process.ts">process.ts</a>が、基本的な値の検査を<a data-source="scripts/values.ts">values.ts</a>が受け持ちます。実行中のプロセスと中断状態を一か所で管理し、修正フローへの不要な依存と入力検査・独立評価の循環依存を解消しています。初回実装と修正に共通する指示・応答検査は<a data-source="scripts/repair.ts">repair.ts</a>にまとめています。利用者の操作や承認手順は変わりません。</p></details></section>
+<section id="checks-and-materials" class="chapter"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">補足</span><h2>何を読み、どこで、誰が確かめるのか</h2></header><div class="chapter-body"><p>工程ごとに、使う資料、機械による確認、AIによる内容の精査、人の判断を整理します。本文・確認表・詳細図は、2026年9月24日に同じcommit <code data-commit></code>の文書とコードへ照合しました。</p>
+<h3><code>.dotagents.json</code> は何の設定か</h3>
+<p><strong>このハーネスが、開発対象のリポジトリを扱うために読む設定です。</strong> 対象リポジトリのルートに置きます。Codex一般の設定ファイルではありません。ファイル名と読み方はdotagents側の実装で決まっており、対象の照合は<code>scripts/target.ts</code>が担当します。</p>
+<p>現在のハーネスは、実装や評価のためにCodex CLIを呼び出します。<code>.dotagents.json</code>を読み、対象リポジトリを照合して準備・検証・公開へつなぐ処理は、このハーネスのコードが担当します。設定は、Issue公開時の対象確認、実装の準備、PR公開時の照合で使います。モデルの選択は、現行の<code>review.ts</code>や<code>codex-actor.ts</code>側で扱います。</p>
+<table>
+<thead>
+<tr><th>項目</th><th>何を伝えるか</th><th>主に使う場面</th></tr>
+</thead>
+<tbody>
+<tr><td><code>repository</code>、<code>remote</code>、<code>baseBranch</code></td><td data-label="何を伝えるか">操作するGitHubリポジトリ、Gitの接続先名、PRの取り込み先ブランチ</td><td data-label="主に使う場面">対象確認、実装開始、公開前後</td></tr>
+<tr><td><code>setup</code></td><td data-label="何を伝えるか">対象リポジトリの作業環境を準備するコマンド</td><td data-label="主に使う場面">作業用checkoutを作った後</td></tr>
+<tr><td><code>check</code></td><td data-label="何を伝えるか">対象リポジトリで合意した検証コマンド</td><td data-label="主に使う場面">実装・修正後の検証</td></tr>
+<tr><td><code>ciChecks</code></td><td data-label="何を伝えるか">PRの同じhead commitで成功を確認するCIのcheck名</td><td data-label="主に使う場面">PR公開後</td></tr>
+<tr><td><code>capture</code></td><td data-label="何を伝えるか">撮影方法、媒体の保存先、撮影を必要とする条件。必要媒体がなければ<code>null</code></td><td data-label="主に使う場面">必要な画面の証拠を揃えるとき</td></tr>
+</tbody>
+</table>
+<p>たとえば、このハーネス自身の設定には<code>check: [&quot;bun&quot;, &quot;run&quot;, &quot;check&quot;]</code>があります。これは「このリポジトリの検証には、このコマンドを使う」という指定です。別のアプリでは、そのアプリに合った検証コマンドを設定します。何を作り、どの振る舞いを満たすかは、Issueの要求や完了条件を参照します。</p>
+<h3>ファイル名と、読む担当を結び付ける</h3>
+<p>JSONやYAMLという拡張子だけでは、誰が何に使うファイルなのかが分かりません。このフローでは、次のように役割が分かれます。</p>
+<table>
+<thead>
+<tr><th>資料・ファイル</th><th>このフローでの役割</th><th>誰がどう使うか</th></tr>
+</thead>
+<tbody>
+<tr><td>GitHub Issue・合意記録</td><td data-label="このフローでの役割">今回実現する要求と完了条件</td><td data-label="誰がどう使うか">人が範囲を合意し、実装AIと評価AIが成果物を照合する</td></tr>
+<tr><td>対象repoの<code>AGENTS.md</code>、README、開発方針</td><td data-label="このフローでの役割">その場所で守る規則、操作、検証や文書の方針</td><td data-label="誰がどう使うか">担当AIが変更に関係する部分を読み、作業と評価に適用する。ここでの開発方針の正本は<code>.codex/DEVELOPMENT.md</code></td></tr>
+<tr><td><code>skills/scoping/SKILL.md</code>、<code>skills/implement/SKILL.md</code></td><td data-label="このフローでの役割">担当AIが依頼をどう進めるか</td><td data-label="誰がどう使うか">要求整理・実装の担当AIが読み、必要な参照文書やCLIを使う</td></tr>
+<tr><td>skills配下の<code>agents/openai.yaml</code></td><td data-label="このフローでの役割">スキルの表示名、短い説明、起動例</td><td data-label="誰がどう使うか">スキルの入口で使う情報。このrepoではこれらの項目が記載されている</td></tr>
+<tr><td><code>.dotagents.json</code></td><td data-label="このフローでの役割">このハーネス用の対象repo設定</td><td data-label="誰がどう使うか">CLIが値を読み、操作先の照合と設定されたコマンドの実行に使う</td></tr>
+<tr><td><code>skills/scoping/references/sufficiency.md</code></td><td data-label="このフローでの役割">要求整理で「次の判断に必要な根拠が揃ったか」を考える六つの問い</td><td data-label="誰がどう使うか">担当AIが現在の根拠と合意を評価する。必要な決定と不足はIssue・下書きに残す</td></tr>
+<tr><td><code>research/</code>の報告、設計資料、既存コード・テスト</td><td data-label="このフローでの役割">要求や実装方針を考える根拠</td><td data-label="誰がどう使うか">担当AIが対象版と適用範囲を確かめ、今回必要なものを選ぶ。提案・過去の結果・現行方針を区別する</td></tr>
+<tr><td><code>package.json</code>、テスト定義、CIのYAML</td><td data-label="このフローでの役割">検証の実行方法と確かめる振る舞い</td><td data-label="誰がどう使うか">対象repoのツールやGitHub Actionsが実行する。このrepoの<code>package.json</code>には共通checkの構成がある</td></tr>
+<tr><td>開発の<code>result.json</code>、検証の<code>state.json</code>、評価結果、ログ、媒体</td><td data-label="このフローでの役割">終了位置・理由・次の対応と、実行内容の根拠</td><td data-label="誰がどう使うか">担当AIが<code>result.json</code>から必要な詳細へ進む。保存不能はstderr／例外で確認する。要求整理の決定や不足はIssue・下書きから辿る</td></tr>
+</tbody>
+</table>
+<h3>いつ、何を、どのように確かめるか</h3>
+<p>以下は現行のIssue作成からPR作成、人のマージ判断までの対応です。「機械」はこのハーネスのCLIや、設定された検証コマンドを指します。</p>
+<table>
+<thead>
+<tr><th>確認が入るところ</th><th>使う資料・成果物</th><th>機械が確認すること</th><th>AI・人が内容を確かめること</th></tr>
+</thead>
+<tbody>
+<tr><td>要求整理で次の判断へ進む前</td><td data-label="使う資料・成果物">依頼、Issue・下書き、現在の根拠と合意、<code>sufficiency.md</code></td><td data-label="機械が確認すること">全基準の入力漏れや評価の版を拒否する専用検査はない</td><td data-label="AI・人が内容を確かめること">担当AIが六つの問いで十分性を判断し、不足・根拠変更時は依存作業を止める。意図・許容範囲・権限は人が判断する</td></tr>
+<tr><td>Issueを作成・更新する前</td><td data-label="使う資料・成果物">合意した要求と完了条件、検証方法、調査報告への参照、対象repo設定</td><td data-label="機械が確認すること">対象repo・ブランチ・実効ユーザー・権限を照合する</td><td data-label="AI・人が内容を確かめること">担当AIが要求・合意・本文の一致と既存Issueとの重なりを確認する。人が要求・公開範囲を合意する</td></tr>
+<tr><td>実装を始める前</td><td data-label="使う資料・成果物">Issue、対象repo設定、開始commit、必要な報告・共有知識の参照と確認済みの版</td><td data-label="機械が確認すること">Issue・設定・操作先・開始HEAD・既存実行との衝突を確認する。選択した報告・共有知識の版と本文・index・モードを開始前とsetup後に照合し、無関係な作業は保全する</td><td data-label="AI・人が内容を確かめること">担当AIが要求と検証方法・必要媒体の整合を確かめる。未合意の要求変更は人へ戻す</td></tr>
+<tr><td>文書を作成・更新するとき</td><td data-label="使う資料・成果物">Issue、原資料、変更文書、事実・合意・出典・未確認事項</td><td data-label="機械が確認すること">変更文書を成果物の差分に含め、同じ対象のcheckと独立評価へ渡す</td><td data-label="AI・人が内容を確かめること">執筆担当が事実・条件・範囲・権限・参照を照合し、既存の独立評価が文書と要求・実装の整合を確認する。不備は修正へ戻す</td></tr>
+<tr><td>実装・修正後の検証</td><td data-label="使う資料・成果物">成果物、撮影定義、<code>check</code>、Issueの必要証拠</td><td data-label="機械が確認すること">必要な撮影、checkを順に行い、終了結果と対象の変化を確認する</td><td data-label="AI・人が内容を確かめること">設定担当と評価AIが、テストや媒体で今回必要な振る舞いを確かめられるかを判断する</td></tr>
+<tr><td>独立評価</td><td data-label="使う資料・成果物">Issue、開始commitと報告・選択知識への参照、差分、関連コード・テスト・文書、同じ対象のcheck結果、前回の指摘</td><td data-label="機械が確認すること">対象版と指摘IDを照合し、前回の全指摘への判断更新を必須とする。保存済み本文と新規指摘から履歴を再構成し、必須の未解決指摘の有無で総合判定する</td><td data-label="AI・人が内容を確かめること">別の読み取り専用Codexが、コードの正しさ、要求との一致、テストの検出力、文書・証拠の整合を精査する</td></tr>
+<tr><td>PR公開前後</td><td data-label="使う資料・成果物">検証済み成果物、PR本文、媒体、Issue、GitHubの対象・CI結果</td><td data-label="機械が確認すること">公開前に検証済み対象を照合し、draftで作成・更新する。公開後はPR対象・draftと必要CIを確認し、結果と担当AIに残る確認・ready切替を記録する</td><td data-label="AI・人が内容を確かめること">担当AIがdraft公開後の本文をIssue・commit・accepted評価・検証結果と照合し、必要媒体の実表示を確かめる。同じheadのCI成功とready直前の再照合を経て切り替え、実状態を読み戻して人へ渡す</td></tr>
+<tr><td>レビュー・マージ</td><td data-label="使う資料・成果物">PRの変更内容、理由、検証結果、未確認事項</td><td data-label="機械が確認すること">GitHubが設定済みの保護条件を適用する</td><td data-label="AI・人が内容を確かめること">人が要求の達成、検証の妥当性、残る懸念を判断し、対象repoの承認条件に従ってマージを決める</td></tr>
+</tbody>
+</table>
+<p>内容を修正した後は、その変更に関係する検証と評価を更新します。機械的な不備は修正や停止理由として残します。要求や権限の変更、判断材料の不足は、調査や人との合意へ戻します。</p>
+<h3>内容の精査は、何と何を比べるのか</h3>
+<p><strong>設定の検査。</strong> <code>.dotagents.json</code>の<code>check</code>が有効なコマンド配列かどうかは、CLIで検査できます。そのコマンドが今回の不具合を検出できるかは、Issueが期待する振る舞い、実際のテスト、変更後のコードを照らして判断します。</p>
+<p><strong>要求整理の精査。</strong> <code>sufficiency.md</code>の六つの問いを使い、担当AIが出典、対象版、適用範囲と合意を照合します。十分性を判定する専用CLIはありません。判断を左右する不足はIssue・下書きに残し、調査や人の回答で解消してから再評価します。AIの評価を人の合意や実装許可には読み替えません。</p>
+<p><strong>文章の精査。</strong> 執筆担当と独立評価担当は、読みやすさに加えて、数量、否定、条件、範囲、権限、断定の強さ、参照先を原資料と照合します。「まだ試していない」ことを「確認できた」と説明していれば、修正へ戻します。事実そのものに根拠がなければ調査へ戻します。</p>
+<p><strong>実装の精査。</strong> 独立評価では、テストの成功や実装担当の説明だけで結論を出さず、現在の差分と影響を受ける呼出元・呼出先、境界条件、失敗時の動作、関連テストを読み、具体的な冗長性も確認します。前回の指摘を修正済みや非該当とする判断も、現在の成果物と必要な検証で確かめ、理由を残します。</p>
+<p>たとえば「一覧を名前順にする」という要求なら、表示が変わったことに加え、同名の項目、空の一覧、絞り込みとの組み合わせなど、今回の仕様に関係する条件を調べます。どの条件が必要かは対象アプリの要求と実装から選び、不明な期待値を推測で補いません。この例をすべての変更に対する必須チェックリストにはしません。</p>
+<p>既存PRの再調査や、QA・デザイナー・企画向けの確認ガイドは、後続の章にある設計方針です。担当者や対象アプリ固有の確認条件で未確定のものは、その実装や運用を具体化する際に確認します。</p>
+</div><details class="evidence"><summary>この補足の根拠（<span data-commit="short"></span>）</summary><p><a data-source="scripts/target.ts">scripts/target.ts</a> · <a data-source="scripts/development.ts">scripts/development.ts</a> · <a data-source="scripts/correction.ts">scripts/correction.ts</a> · <a data-source="scripts/review.ts">scripts/review.ts</a> · <a data-source="skills/scoping/SKILL.md">skills/scoping/SKILL.md</a> · <a data-source="skills/scoping/references/sufficiency.md">skills/scoping/references/sufficiency.md</a> · <a data-source="skills/scoping/references/issue.md">skills/scoping/references/issue.md</a> · <a data-source="scripts/README.md">scripts/README.md</a> · <a data-source=".codex/DEVELOPMENT.md">.codex/DEVELOPMENT.md</a></p></details></section>
+<section id="context-principles" class="chapter"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">知識</span><h2>判断の前提を、たどって見直せるようにする</h2></header><div class="chapter-body"><p><strong>実装開始の条件を、共有知識から各工程へ渡します。</strong> dotagents自身の開始条件を最初の対象として、目的・概念・規則、根拠、適用条件と合意状態を一つのJSONにまとめました。人向けのMarkdownとAI入力を同じ抽出・描画処理から作り、同じ定義の転記を減らします。</p>
+<h3>目的・概念・振る舞いを、根拠と結び付ける</h3>
+<p>このガイドでは、Teleologyを「何を望ましい状態とするか」、Ontologyを「何が存在し、どんな意味や関係を持つか」、Nomologyを「どんな規則があり、どう動くと考えているか」をそれぞれ問う観点として使います。目的・概念・振る舞いを考えることと、それを型やデータへ表すことは分けます。三つを順番に確定する工程にはせず、分かったことに応じて互いを見直します。</p>
+<p>これらに根拠と合意状態を結び付けると、何を前提に判断したのかを説明できます。</p>
+<table>
+<thead>
+<tr><th>観点</th><th>残したいこと</th><th>見直すきっかけの例</th></tr>
+</thead>
+<tbody>
+<tr><td>目的</td><td data-label="残したいこと">誰の何を改善し、どこまでを望ましい状態とするか</td><td data-label="見直すきっかけの例">利用者の困りごとや優先順位が変わった</td></tr>
+<tr><td>概念と関係</td><td data-label="残したいこと">対象の意味、関係、状態</td><td data-label="見直すきっかけの例">同じ用語を担当者ごとに違う意味で使っていた</td></tr>
+<tr><td>規則と仮説</td><td data-label="残したいこと">守る条件と、検証したい振る舞いや因果の見立て</td><td data-label="見直すきっかけの例">例外が見つかった、想定した結果が得られなかった</td></tr>
+<tr><td>根拠</td><td data-label="残したいこと">出典、観測、対象の版、適用条件</td><td data-label="見直すきっかけの例">引用資料が古い、今回の利用条件には当てはまらない</td></tr>
+<tr><td>合意と未確定事項</td><td data-label="残したいこと">採用済みの判断、提案、未確認のこと、判断する人</td><td data-label="見直すきっかけの例">要求や許可範囲が変わった、必要な判断が残っていた</td></tr>
+</tbody>
+</table>
+<p>これは必要な情報を選ぶための見方です。すべての変更に五つの文書や新しいチェックリストを要求するものではありません。</p>
+<h3>合意した規則と、確かめたい仮説を分ける</h3>
+<p>依頼の対応漏れを減らすアプリを考えると、例えば次のように整理できます。以下は説明用の仮想例であり、特定アプリの要求・合意や観測結果ではありません。</p>
+<ul>
+<li>目的：期限を過ぎた依頼の見落としを減らす。</li>
+<li>概念：依頼、担当者、期限、対応状態があり、依頼が担当者や期限と結び付く。</li>
+<li>合意した規則の例：「確定した依頼には担当者を割り当てる」。</li>
+<li>検証する仮説の例：「期限超過を一覧で強調すると、見落としが減る」。</li>
+<li>根拠：実際の利用で何が起きたかを確認する。観測がなければ、効果は未確認とする。</li>
+</ul>
+<p>規則は守ると決めた条件であり、仮説は観測によって見直す対象です。仮説を採用して機能を作っても、効果を確認したことにはなりません。画面の変更と、その変更によって困りごとが解消されたかの確認を結び付けます。</p>
+<h3>機械・AI・人が、それぞれ確かめる</h3>
+<p>機械は、参照先の存在、IDの重複、定義した状態遷移や入力形式などを確認できます。こうした検査を通っても、目的が適切か、引用した根拠が今回に当てはまるかは、内容を照合する必要があります。</p>
+<p>AIは資料の適用範囲や意味の整合を読み、更新候補と理由を示します。人は目的、許容範囲、権限や重要な変更を判断します。機械の検査とAIの評価にはそれぞれ限界があり、事実や合意を自動で保証するものとは扱いません。</p>
+<h3>構造化する部分を絞り、同じ情報を使う</h3>
+<p>ID、関係、根拠の版、適用条件、合意・未確認の状態をJSONで扱い、定義や理由は文章で残します。<code>docs/knowledge/implementation-start.json</code>が知識の正本、同名のMarkdownが生成説明です。このHTMLガイドと詳細図は、実装と生成説明に照らして同期する解説です。</p>
+<p>構造化した正本から生成する説明は、正本との対応を保ちます。今回に必要な根拠、適用条件、未確認事項を選び、選択した情報から元の資料と版へたどれるようにします。すべての資料を毎回読み込ませる運用は前提にしません。必要な情報を参照から取得する考え方は、<a href="https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents">Anthropicのコンテキスト設計の説明</a>でも示されています。</p>
+<p>生成を導入する範囲や、どの情報を構造化するかは、実際に同じ情報を更新している箇所、読み手が迷う箇所、機械で検査したい条件から選びます。ファイル数や行数に加えて、変更時に理解・更新する範囲が小さくなるかを確かめます。</p>
+<h3>今のフローへつなぐ</h3>
+<p>プロダクトについて共有する知識は、今回のIssueの要求や検証方法を考える根拠になります。要求の正本はIssueと合意記録に残します。<code>.dotagents.json</code>は、対象リポジトリと実行・検証の方法を指定する設定として使います。</p>
+<p>PRで指摘を受けたら、コードに加え、関連する目的、概念、規則、仮説、引用根拠、合意のどこを見直す必要があるかを調べます。調査で影響が分かってから戻り先を判断します。マージ後の説明資料にも、変更の理由と確認済み・未確認の範囲を引き継ぎます。運用で分かったことは根拠として追加し、次の要求整理につなげます。</p>
+<p>Issueへの反映とPRの作成・更新を基本の区切りとします。この整理を理由に新しい工程やゲートを増やすことは前提にしません。</p>
+<h3>実装済みの範囲と、今後選ぶこと</h3>
+<p>scopingで必要なID・確認済みblob・今回の要求との関係をIssueへ残します。ホストはその選択を読み、開始commitで版を照合して、初回実装・修正・独立評価へ同じ定義を渡します。未知IDや不正な参照は拒否し、関係先IDがあるだけで未選択の本文を取り込みません。</p>
+<p>モデルがないrepoは既存のIssueと報告で進められます。モデルを必須化する新しい工程・CLI引数・台帳は追加しません。アプリ固有の知識へ広げる範囲は今後の判断です。反する観測は影響するID・根拠・Issue判断へ結び、事実不足は調査、要求・権限の変更は人の合意へ戻します。モデルの改訂だけで要求を自動変更しません。</p>
+</div><details class="evidence"><summary>この章の位置づけと根拠</summary><p>共有モデルの形式・選択・生成は<a data-source="scripts/README.md#共有知識の選択">CLI手順</a>と<a data-source="docs/knowledge/implementation-start.md">生成説明</a>を参照。現行の役割は <a data-source=".codex/DEVELOPMENT.md">開発方針（<span data-commit="short"></span>）</a> と <a data-source="skills/scoping/references/sufficiency.md">十分性の判断（<span data-commit="short"></span>）</a> を参照。</p></details></section>
+<section id="scoping" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">04</span><h2>依頼を、判断できる要求にする</h2></header><div class="chapter-body"><p>scopingは、依頼本文と対象リポジトリから始まります。既存のIssueや合意があれば読み、すでに決まっていることを聞き直さず、今回決めることを特定します。</p>
+<p>調査では、現在のコード、テスト、依存の版、関連する方針を照合します。過去の調査を使うときは、<a data-source="research/README.md#読む条件と参照先">読む条件と参照先</a>も手掛かりに原文を選び、現在への適用を確認します。該当する資料がなければ検索を続けます。UIなら既存部品、画面、操作状態、キーボードや画面幅の条件を確認します。ロジックなら入力と出力、値の制約、失敗や非同期処理、責任の所在を確認します。</p>
+<p>資料・コード・ログ・テストで判断できず、観測結果が次の方針を変える場合は、許可された環境で小さな実験・試作・再現を選びます。実行前に、何を決めるか、どの結果で仮説を支持・除外できるかを定め、本番コードから分離した一時領域で確かめます。既存の根拠で足りる場合は実験を増やしません。</p>
+<p>観測した版・環境・入力と適用限界を残します。並行実行・中断・外部状態・永続化が問いなら、それを観測できる環境が必要です。インメモリの成功を実システムの保証にはしません。判断に十分な根拠が得られたら止め、結果を区別できなければ未確認として次の調査や人の判断へ戻します。詳しい条件は<a data-source="skills/scoping/references/sufficiency.md#観測で解消できる不明点">十分性判断の実験条件</a>を参照します。</p>
+<p>既存部品、標準API、導入済みライブラリで目的を満たせるかも調べます。既存コードがあることだけで、今回の適切な見本と判断することはありません。適用できる理由と、今回足りない部分を選びます。Storybookなどの特定の資料がないことだけで停止する運用でもありません。</p>
+<p><strong>事実は調べ、意図は尋ねます。</strong> 誰の何を改善したいか、優先順位、どこまでを許容するか、どこへ公開してよいかは、人の判断を確認します。質問には、その答えがどの判断を変えるのかを添えます。回答が必要な作業は待ち、答えに依存しない調査や案の準備を進めます。</p>
+<h3>次へ進む前に確かめる六つの問い</h3>
+<ul>
+<li><strong>目的：</strong> 誰の何を改善し、次に何を決めるのか。</li>
+<li><strong>根拠：</strong> 出典、対象の版、鮮度、適用範囲が分かるか。</li>
+<li><strong>制約・代替案：</strong> 制約、依存、代替案、既存資産の再利用を確認したか。</li>
+<li><strong>不確実さ：</strong> 残る不明点は次の判断を変えないか。</li>
+<li><strong>整合：</strong> 要求、事実、方針、合意に矛盾はないか。</li>
+<li><strong>権限：</strong> 次の作業の対象と範囲に必要な合意・権限があるか。</li>
+</ul>
+<p>未確認を充足に含めず、今回関係しない観点はその理由を説明できるようにします。重大な不足を、ほかの項目の充足で相殺しません。調査を始める判断と、実装を始める判断では、必要な情報の深さも変わります。全項目の回答を別の帳票へ保存する必要はありません。</p>
+<p>判断の区切りで、要求・完了条件・検証方法、合意の範囲と根拠、観測の証拠・適用限界、未解決事項、次の判断を既存のIssue・下書きへ反映します。試作コードを合意済み仕様や実装成果物として渡さず、試作の成功を採用・本実装の完了とは扱いません。専用セッションの開始、評価JSONの保存、gateの実行は行いません。根拠変更や不足が判断を左右する場合は依存作業を止め、影響と解消方法・再開条件を残します。書式を埋めたことや保存成功は進行許可になりません。</p>
+<p>中断・担当交代でも、Issue・下書きの決定、参照、不足から再開します。現在のコード・要求に照らして再評価し、前回の完了表示を自動で引き継ぎません。新しい再開台帳や会話全文のコピーは作りません。</p>
+<p>要求の抜け、矛盾、判断の偏りを確かめる必要がある場合は、要求整理でも独立評価を使います。担当者が必要な評価を行い、未実施なら未実施と記録します。調査や質問を繰り返しても新しい根拠や判断が得られない場合は、障害と確認済みのこと、必要な判断を示して相談します。</p>
+<p><strong>ここで残るもの：</strong> 現在の根拠、未解決事項、次に判断すること、合意した方針への参照。次へ進む条件は、その判断に必要な情報と合意が揃っていることです。既存の有効な合意は聞き直さず、新しい判断が必要な場合だけ人へ戻します。回答後も現在の根拠・条件との整合を確かめてから進みます。</p>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="skills/scoping/SKILL.md">skills/scoping/SKILL.md</a> · <a data-source="skills/scoping/references/sufficiency.md">skills/scoping/references/sufficiency.md</a></p></details></section>
+<section id="issue" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">05</span><h2>合意を、Issueと調査報告へ渡す</h2></header><div class="chapter-body"><p>要求の正本はGitHub Issueと合意記録です。会話で回答を得たことだけで、要求全体や実装の許可に合意したとは扱いません。</p>
+<p>Issueには、目的、今回の範囲、完了条件、対象repoのセットアップ・検証方法、必要な画像や動画と保存先、合意の根拠をまとめます。実装方法の細部は担当者が判断できる余地を残します。実験の計測手順や試行回数は、成果物の要求と区別します。</p>
+<p>案だけ・公開しない依頼では、必要な調査とIssue本文の下書き・精査まで進め、公開用の書込み権限確認を必須にしません。Issueを公開・更新するときは、既存Issueとの重複を調べ、公開前に対象repo、GitHubの実効ユーザーと権限を確認します。担当AIは要求の抜け・矛盾・曖昧さと、合意・根拠との一致を精査します。必要な独立評価と人の合意を揃え、要求の精査を完了します。公開・更新後はIssueを読み戻し、その結果で本文・対象repo・URLと、今回の決定・合意範囲・根拠・未解決事項・次の判断をまとめて確認します。同じ本文の確認を終えたら、必要な報告の引き継ぎへ進みます。</p>
+<p>通信断などで結果が不明な間は、担当AIが一覧と本文で実状態を確認し、再試行や公開完了の扱いを保留します。本文・判明した状態・残る確認を保持し、重複作成を避けます。権限不足では本文を保全して必要な対応を人へ伝えます。本文の不足・不一致は要求精査へ戻し、事実は調査し、要求や許可は人が判断します。判断を左右する不足があれば依存作業を止め、解消後に再評価します。</p>
+<p>Issueの記述と出典リンクで足りれば報告書は作りません。再利用する根拠や長い検証結果が必要な場合だけ、問い、出典と版・確認日、結論、適用条件、未解決事項を対象repoの <code>research/</code> へ直接保存・改訂します。既存内容、Git差分、版、共有範囲を確認し、無確認で上書きしません。内部評価、秘密情報、生ログを自動で取り込むこともありません。</p>
+<h3>保存した資料を、実装するAIが読める状態にする</h3>
+<p>新規implementは、開始元のコミット済みHEADから作業場所を作ります。そのため必要な調査報告も、そのHEADに含まれていることを確認します。未コミットの報告を脇へ移して作業場所をcleanにしても、実装先には引き継がれません。</p>
+<p>実装へ渡すときは、今回必要な報告だけを選び、開始commit、報告パス、確認済み本文を識別するGitのblob IDを指定します。必要な報告がなければ、その判断を明示します。報告のローカル保存、コミット、公開はそれぞれ確認します。報告commit後の版照合やIssue更新後の読戻しには、変更前の確認を流用しません。共有後は、報告のパス、コミット、公開先をIssueからたどれるようにします。別のcloneやworktreeで使う場合も、現在の要求に照らして根拠を選び直します。</p>
+<p>報告の選択・合意・共有状態は保存と引き継ぎの手順で扱い、具体的なGit操作と実装開始時の検証条件はCLIガイドで確認します。報告が未共有でも、必要な版と開始条件を満たせば、許可された範囲の公開しない実装へ進めます。commit自体の許可が不足する場合は、それに依存する引き継ぎを保留します。</p>
+<p><strong>ここで残るもの：</strong> 合意した要求を持つIssueと、必要な報告を含むコミットへの参照。scopingの完了報告では、合意範囲と保存・共有の状態を伝え、実装待ちとして引き継ぎます。「案だけ」「公開しない」という依頼では、提案として保存した状態を伝えます。</p>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="skills/scoping/references/issue.md">skills/scoping/references/issue.md</a> · <a data-source="skills/scoping/references/session.md">skills/scoping/references/session.md</a></p></details></section>
+<section id="start" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">06</span><h2>実装する対象と、検証条件を固定する</h2></header><div class="chapter-body"><p>implementは対象Issueを特定し、合意済みの要求と、対象repoの <code>.dotagents.json</code> を照合して始まります。この設定には、repo、remote、base branch、セットアップ、check、必要なCI、撮影方針が入ります。</p>
+<p>検証方法が未設定なら、実行に必要な設定を推測で補って開始しません。旧<code>writing</code>設定が残っている場合も、空指定や<code>null</code>を含めてモデル実行・公開前に拒否します。利用先の文書方針を確認し、方針の合意と設定の更新を済ませてから新規実行を始めます。対象repoの言語やテストツールは、そのrepoの設定に従います。ハーネス自体はBunで動きます。</p>
+<p>ホストは、checkout、設定、fetchとpushのremote、GitHubのrepo ID、base branch、既存のgh認証による実効ユーザーを照合します。公開する実行ではpush権限も実装前に確認します。途中で主体を別のユーザーへ自動で切り替えることはありません。</p>
+<p>新規実装は起動時のHEADを開始commitに固定し、設定と選択した報告・共有知識の本文・版・index・モードを照合します。必要入力の不一致、既存の実行保存先や同名branchでは開始しません。無関係な未コミット差分・未追跡ファイルは元のcheckoutへ残せます。</p>
+<p>必要な調査報告がある場合、開発CLIへ<code>--start-commit</code>と<code>--report パス=確認済みblob ID</code>を渡します。CLIは開始HEAD、報告がcommit内の通常ファイルであること、確認済みの版、実際の本文を照合します。欠落・未コミット・内容の違いがあれば停止し、確認せず新しいIDへ差し替えません。</p>
+<p>新規実装は要求全文と対象情報を保存し、照合した開始commitから分離したworktreeと <code>codex/development-N</code> branchを作ります。worktreeは、元の作業場所と分けて同じリポジトリの変更を作るための作業場所です。設定されたセットアップの後も、隔離先と元checkoutの両方で同じ必要入力を照合してから実装AIを起動します。報告や開始commitの指定がない場合も、起動時に固定したHEADから始めます。</p>
+<p>Issueで選んだ共有知識も開始版から抽出し、報告への参照とともに初回実装、修正、独立評価へ渡します。報告やモデルを改訂した場合は開始版との差分を評価し、根拠・適用条件・合意状態を確かめます。ファイルの一致だけで資料の十分性や意味の正しさを保証するものではありません。</p>
+<p>既存PRの修正は、<a href="#post-review">採用済み指摘と前回公開runからの開始条件</a>に従い、同じcheckout・branchと新しい実行保存先を使います。</p>
+<p>合意を経てIssue本文を更新した場合も、既存PR修正の開始時に最新のopen Issueを読み、その本文で新runを固定できます。前回runの要求や検証を現在の成功として引き継がず、開始後の変更は従来どおり停止します。</p>
+<p><strong>ここで残るもの：</strong> 開始時の要求と設定、主体、作業場所、実行記録。以後、要求や対象、設定、主体が変わった場合は停止し、古い条件のまま続行しません。</p>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="scripts/development.ts">scripts/development.ts</a> · <a data-source="scripts/README.md">scripts/README.md</a></p></details></section>
+<section id="build" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">07</span><h2>作り、確かめ、必要なところを直す</h2></header><div class="chapter-body"><p>実装担当のAIは、Issue全文と既存資産を読み、コード、必要なテスト、文書、撮影定義を用意します。合意範囲内の通常の実装判断は進めます。要求・範囲・権限・実行上限の変更が必要なら、初回実装も追加修正も<code>needs_human</code>を返し、既存の<code>findings</code>に問い・人に必要な選択・影響を説明して、回答に依存する作業を止めます。指示ファイルが原因なら、実際に読んだファイルへのリンクと該当文を示し、明示条件と解釈を区別します。</p>
+<p>文書だけのIssueも同じフローで扱います。文章や構成の整備という要求に対して、不要なコードやテストを追加することは求めません。実装に伴って操作、設定、仕様、制約の説明が変わる場合は、その文書更新も成果物へ含めます。</p>
+<p>初回はIssue全体の要求を実装し、追加修正は検証や独立評価で見つかった原因を直します。通常の追加修正・独立評価は、回数だけでは止めず、合意範囲の必須指摘を解消します。</p>
+<p>人の判断が必要な場合は、問いと影響を示して止めます。理由を欠く応答や形式不正も停止し、作業と記録を保全します。担当者の申告だけで判断済みにしません。応答の形式と停止理由は<a data-source="scripts/README.md">CLIガイド</a>で確認できます。</p>
+<h3>ホストによる検証</h3>
+<p>実装後は、ホストが <strong>必要な撮影 → 対象repoのcheck</strong> の順に進めます。実装担当は調査や修正に必要な箇所を確認し、全体のcheck、ブラウザーやサーバーの起動はホストへ渡します。</p>
+<p>既存PRの修正では、保存状態と修正対象を確認してから検証します。対象が変わった場合は撮影・check・モデル実行へ進まず、元の作業と記録を保全します。書込みや公開を挟む照合も続けます。</p>
+<p>このハーネス自身のcheckは、件数の要約と失敗診断を残します。テストの出力と一時レポートの扱いは<a data-source="scripts/README.md">CLIガイド</a>を参照してください。</p>
+<p>checkが通常の不合格を返した場合や、撮影処理に修正可能な失敗がある場合は、ログを修正担当へ渡します。起動不能、時間切れ、対象の変化などは停止条件として扱います。</p>
+<p>同じ時点に得た情報は共用できます。撮影・check・モデル実行などを挟むと対象が変わり得るため、必要な再照合は続けます。</p>
+<h3>別のAIによる独立評価</h3>
+<p>check成功後、別の読み取り専用AIが要求全文と開始版の選択知識に照らして成果物を読みます。初回・再評価とも現在の差分と関係する呼出元・呼出先を追い、前回指摘の修正確認だけで受け入れません。実装担当の「できた」という報告だけで受け入れず、コード、意味のあるテスト、必要な文書、画像や動画と対象の対応を確認します。</p>
+<p>冗長性は、重複箇所・同じ対象や入力・観測時点・実行や保守の負担から確かめます。setup・モデル実行・書込み・公開を挟む再確認は、鮮度や失敗時の保証を区別します。具体的な無駄が確認でき、合意範囲の局所修正で保証を保てるものは、既存の指摘と修正ループで公開前に解消します。好みや行数だけで削除を求めず、共通化で増える引数・分岐・状態・説明も比較します。</p>
+<p>テストは、見逃したくない現実的な不具合、既存の検証に加わる保証と費用を基準に選びます。独立評価担当も要求とテストを確認し、削る場合は失う検出条件と残る確認を示します。判断は既存の評価とPR説明へ残します。</p>
+<p>改善案の採用に比較が必要な場合だけ、条件を揃え、<strong>要求充足 → 実質的な変更 → 失敗・再試行を含む総費用</strong>の順に判断します。行数を使うなら比較用コピーを同じ版・設定で整形し、コード・テスト・文書を分けます。呼出側へ移した判断や検査、同時修正する場所も保守負担に含めます。実行失敗・採点不能と要求違反を分け、分母と集計範囲を示し、取得できない費用を0にはしません。既存の根拠で判断できる変更に実験を追加しません。</p>
+<p>要求を変えず、判定方法だけを比較する場合は、対象版・入力・環境と必要な観測が揃う保存記録を使えます。元の記録と判定を保持し、新たな基準による再判定と区別します。実装・入力・環境が変わった場合や観測が足りない場合は必要な検証をやり直し、できなければ未確認とします。再判定だけの費用を検証全体と比較しません。指示の移動や後続変更の保守負担も、観測できた範囲で判断します。詳しくは<a data-source=".codex/DEVELOPMENT.md#改善効果の比較">比較方針の正本</a>を参照します。</p>
+<p>独立評価のAIは既存の各指摘を判断し、新しい指摘を加えます。ホストがIDと履歴を管理し、必須指摘の未解決を受入可能へ読み替えません。詳しい応答形式は<a data-source="scripts/README.md">CLIガイド</a>で確認できます。</p>
+<p>評価の対象と形式を確認し、記録できた結果だけを履歴へ加えます。応答不正や保存障害では修正・公開へ進まず、以前の評価と生応答を保全します。</p>
+<p>不備は修正し、変更文書も含めて必要な撮影、check、独立評価をやり直します。撮影の再利用は同じ実行内の許可条件に限ります。公開前には最新の要求・成果物と終端の成功結果を照合し、対象が変わっていれば停止します。</p>
+<p>旧runと記録は保全し、新形式へ変換・再開しません。新しい実行の応答形式は<a data-source="scripts/README.md">CLIガイド</a>を参照してください。</p>
+<p><strong>ここで残るもの：</strong> 検証対象の差分、ログ、独立評価の所見と、公開担当・人に残る作業。受入可能という結果は、PR公開と人のレビューへ渡せる状態を表します。</p>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="scripts/review.ts">scripts/review.ts</a> · <a data-source="scripts/input.ts">scripts/input.ts</a> · <a data-source="scripts/correction.ts">scripts/correction.ts</a> · <a data-source=".codex/DEVELOPMENT.md">.codex/DEVELOPMENT.md</a></p></details></section>
+<section id="writing" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">08</span><h2>文書の内容を、各担当が確かめる</h2></header><div class="chapter-body"><p>文書確認は執筆・既存の独立評価で行い、生成PR本文の意味確認はdraft公開後へ集約します。専用の校正工程を挟まず、担当ごとに次へ渡せる内容かを確かめます。</p>
+<ol>
+<li><strong>執筆担当：</strong> 事実、数量、否定、条件、範囲、権限、断定の強さ、未確認事項、参照を原資料と照合し、平易な日本語で書きます。事実不足は調査へ、要求や権限の変更は人との合意へ戻します。</li>
+<li><strong>独立評価担当：</strong> 変更文書をコード・テストと一緒に読み、Issue、原資料、実装、検証結果との整合と、読者が判断できる説明かを確認します。内容不備は修正へ戻し、変更後の必要なcheckと評価を更新します。</li>
+<li><strong>公開後確認の担当AI：</strong> draft公開後の最新本文・リンク・必要媒体をIssue・対象commit・accepted評価・検証結果へ照合します。文字列一致やCI成功だけで意味確認を完了とせず、直接編集する場合もdraftで書込み前後に確認します。具体的な操作と戻り先は<a href="#publish">公開とreadyへの切替</a>に従います。</li>
+</ol>
+<p>調査報告は要求整理での既存の評価へ、Issue本文・下書きは要求精査と必要な独立評価・人の合意へつなぎます。人が差分と検証結果をレビューし、承認・マージを判断します。</p>
+<h3>旧版から切り替えるとき</h3>
+<p>専用Gemini校正、保護対象の機械比較、別モデルによる校正前後の意味照合は廃止しました。文書やPR本文のためだけのモデル呼び出しは追加しません。従来と同じ独立検査を維持したという意味ではありません。</p>
+<p>旧<code>writing</code>設定は新しい入力では使えません。利用先ごとに文書方針を確認し、専用校正の要否が未解決なら旧版を保持します。保存済みの原文・候補・評価・失敗記録・runは削除、変換、再開せず、採用版からの新規実行に新しい契約を使います。Antigravity CLIの導入・認証はハーネスの前提ではなくなりますが、利用者のCLIや認証情報は削除しません。</p>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source=".codex/DEVELOPMENT.md#pr本文人向け文書の日本語確認">日本語確認の方針</a> · <a data-source="scripts/README.md#専用校正の廃止と切替">切替手順</a></p></details></section>
+<section id="capture" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">09</span><h2>画面の証拠を、レビューで使える形にする</h2></header><div class="chapter-body"><p>画像や動画の必要性は、Issueと対象repoの撮影設定で決めます。媒体不要なら設定で明示します。すべての変更に図や動画を必須とする運用ではありません。</p>
+<p>必要な場合は、実装・修正担当が撮影定義を用意し、ホストが対象repoの検証環境で撮影します。出力はcheckout外の新しい場所へ置き、空の出力、不正形式、symlinkを拒否し、対象の不変を確認して、repo内の生成媒体専用の保存先へ取り込みます。</p>
+<h3>撮り直す条件と、再利用する条件</h3>
+<p>撮影が常に必要という設定では、文書変更も対象に含め、初回から撮影します。撮影が任意という設定では、画面に影響しない通常のMarkdownだけの変更など、定められた条件に合う場合に撮影と媒体の置き換えを省略できます。</p>
+<p>修正ループ内では、最後に成功した撮影時点と比較し、許可された文書・保存記録だけの変更なら媒体を再利用できます。コード、設定、撮影定義、媒体などの変更や、撮影失敗後は再利用しません。再利用しても、全体の変更検知、check、独立評価は行います。</p>
+<h3>添付したあとに、実際に読む</h3>
+<p>対象commitと、撮影ログ、配置した媒体、検証結果を対応づけます。公開担当は実際のPRで画像を読めるか、動画を再生できるか、比較対象や操作の説明が伝わるかを確認します。</p>
+<p>操作を説明する動画には、必要に応じて見出し、キー表示、字幕、音声を使います。音声を付ける場合はmacOS標準音声のKyokoを使い、合成音声であることを明示する方針です。表示や音声が実際の操作と合い、同期しているかも確認します。</p>
+<p>説明や撮影が不足する場合は、その作成担当へ戻します。配置の不備は公開担当が整えて再確認します。アップロード成功と、レビューに使える表示・説明の確認は別々に記録します。</p>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="scripts/README.md">scripts/README.md</a> · <a data-source=".codex/DEVELOPMENT.md">.codex/DEVELOPMENT.md</a></p></details></section>
+<section id="publish" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">10</span><h2>検証した変更をPRへ渡す</h2></header><div class="chapter-body"><p>独立評価のあと、ホストは対象と検証済みの成果物を再照合します。要求やファイル、必要媒体が変わっていれば、以前の成功をそのまま使って公開しません。</p>
+<p>通常の実行では、変更をコミットし、最新のaccepted評価から変更・理由・検証と限界・根拠・残作業を選んで本文を生成します。ホストがIssue・成果物・commit・参照・公開先・主体・権限を機械照合し、新規PRはdraftで作成します。完成本文の意味確認は、公開後の担当AIが行います。明示的な開発依頼は、検証・独立評価、draft公開・更新、公開後確認、readyへの切替と読戻しまでを含みます。</p>
+<p>評価担当は、変更と理由、要求への対応、検証と限界、文書の適用条件をそれぞれの区分で説明し、同じ事実・結論・但し書きを繰り返しません。条件・否定・権限・未確認事項・担当が異なる説明は残します。呼出順序・データ形状・責務を示すと理解しやすい場合だけ、変更と理由に短い構造説明を添えます。実差分と対象版に照合し、文章で十分なら省きます。図・構造欄・固定の文数は必須にしません。</p>
+<p>解決済み・対象外の指摘は、問題と条件、現在の判断と根拠、今も必要な影響や制約を含むreasonだけを公開します。未解決の指摘は条件・影響・必要な対応も残し、判断を妨げるものは必須の指摘として修正へ戻します。内部の原文・履歴・生ログは保持します。Issue固有の残作業と担当は評価担当が引き継ぎ、なければ空にします。公開・CI・添付・表示確認・人の判断といった定型作業はホストが一度だけ加え、詳細は既存ガイドを参照します。指摘や添付がなければ対応する節・作業を省きます。改行・コードブロック・差分記号は保ち、類似判定や文字数で自由文を削除したり、本文専用の要約モデルを追加したりはしません。説明の十分性と生成後の意味は、既存の独立評価と公開後確認で確かめます。</p>
+<p>公開しない指定がある場合は <code>--no-publish</code> を使います。文書を含む成果物のローカル検証と独立評価までを行い、commit・push・PR作成・既存PR本文更新・draft/ready操作は行いません。<code>verified_local</code>を共通の<code>result.json</code>へ保存し、公開・設定済みCI・本文と必要媒体の確認・ready切替・人のレビューを残します。公開する際には必要な添付と実表示確認も行います。</p>
+<p>PRの作成・再利用時には、URL・repo・作者・head branch/commit・base・生成本文の一致とOPEN・draft状態を照合します。本文一致は意味の正しさを保証しません。必要な添付を終えた後、公開対象（URL、head commit、base branch、OPEN・draft状態、Issueとの対応）とCI結果を一回の応答で取得します。新規PRの公開では、公開処理を呼ぶ前は<code>not_attempted</code>、呼出し後にURLが返るまでは<code>unconfirmed</code>、返却後は<code>published</code>として残します。作成後の照合失敗でも判明したURLは保持します。未試行はpushも未実施という意味ではありません。未確認ならPRが存在する可能性を残してGitHubの実状態を確認し、自動で再作成・再添付しません。</p>
+<p>push前に同じhead repository・branchを使うopen PRを全ページから確認します。新規公開で既存PRがある場合、または修正対象以外のPRもbranchを共有する場合は、別base向けも含めて停止します。対象外のPRを自動でdraftへ戻しません。</p>
+<p>既存PRの修正では、draft確認前に既知URLと<code>unconfirmed</code>を結果へ保存します。対象・主体・権限・旧本文・head・refを照合し、readyならdraftへ戻して読み戻してからpushします。既にdraftなら切替を重ねません。本文更新前後と添付前もdraft状態を確認し、不明・不一致なら後続の公開変更を止めます。新しい本文・ref・PR head・draftの読戻し後に<code>published</code>とし、失敗時はURLと記録を保持します。切替や書込みを挟む照合には古い観測を流用しません。</p>
+<h3>CIも、同じ変更の結果であることを確かめる</h3>
+<p>CIは、GitHub上で実行される自動検証です。設定されたすべてのcheckが登録され、成功するまで待ちます。必要なcheckのSKIPPEDやNEUTRALは成功に含めず、同名checkが複数ある場合はすべての成功を求めます。ほかの登録済みcheckに失敗や保留がある場合も完了としません。</p>
+<p>初回の公開取得は11分を上限とし、公開対象の一致を確認してから9分のCI待機を開始します。同じ初回応答のCIを直ちに判定し、未登録・実行中なら5秒と残り時間の短い方だけ待って再取得します。後続の取得コマンドも残り時間で制限し、期限後は再取得しません。取得ごとにhead・base・OPEN・draft状態を照合し、終了時にも11分を上限に対象を再確認します。違うcommitのCI成功を、今回の成功として使いません。状態変化の検知には数秒の遅れがあり得るため、即時に確認したい場合はPR上のcheckを確認します。結果は次のように分け、次の対応を残します。</p>
+<table>
+<thead><tr><th>記録される結果</th><th>意味と次の対応</th></tr></thead>
+<tbody>
+<tr><td>成功 <code>passed</code></td><td data-label="意味と次の対応">必要なCIがすべて成功し、ほかにも失敗・保留がなく、最後のPR対象照合も一致。draftを維持し、担当AIの本文・必要媒体確認とready切替へ進む</td></tr>
+<tr><td>失敗 <code>failed</code></td><td data-label="意味と次の対応">checkの失敗、または必要checkのSKIPPED・NEUTRAL。失敗ログを調べ、原因を修正する</td></tr>
+<tr><td>待機期限 <code>timed_out</code></td><td data-label="意味と次の対応">待機上限に到達。最後に観測した未登録・実行中のcheckを調べ、同じPR commitのCIを手動で確認する。コードの失敗とは扱わない</td></tr>
+<tr><td>取得不能 <code>unavailable</code></td><td data-label="意味と次の対応">API失敗や取得処理の時間切れ。担当AIが認証・権限・接続と取得ログを調べ、必要な環境対応をホストへつなぐ。先の成功観測だけで今回の成功にはしない</td></tr>
+<tr><td>応答不正 <code>invalid_response</code></td><td data-label="意味と次の対応">担当AIが生応答のJSON・PR必須項目・CIデータを応答契約と照合し、解消後に同じ公開対象を再判定する条件を確認する</td></tr>
+<tr><td>保存障害 <code>storage_failed</code></td><td data-label="意味と次の対応">担当AIが元のエラー・保存先・保存できた出力を調べ、ホストが許可範囲で保存環境を解消する。以前の完全なCI観測は履歴として残し、今回の成功へ流用しない</td></tr>
+<tr><td>対象変更 <code>target_changed</code></td><td data-label="意味と次の対応">PRのhead・base・OPEN・draft状態、または公開直後のURL・Issue参照が不一致。公開したcommitと現在のPRを照合し、どの対象を確認すべきか判断する</td></tr>
+</tbody>
+</table>
+<p>公開対象が一致しない、取得や保存に失敗した場合は、判明したPR URLと理由・取得済みの証拠を保持して止めます。以前の観測を今回のCI成功へ流用しません。必要な確認と対応は<a data-source="scripts/README.md#結果と再実行">CLIガイド</a>を参照してください。</p>
+<h3>draftの内容を確認してから、readyへ移す</h3>
+<p>CI成功時のCLI結果は<code>published_draft</code>です。<code>published_body_check</code>・<code>mark_ready</code>・<code>human_review</code>と必要な<code>rendered_media_check</code>が残ります。CLI終了や独立評価の<code>ready_for_human_review</code>を、公開後確認や人の承認の完了とは扱いません。</p>
+<ol>
+<li>担当AIが最新の実際の本文・リンクをIssue・commit・accepted評価・検証結果へ照合し、省略・置換・整形の影響と必要媒体の実表示を確認します。本文の直接編集もdraftで、書込み前後に確認します。</li>
+<li>ready直前に、対象・本文・head・根拠・主体と権限・同じheadのCIを再照合します。変更があれば関係する確認へ戻します。</li>
+<li>確認が揃ったら既存の<code>gh pr ready</code>で切り替え、対象・本文・head・CIとready状態を読み戻してから人へ渡します。</li>
+</ol>
+<p>説明の不備は本文修正、成果物の不備は修正・check・独立評価、事実不足は調査、要求・権限の変更は人の判断へ戻します。確認不足ならreadyへ移さず、操作結果不明時は記録と判明URLを保持して実状態を確認します。自動再試行や以前のreadyへの自動復帰はしません。詳細は<a data-source="scripts/README.md#公開後確認とreadyへの切替">操作の正本</a>に従います。</p>
+<p>draftでも本文は閲覧可能です。後から修正しても開示は取り消せません。readyへの切替は人の承認・マージを代行せず、操作間の他者変更を完全に防ぐ保証でもありません。</p>
+<p><strong>ここで残るもの：</strong> PR URL、対象commit、ローカル検証・独立評価・CIの結果、必要な媒体確認の状態、人に残る作業。PRができてもCIを確認できなければ、URLと記録を保って未達として報告します。</p>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="scripts/development.ts">scripts/development.ts</a> · <a data-source="scripts/publish.ts">scripts/publish.ts</a> · <a data-source="scripts/ci.ts">scripts/ci.ts</a></p></details></section>
+<section id="human" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">11</span><h2>人が、変更を受け入れるか判断する</h2></header><div class="chapter-body"><p>人は、何が変わり、なぜ必要で、何を確かめ、何が未確認なのかをPRから読み取ります。Issueの要求と差分を照らし、検証がその要求を守っているかも確認します。</p>
+<p>検証コマンド、テスト、lint設定、対象選択、依存などを変える場合は、検出できなくなる条件とその対応を説明します。CI成功だけで要求達成や検証の妥当性を保証するものではありません。人が検証の無効化を見落とした場合まで、この仕組みが防ぐとは扱いません。</p>
+<p>dotagentsリポジトリの方針では、mainへはPR経由で入り、必要なCI、最新mainとの整合、未解決会話の解消を確認します。PR作者本人も内容を確認してマージを判断できる運用です。他のrepoの必須承認条件は、そのrepoに従います。保護設定の実状態は公開時に確認します。</p>
+<p>確認後に差分が更新された場合は、最新commitの差分とCIを再確認します。エージェントは人の判断、承認、マージを代行しません。</p>
+<p><strong>指摘があれば、まず根拠と影響範囲を調べます。</strong> 人が対象PRと指摘を示して依頼し、担当AIが見直す範囲と戻り先を判断する方針です。必要ならIssue作成から見直します。次の章で、この往復と現行CLIとの接続を説明します。</p>
+
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source=".codex/DEVELOPMENT.md">.codex/DEVELOPMENT.md</a></p></details></section>
+<section id="post-review" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">12</span><h2>PRの差し戻しを、次の修正につなぐ</h2></header><div class="chapter-body"><p><strong>合意した既存PRの修正は、同じdevelopmentで進めます。</strong> 差し戻しは、人が対象PRと指摘を示して依頼するところから始まります。担当するAIは、指摘の根拠を調べ、何を見直す必要があるかを整理します。原因の名前だけで戻り先を固定せず、調査資料・Issue・設計・実装・検証・説明への影響を確かめます。</p>
+<h3>修正を始める前に、四つの問いを確かめる</h3>
+<ol>
+<li><strong>指摘は何を根拠にしているか。</strong> 対象のcommit、引用した資料、その版と適用範囲、コーディングルール、実際の動作を照合します。指摘の内容も、確認すべき情報として扱います。</li>
+<li><strong>どこまで見直す必要があるか。</strong> 根拠を直したときに、Issueの要求、設計、実装、検証や説明のどこへ影響するかを調べます。</li>
+<li><strong>以前の合意は引き続き有効か。</strong> 目的、完了条件、範囲、権限が変わるなら、人との要求整理へ戻ります。既存の合意範囲で対応できることは、その範囲で進めます。</li>
+<li><strong>何を確かめれば、再び進めるか。</strong> 更新する成果物、必要な再検証、判断できていない点を整理します。根拠が変わった結果、使えなくなった検証や評価を、そのまま成功の証拠にはしません。</li>
+</ol>
+<p>この段階で残すのは、<strong>分かったこと、見直す範囲、戻り先の案、必要な判断</strong>です。情報が足りなければ、追加で調べることや人への質問を明らかにします。</p>
+<h3>同じ引用ミスでも、戻る範囲は変わる</h3>
+<p>例えば、参照資料が古かったと分かった場合、その資料が実装方法だけの根拠だったのか、Issueの要求そのものの根拠だったのかで、見直す範囲が変わります。前者なら根拠・実装・関連する検証を直せる場合があり、後者なら要求整理と合意から見直す必要があります。</p>
+<p>コーディングルールへの違反が疑われたときも、適用されるルールと現在のコードを確認します。指摘が古い版や適用外のルールに基づいていた場合は、その根拠を示して指摘の扱いを確認します。これらは判断の例（仮想例）であり、特定PRに起きた事実ではありません。また、すべての原因を網羅した分類でもありません。</p>
+<h3>調べた結果に応じて、合意や成果物を更新する</h3>
+<table>
+<thead>
+<tr><th>調べた結果</th><th>基本方針として合意した対応</th></tr>
+</thead>
+<tbody>
+<tr><td>合意済みの要求を満たしていない</td><td data-label="基本方針として合意した対応">同じPRで修正し、検証・独立評価・必要な媒体を更新する</td></tr>
+<tr><td>目的や完了条件、許可範囲が変わる</td><td data-label="基本方針として合意した対応">人との要求整理へ戻り、合意後にIssueと実装への影響を見直す</td></tr>
+<tr><td>今回の要求達成に不要な改善</td><td data-label="基本方針として合意した対応">今回扱うかを確認し、見送るものは既存の公開許可に従って別Issueへ分ける</td></tr>
+</tbody>
+</table>
+<p><strong>Issue作成からやり直すことも戻り先に含めます。</strong> 既存Issueの改訂で足りるか、新しいIssueへ分けるか、既存PRを継続できるかは、見直す範囲が分かってから判断します。前の指摘や判断の経緯は、引き続きたどれるようにします。</p>
+<h3>対応後は、最新の変更を人のレビューへ渡す</h3>
+<p>指摘と対応方針を残し、必要な調査・合意・修正を行います。文書も含め、その変更に必要な撮影、check、独立評価を行い、合意したPRへ反映します。draftで最新本文・必要媒体と同じheadのCIを確認し、ready切替後の実状態を読み戻してから、対応内容と残る事項を人へ伝えます。</p>
+<p>同じPRで続ける場合も、Issueを見直して進め直す場合も、指摘・変更・再確認の結果を対応づけます。過去の検証結果や中断記録は保持し、現在の成果物に適用できるかを確かめます。</p>
+<h3>公開済みPRを、新しい修正依頼から更新する</h3>
+<p>人が採用した指摘・期待する結果・許可範囲を一つの文章ファイルにまとめます。このハーネスで検証・公開したopen PRを対象に、前回公開run、既存checkout、修正依頼、新しい保存先を同じdevelopmentへ渡します。具体的な引数は<a data-source="scripts/README.md#既存prの修正">CLIガイド</a>に従います。</p>
+<p>要求を合意してIssueを更新した場合は、開始時に最新のopen Issue全文を取得して新runの要求として固定します。担当ホストが合意と修正依頼の範囲を確認し、前回runのIssue本文と同一であることは要求しません。開始後のIssue変更では停止し、今回の要求と修正依頼でPR全体を再評価します。</p>
+<p>checkoutが記録した公開headと一致し、追跡・未追跡の作業差分がないことを確認します。前回の対象・Issue・公開・評価記録とGit/GitHubの実状態を照合し、未完了の実行や結果不明があれば、作業と記録を保って停止します。前回runにも現行の形式4を要求し、形式3以前のrunはこの入口でも拒否します。新runは前回runと同じ親ディレクトリへ作り、旧runは読み取り参照に限ります。初期結果と入力を保存してから、setup直前に対象と並行実行を再照合します。不一致ならsetupや実装AIを起動せず、新runの<code>result.json</code>に停止理由・PR URL・次の対応を残します。setup後も入力とPRの変化を確認し、同じ箇所で取得した対象情報は再利用します。</p>
+<p>初回修正後は追加修正・独立評価の回数で停止せず、必要な撮影・check・独立評価・同じPR更新・同じheadのCIへ進みます。PR全体の基点を維持し、Issue全体と採用した修正要求をともに評価します。前回の成功や指摘IDは新runへ移さず、旧runを再開しません。</p>
+<p>前回本文の変更説明・未確認事項・添付リンクは、現在も必要な内容を評価して新しい本文へ残します。修正入力やIssue、主体、設定、PRの本文・head・baseが途中で変われば停止します。コメントの自動採用、作業差分の移植、自動承認・マージは行いません。<code>--no-publish</code>は独立評価までで止まります。</p>
+</div></section>
+<section id="handoff" class="chapter proposed"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">13</span><h2>変更を、次の担当者が確かめられる形にする</h2></header><div class="chapter-body"><p><strong>関係者への引き継ぎを整える方針です。</strong> PRの説明、確認手順、画像・動画を基に、QA・デザイナー・企画側が変更を確かめられる「変更の説明と確認ガイド」をまとめます。マージ後の変更を受け取り、次の確認へ進める状態を目指します。自動生成・共有の仕組みは、今後の実装で具体化します。</p>
+<h3>PRで揃えた説明を、受け手の確認へつなぐ</h3>
+<p>最初に、<strong>何のために、誰のどの操作が変わったか</strong>を伝えます。その上で、確認する人に必要な情報を揃えます。</p>
+<ul>
+<li><strong>QA向け：</strong> 確認手順と期待する結果、確認済み・未確認の範囲を示します。</li>
+<li><strong>デザイナー向け：</strong> 画面や状態の変化、対応する画像・動画、デザイン意図との差異を示します。差異が分からない場合は未確認とします。</li>
+<li><strong>企画向け：</strong> 要求との対応、利用上の制約、今回含めなかったことを示します。</li>
+<li><strong>全員に共通する確認先：</strong> 対象環境、動いている版、公開状況、関連Issue・PRへの参照を揃えます。</li>
+</ul>
+<p>複数のPRで一つの機能になる場合は、機能やリリース単位で説明をまとめ、各PRを根拠としてたどれるようにします。資料はPR段階から準備・更新し、引き継ぐ時点の版に合わせます。QAを本番公開前に行うアプリでは、その確認に使える時点で渡します。</p>
+<h3>次の担当者が、確認を始められる状態にする</h3>
+<p>引き継ぐ前に、資料と画像・動画が対象の版に対応しているか、受け手が確認先を開けるか、手順と期待結果を読み取れるかを確認します。必要な利用条件、既知の制約、未確認事項と問い合わせ先も、そのアプリの運用に合わせて示します。不明な項目は推測で埋めず、確認が必要な点として返します。</p>
+<p>マージ済みか、確認環境へ反映済みか、本番公開済みかを明記します。資料の作成、関係者への受け渡し、実際のQAやデザイン確認について、それぞれ確認できた状態を記録します。</p>
+</div></section>
+<section id="after-merge" class="chapter proposed"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">14</span><h2>リリースし、確かめ、次の改善へ戻す</h2></header><div class="chapter-body"><p><strong>共通の考え方を説明する章です。</strong> リリース・運用の手順はアプリごとに異なります。ここでは、ハーネスで作った変更を利用者へ届け、動きを確かめ、次の改善へつなぐときに、何を判断し、何を残すかを整理します。具体的なコマンド、担当者、合格値は、対象アプリで定めます。</p>
+<p>マージした変更が、いつ、どの版として利用者に届いたか。そして、解決したかった困りごとが実際に解消されたか。この2つをたどれると、開発中の検証と、公開後に分かったことを結びつけられます。</p>
+<h3>リリース前に、公開する版と判断する人を揃える</h3>
+<p>公開する版、公開先、必要な検証、実施を判断する人、問題があったときの対応を確認します。マージをきっかけに自動公開するアプリでは、この準備と公開判断をマージ前に置きます。別の操作で公開するアプリでは、その操作の前に置きます。実際のコマンドや権限は対象アプリの手順で定めます。</p>
+<p>公開の記録には、どの変更を、どこへ、いつ反映したかをたどれる情報を残します。実装を依頼する範囲と本番公開を任せる範囲は、対象アプリの運用に沿って確認します。ハーネスへの実装依頼だけで、本番公開まで許可されたとは扱いません。</p>
+<h3>公開した版を、利用者の操作で確かめる</h3>
+<p>リリース操作の結果を確認し、意図した版が公開先で動き、合意した確認条件を満たすかを確かめます。主要な操作、ログやエラー、データの反映など、何を見るかはアプリごとに選びます。</p>
+<p>例えば、入力フォームの改善なら「新しい画面が表示された」に続いて、「入力を完了でき、必要なデータが保存される」を確認対象にする、という考え方です。これは説明用の仮想例であり、特定アプリの事実や確認項目の合意ではありません。実際の確認項目はそのアプリの要求から決めます。確認した環境・版・結果を残し、判定できない点は未確認として扱います。</p>
+<h3>運用中の変化を見て、問題があれば対応する</h3>
+<p>公開直後の確認に加え、利用者からの問い合わせ、エラー、主要な操作の状況などから、使われ始めて分かったことを拾います。何を見るか、誰が見るか、どの状態で対応を始めるかを、対象アプリの運用に合わせて決めます。確認の間隔や合格値をこの記事で一律には定めません。</p>
+<p>問題があれば、影響している操作や対象、発生している版、確認できた事実を揃え、担当者が対応を判断します。修正を公開するか、前の版へ戻すか、別の対応を取るかは、そのアプリの復旧手順に従います。元へ戻せる範囲、データ変更の扱い、連絡先、復旧後の確認条件も、あらかじめ各アプリで確認しておく項目です。</p>
+<h3>振り返りを、次の要求整理につなぐ</h3>
+<p>要求の漏れ、差し戻しの理由、検証で見つけられなかったこと、実行が止まった理由、運用で分かったことを整理します。「何が起きたか」「何を根拠にそう考えたか」「次に何を変える候補があるか」を分けると、観測と推測を混ぜずに相談できます。</p>
+<p>改善案を採用するかは人が判断し、合意したものを次のIssueや継続する方針へ反映します。個別アプリの要求を直すのか、検証を見直すのか、ハーネスの進め方を変えるのかも、この段階で整理します。速度や品質の改善量は、計測した根拠がある場合にだけ扱います。</p>
+<h3>自分のアプリに当てはめるときの確認項目</h3>
+<ul>
+<li><strong>引き継ぎ：</strong> 誰が何を確認できるように、どの環境・版の説明を用意するか。</li>
+<li><strong>公開：</strong> どの版を、どこへ、何をきっかけに公開するか。誰が実施を判断するか。</li>
+<li><strong>稼働確認：</strong> どの操作や状態を、いつ、誰が確認するか。合格・未確認を何で判断するか。</li>
+<li><strong>問題への対応：</strong> 誰が影響を判断し、どこへ連絡するか。修正・復旧の手段と、その後の確認条件は何か。</li>
+<li><strong>振り返り：</strong> どの記録を根拠に、誰と改善を決め、次の要求へ残すか。</li>
+</ul>
+<p>この章は、各アプリの手順を整理するための共通の見方です。現行ハーネスに自動リリースや監視の機能があるという説明ではありません。アプリ固有の手順が不明なら、調べるか担当者に確認し、空欄を推測で埋めずに戻します。</p>
+</div></section>
+<section id="stops" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">15</span><h2>止まったとき、何を残してどこへ戻るか</h2></header><div class="chapter-body"><p>通常の開発では、まず<code>result.json</code>を読み、必要な詳細へ進みます。安全な新規保存先を確保した後は、準備失敗・停止・公開成功・<code>--no-publish</code>完了を同じ場所へ保存します。終端結果を保存できた新しいrunでは、同じ記録からローカルの<code>report.html</code>を生成します。表示は記録の読取りであり、検証や公開を再実行しません。保存先確保前の失敗や結果保存・HTML生成の失敗では、HTMLの存在を成功の根拠にしません。新しいrunでは<code>verification-summary.md</code>へ検証要約を複製せず、<code>stopped.txt</code>も作りません。過去runの要約Markdown・state・履歴・生ログは保全します。</p>
+<p><code>status</code>は停止・ローカル検証完了・公開とCI確認完了、<code>phase</code>と<code>operation</code>は終了位置です。<code>reasonCode</code>・<code>reason</code>・<code>nextAction</code>・<code>remaining</code>から理由、次の対応、残作業を読み、<code>details</code>でsetup・初回実装のログへ進みます。検証停止時と<code>--no-publish</code>完了時の<code>details</code>は<code>verification/state.json</code>を指し、公開後は<code>evidence</code>が示すrun保存先から同じ検証stateへ進めます。下位の予算・active・履歴は元のstateに保持し、以前の成功で今回の停止を上書きしません。</p>
+<p>検証stateの<code>findings</code>で要約・停止時の診断、<code>reviewHistory</code>で指摘と評価履歴を確認します。生ログは記録済み試行の<code>events[].prefix</code>、中断等で予約が残る試行の<code>active.prefix</code>に<code>.stdout</code>・<code>.stderr</code>を付けたパスです。強制終了や保存障害ではログが存在しない場合もあります。repo外の独自利用者が要約Markdownを読んでいるか、その互換性は未確認です。</p>
+<p>担当AIは<code>nextAction</code>と参照された証拠から、既存の許可範囲で事実を調べます。環境変更は許可された範囲でホストへつなぎ、調査の許可を変更の許可へ広げません。要求・権限・上限の変更は人が判断します。支援後も対象・証拠・権限・検証を再確認し、旧run・lock・active予約・上限を書き換えて再開したり、不明な公開を自動再試行したりしません。</p>
+<p>保存先確保前、既存runとの衝突、安全性を確認できない保存先には結果を書きません。元の理由と保存不能をstderr／例外で確認します。保存中の割込みは既知の公開情報と元の停止理由を保って停止結果へ更新し、保存失敗では元の理由と保存エラーを併記します。直前の完全な記録が残る場合があるため、ファイルだけで成功と判断せず、stderr／例外も確認します。SIGKILLやOS停止による保存は保証しません。</p>
+<table>
+<thead>
+<tr><th>起きたこと</th><th>扱いと戻り先</th></tr>
+</thead>
+<tbody>
+<tr><td>判断に必要な事実が不足</td><td data-label="扱いと戻り先">依存する作業を保留し、調査して根拠を追加・再評価する</td></tr>
+<tr><td>意図、優先順位、範囲、権限が未確定</td><td data-label="扱いと戻り先">具体的な選択と影響を人に返し、回答が必要な作業を待つ</td></tr>
+<tr><td>通常のcheck不合格・独立評価で不備</td><td data-label="扱いと戻り先">ログや所見を渡し、合意範囲内で修正して再検証・再評価する</td></tr>
+<tr><td>要求、対象、設定、主体が変化</td><td data-label="扱いと戻り先">停止し、現在の条件を照合する。古い成功を流用しない</td></tr>
+<tr><td>旧<code>writing</code>設定が残存</td><td data-label="扱いと戻り先">モデル実行・公開前に拒否する。利用先の文書方針を確認して設定を更新し、旧runを保全する。専用校正の要否が未解決なら旧版を保持する</td></tr>
+<tr><td>撮影やcheckの起動不能・時間切れ</td><td data-label="扱いと戻り先">担当AIが起動失敗・時間切れをログで調べ、ホストが許可範囲で環境を解消する</td></tr>
+<tr><td>有限試行の回数・モデル時間上限に到達／モデル応答が不正</td><td data-label="扱いと戻り先">未達として停止し、消費量と結果を保持する。判断内容が空の<code>needs_human</code>も<a href="#build">応答不正として扱う</a></td></tr>
+<tr><td>PR作成済みだがCI未確認・公開結果が不明</td><td data-label="扱いと戻り先">PR URLや記録を保持する。CIは上の分類表に沿って、記録された次の対応に沿ってGitHub上の実状態を照合する</td></tr>
+<tr><td>評価・CIの証拠を保存できない</td><td data-label="扱いと戻り先">応答不正と分け、元の原因・保存先・保存できた証拠を確認する。以前の完全な履歴を保持し、後続修正・公開を止める</td></tr>
+<tr><td>プロセス中断・lockや実行予約が残存</td><td data-label="扱いと戻り先">実プロセス、設定、ログ、消費量、現在のIssueと差分を照合する</td></tr>
+</tbody>
+</table>
+<p>修正・評価の起動前に回数と<code>active</code>を保存します。モデル完了直後のstateの中間保存は行わず、次のコマンド予約か終端保存まで起動前の予約を保持します。その間の例外で完了イベントや経過時間がstateに未反映でも、予約・生ログ・成果物は残り、二重実行を拒否します。終端保存も失敗した場合は元の理由と保存エラーを併記します。</p>
+<p>指摘が反復したら、既存の評価履歴・修正結果と現在の成果物を照合し、原因と方針を見直します。合意範囲内の必須修正を続け、範囲外の改善や好みを完了条件にしません。check失敗も同じ修正経路へ戻り、変更した成果物のcheck・評価を更新します。停滞専用AI・追加レビュー工程・別台帳は設けません。</p>
+<h3>通常は回数で止めず、有限試行と中断条件を区別する</h3>
+<p>通常の新規implementと既存PR修正では、初回作業・追加修正・独立評価にモデル時間の上限を設けません。経過時間は記録しますが、初回実装の時間を後工程から差し引きません。追加修正・独立評価も回数上限なし（<code>repairLimit: null</code>・<code>reviewLimit: null</code>）です。回数だけを理由とした続行承認は求めず、合意範囲内の必須指摘を解消した最新成果物のcheckと独立評価acceptedまで修正を続けます。各check、撮影、CI待機の上限はそれぞれ9分、汎用コマンドと公開後の対象照合は11分です。単独試行では明示した有限の回数・モデル時間上限も使えます。両回数上限はそれぞれ正の整数か明示的な<code>null</code>が必須で、省略・不正値を上限なしに読み替えません。回数・経過時間・指摘・結果・active予約の記録は続けます。時間・使用量・保存量が増える可能性があり、収束は保証しません。</p>
+<p>新しい設定は採用後の新規実行に適用します。過去のrunを無制限設定へ変更・変換・自動再開したり、記録を削除して消費回数を初期化したりしません。通常の中断は実行中のコマンドと同一プロセスグループの子を停止し、出力保存を待ちます。強制終了やOS停止では子プロセスが残る場合があり、実状態の確認が必要です。完全自動再開は提供していません。</p>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="scripts/README.md">scripts/README.md</a> · <a data-source="scripts/correction.ts">scripts/correction.ts</a></p></details></section>
+<section id="records" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">16</span><h2>成果物と根拠を、次の人がたどれるようにする</h2></header><div class="chapter-body"><table>
+<thead>
+<tr><th>置き場所</th><th>残すもの</th><th>使い方</th></tr>
+</thead>
+<tbody>
+<tr><td>GitHub Issueと合意記録</td><td data-label="残すもの">目的、要求、完了条件、検証方法、範囲の合意</td><td data-label="使い方">実装と評価が参照する要求の正本</td></tr>
+<tr><td>対象repoの <code>research/</code></td><td data-label="残すもの">再利用する調査、出典、版、適用条件、未解決事項</td><td data-label="使い方">必要な報告をコミットに含め、確認済みの版への参照を実装・修正・独立評価へ渡す</td></tr>
+<tr><td>対象repoの共有モデル</td><td data-label="残すもの">目的・概念・規則、根拠、適用条件、合意・未確認の状態</td><td data-label="使い方">JSONを正本とし説明を生成。Issueで選んだIDと版から、同じ定義を各工程へ渡す</td></tr>
+<tr><td>対象repoの既存文書</td><td data-label="残すもの">採用した仕様、方針、操作、設定、制約</td><td data-label="使い方">現在有効な説明として更新する</td></tr>
+<tr><td>checkout外の実装・検証の実行保存先</td><td data-label="残すもの">終了案内の<code>result.json</code>、表示用の<code>report.html</code>、要求、内部評価、ログ、下位state、消費量、公開結果</td><td data-label="使い方">結果から行動・評価・原記録へ進む。HTMLが作れないときは保存済み結果を読み、下位stateと旧runを保全する</td></tr>
+<tr><td>指示変更時の比較eval保存先</td><td data-label="残すもの">変更前後の固定条件、ケース別の行動・成果・負担、失敗・未評価と裁定</td><td data-label="使い方">ローカルの元記録を確認し、公開可能な要約だけを関係Issue・PRへ残す。通常runの<code>result.json</code>へ変換しない</td></tr>
+<tr><td>PRと対象repoで合意した証拠保存先</td><td data-label="残すもの">差分、検証結果、必要な媒体、対象commit、未確認事項</td><td data-label="使い方">人がレビューし、判断する</td></tr>
+</tbody>
+</table>
+<p>必要な調査報告は <code>research/</code> の既存ファイルを直接編集し、原資料との照合と既存の評価を経て、Git差分で共有します。専用archiveによるコピーや上書き拒否はありません。既存内容の保全は担当者が確認します。旧セッション、評価、lockは履歴として保持し、変換・再開しません。</p>
+<p>検証結果の同一性確認は、要求本文と、Git追跡ファイル・ignoreされていない未追跡ファイルのパス、内容、モードなどを対象にします。ignoredな依存や生成物まで一致を保証する仕組みではありません。信頼する単一実行で使い、別の作業が同じcheckoutを書き換える状況を避けます。</p>
+<p>旧入口や旧run、未追跡・ignored資産、別worktree、失敗記録は保全します。現在の日常入口はscopingとimplementです。登録切替や復帰に影響する変更では、対象資産の保全・復元確認と、新しいタスクからの検出・実行確認を行います。通常のタスクごとに移行手順をやり直す運用ではありません。</p>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="research/README.md">research/README.md</a> · <a data-source="skills/scoping/references/session.md">skills/scoping/references/session.md</a></p></details></section>
+<section id="harness-eval" class="chapter"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">補足</span><h2>指示変更の効果を、必要なときに比較する</h2></header><div class="chapter-body">
+<p><code>scoping</code>・<code>implement</code>や適用される<code>AGENTS.md</code>の変更で、既存の根拠だけでは効果を判断できない場合に使う手動の同条件evalです。通常の開発run、定期実行、全PRのCIに自動接続されません。レビュー試験専用HTMLの案は取り下げましたが、レビュー品質の観測に使う既存の<code>verify-review.ts</code>と記録は残ります。</p>
+<ol>
+<li><strong>条件を固定する。</strong> <code>skill-eval.ts plan</code>で変更前後のcommit、同じケース・モデル・設定・ツール、呼出し数と時間上限、保存先と公開範囲を確認します。条件や隔離を確認できなければ実モデルを起動せず、理由を返します。</li>
+<li><strong>隔離して実行する。</strong> <code>skill-eval.ts run</code>で選択・非選択、要求充足、安全条件、時間・使用量を記録します。失敗や未評価も残し、成功するまで自動再試行しません。</li>
+<li><strong>裁定して知らせる。</strong> 独立した裁定を行えた場合は添え、<code>skill-eval.ts report</code>で前後を比較します。公開可能な要約を関係Issue・PRへ残し、人が改善・悪化・判定不能と限界を見て採用を判断します。CLIは投稿やマージを行いません。</li>
+</ol>
+<p>通常の<code>implement</code>の<code>report.html</code>は1実行の行動・評価を読む資料です。この比較evalのケース別記録とは形式も判断単位も異なり、どちらかをもう一方の成功証拠へ読み替えません。</p>
+</div><details class="evidence"><summary>この補足の根拠</summary><p><a data-source="scripts/README.md#指示変更時の同条件eval">比較evalの手順</a> · <a data-source="scripts/skill-eval.ts">skill-eval.ts</a> · <a data-source="scripts/skill-eval-report.ts">skill-eval-report.ts</a> · <a data-source="scripts/run-report.ts">run-report.ts</a></p></details></section>
+<section id="questions" class="chapter pending"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">17</span><h2>合意した方向性と、今後の実装</h2></header><div class="chapter-body"><p><strong>このガイドで説明する方向性は揃いました。</strong> 読者は初めてハーネスを導入する人です。要求整理からPR、人の判断に加えて、差し戻しの調査と見直し、関係者への動作説明、アプリのリリース・運用・振り返りまでを扱います。</p>
+<p>差し戻しは、人が対象PRと指摘を示して依頼し、担当AIが根拠と影響範囲を調べます。必要なら要求整理やIssue作成へ戻り、必要な合意を揃えて進めます。PRで用意した説明は、QA・デザイナー・企画側が確認できる資料へつなげます。</p>
+<p>通常の開発と既存PR修正の上限・停止条件はCLIガイドに従います。中断記録を変換・再開せず、新しい明示的な修正依頼は新runとして扱います。</p>
+<p>合意した既存PRの修正はdevelopmentへ接続済みです。関係者向けの確認ガイドを自動で作成・共有する仕組みは、今後の実装で具体化します。アプリ固有の公開方式・担当・コマンド・確認値は、そのアプリで定める項目です。合意した方向性と実装済みの機能を区別し、不明な部分は確認先へ戻します。</p>
+</div></section>
+<section id="sources" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">18</span><h2>出典と、このページの位置づけ</h2></header><div class="chapter-body"><p>確認日：2026年9月24日。対象：dotagentsのcommit <code data-commit></code>。本文・確認表・詳細図を、この版の文書とコードへ照合しました。今回の同期は静的な照合であり、実モデルやGitHub公開、対象アプリの動作を新たに実行した記録ではありません。</p>
+<p>このページはフローを読み通すための解説です。要求や手順の正本を置き換えるものではありません。実行時は対象repoと利用する版の指示・設定を確認します。現在の保護設定や、個別Issue・PRの実行成功を、このページの作成によって検証したものではありません。</p>
+<p>本文の編集元は<code>docs/html/workflow-guide.html</code>、図のデータと表示の編集元は<code>docs/html/workflow-map.html</code>です。変更前の保全・比較用コピーは必要な作業の間だけ作業領域に置き、継続して編集する全文コピーは増やしません。これらのHTMLはrepoで管理し、変更はIssueとPRで確認します。現在の参照版はこのHTMLの<code>source-commit</code>だけを更新し、<code>data-commit</code>の版表示と<code>data-source</code>の根拠リンクへ反映します。過去版を意図したリンクは通常の<code>href</code>で固定します。</p>
+<ul>
+<li><a data-source="README.md">全体の目的と現行入口</a></li>
+<li><a data-source=".codex/DEVELOPMENT.md">要求・文書・テスト・レビュー・マージの方針</a></li>
+<li><a data-source="skills/scoping/SKILL.md">scopingの進め方</a></li>
+<li><a data-source="skills/scoping/references/sufficiency.md">十分性の判断と六つの問い</a></li>
+<li><a data-source="skills/scoping/references/session.md">根拠の保存・改訂・引き継ぎ</a></li>
+<li><a data-source="skills/scoping/references/issue.md">Issue公開の手順</a></li>
+<li><a data-source="skills/implement/SKILL.md">implementの進め方</a></li>
+<li><a data-source="scripts/README.md">制御CLI・調査報告の受け渡し・撮影・公開・中断の手順</a></li>
+<li><a data-source="scripts/development.ts">初回実装から公開までの実装</a></li>
+<li><a data-source="scripts/correction.ts">修正・検証・独立評価・停止の実装</a></li>
+<li><a data-source="scripts/repair.ts">初回実装・修正に共通する指示と応答検査</a></li>
+<li><a data-source="scripts/research-handoff.ts">調査報告の版の照合と参照の引き継ぎ</a></li>
+<li><a data-source="scripts/knowledge.ts">共有知識の形式検証・抽出・説明生成</a></li>
+<li><a data-source="scripts/ci.ts">CI結果の分類とPR対象の照合</a></li>
+<li><a data-source="scripts/run-report.ts">実装runのローカルHTML表示</a></li>
+<li><a data-source="scripts/skill-eval.ts">指示変更時の同条件eval入口</a></li>
+</ul>
+<p>読者を初めてハーネスを導入する人とし、アプリ・サービスのリリース・運用・振り返りまで扱うことは、2026年9月16日の記事作成時に依頼者と確認しました。リリース・運用は、アプリごとに異なる手順へ当てはめる共通の考え方として説明します。</p>
+<p>差し戻しの3分類を土台に、人が対象PRと指摘を示して依頼し、担当AIが根拠・影響範囲・戻り先を調べる方向性を合意しました。必要ならIssue作成から見直します。PRの動作説明をQA・デザイナー・企画向けの確認ガイドへつなぐ方向性も合意しています。既存PRの修正入口は導入済みです。関係者向けの自動引き継ぎやアプリの運用は別に具体化します。</p>
+<p>これらは記事で説明する設計方針であり、参照したcommitにすべて実装済みという意味ではありません。特定アプリの運用手順や、本番公開・関係者への送信の許可をこの記事で与えるものではありません。</p>
+</div></section></main></div>
+<footer><span>dotagents · 確認対象 <span data-commit="short"></span> · 2026.09.24</span><a href="#top">ページ先頭へ ↑</a></footer>
+</div>
+<script>
+const sourceCommit=document.querySelector('meta[name="source-commit"]').content;
+document.querySelectorAll('[data-commit]').forEach(node=>node.textContent=node.dataset.commit==='short'?sourceCommit.slice(0,7):sourceCommit);
+document.querySelectorAll('a[data-source]').forEach(link=>link.href='https://github.com/thkt/dotagents/blob/'+sourceCommit+'/'+link.dataset.source);
+const button=document.getElementById('reading-mode');
+const status=document.getElementById('reading-status');
+const chapterNodes=[...document.querySelectorAll('.chapter')];
+const folds=[];
+const hero=document.querySelector('.hero-copy');
+const heroFold=document.createElement('details');heroFold.className='guide-scope';
+const heroSummary=document.createElement('summary');heroSummary.textContent='このガイドの前提と範囲';heroFold.append(heroSummary);
+for(const p of [...hero.children].slice(1))heroFold.append(p);hero.append(heroFold);
+for(const chapter of chapterNodes){
+  if(chapter.id==='overview')continue;
+  const body=chapter.querySelector('.chapter-body');
+  const first=body.firstElementChild;
+  const fold=document.createElement('details');fold.className='chapter-more';
+  const summary=document.createElement('summary');summary.textContent='詳しい説明・条件を読む';fold.append(summary);
+  const content=document.createElement('div');content.className='chapter-expanded';
+  const keepIntro=first&&first.tagName==='P';
+  for(const child of [...body.childNodes])if(!keepIntro||child!==first)content.append(child);
+  fold.append(content);body.append(fold);folds.push(fold);
+}
+function refreshMode(){
+  const allOpen=folds.every(f=>f.open);
+  button.textContent=allOpen?'各章の詳細を閉じる':'すべての詳細を開く';
+  button.setAttribute('aria-expanded',String(allOpen));
+  status.textContent=allOpen?'全章の詳細を表示中。':'各章の導入を表示。詳細は章ごとに開けます。';
+}
+button.removeAttribute('aria-pressed');
+document.querySelector('.reading-controls').hidden=false;
+button.addEventListener('click',()=>{const open=!folds.every(f=>f.open);folds.forEach(f=>f.open=open);refreshMode();});
+folds.forEach(f=>f.addEventListener('toggle',refreshMode));
+function revealHash(){
+  const id=decodeURIComponent(location.hash.slice(1)),target=document.getElementById(id);
+  const chapter=target?.closest('.chapter');if(!chapter)return;
+  const fold=chapter.querySelector('.chapter-more');if(fold)fold.open=true;
+  for(let p=target.parentElement;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;
+  refreshMode();
+}
+document.querySelectorAll('a[href^="#"]').forEach(link=>link.addEventListener('click',()=>{const chapter=document.getElementById(link.hash.slice(1))?.closest('.chapter');const fold=chapter?.querySelector('.chapter-more');if(fold)fold.open=true;}));
+addEventListener('hashchange',revealHash);refreshMode();revealHash();
+let printState=[],heroPrintState=false;
+addEventListener('beforeprint',()=>{printState=folds.map(f=>f.open);heroPrintState=heroFold.open;heroFold.open=true;folds.forEach(f=>f.open=true);});
+addEventListener('afterprint',()=>{folds.forEach((f,i)=>f.open=printState[i]);heroFold.open=heroPrintState;refreshMode();});
+document.querySelectorAll('table').forEach(table=>{const labels=[...table.querySelectorAll('thead th')].map(th=>th.textContent);table.querySelectorAll('tbody tr').forEach(row=>[...row.cells].forEach((cell,i)=>{if(i>0&&labels[i])cell.dataset.label=labels[i];}));});
+const links=[...document.querySelectorAll('.toc a')];
+let scheduled=false;
+function updateCurrent(){scheduled=false;let current=chapterNodes[0];for(const section of chapterNodes){if(section.offsetHeight&&section.getBoundingClientRect().top<160)current=section;}for(const link of links){const active=link.hash==='#'+current.id;link.classList.toggle('active',active);if(active)link.setAttribute('aria-current','location');else link.removeAttribute('aria-current');}}
+addEventListener('scroll',()=>{if(!scheduled){scheduled=true;requestAnimationFrame(updateCurrent);}},{passive:true});updateCurrent();
+</script>
+</body>
+</html>
