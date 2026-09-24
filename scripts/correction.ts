@@ -683,7 +683,7 @@ async function targetChange(config: Config, state: State): Promise<StopReason | 
   return null;
 }
 
-export async function run(config: Config) {
+export async function run(config: unknown) {
   assertConfig(config);
   await validate(config);
   const lock = resolve(config.runDir, 'lock');
@@ -783,7 +783,6 @@ if (import.meta.main) {
         throw Error('Usage: bun scripts/correction.ts CONFIG_FILE');
       }
       const config: unknown = JSON.parse(await readFile(configFile, 'utf8'));
-      assertConfig(config);
       const result = await run(config);
       assertRunning();
       console.log(JSON.stringify(result, null, 2));

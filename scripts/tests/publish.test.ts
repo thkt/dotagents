@@ -7,49 +7,268 @@ import { spawnSync } from 'node:child_process';
 import { withInterrupts } from '../process.ts';
 import { publish, publishCli, checkPublishedPr, PublicationError } from '../publish.ts';
 import { readTarget } from '../target.ts';
-import { isRecord } from '../values.ts';
 import { initializeTarget, githubTarget, git } from './support/target.ts';
 
 afterEach(async () => {
   await withInterrupts(async () => {});
 });
 
-function publishedReply(args: string[], mode: string, commit: string) {
-  return JSON.stringify({
-    html_url: `https://github.com/team/component/pull/${args[2]?.split('/').at(-1)}`,
+async function fixture(dir: string) {
+  const repo = join(dir, 'checkout');
+  await mkdir(repo);
+  await initializeTarget(repo);
+  const commit = git(repo, 'rev-parse', 'HEAD');
+  const body = join(dir, 'body with spaces.md');
+  await writeFile(body, 'Reviewable body');
+  const pr = {
     state: 'open',
-    draft: !['created_ready', 'existing_ready'].includes(mode),
-    head: {
-      ref: 'codex/test',
-      sha: mode === 'wrong_head' ? 'changed' : commit,
-      repo: { full_name: 'team/component' },
+    draft: true,
+    head: { ref: 'codex/test', sha: commit, repo: { full_name: 'team/component' } },
+    base: { ref: 'release', repo: { full_name: 'team/component' } },
+    body: 'Reviewable body',
+    user: { login: 'operator' },
+  };
+  const publications: string[] = [];
+  const f = {
+    repo,
+    body,
+    pr,
+    publications,
+    existing: '',
+    input: {
+      cwd: repo,
+      actor: 'operator',
+      head: 'codex/test',
+      title: 'Title with spaces',
+      bodyFile: body,
     },
-    base: {
-      ref: mode === 'wrong_base' ? 'main' : 'release',
-      repo: { full_name: 'team/component' },
+    args: [
+      '--repo',
+      repo,
+      '--actor',
+      'operator',
+      '--head',
+      'codex/test',
+      '--title',
+      'Title with spaces',
+      '--body-file',
+      body,
+    ],
+    github: async (args: string[]): Promise<string> => {
+      if (args[1] === 'api' && args[2]?.includes('/pulls/')) {
+        return JSON.stringify({
+          ...pr,
+          html_url: `https://github.com/team/component/pull/${args[2].split('/').at(-1)}`,
+        });
+      }
+      const reply = githubTarget(args);
+      if (reply !== undefined) {
+        return reply;
+      }
+      expect(args.slice(0, 2)).toEqual(['gh', 'pr']);
+      for (const [flag, value] of [
+        ['--repo', 'team/component'],
+        ['--head', 'codex/test'],
+        ['--base', 'release'],
+      ]) {
+        assert(flag);
+        expect(args[args.indexOf(flag) + 1]).toBe(value);
+      }
+      if (args[2] === 'list') {
+        return f.existing;
+      }
+      expect(args).toContain('--draft');
+      expect(args[args.indexOf('--body-file') + 1]).toBe(body);
+      expect(args[args.indexOf('--title') + 1]).toBe('Title with spaces');
+      return 'https://github.com/team/component/pull/2';
     },
-    body: mode === 'stale_body' ? 'Previous body' : 'Reviewable body',
-    user: {
-      login: ['wrong_author', 'created_wrong_author'].includes(mode) ? 'old-app[bot]' : 'operator',
+  };
+  const io = {
+    command: async (args: string[], cwd: string) => {
+      if (args[0] === 'git') {
+        return git(cwd, ...args.slice(1));
+      }
+      if (args[1] === 'pr') {
+        assert(args[2]);
+        publications.push(args[2]);
+        expect(cwd).toBe(repo);
+      }
+      return f.github(args);
     },
+  };
+  return { f, io };
+}
+
+function testPublisher(
+  name: string,
+  check: (
+    f: Awaited<ReturnType<typeof fixture>>['f'],
+    io: Awaited<ReturnType<typeof fixture>>['io'],
+  ) => Promise<void>,
+) {
+  test(`publisher: ${name}`, async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), 'publisher-test-')));
+    try {
+      const { f, io } = await fixture(dir);
+      await check(f, io);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 }
 
-test('publication readback rejects malformed REST identity without losing the known URL', async () => {
+testPublisher('create', async (f, io) => {
+  expect(await withInterrupts(() => publish(f.input, io))).toBe(
+    'https://github.com/team/component/pull/2',
+  );
+  expect(f.publications).toEqual(['list', 'create']);
+});
+
+testPublisher('existing', async (f, io) => {
+  f.existing = 'https://github.com/team/component/pull/1';
+  expect(await withInterrupts(() => publishCli(f.args, io))).toBe(f.existing);
+  expect(f.publications).toEqual(['list']);
+});
+
+testPublisher('stale_body', async (f, io) => {
+  f.existing = 'https://github.com/team/component/pull/1';
+  f.pr.body = 'Previous body';
+  await assert.rejects(
+    () => withInterrupts(() => publishCli(f.args, io)),
+    /Existing PR body differs/,
+  );
+  expect(f.publications).toEqual(['list']);
+});
+
+for (const [name, existing, publications] of [
+  ['actor_changed', '', ['list']],
+  ['existing_actor_changed', 'https://github.com/team/component/pull/1', ['list']],
+] as const) {
+  testPublisher(name, async (f, io) => {
+    f.existing = existing;
+    const github = f.github;
+    let users = 0;
+    f.github = async (args) => {
+      if (args[2] === 'user' && ++users > 1) {
+        return JSON.stringify({ login: 'other' });
+      }
+      return github(args);
+    };
+    await assert.rejects(
+      () => withInterrupts(() => publishCli(f.args, io)),
+      /GitHub actor changed/,
+    );
+    expect(f.publications).toEqual([...publications]);
+  });
+}
+
+for (const [name, existing, publications] of [
+  ['wrong_author', 'https://github.com/team/component/pull/1', ['list']],
+  ['created_wrong_author', '', ['list', 'create']],
+] as const) {
+  testPublisher(name, async (f, io) => {
+    f.existing = existing;
+    f.pr.user.login = 'old-app[bot]';
+    await assert.rejects(() => withInterrupts(() => publishCli(f.args, io)), /PR author differs/);
+    expect(f.publications).toEqual([...publications]);
+  });
+}
+
+testPublisher('unexpected_actor', async (f, io) => {
+  f.args[f.args.indexOf('--actor') + 1] = 'other';
+  await assert.rejects(() => withInterrupts(() => publishCli(f.args, io)), /GitHub actor changed/);
+  expect(f.publications).toEqual([]);
+});
+
+testPublisher('denied', async (f, io) => {
+  const github = f.github;
+  f.github = async (args) => (await github(args)).replace('"push":true', '"push":false');
+  await assert.rejects(
+    () => withInterrupts(() => publishCli(f.args, io)),
+    /push permission required/,
+  );
+  expect(f.publications).toEqual([]);
+});
+
+testPublisher('empty', async (f, io) => {
+  await writeFile(f.body, '');
+  await assert.rejects(
+    () => withInterrupts(() => publishCli(f.args, io)),
+    /body must not be empty/,
+  );
+  expect(f.publications).toEqual([]);
+});
+
+testPublisher('create_failed', async (f, io) => {
+  const github = f.github;
+  f.github = async (args) => {
+    const reply = await github(args);
+    if (args[2] === 'create') {
+      throw Error('create_failed');
+    }
+    return reply;
+  };
+  await assert.rejects(() => withInterrupts(() => publishCli(f.args, io)), /create_failed/);
+  expect(f.publications).toEqual(['list', 'create']);
+});
+
+testPublisher('created_ready', async (f, io) => {
+  f.pr.draft = false;
+  await assert.rejects(
+    () => withInterrupts(() => publishCli(f.args, io)),
+    (error: unknown) => {
+      assert(error instanceof PublicationError);
+      assert.match(error.message, /not confirmed draft/);
+      assert.equal(error.url, 'https://github.com/team/component/pull/2');
+      return true;
+    },
+  );
+  expect(f.publications).toEqual(['list', 'create']);
+});
+
+testPublisher('existing_ready', async (f, io) => {
+  f.existing = 'https://github.com/team/component/pull/1';
+  f.pr.draft = false;
+  await assert.rejects(() => withInterrupts(() => publishCli(f.args, io)), /not confirmed draft/);
+  expect(f.publications).toEqual(['list']);
+});
+
+for (const [name, change] of [
+  [
+    'wrong_head',
+    (pr: Awaited<ReturnType<typeof fixture>>['f']['pr']) => {
+      pr.head.sha = 'changed';
+    },
+  ],
+  [
+    'wrong_base',
+    (pr: Awaited<ReturnType<typeof fixture>>['f']['pr']) => {
+      pr.base.ref = 'main';
+    },
+  ],
+] as const) {
+  testPublisher(name, async (f, io) => {
+    change(f.pr);
+    await assert.rejects(
+      () => withInterrupts(() => publishCli(f.args, io)),
+      /Published PR target differs/,
+    );
+    expect(f.publications).toEqual(['list', 'create']);
+  });
+}
+
+testPublisher('malformed_rest_identity', async (f) => {
   const input = {
-    cwd: '/unused',
+    cwd: f.repo,
     repository: 'team/component',
     url: 'https://github.com/team/component/pull/2',
     actor: 'operator',
     body: 'Reviewable body',
     head: 'codex/test',
     base: 'release',
-    commit: 'verified',
+    commit: f.pr.head.sha,
   };
-  const response: unknown = JSON.parse(
-    publishedReply(['gh', 'api', 'pulls/2'], 'create', input.commit),
-  );
-  assert(isRecord(response));
+  const response = { ...f.pr, html_url: input.url };
   for (const [patch, reason] of [
     [{ user: null }, /PR author differs/],
     [{ state: 'OPEN' }, /Published PR target differs/],
@@ -78,183 +297,18 @@ test('publication readback rejects malformed REST identity without losing the kn
   }
 });
 
-function targetReply(args: string[], mode: string, users: number, commit: string) {
-  if (args[1] === 'api' && args[2]?.includes('/pulls/')) {
-    return publishedReply(args, mode, commit);
-  }
-  if (args[2] === 'user') {
-    return JSON.stringify({
-      login:
-        ['actor_changed', 'existing_actor_changed'].includes(mode) && users > 1
-          ? 'other'
-          : 'operator',
-    });
-  }
-  const reply = githubTarget(args);
-  if (reply !== undefined) {
-    return mode === 'denied' ? reply.replace('"push":true', '"push":false') : reply;
-  }
-}
-
-function publicationReply(args: string[], mode: string, body: string) {
-  expect(args.slice(0, 2)).toEqual(['gh', 'pr']);
-  for (const [flag, value] of [
-    ['--repo', 'team/component'],
-    ['--head', 'codex/test'],
-    ['--base', 'release'],
-  ]) {
-    assert(flag);
-    expect(args[args.indexOf(flag) + 1]).toBe(value);
-  }
-  if (args[2] === 'list') {
-    if (mode === 'interrupted') {
+testPublisher('interrupted', async (f, io) => {
+  const github = f.github;
+  f.github = async (args) => {
+    const reply = await github(args);
+    if (args[2] === 'list') {
       process.emit('SIGINT');
     }
-    return [
-      'existing',
-      'wrong_author',
-      'stale_body',
-      'existing_actor_changed',
-      'existing_ready',
-    ].includes(mode)
-      ? 'https://github.com/team/component/pull/1'
-      : '';
-  }
-  expect(args).toContain('--draft');
-  expect(args[args.indexOf('--body-file') + 1]).toBe(body);
-  expect(args[args.indexOf('--title') + 1]).toBe('Title with spaces');
-  if (mode === 'create_failed') {
-    throw Error('create_failed');
-  }
-  return 'https://github.com/team/component/pull/2';
-}
-
-for (const mode of [
-  'create',
-  'existing',
-  'stale_body',
-  'existing_actor_changed',
-  'wrong_author',
-  'created_wrong_author',
-  'actor_changed',
-  'unexpected_actor',
-  'denied',
-  'empty',
-  'create_failed',
-  'created_ready',
-  'existing_ready',
-  'wrong_head',
-  'wrong_base',
-  'interrupted',
-] as const) {
-  test(`publisher: ${mode}`, async () => {
-    const dir = await realpath(await mkdtemp(join(tmpdir(), 'publisher-test-')));
-    try {
-      const repo = join(dir, 'checkout');
-      await mkdir(repo);
-      await initializeTarget(repo);
-      const commit = git(repo, 'rev-parse', 'HEAD');
-      const body = join(dir, 'body with spaces.md');
-      await writeFile(body, mode === 'empty' ? '' : 'Reviewable body');
-      const publications: string[][] = [];
-      let users = 0;
-      const io = {
-        command: async (args: string[], cwd: string) => {
-          if (args[0] === 'git') {
-            return git(cwd, ...args.slice(1));
-          }
-          if (args[2] === 'user') {
-            users++;
-          }
-          const reply = targetReply(args, mode, users, commit);
-          if (reply !== undefined) {
-            return reply;
-          }
-          publications.push(args);
-          expect(cwd).toBe(repo);
-          return publicationReply(args, mode, body);
-        },
-      };
-      const args = [
-        '--repo',
-        repo,
-        '--actor',
-        mode === 'unexpected_actor' ? 'other' : 'operator',
-        '--head',
-        'codex/test',
-        '--title',
-        'Title with spaces',
-        '--body-file',
-        body,
-      ];
-      if (['create', 'existing'].includes(mode)) {
-        const result = await withInterrupts(() =>
-          mode === 'create'
-            ? publish(
-                {
-                  cwd: repo,
-                  actor: 'operator',
-                  head: 'codex/test',
-                  title: 'Title with spaces',
-                  bodyFile: body,
-                },
-                io,
-              )
-            : publishCli(args, io),
-        );
-        expect(result).toBe(
-          `https://github.com/team/component/pull/${mode === 'existing' ? 1 : 2}`,
-        );
-      } else {
-        assert(mode !== 'create' && mode !== 'existing');
-        const reasons = {
-          created_ready: /not confirmed draft/,
-          existing_ready: /not confirmed draft/,
-          wrong_head: /Published PR target differs/,
-          wrong_base: /Published PR target differs/,
-          stale_body: /Existing PR body differs/,
-          existing_actor_changed: /GitHub actor changed/,
-          wrong_author: /PR author differs/,
-          created_wrong_author: /PR author differs/,
-          actor_changed: /GitHub actor changed/,
-          unexpected_actor: /GitHub actor changed/,
-          denied: /push permission required/,
-          empty: /body must not be empty/,
-          create_failed: /create_failed/,
-          interrupted: /Interrupted execution/,
-        };
-        await assert.rejects(
-          () => withInterrupts(() => publishCli(args, io)),
-          (error: unknown) => {
-            assert(error instanceof Error);
-            assert.match(error.message, reasons[mode]);
-            if (mode === 'created_ready') {
-              assert(error instanceof PublicationError);
-              assert.equal(error.url, 'https://github.com/team/component/pull/2');
-            }
-            return true;
-          },
-        );
-      }
-      expect(publications.map((args) => args[2])).toEqual(
-        ['unexpected_actor', 'denied', 'empty'].includes(mode)
-          ? []
-          : [
-                'create',
-                'create_failed',
-                'created_wrong_author',
-                'created_ready',
-                'wrong_head',
-                'wrong_base',
-              ].includes(mode)
-            ? ['list', 'create']
-            : ['list'],
-      );
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-}
+    return reply;
+  };
+  await assert.rejects(() => withInterrupts(() => publishCli(f.args, io)), /Interrupted execution/);
+  expect(f.publications).toEqual(['list']);
+});
 
 test('publisher CLI rejects missing target before touching credentials', () => {
   const result = spawnSync(process.execPath, [resolve(import.meta.dir, '../publish.ts')], {
