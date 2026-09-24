@@ -16,6 +16,9 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { develop } from '../development.ts';
+import { run } from '../correction.ts';
+import { createHash } from 'node:crypto';
+import { reviewReplySource } from './support/correction.ts';
 import { PublicationError } from '../publish.ts';
 import { command, interruptionMessage, withInterrupts } from '../process.ts';
 import type { Config, State } from '../input.ts';
@@ -1419,6 +1422,45 @@ for (const location of ['checkout', 'git', 'symlink'] as const) {
       expect(existsSync(join(dir, 'result.json'))).toBe(false);
       expect(existsSync(join(dir, 'issue.json'))).toBe(false);
       expect(existsSync(join(dir, 'checkout'))).toBe(false);
+    },
+  );
+}
+
+for (const suffix of ['', '\n']) {
+  testDevelopment(
+    `Issue acquisition and verification share saved JSON: suffix=${JSON.stringify(suffix)}`,
+    async (f) => {
+      const text = JSON.stringify({
+        title: '日本語',
+        body: '  Show the requested result. 本文\n\n末尾 \n',
+        state: 'OPEN',
+        updatedAt: '1',
+      });
+      const raw = text + suffix;
+      const github = f.github;
+      f.github = async (argv, ...rest) => (argv[1] === 'issue' ? ok(raw) : github(argv, ...rest));
+      f.args.push('--no-publish');
+      f.verify = (config) =>
+        run({
+          ...config,
+          issue: [process.execPath, '-e', `process.stdout.write(${JSON.stringify(raw)})`],
+          review: [
+            process.execPath,
+            '-e',
+            `const {readFileSync}=require('node:fs'); const role='review'; ${reviewReplySource} console.log(JSON.stringify(reviewReply('accepted','Verified')));`,
+          ],
+        });
+      const result = await runDevelopment(f);
+      expect(result.status).toBe('verified_local');
+      const saved = await readFile(join(f.dir, 'issue.json'), 'utf8');
+      expect(saved).toBe(text);
+      expect(await readFile(join(f.dir, 'issue.stdout'), 'utf8')).toBe(raw);
+      const state: unknown = JSON.parse(
+        await readFile(join(f.dir, 'verification/state.json'), 'utf8'),
+      );
+      assert(isRecord(state));
+      expect(state.issueHash).toBe(createHash('sha256').update(saved).digest('hex'));
+      noPublication(f);
     },
   );
 }

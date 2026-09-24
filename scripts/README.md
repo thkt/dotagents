@@ -53,15 +53,15 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
 
 前回記録にあるrepo・Issue番号・PR・公開commit・checkout・主体・対象設定をGit/GitHubの実状態と照合します。checkoutは記録した公開headと一致し、追跡対象・未追跡の作業差分がないことが必要です。既存本文は開始時に読み取り、固定した修正入力とともに担当者へ渡します。未完了の実行、結果不明、対象不一致、残った作業があれば開始せず、記録と作業を保ったまま原因・次の対応を返します。別checkoutの自動作成、stash、作業差分の移植、rebase、旧stateの変換・再開は行いません。
 
-前回のIssue内容は前回stateのhashと照合し、保存記録の整合性を検査します。現在のIssueには前回との内容一致を求めず、同じrepo・Issue番号のOPENな要求で、空でないtitle・bodyがあることを確認します。開始時に取得したtitle・body・state・updatedAtを今回の固定入力とし、新runの`issue.json`と修正の検証設定へ保存します。前回のIssueとstateは書き換えません。この条件は採用後に開始する新runへ適用し、停止した実行の再開や旧記録の移行には使いません。
+前回のIssue内容は前回stateのhashと照合し、保存記録の整合性を検査します。新規runの`issueFormat: 1`では保存した比較用テキストのhashだけを照合します。識別のない旧runに限り、当時の保存テキストと末尾改行1個付きstdoutのhashを互換読取りの対象にします。保存ファイルへの改行追記や本文の改変は拒否し、旧記録は書き換えません。現在のIssueには前回との内容一致を求めず、同じrepo・Issue番号のOPENな要求で、空でないtitle・bodyがあることを確認します。開始時に取得したtitle・body・state・updatedAtを今回の固定入力とし、新runの`issue.json`と修正の検証設定へ保存します。前回のIssueとstateは書き換えません。この条件は採用後に開始する新runへ適用し、停止した実行の再開や旧記録の移行には使いません。
 
 新しい明示的な修正依頼ごとに初回修正を行い、追加修正・独立評価の回数上限は設けません。モデル時間制限も設けず、check・capture・CI等は通常developmentの時間枠と処理を共用します。過去のaccepted・check・capture成功や指摘IDは新runへ移しません。固定後のIssue変更は開始準備中も拒否し、setup前・実装前や後続の工程境界で検出したら停止します。修正入力・主体・権限・設定・PRの本文・head・baseなどの変化も引き続き停止対象です。人が要求・許可範囲を変更する場合は合意へ戻し、新しい明示的な依頼で別のrunを開始します。
 
 検証入口の修正対象照合はcorrectionが担当します。設定・保存先、lock、保存stateを確認してから、修正入力・Issue・対象・主体・権限・PR・remote ref・並行runを照合します。同時に異常がある場合、保存先・lock・stateの異常で先に停止し、その時点では外部対象の変化を照合しません。検証後とsetup・モデル実行・commit・push・本文更新・draft/ready切替をまたぐ再照合は継続します。
 
-correctionの`readIssue`はIssueの取得だけを行い、呼出し元が取得直後のIssueを`revisionUnchanged`へ渡して修正対象を照合します。入口（終端stateの再照合を含む）、各cycleの開始、追加修正の直前、capture・checkの後と独立評価の前後でIssueを読み直します。同じ境界では取得済みのIssueを使い、他の修正対象は`checkRevision`で改めて取得・照合します。修正対象の照合をIssueのhash比較より先に行い、修正時の不一致は従来どおり例外として停止します。進行中の通常correctionではIssueのhashが変わると`requirements_changed`になります。developmentもcorrectionの返却後に修正対象を再照合します。commit前後のverify再呼出しでは終端stateの鮮度を確認し、check・独立評価は再実行しません。
+correctionの`readIssue`はIssueを取得して比較用テキストへ変換し、開始時だけraw出力を保存します。修正対象は照合しません。呼出し元が取得直後の比較用テキストをcorrectionの`revisionUnchanged`へ渡して修正対象を照合します。開始時の`issue.txt`はこの照合が通った後に保存します。入口（終端stateの再照合を含む）、各cycleの開始、追加修正の直前、capture・checkの後と独立評価の前後でIssueを読み直します。同じ境界では取得済みのIssueを使い、他の修正対象は`checkRevision`で改めて取得・照合します。修正対象の照合をIssueのhash比較より先に行い、修正時の不一致は従来どおり例外として停止します。進行中の通常correctionではIssueのhashが変わると`requirements_changed`になります。developmentもcorrectionの返却後に修正対象を再照合します。commit前後のverify再呼出しでは終端stateの鮮度を確認し、check・独立評価は再実行しません。
 
-対象不一致や中断までに空のverificationディレクトリが残る場合があります。取得した自分のlockはfinallyで解放し、既存lockは取得・削除しません。入口で対象不一致を検出した場合はstateやモデル実行記録を新規作成せず、作業と旧runの記録を保持します。
+対象不一致や中断までに、空のverificationディレクトリ、または開始時のIssueのraw出力（`issue.stdout`・`issue.stderr`）だけが残る場合があります。取得した自分のlockはfinallyで解放し、既存lockは取得・削除しません。入口で対象不一致を検出した場合はstateやモデル実行記録を新規作成せず、作業と旧runの記録を保持します。
 
 評価の差分は前回から保持したPR全体の基点から作ります。公開headは今回の修正の開始点として別に渡し、独立評価は今回固定した合意済みIssue全体と採用した修正要求の両方でPR全体を確認します。既存本文の変更説明、未確認事項、添付リンクは現在も必要か評価し、必要な内容をacceptedな評価の公開用説明へ含めます。過去の生成本文を再帰的に追加せず、以前の全文は実行証拠に保持します。
 
@@ -246,6 +246,10 @@ bun scripts/correction.ts /absolute/path/config.json
 
 同じ指摘が反復したら、修正担当は既存の評価記録・過去の修正結果と現在の成果物を照合し、原因と修正方針を見直します。合意範囲内の必須修正を続け、対象外の改善や好みの変更まで完了条件にしません。check失敗も既存の修正経路へ戻します。成果物が変われば必要なcheckと独立評価を更新します。停滞専用のAI、追加レビュー工程、別の台帳は設けません。
 
+次の独立評価には、同じ実行で直前に正常終了し、`repaired`と返した追加修正への参照を渡します。評価担当は`review-N.target.json`の`latestRepair`から既存の`repair-M.stdout`を読み、`findings`にある反証・変更内容・変更しない理由と根拠を、現在のIssue・成果物・check結果へ照合します。修正前後の成果物の識別値も渡すため、無変更の説明や、その後のホスト撮影による差分を区別して確認できます。説明本文は複製せず、修正回数・ログの接頭辞・修正前後の識別値・応答hashを対象記録へ結び付けます。追加修正がない初回評価では`latestRepair`は`null`で、修正記録を要求しません。過去runや別runから理由を補いません。
+
+修正理由の受け渡しによってcheckや全指摘の再判断を省略せず、修正担当の自己申告を`fixed`や`accepted`へ自動変換しません。不正応答・`needs_human`・修正失敗では従来どおり停止します。正常応答の保存ログが次の評価前に変わった場合や読めない場合も、`invalid_repair`で停止して既存記録を保持します。参照とhashの照合は入力の取り違えを防ぐためのもので、修正理由の正しさや実モデルによる指摘解消率・費用の改善を保証しません。
+
 評価担当は、概要の`findings`、ホストが指定した`targetId`、4観点の`assessments`、過去指摘への判断の`updates`、新規指摘の`newItems`、参照文書の`documents`、後続担当の作業を示す`handoff`を返します。総合`status`と完全な`items`はホストが組み立てるため、応答には含めません。各観点には判断理由と未確認範囲を記し、適用しない観点についてもその理由を説明します。
 
 指摘は、`id`、初出対象の`introducedIn`、証明できた欠陥と未確認の懸念を分ける`kind`、指摘の観点を表す`area`（code・requirements・tests・documentation）、必須対応かを表す`required`、`location`、発生条件、影響、根拠、必要な対応を持ちます。文書不足など実在するコード位置がない場合は、pathとlineを`null`にし、架空の位置や再現実行を埋めません。新規の指摘は`newItems`に入れ、各項目に`id`・`introducedIn`・`disposition`は含めません。ホストが応答全体の`targetId`を照合した後、`R<評価回数>-<新規指摘の順番>`のID（例: 初回は`R1-1`、`R1-2`）、検証済みの対象ID、`open`をそれぞれ付与し、完全な指摘記録として保存します。順番は各応答の配列順で1から数え、同じ評価回数と順番には同じIDを付けます。一度保存したIDは後続評価で変えません。IDや接頭辞から指摘内容や人の判断が必要かを推測しません。
@@ -270,7 +274,7 @@ PR作成・添付・CIの登録と成功の確認はCLI、PR内の表示確認�
 
 評価ごとに既存のrunDirへ次を保存します。
 
-- `review-N.target.json`: 取得したIssue全文とhash、差分の基準commit、追跡ファイルとignoreされていない新規ファイルのパス・モード・内容hash、checkのコマンド・対象・結果・ログhash、reviewコマンドとモデル設定、ホストが算出したtargetId。
+- `review-N.target.json`: 取得したIssue全文とhash、差分の基準commit、追跡ファイルとignoreされていない新規ファイルのパス・モード・内容hash、checkのコマンド・対象・結果・ログhash、reviewコマンドとモデル設定、直前の追加修正への参照`latestRepair`（`attempt`・`prefix`・`sourceBefore`・`sourceAfter`・`stdoutHash`、追加修正がなければ`null`）、これらを含めてホストが算出したtargetId。
 - `review-N.diff`と`review-N.additions.json`: 基準commitからのbinary対応差分と、未追跡ファイルの内容・モード。通常ファイルの追加内容はBase64、symlinkはリンク先文字列として保持します。
 - `review-N.json`: 過去の本文・現在の判断・新規指摘からホストが再構成した完全なレビュー（`status`・`items`を含む）、対象記録への参照、参照文書の位置・内容hash・モード・役割・参照理由。
 - `review-N.prompt`・`.stdout`・`.stderr`: 指示と生の応答。失敗、不正応答、中断でも既存ログと予約を保全します。検証済みの`.json`がない試行を成功とは扱いません。
@@ -301,6 +305,10 @@ PR本文のdraft公開・CI・公開後確認・ready切替は本文作成時点
 この応答契約は`state.json`の`reviewFormat: 4`で識別する新規実行に適用します。`reviewFormat: 1`・`2`・`3`や識別のない旧形式の保存状態は変換・再開・削除せず、その版の記録として保全します。保存済みの完全なReviewの項目構成は変更せず、引き続き`id`・`introducedIn`・`disposition`を必須とし、空のID・導入対象や不正な状態を拒否します。独自のreviewコマンドは新規実行前に`newItems[].id`の出力を外してください。`updates[].id`にはホストから渡された過去指摘のIDをそのまま返します。旧応答のIDは取り込まず、不正応答として停止します。新規指摘が空の応答は旧契約と同じ形ですが、runの形式識別は4です。repairの応答形式は変更しません。停止理由とログを保持し、回数や時間枠をリセットしません。対象変更、不正応答、評価失敗時に以前のacceptedへ戻す処理はありません。
 
 ## 結果と再実行
+
+Issueの取得・保存・hash・再照合には、[issue.ts](issue.ts)の共通表現を使います。`title`・`body`が文字列のJSONオブジェクトでは、外側の空白・改行だけを除きます。JSONの再直列化は行わず、本文文字列の空白・改行、UTF-8、title・body・state・updatedAtを保持します。それ以外の単独correctionのIssue出力は平文としてそのまま扱い、先頭・末尾の空白や改行も変更検出の対象にします。一般コマンドの出力処理にはこの変換を適用しません。
+
+開始時のraw出力はdevelopmentの`issue.stdout`、correctionのrunDir内の`issue.stdout`に保持します。比較用テキストはそれぞれ`issue.json`・`issue.txt`に保存し、correctionの`state.json`には`issueFormat: 1`と同じテキストの`issueHash`を記録します。レビュー対象にもこのテキストとhashを渡します。correction開始時のstdout・stderrは、取得後の照合に失敗した場合も保存し、既存stateの照合で上書きしません。state保存前に失敗した場合も、`issue.stdout`・`issue.stderr`・`issue.txt`のいずれかが残る保存先は、Issueの再取得前に拒否します。失敗記録を保持し、別のrunDirで開始してください。識別のない旧stateをcorrectionで再開せず、新しい修正runからの参照には[既存PRの修正](#既存prの修正)の互換読取りを使います。
 
 新しい通常の`development.ts`実行では、最初に`result.json`を読み、`details`や`evidence`から必要な証拠へ進みます。検証停止時と`--no-publish`完了時の`details`は`verification/state.json`を指します。公開へ進んだ後も、`evidence`が示すrun保存先の`verification/state.json`から[検証の要約・評価履歴・生ログ](#レビュー対象と参照記録)を辿れます。安全な新規保存先を確保できた場合、準備途中の失敗から、実装・検証・公開・CIでの停止、成功、`--no-publish`の完了まで同じ場所へ保存します。新規runでは`verification-summary.md`と`stopped.txt`を作りません。過去の要約Markdown・`result.json`・`stopped.txt`・下位state・生ログは変換・削除せず、その版の記録として保持します。repo外で要約Markdownを読む独自利用者の有無と互換性は未確認です。単独のcorrection・publish・評価実験CLIの結果形式は変更しません。
 

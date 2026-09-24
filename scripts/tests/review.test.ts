@@ -643,6 +643,107 @@ console.log(JSON.stringify({status:'repaired',findings:'Updated source and docum
   expect(await readFile(join(t.config.cwd, 'README.md'), 'utf8')).toBe('current');
 });
 
+test('unchanged rebuttals reach the next reviewer without resolving findings automatically', async () => {
+  const t = await trial('docs', { reviewLimit: 3 });
+  await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
+  await mkdir(t.config.runDir);
+  // Unrelated successful-looking records must not be selected by directory search.
+  await writeFile(
+    join(t.config.runDir, 'repair-99.stdout'),
+    JSON.stringify({ status: 'repaired', findings: 'Unrelated repair' }),
+  );
+  await mkdir(join(t.root, 'other-run'));
+  await writeFile(
+    join(t.root, 'other-run/repair-1.stdout'),
+    JSON.stringify({ status: 'repaired', findings: 'Other run' }),
+  );
+  const repair = join(t.root, 'repair.js');
+  const counter = join(t.root, 'repair-count');
+  await writeFile(
+    repair,
+    `import {readFileSync,writeFileSync,existsSync} from 'node:fs';
+const counter=${JSON.stringify(counter)};
+const attempt=existsSync(counter)?Number(readFileSync(counter,'utf8'))+1:1;
+writeFileSync(counter,String(attempt));
+console.log(JSON.stringify({status:'repaired',findings:'Counterevidence '+attempt+': instructions are supplied by the agreed external manual; no artifact changes.'}));`,
+  );
+  t.config.repair = [process.execPath, repair];
+  await reviewer(
+    t,
+    `const target=JSON.parse(readFileSync(reviewContext.targetRecord,'utf8'));
+const repair=target.latestRepair;
+const explanation=repair?JSON.parse(readFileSync(repair.prefix+'.stdout','utf8')).findings:null;
+const reply=reviewReply('needs_changes',explanation??'Initial independent finding');
+if(repair?.attempt===2) reply.updates[0]={id:reviewContext.previous.items[0].id,disposition:'not_applicable',reason:'Independent comparison with the Issue confirms the external manual is sufficient'};`,
+  );
+  expect(t.execute().status).toBe(0);
+  const state = await t.state();
+  expect(state).toMatchObject({
+    checks: 3,
+    repair: 2,
+    review: 3,
+    result: 'ready_for_human_review',
+  });
+  const history = events(state.reviewHistory).map(object);
+  expect(history.map((review) => review.status)).toEqual([
+    'needs_changes',
+    'needs_changes',
+    'accepted',
+  ]);
+  expect(history.map((review) => object(events(review.items)[0]).disposition)).toEqual([
+    'open',
+    'open',
+    'not_applicable',
+  ]);
+  for (const attempt of [1, 2]) {
+    expect(history[attempt]?.findings).toBe(
+      `Counterevidence ${attempt}: instructions are supplied by the agreed external manual; no artifact changes.`,
+    );
+    const target = object(
+      JSON.parse(
+        await readFile(join(t.config.runDir, `review-${attempt + 1}.target.json`), 'utf8'),
+      ),
+    );
+    expect(target.latestRepair).toMatchObject({
+      attempt,
+      prefix: join(t.config.runDir, `repair-${attempt}`),
+      sourceBefore: state.source,
+      sourceAfter: state.source,
+    });
+  }
+  expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('correct');
+  expect(await Bun.file(join(t.config.cwd, 'README.md')).exists()).toBe(false);
+});
+
+test('a replaced repair response stops before review and preserves earlier records', async () => {
+  const t = await trial('docs');
+  const result = await withFileHooks(
+    t,
+    `
+writeFile: async (path,...args)=>{
+ await fs.writeFile(path,...args);
+ if(String(path).endsWith('check-3.stdout')) {
+  await fs.writeFile(${JSON.stringify(join(t.config.runDir, 'repair-2.stdout'))},JSON.stringify({status:'repaired',findings:'Explanation from another repair'}));
+ }
+}`,
+  );
+  expect(result.status).toBe(1);
+  expect(await t.state()).toMatchObject({
+    result: 'invalid_repair',
+    repair: 2,
+    review: 1,
+    checks: 3,
+  });
+  expect((await t.state()).findings).toContain('Repair response changed');
+  expect(await Bun.file(join(t.config.runDir, 'review-1.json')).exists()).toBe(true);
+  expect(await Bun.file(join(t.config.runDir, 'review-2.prompt')).exists()).toBe(false);
+  expect(await Bun.file(join(t.config.runDir, 'repair-3.prompt')).exists()).toBe(false);
+  expect(await readFile(join(t.config.cwd, 'README.md'), 'utf8')).toBe('current');
+  const saved = await readFile(join(t.config.runDir, 'state.json'), 'utf8');
+  expect(t.execute().status).toBe(1);
+  expect(await readFile(join(t.config.runDir, 'state.json'), 'utf8')).toBe(saved);
+});
+
 for (const documentsOnly of [false, true]) {
   test(`accepted document versions, diff, check and model remain traceable (documents only: ${documentsOnly})`, async () => {
     const t = await trial('normal', {
