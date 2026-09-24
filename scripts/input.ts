@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { isReview } from './review.ts';
 import type { Review } from './review.ts';
-import { isArray, isRecord, relativeDirectory } from './values.ts';
+import { isArray, isCommandArray, isRecord, relativeDirectory } from './values.ts';
 
 export interface Revision {
   previousRun: string;
@@ -153,11 +153,7 @@ const attemptLimit = (value: unknown) => value === null || (count(value) && valu
 const optionalString = (value: unknown) => value === undefined || typeof value === 'string';
 const role = (value: unknown) =>
   value === 'check' || value === 'repair' || value === 'review' || value === 'capture';
-const command = (value: unknown) =>
-  isArray(value) &&
-  typeof value[0] === 'string' &&
-  value[0].length > 0 &&
-  value.every((v) => typeof v === 'string');
+const command = (value: unknown) => isCommandArray(value) && value[0].length > 0;
 
 export function assertConfig(value: unknown): asserts value is Config {
   assert(isRecord(value), 'Invalid configuration object');
@@ -186,7 +182,7 @@ export function assertConfig(value: unknown): asserts value is Config {
   }
   assert(value.capture === undefined || command(value.capture), 'Invalid capture command');
   assert(
-    value.captureRequired !== true || command(value.capture),
+    value.captureRequired !== true || value.capture !== undefined,
     'Required capture command missing',
   );
   if (value.capture) {
