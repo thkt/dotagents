@@ -3,21 +3,9 @@
   "remote": "origin",
   "baseBranch": "main",
   "setup": [
-    [
-      "bun",
-      "install",
-      "--frozen-lockfile",
-      "--ignore-scripts"
-    ]
+    ["bun", "install", "--frozen-lockfile", "--ignore-scripts"]
   ],
-  "check": [
-    "bun",
-    "run",
-    "check"
-  ],
+  "check": ["bun", "run", "check"],
   "capture": null,
-  "ciChecks": [
-    "checks",
-    "verify"
-  ]
+  "ciChecks": ["checks", "verify"]
 }
