@@ -55,6 +55,10 @@ test('publication readback rejects malformed REST identity without losing the kn
     [{ state: 'OPEN' }, /Published PR target differs/],
     [{ head: { ref: input.head, sha: input.commit } }, /Published PR target differs/],
     [
+      { head: { ref: 'codex/other', sha: input.commit, repo: { full_name: 'team/component' } } },
+      /Published PR target differs/,
+    ],
+    [
       { base: { ref: input.base, repo: { full_name: 'other/repo' } } },
       /Published PR target differs/,
     ],

@@ -632,6 +632,7 @@ const failures: Record<string, RegExp> = {
   wrong_head: /PR identity changed/,
   wrong_author: /PR identity changed/,
   wrong_repo: /PR identity changed/,
+  wrong_branch: /PR identity changed/,
   wrong_base: /PR identity changed/,
   wrong_issue: /PR Issue changed/,
   wrong_body_issue: /PR Issue changed/,
@@ -793,6 +794,7 @@ async function stoppedRevision(f: Awaited<ReturnType<typeof fixture>>, mode: str
       'wrong_head',
       'wrong_author',
       'wrong_repo',
+      'wrong_branch',
       'wrong_base',
       'wrong_issue',
       'wrong_body_issue',
@@ -829,6 +831,9 @@ for (const mode of ['success', 'already_draft', 'local', ...Object.keys(failures
         },
         wrong_repo: () => {
           pr.headRepositoryOwner.login = 'another';
+        },
+        wrong_branch: () => {
+          pr.headRefName = 'codex/development-100';
         },
         wrong_base: () => {
           pr.baseRefName = 'main';
