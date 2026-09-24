@@ -105,7 +105,13 @@ test('push uses the verified HTTPS target despite pushInsteadOf and rejects inst
 test('target preserves empty and whitespace command arguments', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'target-argv-'));
   try {
-    const settings = { ...targetConfig, setup: [['printf', '%s', '']], check: ['tr', ' ', '_'] };
+    const args = [' tool ', '', ' \t ', 'last', 'first'];
+    const settings = {
+      ...targetConfig,
+      setup: [args],
+      check: args,
+      capture: { command: args, destination: 'media', required: false },
+    };
     await initializeTarget(cwd, settings);
     const target = await readTarget(
       cwd,
@@ -113,6 +119,49 @@ test('target preserves empty and whitespace command arguments', async () => {
     );
     expect(target.config.setup).toEqual(settings.setup);
     expect(target.config.check).toEqual(settings.check);
+    expect(target.config.capture).toEqual(settings.capture);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('target rejects invalid command arrays before further target access', async () => {
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'target-invalid-argv-')));
+  const read = async (argv: string[]) => {
+    expect(argv).toEqual(['git', 'rev-parse', '--show-toplevel']);
+    return cwd;
+  };
+  try {
+    for (const [key, reason] of [
+      ['setup', /Explicit setup commands required/],
+      ['check', /Verification command is required/],
+      ['capture', /Explicit capture configuration or null required/],
+    ] as const) {
+      for (const command of [undefined, null, 'tool', [], [''], [' \t\n'], [1], ['tool', 1]]) {
+        const value =
+          key === 'setup'
+            ? [command]
+            : key === 'capture'
+              ? { command, destination: 'media', required: false }
+              : command;
+        await writeFile(
+          join(cwd, '.dotagents.json'),
+          JSON.stringify({ ...targetConfig, [key]: value }),
+        );
+        await assert.rejects(() => readTarget(cwd, read), reason);
+      }
+    }
+    for (const [change, reason] of [
+      [{ setup: undefined }, /Explicit setup commands required/],
+      [{ capture: undefined }, /Explicit capture configuration or null required/],
+      [
+        { capture: { command: ['tool'], destination: 'media' } },
+        /Explicit capture configuration or null required/,
+      ],
+    ] as const) {
+      await writeFile(join(cwd, '.dotagents.json'), JSON.stringify({ ...targetConfig, ...change }));
+      await assert.rejects(() => readTarget(cwd, read), reason);
+    }
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

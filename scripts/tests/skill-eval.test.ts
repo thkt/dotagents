@@ -284,8 +284,7 @@ import { initializeTarget, git, targetConfig } from './support/target.ts';
 import { preparePlan, runEvaluation } from '../skill-eval.ts';
 import { writeComparison } from '../skill-eval-report.ts';
 
-async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), 'skill-eval-test-'));
+async function fixture(root: string) {
   const repo = join(root, 'repo');
   await mkdir(repo);
   await initializeTarget(repo, { ...targetConfig, repository: 'thkt/dotagents', remote: 'origin' });
@@ -355,8 +354,11 @@ if(args[0]==='exec') console.log(JSON.stringify({requests:1,rejected:1,failed:fa
 if(args[0]==='rm'&&process.env.EVAL_TEST_FAILURE==='cleanup') process.exit(1);
 `;
 
-test('committed paired inputs conceal labels and local changes; failed isolation blocks actors and preserves the planned denominator', async () => {
-  const { root, repo, plan } = await fixture();
+// These tests own process.env and the process-wide interrupt scope; keep them serial.
+async function withEvaluationFixture(
+  action: (context: Awaited<ReturnType<typeof fixture>>) => Promise<void>,
+) {
+  const root = await mkdtemp(join(tmpdir(), 'skill-eval-test-'));
   const original = {
     PATH: process.env.PATH,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
@@ -364,202 +366,15 @@ test('committed paired inputs conceal labels and local changes; failed isolation
     EVAL_TEST_FAILURE: process.env.EVAL_TEST_FAILURE,
   };
   try {
+    const context = await fixture(root);
     const bin = join(root, 'bin');
     await mkdir(bin);
     await writeFile(join(bin, 'docker'), fakeDocker, { mode: 0o755 });
-    process.env.PATH = `${bin}:${process.env.PATH}`;
+    process.env.PATH = `${bin}:${original.PATH}`;
     process.env.OPENAI_API_KEY = 'SIMULATED_PROVIDER_AUTH';
     process.env.EVAL_TEST_ROOT = root;
-    const prepared = await preparePlan(repo, plan);
-    expect(prepared.changedInstructions).toEqual(['AGENTS.md']);
-    expect(prepared.variants[0]?.files['README.md']).toBe('Public task context');
-    const result = await runEvaluation(repo, plan);
-    expect(result.records).toHaveLength(2);
-    expect(
-      result.records.map((record) => (isRecord(record) ? record.execution : 'invalid')),
-    ).toEqual(['completed', 'completed']);
-    const input = await readFile(join(root, 'actor-input.jsonl'), 'utf8');
-    expect(input).not.toContain('HOST_ONLY_EXPECTED_CANARY');
-    expect(input).not.toContain('PRIVATE_UNCOMMITTED_CANARY');
-    expect(input).not.toContain('SIMULATED_PROVIDER_AUTH');
-    await writeComparison(plan.outputDirectory);
-    const report = await readFile(join(plan.outputDirectory, 'comparison.md'), 'utf8');
-    expect(report).toContain('要求充足0/1');
-    expect(report).toContain('indeterminate');
-    const rawEvaluation = await readFile(join(plan.outputDirectory, 'evaluation.json'), 'utf8');
-    const logPath = join(plan.outputDirectory, 'before-positive', 'actor.stdout');
-    const trace = await readFile(logPath, 'utf8');
-    const adjudication = join(root, 'judgment.json');
-    const reference = {
-      file: 'actor.stdout',
-      sha256: createHash('sha256').update(trace).digest('hex'),
-      lines: [1, 1],
-    };
-    const assessment = {
-      evaluationSha256: createHash('sha256').update(rawEvaluation).digest('hex'),
-      conclusion: 'indeterminate',
-      reason: 'Simulated trace only',
-      nextDecision: 'Review actual behavior',
-      conditionDifferences: [],
-      trials: [
-        {
-          trial: 'before-positive',
-          selection: 'none',
-          bodyReads: [],
-          applications: [],
-          completeTrace: [reference],
-          outcome: 'indeterminate',
-          evidence: [reference],
-          reason: 'No skill action in this simulated trace; outcome not adjudicated',
-        },
-      ],
-    };
-    for (const [invalid, reason] of [
-      [{ ...reference, sha256: '0'.repeat(64) }, /Evidence changed/],
-      [{ ...reference, lines: [1, 999] }, /Evidence lines missing/],
-    ] as const) {
-      await writeFile(
-        adjudication,
-        JSON.stringify({
-          ...assessment,
-          trials: [{ ...assessment.trials[0], evidence: [invalid] }],
-        }),
-      );
-      await assert.rejects(() => writeComparison(plan.outputDirectory, adjudication), reason);
-    }
-    await writeFile(adjudication, JSON.stringify(assessment));
-    await writeComparison(plan.outputDirectory, adjudication);
-    await writeFile(logPath, trace + 'changed after adjudication');
-    await assert.rejects(
-      () => writeComparison(plan.outputDirectory, adjudication),
-      /Evidence changed/,
-    );
-    await assert.rejects(() => writeComparison(plan.outputDirectory), /EEXIST/);
-    await assert.rejects(() => runEvaluation(repo, plan), /EEXIST/);
-    for (const [failure, expectedStarts, executions, counts] of [
-      [
-        'network',
-        0,
-        ['unevaluated', 'unevaluated'],
-        [
-          [0, 0, 1],
-          [0, 0, 1],
-        ],
-      ],
-      [
-        'cleanup',
-        1,
-        ['completed', 'unevaluated'],
-        [
-          [1, 0, 0],
-          [0, 0, 1],
-        ],
-      ],
-      [
-        'timeout',
-        2,
-        ['timeout', 'timeout'],
-        [
-          [1, 1, 0],
-          [1, 1, 0],
-        ],
-      ],
-    ] as const) {
-      await writeFile(join(root, 'calls.jsonl'), '');
-      process.env.EVAL_TEST_FAILURE = failure;
-      const outputDirectory = join(root, failure);
-      await runEvaluation(repo, { ...plan, outputDirectory });
-      const calls = (await readFile(join(root, 'calls.jsonl'), 'utf8'))
-        .split('\n')
-        .filter(Boolean)
-        .map((line): unknown => JSON.parse(line));
-      const starts = calls.filter(
-        (call) =>
-          Array.isArray(call) && call[0] === 'start' && String(call.at(-1)).endsWith('-actor'),
-      );
-      expect(starts).toHaveLength(expectedStarts);
-      const saved: unknown = JSON.parse(
-        await readFile(join(outputDirectory, 'evaluation.json'), 'utf8'),
-      );
-      assert(isRecord(saved) && Array.isArray(saved.records));
-      expect(
-        saved.records.map((record) => (isRecord(record) ? record.execution : 'invalid')),
-      ).toEqual([...executions]);
-      await writeComparison(outputDirectory);
-      const failureReport = await readFile(join(outputDirectory, 'comparison.md'), 'utf8');
-      for (const [index, [launched, failed, unevaluated]] of counts.entries()) {
-        const side = index === 0 ? 'before' : 'after';
-        expect(failureReport).toContain(
-          `| [positive](${side}-positive/actor.stdout) | ${side} | unknown (採点外・不明) | indeterminate | ${executions[index]};`,
-        );
-        const summary = failureReport.split('\n').find((line) => line.startsWith(`${side}:`));
-        expect(summary).toContain(
-          `予定1試行、記録1、起動${launched}、実行失敗・時間切れ${failed}、未評価${unevaluated}。`,
-        );
-      }
-    }
-    const partialDir = join(root, 'partial-report');
-    await mkdir(join(partialDir, 'before-positive'), { recursive: true });
-    await writeFile(join(partialDir, 'before-positive', 'actor.stdout'), trace);
-    const partial = JSON.stringify({ ...result, records: result.records.slice(0, 1), error: null });
-    await writeFile(join(partialDir, 'evaluation.json'), partial);
-    const partialJudgment = join(root, 'partial-judgment.json');
-    await writeFile(
-      partialJudgment,
-      JSON.stringify({
-        evaluationSha256: createHash('sha256').update(partial).digest('hex'),
-        conclusion: 'improved',
-        reason: 'Unsupported partial comparison',
-        nextDecision: 'Adopt',
-        conditionDifferences: [],
-        trials: [
-          {
-            trial: 'before-positive',
-            selection: 'none',
-            bodyReads: [],
-            applications: [],
-            completeTrace: [reference],
-            outcome: 'fulfilled',
-            evidence: [reference],
-            reason: 'Simulated judgment',
-          },
-        ],
-      }),
-    );
-    await assert.rejects(
-      () => writeComparison(partialDir, partialJudgment),
-      /Missing planned pairs/,
-    );
-    process.env.EVAL_TEST_FAILURE = 'interrupt';
-    const interruptedDir = join(root, 'interrupted');
-    const watcher = setInterval(() => {
-      if (existsSync(join(root, 'interrupt-ready'))) {
-        clearInterval(watcher);
-        process.emit('SIGINT');
-      }
-    }, 10);
-    try {
-      await assert.rejects(
-        () =>
-          withInterrupts(() => runEvaluation(repo, { ...plan, outputDirectory: interruptedDir })),
-        /Interrupted execution/,
-      );
-    } finally {
-      clearInterval(watcher);
-    }
-    const interrupted: unknown = JSON.parse(
-      await readFile(join(interruptedDir, 'evaluation.json'), 'utf8'),
-    );
-    assert(isRecord(interrupted) && Array.isArray(interrupted.records));
-    expect(
-      interrupted.records.map((record: unknown) =>
-        isRecord(record) ? record.execution : 'invalid',
-      ),
-    ).toEqual(['failed', 'unevaluated']);
-    expect(
-      await readFile(join(interruptedDir, 'before-positive', 'safety.json'), 'utf8'),
-    ).toContain('"containersRemoved":true');
-    expect(await readFile(join(repo, 'README.md'), 'utf8')).toBe('PRIVATE_UNCOMMITTED_CANARY');
+    delete process.env.EVAL_TEST_FAILURE;
+    await action(context);
   } finally {
     for (const [key, value] of Object.entries(original)) {
       if (value === undefined) {
@@ -568,10 +383,292 @@ test('committed paired inputs conceal labels and local changes; failed isolation
         process.env[key] = value;
       }
     }
-    await withInterrupts(async () => {});
+    try {
+      await withInterrupts(async () => {});
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+}
+
+function assessment(rawEvaluation: string, trace: string) {
+  const reference = {
+    file: 'actor.stdout',
+    sha256: createHash('sha256').update(trace).digest('hex'),
+    lines: [1, 1],
+  };
+  return {
+    evaluationSha256: createHash('sha256').update(rawEvaluation).digest('hex'),
+    conclusion: 'indeterminate',
+    reason: 'Simulated trace only',
+    nextDecision: 'Review actual behavior',
+    conditionDifferences: [],
+    trials: [
+      {
+        trial: 'before-positive',
+        selection: 'none',
+        bodyReads: [],
+        applications: [],
+        completeTrace: [reference],
+        outcome: 'indeterminate',
+        evidence: [reference],
+        reason: 'No skill action in this simulated trace; outcome not adjudicated',
+      },
+    ],
+  };
+}
+
+async function actorStarts(root: string) {
+  const calls = (await readFile(join(root, 'calls.jsonl'), 'utf8'))
+    .split('\n')
+    .filter(Boolean)
+    .map((line): unknown => JSON.parse(line));
+  return calls.filter(
+    (call) => Array.isArray(call) && call[0] === 'start' && String(call.at(-1)).endsWith('-actor'),
+  );
+}
+
+async function savedExecutions(directory: string) {
+  const saved: unknown = JSON.parse(await readFile(join(directory, 'evaluation.json'), 'utf8'));
+  assert(isRecord(saved) && Array.isArray(saved.records));
+  return saved.records.map((record) => (isRecord(record) ? record.execution : 'invalid'));
+}
+
+test.serial(
+  'committed paired inputs conceal labels, local changes and credentials and feed reports',
+  async () => {
+    await withEvaluationFixture(async ({ root, repo, plan }) => {
+      const prepared = await preparePlan(repo, plan);
+      expect(prepared.changedInstructions).toEqual(['AGENTS.md']);
+      expect(prepared.variants[0]?.files['README.md']).toBe('Public task context');
+      const result = await runEvaluation(repo, plan);
+      expect(
+        result.records.map((record) => (isRecord(record) ? record.execution : 'invalid')),
+      ).toEqual(['completed', 'completed']);
+      expect(await savedExecutions(plan.outputDirectory)).toEqual(['completed', 'completed']);
+      const input = await readFile(join(root, 'actor-input.jsonl'), 'utf8');
+      expect(input).not.toContain('HOST_ONLY_EXPECTED_CANARY');
+      expect(input).not.toContain('PRIVATE_UNCOMMITTED_CANARY');
+      expect(input).not.toContain('SIMULATED_PROVIDER_AUTH');
+      await writeComparison(plan.outputDirectory);
+      const report = await readFile(join(plan.outputDirectory, 'comparison.md'), 'utf8');
+      expect(report).toContain('要求充足0/1');
+      expect(report).toContain('indeterminate');
+      const rawEvaluation = await readFile(join(plan.outputDirectory, 'evaluation.json'), 'utf8');
+      const trace = await readFile(
+        join(plan.outputDirectory, 'before-positive', 'actor.stdout'),
+        'utf8',
+      );
+      const adjudication = join(root, 'judgment.json');
+      await writeFile(adjudication, JSON.stringify(assessment(rawEvaluation, trace)));
+      await writeComparison(plan.outputDirectory, adjudication);
+      await assert.rejects(() => writeComparison(plan.outputDirectory), /EEXIST/);
+      await assert.rejects(() => runEvaluation(repo, plan), /EEXIST/);
+      expect(await readFile(join(plan.outputDirectory, 'comparison.md'), 'utf8')).toBe(report);
+      expect(await readFile(join(plan.outputDirectory, 'evaluation.json'), 'utf8')).toBe(
+        rawEvaluation,
+      );
+      expect(await actorStarts(root)).toHaveLength(2);
+      expect(await readFile(join(repo, 'README.md'), 'utf8')).toBe('PRIVATE_UNCOMMITTED_CANARY');
+    });
+  },
+  10000,
+);
+
+for (const [failure, expectedStarts, executions, counts] of [
+  [
+    'network',
+    0,
+    ['unevaluated', 'unevaluated'],
+    [
+      [0, 0, 1],
+      [0, 0, 1],
+    ],
+  ],
+  [
+    'cleanup',
+    1,
+    ['completed', 'unevaluated'],
+    [
+      [1, 0, 0],
+      [0, 0, 1],
+    ],
+  ],
+  [
+    'timeout',
+    2,
+    ['timeout', 'timeout'],
+    [
+      [1, 1, 0],
+      [1, 1, 0],
+    ],
+  ],
+] as const) {
+  test.serial(
+    `${failure} preserves stop records, actor start limits and the planned denominator`,
+    async () => {
+      await withEvaluationFixture(async ({ root, repo, plan }) => {
+        process.env.EVAL_TEST_FAILURE = failure;
+        const result = await runEvaluation(repo, plan);
+        if (failure === 'cleanup') {
+          expect(result.error).toContain('Isolation cleanup unconfirmed');
+        } else {
+          expect(result.records[0]).toMatchObject({
+            reason:
+              failure === 'network'
+                ? 'Network is not isolated'
+                : 'Wall time exhausted; container terminated',
+          });
+        }
+        expect(await actorStarts(root)).toHaveLength(expectedStarts);
+        expect(await savedExecutions(plan.outputDirectory)).toEqual([...executions]);
+        await writeComparison(plan.outputDirectory);
+        const report = await readFile(join(plan.outputDirectory, 'comparison.md'), 'utf8');
+        for (const [index, [launched, failed, unevaluated]] of counts.entries()) {
+          const side = index === 0 ? 'before' : 'after';
+          expect(report).toContain(
+            `| [positive](${side}-positive/actor.stdout) | ${side} | unknown (採点外・不明) | indeterminate | ${executions[index]};`,
+          );
+          const summary = report.split('\n').find((line) => line.startsWith(`${side}:`));
+          expect(summary).toContain(
+            `予定1試行、記録1、起動${launched}、実行失敗・時間切れ${failed}、未評価${unevaluated}。`,
+          );
+          expect(summary).toContain('要求充足0/1、未充足0、判定不能1');
+        }
+        expect(await readFile(join(repo, 'README.md'), 'utf8')).toBe('PRIVATE_UNCOMMITTED_CANARY');
+      });
+    },
+    10000,
+  );
+}
+
+test.serial(
+  'interrupt stops later actors and saves cleanup while preserving local work',
+  async () => {
+    await withEvaluationFixture(async ({ root, repo, plan }) => {
+      process.env.EVAL_TEST_FAILURE = 'interrupt';
+      const watcher = setInterval(() => {
+        if (existsSync(join(root, 'interrupt-ready'))) {
+          clearInterval(watcher);
+          process.emit('SIGINT');
+        }
+      }, 10);
+      try {
+        await assert.rejects(
+          () => withInterrupts(() => runEvaluation(repo, plan)),
+          /Interrupted execution/,
+        );
+      } finally {
+        clearInterval(watcher);
+      }
+      expect(await savedExecutions(plan.outputDirectory)).toEqual(['failed', 'unevaluated']);
+      expect(await actorStarts(root)).toHaveLength(1);
+      const safety: unknown = JSON.parse(
+        await readFile(join(plan.outputDirectory, 'before-positive', 'safety.json'), 'utf8'),
+      );
+      expect(safety).toEqual({ containersRemoved: true, networkRemoved: true });
+      expect(await readFile(join(repo, 'README.md'), 'utf8')).toBe('PRIVATE_UNCOMMITTED_CANARY');
+    });
+  },
+  10000,
+);
+
+// Report validation needs saved records and trace bytes, not Git or Docker execution.
+async function withReportFixture(
+  action: (context: {
+    root: string;
+    evaluation: ReturnType<typeof savedEvaluation>;
+    judgment: ReturnType<typeof assessment>;
+    adjudication: string;
+    logPath: string;
+  }) => Promise<void>,
+) {
+  const root = await mkdtemp(join(tmpdir(), 'skill-eval-report-test-'));
+  try {
+    const evaluation = savedEvaluation(root);
+    const raw = JSON.stringify(evaluation);
+    const trace =
+      '{"type":"turn.completed","usage":{"input_tokens":12,"cached_input_tokens":5,"output_tokens":3}}\n';
+    const logPath = join(root, 'before-positive', 'actor.stdout');
+    await mkdir(join(root, 'before-positive'));
+    await writeFile(logPath, trace);
+    await writeFile(join(root, 'evaluation.json'), raw);
+    const judgment = assessment(raw, trace);
+    const adjudication = join(root, 'judgment.json');
+    await writeFile(adjudication, JSON.stringify(judgment));
+    await action({ root, evaluation, judgment, adjudication, logPath });
+  } finally {
     await rm(root, { recursive: true, force: true });
   }
-}, 30000);
+}
+
+function savedEvaluation(root: string) {
+  return {
+    config: { ...config, outputDirectory: root },
+    records: ['before', 'after'].map((side) => ({
+      trial: `${side}-positive`,
+      side,
+      case: 'positive',
+      expected: 'scoping',
+      execution: 'completed',
+      launched: true,
+      elapsedMs: 12,
+      safety: { containersRemoved: true, networkRemoved: true },
+    })),
+    retries: 0,
+    elapsedMs: 24,
+    error: null,
+  };
+}
+
+for (const [invalid, reason] of [
+  [{ sha256: '0'.repeat(64) }, /Evidence changed/],
+  [{ lines: [1, 999] }, /Evidence lines missing/],
+] as const) {
+  test(`report rejects ${reason.source} independently of evaluation execution`, async () => {
+    await withReportFixture(async ({ root, judgment, adjudication }) => {
+      await writeFile(
+        adjudication,
+        JSON.stringify({
+          ...judgment,
+          trials: judgment.trials.map((trial) => ({
+            ...trial,
+            evidence: trial.evidence.map((ref) => ({ ...ref, ...invalid })),
+          })),
+        }),
+      );
+      await assert.rejects(() => writeComparison(root, adjudication), reason);
+    });
+  });
+}
+
+test('report rechecks evidence changed after a successful adjudication', async () => {
+  await withReportFixture(async ({ root, adjudication, logPath }) => {
+    await writeComparison(root, adjudication);
+    const trace = await readFile(logPath, 'utf8');
+    await writeFile(logPath, trace + 'changed after adjudication');
+    await assert.rejects(() => writeComparison(root, adjudication), /Evidence changed/);
+  });
+});
+
+test('report refuses an improvement conclusion with a missing planned pair', async () => {
+  await withReportFixture(async ({ root, evaluation, judgment, adjudication }) => {
+    const partial = JSON.stringify({ ...evaluation, records: evaluation.records.slice(0, 1) });
+    await writeFile(join(root, 'evaluation.json'), partial);
+    await writeFile(
+      adjudication,
+      JSON.stringify({
+        ...judgment,
+        evaluationSha256: createHash('sha256').update(partial).digest('hex'),
+        conclusion: 'improved',
+        reason: 'Unsupported partial comparison',
+        nextDecision: 'Adopt',
+        trials: judgment.trials.map((trial) => ({ ...trial, outcome: 'fulfilled' })),
+      }),
+    );
+    await assert.rejects(() => writeComparison(root, adjudication), /Missing planned pairs/);
+  });
+});
 
 test('provider stream failure or missing completion seals the gateway while a completed response allows the next turn', async () => {
   for (const mode of ['complete', 'truncated', 'broken']) {

@@ -23,8 +23,6 @@ for (const mutation of ['delete', 'rename'] as const) {
   test(`verified ${mutation} survives staging and commit but rejects later artifacts`, async () => {
     const t = await trial('normal');
     const cwd = t.config.cwd;
-    git(cwd, 'config', 'user.email', 'test@example.com');
-    git(cwd, 'config', 'user.name', 'Test');
     await writeFile(join(cwd, 'obsolete.txt'), 'old');
     git(cwd, 'add', '--all');
     git(cwd, 'commit', '-m', 'base');
@@ -314,7 +312,6 @@ for (const [target, path, content] of [
 
 for (const [name, change, reason] of [
   ['missing cwd', { cwd: undefined }, 'Invalid cwd'],
-  ['empty command', { repair: [] }, 'Invalid repair command'],
   [
     'report without base',
     { reports: [{ path: 'research/reset.md', blob: 'a'.repeat(40) }] },
@@ -338,6 +335,40 @@ for (const [name, change, reason] of [
     );
   });
 }
+
+test('correction command arrays preserve executable whitespace and every argument', () => {
+  const base = correctionConfig('/correction-config');
+  for (const key of ['issue', 'check', 'repair', 'review', 'capture']) {
+    for (const command of [null, 'tool', [], [''], [1], ['tool', 1]]) {
+      expect(() => assertConfig({ ...base, [key]: command })).toThrow(`Invalid ${key} command`);
+    }
+    if (key !== 'capture') {
+      expect(() => assertConfig({ ...base, [key]: undefined })).toThrow(`Invalid ${key} command`);
+    }
+    for (const executable of ['tool', ' tool ', ' \t\n']) {
+      const config = { ...base, [key]: [executable, '', ' \t ', 'last', 'first'] };
+      const original = structuredClone(config);
+      expect(() => assertConfig(config)).not.toThrow();
+      expect(config).toEqual(original);
+    }
+  }
+});
+
+test('correction capture remains optional unless required and needs explicit metadata', () => {
+  const config = correctionConfig('/correction-config');
+  expect(() => assertConfig(config)).not.toThrow();
+  expect(() => assertConfig({ ...config, captureRequired: true })).toThrow(
+    'Required capture command missing',
+  );
+  const capture = { ...config, capture: ['tool'], captureRequired: true };
+  expect(() => assertConfig(capture)).not.toThrow();
+  expect(() => assertConfig({ ...capture, captureDestination: undefined })).toThrow(
+    'Invalid capture destination',
+  );
+  expect(() => assertConfig({ ...capture, captureRequired: undefined })).toThrow(
+    'Explicit capture requirement required',
+  );
+});
 
 test('CLI rejects invalid config before commands or evidence writes', async () => {
   const t = await trial('normal');
