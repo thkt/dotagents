@@ -425,6 +425,73 @@ function revisionInput(root: string): Revision {
   };
 }
 
+test('revision rejects missing repository names instead of matching their string coercion', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'revision-pr-response-'));
+  try {
+    const revision = revisionInput(root);
+    await writeFile(revision.requestFile, revision.request);
+    for (const [owner, name] of [
+      ['undefined', 'component'],
+      ['team', 'undefined'],
+    ]) {
+      revision.repository = `${owner}/${name}`;
+      const pr = {
+        url: revision.url,
+        state: 'OPEN',
+        isDraft: true,
+        author: { login: revision.actor },
+        headRefName: revision.branch,
+        headRefOid: revision.head,
+        baseRefName: revision.baseBranch,
+        headRepositoryOwner: { login: owner },
+        headRepository: { name },
+        isCrossRepository: false,
+        body: revision.body,
+        closingIssuesReferences: [],
+      };
+      const check = () =>
+        checkRevision(
+          revision,
+          root,
+          async (argv) => {
+            if (argv[0] === 'git') {
+              return revision.branch;
+            }
+            if (argv[1] === 'pr') {
+              return JSON.stringify(pr);
+            }
+            expect(argv).toEqual([
+              'gh',
+              'api',
+              `repos/${revision.repository}/git/ref/heads/${revision.branch}`,
+            ]);
+            return JSON.stringify({ object: { sha: revision.head } });
+          },
+          {
+            draft: 'require',
+            issue: revision.issueText,
+            target: {
+              cwd: root,
+              config: { ...targetConfig, repository: revision.repository },
+              actor: revision.actor,
+              repositoryId: revision.repositoryId,
+              text: revision.targetText,
+            },
+          },
+        );
+      expect(await check()).toBe(revision.body);
+      if (owner === 'undefined') {
+        pr.headRepositoryOwner.login = undefined;
+      } else {
+        pr.headRepository.name = undefined;
+      }
+      await assert.rejects(check, /Revision PR identity changed/);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('configuration validates revision input before execution', () => {
   const config = correctionConfig('/revision-config');
   const revision = revisionInput('/revision-config');

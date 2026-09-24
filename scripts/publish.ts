@@ -7,6 +7,7 @@ import { assertConfig } from './input.ts';
 import { checkRevision } from './revision.ts';
 import type { Revision } from './input.ts';
 import { readTarget } from './target.ts';
+import { restPrPublication, matchPrPublication } from './pr-identity.ts';
 import { command as runCommand, assertRunning, withInterrupts } from './process.ts';
 
 async function command(argv: string[], cwd: string) {
@@ -49,29 +50,24 @@ export async function checkPublishedPr(
     const number = url.startsWith(prefix) ? url.slice(prefix.length) : '';
     assert(/^[1-9]\d*$/.test(number), 'Unexpected PR URL');
     const pr: unknown = JSON.parse(await read(['gh', 'api', `repos/${repo}/pulls/${number}`], cwd));
+    assert(isRecord(pr), 'PR author differs from authenticated user');
+    const observation = restPrPublication(pr);
+    const match = matchPrPublication(observation, {
+      url,
+      actor,
+      branch: head,
+      repository: repo,
+      commit,
+      base,
+      body,
+    });
+    assert(match.author, 'PR author differs from authenticated user');
     assert(
-      isRecord(pr) && isRecord(pr.user) && pr.user.login === actor,
-      'PR author differs from authenticated user',
-    );
-    assert(
-      pr.html_url === url &&
-        pr.state === 'open' &&
-        isRecord(pr.head) &&
-        isRecord(pr.head.repo) &&
-        pr.head.repo.full_name === repo &&
-        pr.head.ref === head &&
-        pr.head.sha === commit &&
-        isRecord(pr.base) &&
-        isRecord(pr.base.repo) &&
-        pr.base.repo.full_name === repo &&
-        pr.base.ref === base,
+      match.target && observation.baseRepository === repo,
       'Published PR target differs from expected repository, branch or commit',
     );
-    assert(
-      pr.body === body,
-      'Existing PR body differs from generated body; reconcile before continuing',
-    );
-    assert(pr.draft === true, 'Published PR is not confirmed draft; reconcile before continuing');
+    assert(match.body, 'Existing PR body differs from generated body; reconcile before continuing');
+    assert(match.draft, 'Published PR is not confirmed draft; reconcile before continuing');
   } catch (error) {
     throw new PublicationError(url, error);
   }
