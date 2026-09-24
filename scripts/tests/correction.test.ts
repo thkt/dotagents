@@ -23,8 +23,6 @@ for (const mutation of ['delete', 'rename'] as const) {
   test(`verified ${mutation} survives staging and commit but rejects later artifacts`, async () => {
     const t = await trial('normal');
     const cwd = t.config.cwd;
-    git(cwd, 'config', 'user.email', 'test@example.com');
-    git(cwd, 'config', 'user.name', 'Test');
     await writeFile(join(cwd, 'obsolete.txt'), 'old');
     git(cwd, 'add', '--all');
     git(cwd, 'commit', '-m', 'base');
