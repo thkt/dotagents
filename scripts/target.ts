@@ -17,7 +17,9 @@ export interface TargetConfig {
 function argv(value: unknown): value is string[] {
   return isCommandArray(value) && value[0].trim().length > 0;
 }
-function assertTarget(value: unknown): asserts value is TargetConfig {
+function assertTarget(
+  value: unknown,
+): asserts value is Omit<TargetConfig, 'check'> & { check: string | string[] } {
   assert(isRecord(value), 'Missing target configuration');
   assert(
     !('writing' in value),
@@ -33,7 +35,10 @@ function assertTarget(value: unknown): asserts value is TargetConfig {
     Array.isArray(value.setup) && value.setup.every(argv),
     'Explicit setup commands required (empty array allowed)',
   );
-  assert(argv(value.check), 'Verification command is required');
+  assert(
+    typeof value.check === 'string' ? value.check.trim().length > 0 : argv(value.check),
+    'Verification command is required',
+  );
   assert(
     Array.isArray(value.ciChecks) &&
       value.ciChecks.every((name) => typeof name === 'string' && name.trim()) &&
@@ -78,8 +83,12 @@ export async function readTarget(checkout: string, read: Reader, writable = fals
     'Target must be the checkout root',
   );
   const text = await readFile(resolve(cwd, '.dotagents.json'), 'utf8');
-  const config: unknown = JSON.parse(text);
-  assertTarget(config);
+  const settings: unknown = JSON.parse(text);
+  assertTarget(settings);
+  const config: TargetConfig = {
+    ...settings,
+    check: typeof settings.check === 'string' ? ['/bin/sh', '-c', settings.check] : settings.check,
+  };
   for (const direction of [[], ['--push']]) {
     const urls = await read(
       ['git', 'remote', 'get-url', ...direction, '--all', config.remote],

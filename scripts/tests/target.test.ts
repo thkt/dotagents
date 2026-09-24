@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initializeTarget, git, githubTarget, targetConfig } from './support/target.ts';
 import { readTarget, pushArguments, issueNumber } from '../target.ts';
+import { command } from '../process.ts';
 
 test('target CLI resolves another checkout and enforces Issue and write arguments', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'target-cli-')));
@@ -125,7 +126,34 @@ test('target preserves empty and whitespace command arguments', async () => {
   }
 });
 
-test('target rejects invalid command arrays before further target access', async () => {
+test('target shell checks preserve quoting, checkout, source text and exit status', async () => {
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'target-shell-')));
+  try {
+    await initializeTarget(cwd);
+    for (const code of [0, 7]) {
+      const check = `  printf '%s\\n' "quoted value" '' "$PWD"; cat 'result.txt'; exit ${code}  `;
+      const text = JSON.stringify({ ...targetConfig, check });
+      await writeFile(join(cwd, '.dotagents.json'), text);
+      const target = await readTarget(
+        cwd,
+        async (argv) => githubTarget(argv) ?? git(cwd, ...argv.slice(1)),
+      );
+      expect(target.text).toBe(text);
+      expect(target.config.check).toEqual(['/bin/sh', '-c', check]);
+      const result = await command(target.config.check, target.cwd, '', 10000);
+      expect(result).toMatchObject({
+        code,
+        stdout: `quoted value\n\n${cwd}\nold`,
+        stderr: '',
+        timedOut: false,
+      });
+    }
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('target rejects invalid commands before further target access', async () => {
   const cwd = await realpath(await mkdtemp(join(tmpdir(), 'target-invalid-argv-')));
   const read = async (argv: string[]) => {
     expect(argv).toEqual(['git', 'rev-parse', '--show-toplevel']);
@@ -137,7 +165,21 @@ test('target rejects invalid command arrays before further target access', async
       ['check', /Verification command is required/],
       ['capture', /Explicit capture configuration or null required/],
     ] as const) {
-      for (const command of [undefined, null, 'tool', [], [''], [' \t\n'], [1], ['tool', 1]]) {
+      for (const command of [
+        undefined,
+        null,
+        false,
+        1,
+        {},
+        '',
+        ' \t\n',
+        [],
+        [''],
+        [' \t\n'],
+        [1],
+        ['tool', 1],
+        ...(key === 'check' ? [] : ['tool']),
+      ]) {
         const value =
           key === 'setup'
             ? [command]
