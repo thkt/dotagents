@@ -132,7 +132,6 @@ export function captureConfig(base: unknown, configFile: string, spec: string, o
     }),
   );
   return {
-    ...base,
     ...projectConfig(base, base, configDir, spec, output, false),
     ...(base.projects === undefined
       ? {}
