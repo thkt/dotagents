@@ -27,6 +27,13 @@ import { resolve, dirname, relative } from 'node:path';
 
 type Persist = () => Promise<void>;
 type ModelResult = { stdout: string } | { stop: StopReason };
+type RepairReference = {
+  attempt: number;
+  prefix: string;
+  sourceBefore: string;
+  sourceAfter: string;
+  stdoutHash: string;
+};
 const digest = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 
 async function save(path: string, value: State) {
@@ -479,6 +486,7 @@ async function reviewTarget(
   state: State,
   issue: string,
   knowledge: SelectedKnowledge[],
+  latestRepair: RepairReference | null,
 ) {
   const prefix = resolve(config.runDir, `review-${state.review + 1}`);
   const additions: Addition[] = [];
@@ -491,6 +499,17 @@ async function reviewTarget(
     check && check.code === 0 && !check.timedOut && check.source === state.source,
     'Review requires successful check of current source',
   );
+  if (latestRepair) {
+    try {
+      assert(
+        digest(await readFile(`${latestRepair.prefix}.stdout`)) === latestRepair.stdoutHash,
+        'Repair response changed',
+      );
+    } catch (error) {
+      state.findings = `Cannot hand off repair response at ${latestRepair.prefix}.stdout: ${error instanceof Error ? error.message : String(error)}; preserve the run and investigate before further evaluation.`;
+      return { stop: 'invalid_repair' as const };
+    }
+  }
   const target = {
     issue: { hash: state.issueHash, content: issue },
     baseCommit: state.baseCommit,
@@ -498,6 +517,7 @@ async function reviewTarget(
     revision: config.revision,
     knowledge,
     source: state.source,
+    latestRepair,
     files,
     check: {
       command: config.check,
@@ -554,12 +574,13 @@ async function evaluate(
   issue: string,
   persist: Persist,
   knowledge: SelectedKnowledge[],
+  latestRepair: RepairReference | null,
 ): Promise<{ stop?: StopReason; findings?: string }> {
   // Do not create an apparent attempt if the existing execution budget is exhausted.
   if (modelLimitReached(config, state, 'review')) {
     return { stop: 'execution_limit' };
   }
-  const target = await reviewTarget(config, state, issue, knowledge);
+  const target = await reviewTarget(config, state, issue, knowledge, latestRepair);
   if ('stop' in target) {
     return { stop: target.stop };
   }
@@ -624,7 +645,8 @@ async function cycle(
   issue: string,
   persist: Persist,
   knowledge: SelectedKnowledge[],
-): Promise<StopReason | null> {
+  latestRepair: RepairReference | null,
+): Promise<StopReason | RepairReference> {
   if (digest(await readIssue(config)) !== state.issueHash) {
     return 'requirements_changed';
   }
@@ -637,7 +659,7 @@ async function cycle(
     findings += `\nPrevious independent review (historical; verify current artifacts):\n${summarizeReviews(state)}`;
   }
   if (!findings) {
-    const result = await evaluate(config, state, issue, persist, knowledge);
+    const result = await evaluate(config, state, issue, persist, knowledge, latestRepair);
     if (result.stop) {
       return result.stop;
     }
@@ -670,7 +692,17 @@ async function cycle(
   if (value.status === 'invalid') {
     return 'invalid_repair';
   }
-  return value.status === 'needs_human' ? 'human_decision_required' : null;
+  if (value.status === 'needs_human') {
+    return 'human_decision_required';
+  }
+  assert(state.source);
+  return {
+    attempt: state.repair,
+    prefix: resolve(config.runDir, `repair-${state.repair}`),
+    sourceBefore: state.source,
+    sourceAfter: await snapshot(config.cwd),
+    stdoutHash: digest(repaired.stdout),
+  };
 }
 
 async function targetChange(config: Config, state: State): Promise<StopReason | null> {
@@ -757,9 +789,13 @@ async function execute(config: Config): Promise<State> {
   };
   const persist = () => save(path, state);
   await persist();
-  while (!state.result) {
-    state.result = await cycle(config, state, issue, persist, knowledge);
+  // Only repairs completed by this execution are handed off. Never discover
+  // explanations from old state or neighboring runs, or duplicate their text.
+  let result: StopReason | RepairReference | null = null;
+  while (typeof result !== 'string') {
+    result = await cycle(config, state, issue, persist, knowledge, result);
   }
+  state.result = result;
   await saveTerminal(path, state);
   return state;
 }
