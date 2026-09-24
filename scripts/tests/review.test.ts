@@ -1067,19 +1067,19 @@ process.exit(result.status??1);
 
 test('selected evidence reaches repair and review with original versions and changed applicability', async () => {
   const t = await trial('normal');
-  const path = 'research/reset.md';
-  const proposal = 'research/keyboard.md';
+  const path = 'docs/research/reset.md';
+  const proposal = 'docs/research/keyboard.md';
   const original =
     'Observed: pointer reset clears filters; keyboard behavior unverified. Source: source.txt at baseline.\n';
   const updated =
     'Observed: pointer reset clears filters; keyboard reset also verified by the new targeted check.\n';
-  await mkdir(join(t.config.cwd, 'research'));
+  await mkdir(join(t.config.cwd, 'docs/research'), { recursive: true });
   await writeFile(join(t.config.cwd, path), original);
   await writeFile(
     join(t.config.cwd, proposal),
     'Proposal only: move focus to the first result on keyboard reset. No agreement.\n',
   );
-  git(t.config.cwd, 'add', 'research');
+  git(t.config.cwd, 'add', 'docs/research');
   git(t.config.cwd, 'commit', '-m', 'selected evidence');
   const base = git(t.config.cwd, 'rev-parse', 'HEAD');
   const reports = [path, proposal].map((path) => ({
@@ -1140,12 +1140,12 @@ reply.documents=[
 
 test('standalone correction rejects a stale report pin before executing verification', async () => {
   const t = await trial('normal');
-  const path = 'research/reset.md';
-  await mkdir(join(t.config.cwd, 'research'));
+  const path = 'docs/research/reset.md';
+  await mkdir(join(t.config.cwd, 'docs/research'), { recursive: true });
   await writeFile(join(t.config.cwd, path), 'Reviewed pointer behavior');
   const blob = git(t.config.cwd, 'hash-object', '--no-filters', '--', path);
   await writeFile(join(t.config.cwd, path), 'Changed pointer behavior');
-  git(t.config.cwd, 'add', 'research');
+  git(t.config.cwd, 'add', 'docs/research');
   git(t.config.cwd, 'commit', '-m', 'different evidence');
   t.config.baseCommit = git(t.config.cwd, 'rev-parse', 'HEAD');
   t.config.reports = [{ path, blob }];
