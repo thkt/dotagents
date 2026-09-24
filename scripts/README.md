@@ -17,7 +17,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to
 
 番号または対象repoのIssue URLを渡します。実行前に対象のREADME、開発方針、適用される指示、下記の設定を確認してください。ハーネスはBun、Git、gh、Codex CLIを使います。対象repoの言語やテストツールは設定に従います。
 
-開始時にcheckout、remote、GitHub repo ID、base branch、gh主体、必要なpush権限を照合します。開始commit・元checkout・必要入力・隔離worktree・setup後照合の定義は、[共有モデルから生成した実装開始の説明](../docs/knowledge/implementation-start.md)を参照してください（`start-objects`、`start-identity`、`isolation`、`setup-recheck`）。run保存先や同名branchが既にある場合は開始せず、要求・対象・設定・主体の変更や、設定された有限の上限超過では停止します。照合後は初回実装、必要な撮影、対象のcheck、独立評価へ進みます。
+開始時にcheckout、remote、GitHub repo ID、base branch、gh主体、必要なpush権限を照合します。開始commit・元checkout・必要入力・隔離worktree・setup後照合の定義は、[共有モデルから生成した実装開始の説明](../docs/wiki/implementation-start.md)を参照してください（`start-objects`、`start-identity`、`isolation`、`setup-recheck`）。run保存先や同名branchが既にある場合は開始せず、要求・対象・設定・主体の変更や、設定された有限の上限超過では停止します。照合後は初回実装、必要な撮影、対象のcheck、独立評価へ進みます。
 
 必要な調査報告がある場合は[引き継ぎ引数](#調査報告を指定した実装開始)で指定します。旧セッション状態、保存済み評価、lockはそのまま保全し、移行入力にしません。
 
@@ -86,7 +86,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
   --report docs/research/reset-behavior.md=REVIEWED_BLOB
 ```
 
-`--report`は必要な報告ごとに繰り返し、`--start-commit`も指定します。開始・停止の条件は[生成説明のstart-identityとsetup-recheck](../docs/knowledge/implementation-start.md)を参照してください。初回実装にはIssue URL、開始commit、報告パスとblobを渡します。報告本文を読み、内容の十分性と合意・共有状態を確認する責任は担当者に残ります。
+`--report`には対象repoの`docs/research/`、`docs/wiki/`、`docs/decisions/`配下のMarkdownを指定できます。新規の引き継ぎでは旧`research/`を受け付けません。保存済みrunや既存PR修正が保持する旧path・blobは当時の参照として検査し、保存記録を変換しません。wiki・DRも同じpath・blob・開始commitで照合し、原本の採用状態と適用条件を保ちます。`--report`は必要な報告ごとに繰り返し、`--start-commit`も指定します。開始・停止の条件は[生成説明のstart-identityとsetup-recheck](../docs/wiki/implementation-start.md)を参照してください。初回実装にはIssue URL、開始commit、報告パスとblobを渡します。報告本文を読み、内容の十分性と合意・共有状態を確認する責任は担当者に残ります。
 
 選んだ報告のパスとblob IDは、同じ実行の検証設定の`reports`へ自動で渡します。初回実装、修正、独立評価は同じ開始commitと参照一覧を受け取り、Issueや報告から出典、適用条件、合意状態を確認します。対象repoの`.dotagents.json`や別の引き継ぎ文書に報告本文を転記する必要はありません。必要な報告がない場合も、Issueが参照する今回関連する資料を担当者が選びます。
 
@@ -98,7 +98,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
 
 ## 共有知識の選択
 
-対象repoに関連するモデルがある場合、scoping担当は通常の要求整理の中で必要なIDと選択理由・適用条件を選び、今回の要求との関係をIssueへ記します。モデルのないrepoは既存のIssue・報告だけで開始できます。dotagentsの初回モデルは[実装開始のJSON正本](../docs/knowledge/implementation-start.json)です。[人向け説明](../docs/knowledge/implementation-start.md)は同じ抽出処理の生成物なので直接編集しません。
+対象repoに関連するモデルがある場合、scoping担当は通常の要求整理の中で必要なIDと選択理由・適用条件を選び、今回の要求との関係をIssueへ記します。モデルのないrepoは既存のIssue・報告だけで開始できます。dotagentsの初回モデルは[実装開始のJSON正本](../docs/knowledge/implementation-start.json)です。[人向け説明](../docs/wiki/implementation-start.md)は同じ抽出処理の生成物なので直接編集しません。
 
 内容を確認したモデルのパス・Git blob・IDをIssue本文の独立した一つの`dotagents-knowledge`コードブロックへ記します。Markdownのバッククォートまたはチルダの囲みを使えます。閉じていない囲みや複数の選択は停止します。説明用の外側のコード囲み、引用・リスト、HTML内の例は選択しません。これは既存Issueの参照欄であり、別の台帳や追加のCLI引数は作りません。下の`REVIEWED_BLOB`は`git hash-object --no-filters -- docs/knowledge/implementation-start.json`で内容確認時に取得した完全なIDへ置き換えます。公開範囲・共有状態は既存の報告と同様に確認してください。
 
@@ -116,7 +116,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
 
 正本の`nodes`は`id`、三概念を示す`facet`、`kind`、`status`、文章の`statement`・`question`・`scope`、`sources`、`relations`を持ちます。`sources`はURL、対象版、適用範囲、状態を持ち、各nodeから結びます。定義した形式は[parseKnowledge](knowledge.ts)が正本です。規則の実行や予算・権限の設定項目はありません。
 
-正本を変更したら`bun run knowledge:generate`で説明を更新します。`bun run knowledge:check`は正本と生成物の不一致を検出し、通常の`bun run check`にも含まれます。出力には正本パスとGit blobを載せます。生成例のblobは本文の同一性であり、commit済み・共有済み・合意済みを意味しません。意味と日本語の確認は既存の独立評価に含めます。
+正本を変更したら`bun run knowledge:generate`で`docs/wiki/implementation-start.md`を生成します。JSONのパス・node ID・版選択は維持し、人向けの読む入口をwikiに揃えます。旧`docs/knowledge/implementation-start.md`は新しい説明への案内です。過去のIssue・runは当時のblobを読み、最新wikiで置き換えません。`bun run knowledge:check`は正本と生成物の不一致を検出し、通常の`bun run check`にも含まれます。出力には正本パスとGit blobを載せます。生成例のblobは本文の同一性であり、commit済み・共有済み・合意済みを意味しません。意味と日本語の確認は既存の独立評価に含めます。
 
 ## 対象repoの設定
 

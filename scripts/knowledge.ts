@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
-import { basename, resolve } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, relative, resolve } from 'node:path';
 import { isArray, isRecord, relativeDirectory } from './values.ts';
 import type { ReportReference } from './input.ts';
 
@@ -252,23 +252,32 @@ export function knowledgeContext(selected: SelectedKnowledge[]) {
     'When observations conflict with a model premise, trace the affected node IDs and their sources to the Issue decision in existing findings/assessments. Propose a model diff with the observation and needed investigation or human agreement; do not auto-adopt it.',
   ].join('\n');
 }
-export async function generateKnowledge(path: string, check: boolean) {
+export async function generateKnowledge(
+  path: string,
+  check: boolean,
+  destination = path.replace(/\.json$/, '.md'),
+  selection: { globs: string[]; scenes: string[] } = { globs: [], scenes: [] },
+) {
+  assert(destination !== path && destination.endsWith('.md'), 'Expected knowledge Markdown path');
   const content = await readFile(path, 'utf8');
   const model = parseKnowledge(JSON.parse(content));
   const selected = selectModel(model, {
-    path: basename(path),
+    path: relative(dirname(destination), path),
     blob: gitBlob(content),
     ids: model.nodes.map(({ id }) => id),
   });
-  const markdown = renderKnowledge(selected);
-  const destination = path.replace(/\.json$/, '.md');
-  assert(destination !== path, 'Expected knowledge JSON path');
+  const body = renderKnowledge(selected).replace(
+    `# ${selected.title}\n\n`,
+    `# ${selected.title}\n\nこの文書はJSON正本から生成しています。直接手修正せず、正本を変更して\`bun run knowledge:generate\`で再生成し、\`bun run knowledge:check\`で照合してください。\n\n`,
+  );
+  const markdown = `---\nglobs: ${JSON.stringify(selection.globs)}\nscenes: ${JSON.stringify(selection.scenes)}\n---\n\n${body}`;
   if (check) {
     assert(
       (await readFile(destination, 'utf8')) === markdown,
       'Knowledge Markdown is stale; run bun run knowledge:generate',
     );
   } else {
+    await mkdir(dirname(destination), { recursive: true });
     await writeFile(destination, markdown);
   }
 }
@@ -280,5 +289,10 @@ if (import.meta.main) {
   await generateKnowledge(
     resolve(import.meta.dir, '../docs/knowledge/implementation-start.json'),
     process.argv[2] === '--check',
+    resolve(import.meta.dir, '../docs/wiki/implementation-start.md'),
+    {
+      globs: ['scripts/development.ts', 'scripts/research-handoff.ts', 'scripts/knowledge.ts'],
+      scenes: ['plan', 'implement'],
+    },
   );
 }
