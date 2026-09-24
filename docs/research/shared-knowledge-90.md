@@ -2,7 +2,7 @@
 
 この文書はIssue #90の実装・評価中に書いた当時の検証記録です。本文の「本PR」「今回」「未完了」は記録時点の状態を指します。最終的な採用差分、評価、CIは、マージ済みの[PR #92](https://github.com/thkt/dotagents/pull/92)で確認してください。
 
-対象は[Issue #90](https://github.com/thkt/dotagents/issues/90)の2026-09-17T11:38:02Z版の要求です。比較元は`765adbb29c51747b2d4ada473ca03a3e40ed7651`、比較先は本PRの成果物です。人の採用判断とは別の実装・検証記録です。現在の操作は[CLI手順](../../scripts/README.md#共有知識の選択)、定義は[JSON正本](../knowledge/implementation-start.json)と[生成説明](../knowledge/implementation-start.md)を参照してください。
+対象は[Issue #90](https://github.com/thkt/dotagents/issues/90)の2026-09-17T11:38:02Z版の要求です。比較元は`765adbb29c51747b2d4ada473ca03a3e40ed7651`、比較先は本PRの成果物です。人の採用判断とは別の実装・検証記録です。当時の操作は[当時のCLI手順](https://github.com/thkt/dotagents/blob/104082c8b586681f8142a2097730df654ec743a0/scripts/README.md)、定義は[当時のJSON正本](https://github.com/thkt/dotagents/blob/104082c8b586681f8142a2097730df654ec743a0/docs/knowledge/implementation-start.json)と[生成説明](https://github.com/thkt/dotagents/blob/104082c8b586681f8142a2097730df654ec743a0/docs/knowledge/implementation-start.md)を参照してください。現在の実装開始は[現行のCLI手順](../../scripts/README.md#調査報告を指定した実装開始)で確認してください。
 
 ## 根拠と判断のつながり
 
@@ -89,6 +89,6 @@
 
 ### R1: Markdown表を含むIssueの選択解析
 
-評価対象`cf12f887dde02488d92aa5f802c3abe3637fcf2f36d6d6319530aa7b1edec2f6`への必須指摘`R1-markdown-table-selection`をBun 1.4.2で再現しました。表のセル文字列が選択JSONへ混入する原因は、抽出時に表の描画を除外していないことでした。[選択解析](../../scripts/knowledge.ts)で表も除外し、[既存テスト](../../scripts/tests/knowledge.test.ts)の通常本文を、モデル未選択では表を含む本文、選択ありではブロックの前後に表を置く本文へ拡張しました。この検証を削除すると、既存Issueの開始停止と有効選択の併記失敗を見逃します。同期の既存ケースへ統合して実行負担を抑え、従来の未選択・JSON形式のIssue入力・不正選択の検出条件は維持しています。削除した検出条件はありません。
+評価対象`cf12f887dde02488d92aa5f802c3abe3637fcf2f36d6d6319530aa7b1edec2f6`への必須指摘`R1-markdown-table-selection`をBun 1.4.2で再現しました。表のセル文字列が選択JSONへ混入する原因は、抽出時に表の描画を除外していないことでした。[選択解析](https://github.com/thkt/dotagents/blob/104082c8b586681f8142a2097730df654ec743a0/scripts/knowledge.ts)で表も除外し、[既存テスト](https://github.com/thkt/dotagents/blob/104082c8b586681f8142a2097730df654ec743a0/scripts/tests/knowledge.test.ts)の通常本文を、モデル未選択では表を含む本文、選択ありではブロックの前後に表を置く本文へ拡張しました。この検証を削除すると、既存Issueの開始停止と有効選択の併記失敗を見逃します。同期の既存ケースへ統合して実行負担を抑え、従来の未選択・JSON形式のIssue入力・不正選択の検出条件は維持しています。削除した検出条件はありません。
 
 修正前に更新テストが同じJSON解析例外で失敗し、修正後は`bun test scripts/tests/knowledge.test.ts`の5件が成功しました。ホストの評価対象記録にあるIssue #90本文も直接解析し、未選択の空配列を返すことを確認しました。変更したTS 2ファイルのOxfmt・Oxlint・Biomeも成功しています。現在のCLI説明・選択形式・権限は変更不要で、既存の説明どおりに動くための修正です。全体checkと修正後の独立評価はホストへ引き継ぎます。模擬actorの成功を実モデルの意味判断や公開の証拠とは扱いません。
