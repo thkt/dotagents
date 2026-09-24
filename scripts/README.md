@@ -59,7 +59,9 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
 
 検証入口の修正対象照合はcorrectionが担当します。設定・保存先、lock、保存stateを確認してから、修正入力・Issue・対象・主体・権限・PR・remote ref・並行runを照合します。同時に異常がある場合、保存先・lock・stateの異常で先に停止し、その時点では外部対象の変化を照合しません。検証後とsetup・モデル実行・commit・push・本文更新・draft/ready切替をまたぐ再照合は継続します。
 
-対象不一致や中断までに空のverificationディレクトリが残る場合があります。取得した自分のlockはfinallyで解放し、既存lockは取得・削除しません。入口で対象不一致を検出した場合はstateやモデル実行記録を新規作成せず、作業と旧runの記録を保持します。
+correctionの`readIssue`はIssueを取得して比較用テキストへ変換し、開始時だけraw出力を保存します。修正対象は照合しません。呼出し元が取得直後の比較用テキストをcorrectionの`revisionUnchanged`へ渡して修正対象を照合します。開始時の`issue.txt`はこの照合が通った後に保存します。入口（終端stateの再照合を含む）、各cycleの開始、追加修正の直前、capture・checkの後と独立評価の前後でIssueを読み直します。同じ境界では取得済みのIssueを使い、他の修正対象は`checkRevision`で改めて取得・照合します。修正対象の照合をIssueのhash比較より先に行い、修正時の不一致は従来どおり例外として停止します。進行中の通常correctionではIssueのhashが変わると`requirements_changed`になります。developmentもcorrectionの返却後に修正対象を再照合します。commit前後のverify再呼出しでは終端stateの鮮度を確認し、check・独立評価は再実行しません。
+
+対象不一致や中断までに、空のverificationディレクトリ、または開始時のIssueのraw出力（`issue.stdout`・`issue.stderr`）だけが残る場合があります。取得した自分のlockはfinallyで解放し、既存lockは取得・削除しません。入口で対象不一致を検出した場合はstateやモデル実行記録を新規作成せず、作業と旧runの記録を保持します。
 
 評価の差分は前回から保持したPR全体の基点から作ります。公開headは今回の修正の開始点として別に渡し、独立評価は今回固定した合意済みIssue全体と採用した修正要求の両方でPR全体を確認します。既存本文の変更説明、未確認事項、添付リンクは現在も必要か評価し、必要な内容をacceptedな評価の公開用説明へ含めます。過去の生成本文を再帰的に追加せず、以前の全文は実行証拠に保持します。
 

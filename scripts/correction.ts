@@ -158,7 +158,12 @@ async function readIssue(config: Config, record = false) {
   if (result.code !== 0 || result.timedOut || !result.stdout.trim()) {
     throw Error('Issue unavailable');
   }
-  const text = issueText(result.stdout);
+  return issueText(result.stdout);
+}
+
+// Use only the Issue just read at this boundary; checkRevision reads the remaining
+// revision inputs afresh. Keep its failures ahead of the generic Issue hash check.
+async function revisionUnchanged(config: Config, issue: string) {
   if (config.revision) {
     await checkRevision(
       config.revision,
@@ -168,13 +173,19 @@ async function readIssue(config: Config, record = false) {
         assert(result.code === 0 && !result.timedOut, 'Revision target unavailable');
         return result.stdout.trim();
       },
-      { issue: text },
+      { issue },
     );
   }
+}
+
+async function readEntryIssue(config: Config, record: boolean) {
+  const issue = await readIssue(config, record);
+  await revisionUnchanged(config, issue);
   if (record) {
-    await writeFile(resolve(config.runDir, 'issue.txt'), text, { flag: 'wx' });
+    // Record the comparison text only after the revision target matched at entry.
+    await writeFile(resolve(config.runDir, 'issue.txt'), issue, { flag: 'wx' });
   }
-  return text;
+  return issue;
 }
 
 function modelLimitReached(config: Config, state: State, role: ActorRole) {
@@ -666,7 +677,9 @@ async function cycle(
   knowledge: SelectedKnowledge[],
   latestRepair: RepairReference | null,
 ): Promise<StopReason | RepairReference> {
-  if (digest(await readIssue(config)) !== state.issueHash) {
+  const currentIssue = await readIssue(config);
+  await revisionUnchanged(config, currentIssue);
+  if (digest(currentIssue) !== state.issueHash) {
     return 'requirements_changed';
   }
   const host = await verifyHost(config, state, persist);
@@ -699,7 +712,9 @@ async function cycle(
     `Requirements:\n${issue}\nFailure evidence:\n${findings}`,
     researchContext(state.baseCommit, config.reports, knowledge),
   ].join('\n');
-  if (digest(await readIssue(config)) !== state.issueHash) {
+  const beforeRepair = await readIssue(config);
+  await revisionUnchanged(config, beforeRepair);
+  if (digest(beforeRepair) !== state.issueHash) {
     return 'requirements_changed';
   }
   const repaired = await runModel(config, state, 'repair', prompt, persist);
@@ -725,7 +740,9 @@ async function cycle(
 }
 
 async function targetChange(config: Config, state: State): Promise<StopReason | null> {
-  if (digest(await readIssue(config)) !== state.issueHash) {
+  const issue = await readIssue(config);
+  await revisionUnchanged(config, issue);
+  if (digest(issue) !== state.issueHash) {
     return 'requirements_changed';
   }
   if ((await snapshot(config.cwd)) !== state.source) {
@@ -773,7 +790,7 @@ async function execute(config: Config): Promise<State> {
   if (state?.active) {
     throw Error(interruptionMessage);
   }
-  const issue = await readIssue(config, !state);
+  const issue = await readEntryIssue(config, !state);
   const base =
     state?.baseCommit ??
     config.baseCommit ??

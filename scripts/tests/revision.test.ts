@@ -1418,11 +1418,44 @@ for (const [change, expected] of Object.entries(verificationChanges)) {
   });
 }
 
+async function retainedCorrectionEntry(
+  verification: string,
+  root: string,
+  mode: string,
+  rejectedState?: string,
+) {
+  // Entry stops before the target matched keep only the raw Issue read, never issue.txt.
+  expect((await readdir(verification)).sort()).toEqual(
+    mode === 'locked_body_changed'
+      ? ['lock']
+      : rejectedState
+        ? ['state.json']
+        : ['issue.stderr', 'issue.stdout'],
+  );
+  if (rejectedState) {
+    expect(await readFile(join(verification, 'state.json'), 'utf8')).toBe(rejectedState);
+  }
+  if (mode !== 'body_changed') {
+    expect(await Bun.file(join(root, 'reads')).exists()).toBe(false);
+  }
+  if (mode === 'locked_body_changed') {
+    expect(await readFile(join(verification, 'lock/owner'), 'utf8')).toBe('existing execution');
+  }
+}
+
 for (const [mode, reason] of [
   ['updated_issue', null],
   ['issue_changed', /Agreed Issue changed during revision/],
+  ['request_changed', /Revision request changed/],
+  ['actor_changed', /Revision target or actor changed/],
+  ['permission_changed', /GitHub push permission required/],
+  ['branch_changed', /Revision branch changed/],
+  ['head_changed', /Revision PR identity changed/],
+  ['ref_changed', /Revision remote ref differs/],
   ['body_changed', /Revision PR body changed/],
   ['locked_body_changed', /EEXIST/],
+  ['invalid_state_body_changed', /JSON/],
+  ['active_body_changed', /Interrupted execution/],
 ] as const) {
   test(`development verifies revisions through correction: ${mode}`, async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-controller-')));
@@ -1452,20 +1485,23 @@ for (const [mode, reason] of [
       await mkdir(bin);
       const gh = join(bin, 'gh');
       const liveIssue = join(root, 'issue.json');
+      const checked = join(root, 'checked');
       await writeFile(liveIssue, currentIssue + '\n');
       await writeFile(
         gh,
         `#!${process.execPath}
-import {appendFileSync,readFileSync} from 'node:fs';
+import {appendFileSync,readFileSync,existsSync} from 'node:fs';
 const args = process.argv.slice(2);
 const pr = JSON.parse(readFileSync(${JSON.stringify(livePr)},'utf8'));
+const changed = existsSync(${JSON.stringify(checked)});
+if (changed && ${mode === 'head_changed'}) pr.headRefOid = 'f'.repeat(40);
 if (['issue', 'pr'].includes(args[0])) appendFileSync(${JSON.stringify(join(root, 'reads'))}, args[0]+'\\n');
 if(args[0] === 'issue') process.stdout.write(readFileSync(${JSON.stringify(liveIssue)},'utf8'));
 else if(args[0] === 'pr') console.log(JSON.stringify(pr));
-else if(args[1] === 'user') console.log('{"login":"operator"}');
-else if(args[1].includes('/git/ref/')) console.log(JSON.stringify({object:{sha:pr.headRefOid}}));
+else if(args[1] === 'user') console.log(JSON.stringify({login:changed && ${mode === 'actor_changed'} ? 'another-operator' : 'operator'}));
+else if(args[1].includes('/git/ref/')) console.log(JSON.stringify({object:{sha:changed && ${mode === 'ref_changed'} ? 'f'.repeat(40) : pr.headRefOid}}));
 else if(args[1].includes('/branches/')) console.log('{"name":"release"}');
-else console.log('{"full_name":"team/component","id":123,"permissions":{"push":true}}');
+else console.log(JSON.stringify({full_name:'team/component',id:123,permissions:{push:!(changed && ${mode === 'permission_changed'})}}));
 `,
       );
       await chmod(gh, 0o755);
@@ -1475,10 +1511,15 @@ else console.log('{"full_name":"team/component","id":123,"permissions":{"push":t
         helper,
         `
 import {readFileSync,writeFileSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
 const role = process.argv[2];
 ${reviewReplySource}
 if(role === 'check') {
+ writeFileSync(${JSON.stringify(checked)}, 'check completed');
  if (${mode === 'issue_changed'}) writeFileSync(${JSON.stringify(liveIssue)}, ${JSON.stringify(updatedIssue.replace('Keep result visible', 'Changed requirements'))});
+ if (${mode === 'request_changed'}) writeFileSync(${JSON.stringify(f.request)}, 'Expanded scope');
+ if (${mode === 'branch_changed'}) execFileSync('git', ['branch', '-m', 'changed-branch']);
+ if (${reason !== null && mode !== 'issue_changed'}) process.exit(0);
  process.exit(readFileSync('result.txt','utf8') === 'corrected' ? 0 : 1);
 }
 if(role === 'repair') { writeFileSync('result.txt','corrected'); console.log(JSON.stringify({status:'repaired',findings:'Reset corrected'})); }
@@ -1486,6 +1527,7 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
 `,
       );
       let config: Config | undefined;
+      let rejectedState: string | undefined;
       f.io.verify = async (input) => {
         config = {
           ...input,
@@ -1493,6 +1535,18 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
           repair: [process.execPath, helper, 'repair'],
           review: [process.execPath, helper, 'review'],
         };
+        if (mode === 'invalid_state_body_changed' || mode === 'active_body_changed') {
+          await mkdir(input.runDir, { recursive: true });
+          rejectedState =
+            mode === 'invalid_state_body_changed'
+              ? '{'
+              : JSON.stringify({
+                  ...(await readObject(join(f.prior, 'verification/state.json'))),
+                  configHash: hash(JSON.stringify(config)),
+                  active: { role: 'repair', prefix: join(input.runDir, 'repair-1') },
+                });
+          await writeFile(join(input.runDir, 'state.json'), rejectedState);
+        }
         return run(config);
       };
       const verification = join(f.dir, 'verification');
@@ -1524,19 +1578,15 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
         });
         expect(f.hooks.pushes).toBe(1); // Only the fixture's original publication.
         expect(f.hooks.edits).toBe(0);
+        expect(f.commands.some(({ argv }) => argv[1] === 'add' || argv[2] === 'ready')).toBe(false);
         expect(git(f.cwd, 'rev-parse', 'HEAD')).toBe(f.oldHead);
         expect(await readFile(join(f.cwd, 'result.txt'), 'utf8')).toBe('reset corrected');
         expect(
           await Promise.all(priorFiles.map((path) => readFile(join(f.prior, path), 'utf8'))),
         ).toEqual(priorEvidence);
         if (entryFailure) {
-          expect((await readdir(verification)).sort()).toEqual(
-            mode === 'locked_body_changed' ? ['lock'] : ['issue.stderr', 'issue.stdout'],
-          );
-          if (mode === 'locked_body_changed') {
-            expect(await readFile(join(verification, 'lock/owner'), 'utf8')).toBe(
-              'existing execution',
-            );
+          await retainedCorrectionEntry(verification, root, mode, rejectedState);
+          if (mode !== 'body_changed') {
             return;
           }
           assert(config);
@@ -1554,6 +1604,15 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
           ).toEqual(evidence);
           expect(await readFile(join(root, 'reads'), 'utf8')).toBe(reads);
         } else {
+          // Stop at the post-check boundary before even preparing a review target.
+          expect((await readdir(verification)).sort()).toEqual([
+            'check-1.stderr',
+            'check-1.stdout',
+            'issue.stderr',
+            'issue.stdout',
+            'issue.txt',
+            'state.json',
+          ]);
           expect(await readObject(join(verification, 'state.json'))).toMatchObject({
             repair: 0,
             review: 0,
