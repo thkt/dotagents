@@ -39,6 +39,6 @@ scenes: ["plan", "implement", "pr-create"]
 
 ## 根拠
 
-- [#120](https://github.com/thkt/dotagents/issues/120)・[PR #121](https://github.com/thkt/dotagents/pull/121)：固定事例の検出結果と、未知事例への一般化や未実施の改善を区別しました。[当時の記録](../evidence/review-redundancy-120.md)を参照してください。
-- [#138](https://github.com/thkt/dotagents/issues/138)：正誤情報を分けた試行で、レビュー結果と独立裁定を記録しました。[当時の記録](../evidence/review-blinding-138.md)は各条件1回の観測です。
+- [#120](https://github.com/thkt/dotagents/issues/120)・[PR #121](https://github.com/thkt/dotagents/pull/121)：固定事例の検出結果と、未知事例への一般化や未実施の改善を区別しました。[当時の記録](../research/review-redundancy-120.md)を参照してください。
+- [#138](https://github.com/thkt/dotagents/issues/138)：正誤情報を分けた試行で、レビュー結果と独立裁定を記録しました。[当時の記録](../research/review-blinding-138.md)は各条件1回の観測です。
 - コードの確認基点は `4c2ccbc981b00bfe5dec2e477c507fda8212f778` です。上記の結果は、今回の文書移行の検証結果ではありません。

@@ -62,7 +62,7 @@ Bun 1.4.2を使います。checkはlint、書式、Biomeの認知的複雑度15�
 
 採用範囲と条件付きの比較結果は[Issue #174](https://github.com/thkt/dotagents/issues/174)を参照してください。常に他ツールより速いことは保証しません。ツールの詳細は[公式設定](https://fallow.tools/docs/configuration/overview/)と[重複検査](https://docs.fallow.tools/analysis/duplication)を参照し、このrepoで使うオプションは導入済み3.27.0の`--help`でも確認してください。
 
-[Issue #58の過去の検証報告](docs/evidence/harness-review-2026-09-14.md)は固定資料です。通常checkでは、この報告の形式検査やJSONとMarkdownの一致確認を行いません。runtimeの正常系・異常系の制御テスト、および共通checkとは別に行う[撮影の実検証](scripts/README.md#検証)は維持します。
+[Issue #58の過去の検証報告](docs/research/harness-review-2026-09-14.md)は固定資料です。通常checkでは、この報告の形式検査やJSONとMarkdownの一致確認を行いません。runtimeの正常系・異常系の制御テスト、および共通checkとは別に行う[撮影の実検証](scripts/README.md#検証)は維持します。
 
 ## 要求整理とIssue作成
 

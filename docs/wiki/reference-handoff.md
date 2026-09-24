@@ -31,4 +31,4 @@ scenes: ["plan", "implement", "pr-create"]
 
 - [#73](https://github.com/thkt/dotagents/issues/73)：同じ根拠を実装、修正、独立評価、PR説明へ引き継ぐ範囲を整理しました。
 - [#90](https://github.com/thkt/dotagents/issues/90)・[PR #92](https://github.com/thkt/dotagents/pull/92)：当時、選択した共有知識を版照合と評価記録へ接続しました。今回の廃止理由と旧記録の扱いは[DR-0003](../decisions/0003-retire-shared-knowledge-selection.md)に記録します。
-- 今回の変更の確認基点は `104082c8b586681f8142a2097730df654ec743a0` です。時間・手戻りの改善は[当時の検証記録](../evidence/shared-knowledge-90.md)で未計測とされています。
+- 今回の変更の確認基点は `104082c8b586681f8142a2097730df654ec743a0` です。時間・手戻りの改善は[当時の検証記録](../research/shared-knowledge-90.md)で未計測とされています。
