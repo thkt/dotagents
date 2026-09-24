@@ -1530,7 +1530,7 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
           await Promise.all(priorFiles.map((path) => readFile(join(f.prior, path), 'utf8'))),
         ).toEqual(priorEvidence);
         if (entryFailure) {
-          expect(await readdir(verification)).toEqual(
+          expect((await readdir(verification)).sort()).toEqual(
             mode === 'locked_body_changed' ? ['lock'] : ['issue.stderr', 'issue.stdout'],
           );
           if (mode === 'locked_body_changed') {
