@@ -216,29 +216,42 @@ const statusLabels: Record<ReturnType<typeof node>['status'], string> = {
   unverified: '未検証',
   proposed: '提案中',
 };
-export function renderKnowledge(selected: SelectedKnowledge) {
+function renderNode(entry: ReturnType<typeof node>, heading: '##' | '###') {
+  return [
+    `${heading} ${entry.id} — ${kindLabels[entry.kind]}（${statusLabels[entry.status]}）`,
+    `分類: ${entry.facet} / ${entry.kind} / ${entry.status}`,
+    entry.statement,
+    `問い直す前提: ${entry.question}`,
+    `適用条件: ${entry.scope}`,
+    `根拠: ${entry.sources.join(', ')}`,
+    ...entry.relations.map(({ to, meaning }) => `関係: ${entry.id} → ${to}: ${meaning}`),
+  ].join('\n\n');
+}
+function renderSource(entry: ReturnType<typeof source>) {
+  return `- ${entry.id}: [出典](${entry.url}) / 版: ${entry.version} / ${entry.status} / 適用: ${entry.scope}`;
+}
+const knowledgeBoundary =
+  'これは対象repoの知識です。今回の要求・許可はIssueと合意記録、実行制御は信頼するホストが担当します。形式照合は意味・合意・効果を保証しません。関係先のIDは参照であり、未選択の定義を要求へ追加しません。';
+export function renderKnowledge(
+  selected: SelectedKnowledge,
+  format: 'context' | 'wiki' = 'context',
+) {
+  const wiki = format === 'wiki';
   return (
     [
       `# ${selected.title}`,
+      ...(wiki
+        ? [
+            'この文書はJSON正本から生成しています。直接手修正せず、正本を変更して`bun run knowledge:generate`で再生成し、`bun run knowledge:check`で照合してください。',
+          ]
+        : []),
       `正本: ${selected.path} / Git blob: ${selected.blob} / この表示に含むID: ${selected.ids.join(', ')}`,
+      ...(wiki ? ['## 内容'] : []),
       `適用範囲: ${selected.scope}`,
-      'これは対象repoの知識です。今回の要求・許可はIssueと合意記録、実行制御は信頼するホストが担当します。形式照合は意味・合意・効果を保証しません。関係先のIDは参照であり、未選択の定義を要求へ追加しません。',
-      ...selected.nodes.map((node) =>
-        [
-          `## ${node.id} — ${kindLabels[node.kind]}（${statusLabels[node.status]}）`,
-          `分類: ${node.facet} / ${node.kind} / ${node.status}`,
-          node.statement,
-          `問い直す前提: ${node.question}`,
-          `適用条件: ${node.scope}`,
-          `根拠: ${node.sources.join(', ')}`,
-          ...node.relations.map(({ to, meaning }) => `関係: ${node.id} → ${to}: ${meaning}`),
-        ].join('\n\n'),
-      ),
-      '## 根拠の参照',
-      ...selected.sources.map(
-        (source) =>
-          `- ${source.id}: [出典](${source.url}) / 版: ${source.version} / ${source.status} / 適用: ${source.scope}`,
-      ),
+      knowledgeBoundary,
+      ...selected.nodes.map((entry) => renderNode(entry, wiki ? '###' : '##')),
+      wiki ? '## 根拠' : '## 根拠の参照',
+      ...selected.sources.map(renderSource),
     ].join('\n\n') + '\n'
   );
 }
@@ -248,7 +261,7 @@ export function knowledgeContext(selected: SelectedKnowledge[]) {
   }
   return [
     'Selected repository knowledge at the reviewed base version. Compare current file changes with these definitions; relation targets are references, not implicitly selected definitions.',
-    ...selected.map(renderKnowledge),
+    ...selected.map((entry) => renderKnowledge(entry)),
     'When observations conflict with a model premise, trace the affected node IDs and their sources to the Issue decision in existing findings/assessments. Propose a model diff with the observation and needed investigation or human agreement; do not auto-adopt it.',
   ].join('\n');
 }
@@ -266,10 +279,7 @@ export async function generateKnowledge(
     blob: gitBlob(content),
     ids: model.nodes.map(({ id }) => id),
   });
-  const body = renderKnowledge(selected).replace(
-    `# ${selected.title}\n\n`,
-    `# ${selected.title}\n\nこの文書はJSON正本から生成しています。直接手修正せず、正本を変更して\`bun run knowledge:generate\`で再生成し、\`bun run knowledge:check\`で照合してください。\n\n`,
-  );
+  const body = renderKnowledge(selected, 'wiki');
   const markdown = `---\nglobs: ${JSON.stringify(selection.globs)}\nscenes: ${JSON.stringify(selection.scenes)}\n---\n\n${body}`;
   if (check) {
     assert(

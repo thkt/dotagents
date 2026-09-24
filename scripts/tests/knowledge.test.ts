@@ -98,6 +98,11 @@ test('one model produces human and AI definitions while preserving selection and
     expect(original).toStartWith(
       '---\nglobs: ["src/start.ts"]\nscenes: ["plan","implement"]\n---\n\n# Example knowledge',
     );
+    expect(original).toContain('\n## 内容\n');
+    expect(original).toContain('\n### hypothesis — 仮説（未検証）\n');
+    expect(original).toContain('\n### proposal — 提案（提案中）\n');
+    expect(original).toContain('\n## 根拠\n');
+    expect(original).not.toContain('\n## 定型手順\n');
     await assert.rejects(
       () => generateKnowledge(path, true, destination, { ...selection, scenes: ['implement'] }),
       /Knowledge Markdown is stale/,
@@ -118,6 +123,7 @@ test('one model produces human and AI definitions while preserving selection and
     const selected = selectKnowledge(changed, reference);
     const ai = renderKnowledge(selected);
     expect(ai).toStartWith('# Example knowledge\n');
+    expect(ai).not.toContain('\n## 内容\n');
     expect(ai).not.toContain('globs:');
     expect(ai).not.toContain('scenes:');
     expect(original).not.toContain(rule.statement);
