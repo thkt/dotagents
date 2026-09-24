@@ -24,7 +24,6 @@ import { readTarget } from '../target.ts';
 import { correctionConfig, reviewReplySource } from './support/correction.ts';
 import type { Config, State, Revision } from '../input.ts';
 import { isRecord } from '../values.ts';
-import { readKnowledge } from '../knowledge.ts';
 import { initializeTarget, githubTarget, git, targetConfig } from './support/target.ts';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -42,22 +41,18 @@ const updatedRequirements = {
 };
 const updatedIssue = JSON.stringify(updatedRequirements);
 const ok = (stdout = '') => ({ stdout, stderr: '', code: 0, timedOut: false, ms: 1 });
-const knowledgePath = 'docs/knowledge/start.json';
-const knowledgeSource = new URL('../../docs/knowledge/implementation-start.json', import.meta.url);
-
-function selectedIssue(blob: string, ids: string[], path = knowledgePath) {
-  return JSON.stringify({
-    ...updatedRequirements,
-    body:
-      updatedRequirements.body +
-      '\n```dotagents-knowledge\n' +
-      JSON.stringify([{ path, blob, ids }]) +
-      '\n```',
-  });
-}
+const reportPath = 'docs/research/start.md';
+const reportContent = 'Reviewed start evidence.\n';
+const legacyIssue = JSON.stringify({
+  ...updatedRequirements,
+  body:
+    '```dotagents-knowledge\n[{"path":"model.json","blob":"' +
+    'a'.repeat(40) +
+    '","ids":["rule"]}]\n```',
+});
 
 // Real Git and the existing development/publish entry points; only external responses are simulated.
-async function fixture(root: string, media = false, setup: string[][] = [], knowledge = false) {
+async function fixture(root: string, media = false, setup: string[][] = [], report = false) {
   const repo = join(root, 'repo');
   const prior = join(root, 'prior');
   const dir = join(root, 'revision');
@@ -67,11 +62,11 @@ async function fixture(root: string, media = false, setup: string[][] = [], know
     setup,
     capture: media ? { command: ['capture'], destination: 'media', required: true } : null,
   });
-  if (knowledge) {
-    await mkdir(join(repo, 'docs/knowledge'), { recursive: true });
-    await writeFile(join(repo, knowledgePath), await readFile(knowledgeSource, 'utf8'));
-    git(repo, 'add', knowledgePath);
-    git(repo, 'commit', '-m', 'reviewed knowledge');
+  if (report) {
+    await mkdir(join(repo, 'docs/research'), { recursive: true });
+    await writeFile(join(repo, reportPath), reportContent);
+    git(repo, 'add', reportPath);
+    git(repo, 'commit', '-m', 'reviewed report');
   }
   const initialBase = git(repo, 'rev-parse', 'HEAD');
   // GitHub does not create closing links from the body for a non-default base.
@@ -105,9 +100,7 @@ async function fixture(root: string, media = false, setup: string[][] = [], know
     beforeVerify?: () => Promise<void>;
     beforeActor?: () => Promise<void>;
   } = {
-    issueText: knowledge
-      ? selectedIssue(git(repo, 'rev-parse', `HEAD:${knowledgePath}`), ['preserve-work'])
-      : issue,
+    issueText: issue,
     implementations: 0,
     pushes: 0,
     edits: 0,
@@ -199,12 +192,9 @@ async function fixture(root: string, media = false, setup: string[][] = [], know
 
   async function implementOriginal(cwd: string) {
     await writeFile(join(cwd, 'original-pr.txt'), 'original issue deliverable');
-    if (knowledge) {
-      const original = await readFile(join(cwd, knowledgePath), 'utf8');
-      await writeFile(
-        join(cwd, knowledgePath),
-        original.replace('実装開始の目的・概念・規則', 'Published model revision'),
-      );
+    if (report) {
+      const original = await readFile(join(cwd, reportPath), 'utf8');
+      await writeFile(join(cwd, reportPath), original + 'Published evidence revision.\n');
     }
   }
   async function actor(cwd: string, input: string) {
@@ -297,7 +287,24 @@ async function fixture(root: string, media = false, setup: string[][] = [], know
       });
     },
   };
-  await develop(['99', '--repo', repo, '--run-dir', prior], io);
+  await develop(
+    [
+      '99',
+      '--repo',
+      repo,
+      '--run-dir',
+      prior,
+      ...(report
+        ? [
+            '--start-commit',
+            initialBase,
+            '--report',
+            `${reportPath}=${git(repo, 'rev-parse', `HEAD:${reportPath}`)}`,
+          ]
+        : []),
+    ],
+    io,
+  );
   commands.length = 0;
   pr.isDraft = false;
   const cwd = join(prior, 'checkout');
@@ -1289,28 +1296,41 @@ for (const [mode, current, reason] of [
 }
 
 for (const [mode, reason] of [
-  ['unbound_path', /Required report is missing from start commit/],
-  ['published_blob', /Required report differs from reviewed version/],
+  ['current', /Legacy dotagents-knowledge/],
+  ['retained', /Legacy dotagents-knowledge/],
+  ['missing_report', /Required report is missing from start commit/],
+  ['published_report', /Required report differs from reviewed version/],
 ] as const) {
-  test(`revision rejects knowledge outside the retained reference base: ${mode}`, async () => {
-    const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-knowledge-')));
+  test(`revision rejects unsupported evidence before setup: ${mode}`, async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-legacy-')));
     try {
       const setup = ['git', 'status', '--porcelain'];
-      const f = await fixture(root, false, [setup], mode === 'published_blob');
-      const path = mode === 'unbound_path' ? 'docs/knowledge/unbound.json' : knowledgePath;
-      const source = join(root, 'knowledge.json');
-      await writeFile(source, await readFile(knowledgeSource, 'utf8'));
-      const blob =
-        mode === 'unbound_path'
-          ? git(f.cwd, 'hash-object', '-w', '--', source)
-          : git(f.cwd, 'rev-parse', `HEAD:${path}`);
-      const ids = ['start-identity'];
-      // The blob and selected ID are valid: only its binding to the retained base is wrong.
-      const selected = await readKnowledge([{ path, blob, ids }], async (...args) =>
-        git(f.cwd, ...args),
-      );
-      expect(selected[0]?.nodes.map((node) => node.id)).toEqual(ids);
-      f.hooks.issueText = selectedIssue(blob, ids, path);
+      const f = await fixture(root, false, [setup], mode.endsWith('report'));
+      if (mode === 'current') {
+        f.hooks.issueText = legacyIssue;
+      } else if (mode === 'retained') {
+        await writeFile(join(f.prior, 'issue.json'), legacyIssue);
+        const path = join(f.prior, 'verification/state.json');
+        const state = await readObject(path);
+        await writeFile(path, JSON.stringify({ ...state, issueHash: hash(legacyIssue) }));
+      }
+      if (mode.endsWith('report')) {
+        const configPath = join(f.prior, 'verification-config.json');
+        const config = await readObject(configPath);
+        config.reports = [
+          {
+            path: mode === 'missing_report' ? 'docs/research/absent.md' : reportPath,
+            blob: git(f.cwd, 'rev-parse', `HEAD:${reportPath}`),
+          },
+        ];
+        await writeFile(configPath, JSON.stringify(config));
+        const statePath = join(f.prior, 'verification/state.json');
+        const state = await readObject(statePath);
+        await writeFile(
+          statePath,
+          JSON.stringify({ ...state, configHash: hash(JSON.stringify(config)) }),
+        );
+      }
       const priorFiles = [
         'issue.json',
         'verification-config.json',
@@ -1462,12 +1482,7 @@ for (const [mode, reason] of [
     const originalPath = process.env.PATH;
     try {
       const f = await fixture(root, false, [], mode === 'updated_issue');
-      const currentIssue =
-        mode === 'updated_issue'
-          ? selectedIssue(git(f.cwd, 'rev-parse', `${f.initialBase}:${knowledgePath}`), [
-              'start-identity',
-            ])
-          : updatedIssue;
+      const currentIssue = updatedIssue;
       f.hooks.issueText = currentIssue;
       const priorFiles = [
         'issue.json',
@@ -1638,8 +1653,8 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
       expect(await readFile(join(verification, 'issue.stdout'), 'utf8')).toBe(currentIssue + '\n');
       expect(verifiedConfig.revision.issueText).toBe(currentIssue);
       expect(await readFile(join(f.dir, 'issue.json'), 'utf8')).toBe(currentIssue);
-      const referenceBlob = git(f.cwd, 'rev-parse', `${f.initialBase}:${knowledgePath}`);
-      expect(git(f.cwd, 'rev-parse', `${f.oldHead}:${knowledgePath}`)).not.toBe(referenceBlob);
+      const referenceBlob = git(f.cwd, 'rev-parse', `${f.initialBase}:${reportPath}`);
+      expect(git(f.cwd, 'rev-parse', `${f.oldHead}:${reportPath}`)).not.toBe(referenceBlob);
       for (const promptFile of [
         join(f.dir, 'implementation.prompt'),
         join(verification, 'repair-1.prompt'),
@@ -1648,12 +1663,8 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
         const prompt = await readFile(promptFile, 'utf8');
         expect(prompt).toContain(currentIssue);
         expect(prompt).toContain(`"startCommit":"${f.initialBase}"`);
-        expect(prompt).toContain(
-          `正本: ${knowledgePath} / Git blob: ${referenceBlob} / この表示に含むID: start-identity`,
-        );
-        expect(prompt).toContain('# 実装開始の目的・概念・規則');
-        expect(prompt).not.toContain('# Published model revision');
-        expect(prompt).not.toContain('## preserve-work —');
+        expect(prompt).toContain(JSON.stringify({ path: reportPath, blob: referenceBlob }));
+        expect(prompt).not.toContain('"knowledge":');
       }
       expect(
         await Promise.all(priorFiles.map((path) => readFile(join(f.prior, path), 'utf8'))),

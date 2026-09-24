@@ -7,7 +7,7 @@
 - このREADMEの[共有入口と利用条件](#共有入口と利用条件): メンバーが依存する入口、必要な版、結果の参照先。
 - [開発方針](.codex/DEVELOPMENT.md): 要求・公開範囲の合意、文書・テスト・独立評価、人のマージ判断とmain保護。
 - [制御CLI](scripts/README.md): 対象設定、起動、上限、中断、公開。
-- [実装開始の共有知識](docs/wiki/implementation-start.md): JSON正本から生成した目的・概念・規則。選択・改訂の操作は[制御CLI](scripts/README.md#共有知識の選択)。
+- [実装開始の条件](docs/wiki/implementation-start.md): 現行の開始条件と適用範囲。根拠の引き継ぎと旧選択の扱いは[制御CLI](scripts/README.md#調査報告を指定した実装開始)。
 - [調査成果](docs/research/README.md): 再利用する根拠、未採用の提案、Gitによる共有と引き継ぎ。
 
 - [現在の知識](docs/wiki/README.md)・[判断記録](docs/decisions/README.md): このrepoの手順・構造と、その選択理由。Claude／Codex共通の[読む・残す方法](skills/references/documents.md)を使います。
@@ -36,7 +36,7 @@ bun install --frozen-lockfile --ignore-scripts
 bun run check
 ```
 
-Bun 1.4.2を使います。checkはlint、書式、Biomeの認知的複雑度15、型、fallowの未使用コード・循環依存検査、共有知識の生成物照合、ハーネスの制御テストの順に実行します。fallow 3.27.0も版固定の開発依存として上記setupで導入します。Playwrightや商品アプリの依存は導入しません。対象repoではそのrepoの検証を指定してください。商品・既存媒体・旧App版コードと実測履歴は[trial repo](https://github.com/thkt/dotagents-workflow-trial/blob/d0134086ad9bdddb5ed2693327cb1ffb0859c4a2/README.md)に残っています。
+Bun 1.4.2を使います。checkはlint、書式、Biomeの認知的複雑度15、型、fallowの未使用コード・循環依存検査、ハーネスの制御テストの順に実行します。fallow 3.27.0も版固定の開発依存として上記setupで導入します。Playwrightや商品アプリの依存は導入しません。対象repoではそのrepoの検証を指定してください。商品・既存媒体・旧App版コードと実測履歴は[trial repo](https://github.com/thkt/dotagents-workflow-trial/blob/d0134086ad9bdddb5ed2693327cb1ffb0859c4a2/README.md)に残っています。
 
 [biome.json](biome.json)は、版固定したBiome 2.5.14の既定値（linterの有効化と認知的複雑度の上限15）を使い、`noExcessiveCognitiveComplexity`を`error`に指定しています。Biomeの版更新時は、この既定値と上限超過時のerrorによる拒否を再確認してください。
 
@@ -62,7 +62,7 @@ Bun 1.4.2を使います。checkはlint、書式、Biomeの認知的複雑度15�
 
 採用範囲と条件付きの比較結果は[Issue #174](https://github.com/thkt/dotagents/issues/174)を参照してください。常に他ツールより速いことは保証しません。ツールの詳細は[公式設定](https://fallow.tools/docs/configuration/overview/)と[重複検査](https://docs.fallow.tools/analysis/duplication)を参照し、このrepoで使うオプションは導入済み3.27.0の`--help`でも確認してください。
 
-[Issue #58の過去の検証報告](docs/evidence/harness-review-2026-09-14.md)は固定資料です。通常checkでは、この報告の形式検査やJSONとMarkdownの一致確認を行いません。現行の共有知識を扱う`knowledge:check`、runtimeの正常系・異常系の制御テスト、および共通checkとは別に行う[撮影の実検証](scripts/README.md#検証)は維持します。
+[Issue #58の過去の検証報告](docs/evidence/harness-review-2026-09-14.md)は固定資料です。通常checkでは、この報告の形式検査やJSONとMarkdownの一致確認を行いません。runtimeの正常系・異常系の制御テスト、および共通checkとは別に行う[撮影の実検証](scripts/README.md#検証)は維持します。
 
 ## 要求整理とIssue作成
 

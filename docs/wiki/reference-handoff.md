@@ -25,10 +25,10 @@ scenes: ["plan", "implement", "pr-create"]
 
 ## 由来
 
-- [DR-0001](../decisions/0001-separate-requirements-from-evidence.md)：根拠を要求・許可から区別し、既存の引き継ぎ経路で扱います。
+- [DR-0003](../decisions/0003-retire-shared-knowledge-selection.md)：共有モデル選択を終了し、要求と根拠の分離・報告参照による版付き引き継ぎを維持します。
 
 ## 根拠
 
 - [#73](https://github.com/thkt/dotagents/issues/73)：同じ根拠を実装、修正、独立評価、PR説明へ引き継ぐ範囲を整理しました。
-- [#90](https://github.com/thkt/dotagents/issues/90)・[PR #92](https://github.com/thkt/dotagents/pull/92)：選択した共有知識を既存の版照合と評価記録へ接続しました。
-- 現行コードの確認基点は `4c2ccbc981b00bfe5dec2e477c507fda8212f778` です。時間・手戻りの改善は[当時の検証記録](../evidence/shared-knowledge-90.md)で未計測とされています。
+- [#90](https://github.com/thkt/dotagents/issues/90)・[PR #92](https://github.com/thkt/dotagents/pull/92)：当時、選択した共有知識を版照合と評価記録へ接続しました。今回の廃止理由と旧記録の扱いは[DR-0003](../decisions/0003-retire-shared-knowledge-selection.md)に記録します。
+- 今回の変更の確認基点は `104082c8b586681f8142a2097730df654ec743a0` です。時間・手戻りの改善は[当時の検証記録](../evidence/shared-knowledge-90.md)で未計測とされています。

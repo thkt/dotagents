@@ -281,7 +281,7 @@ test('changed limits cannot reset an existing finite trial', async () => {
   const result = t.execute();
   expect(result.status).toBe(1);
   expect(result.stderr).toContain('configuration changed');
-  expect(await readFile(stateFile, 'utf8')).toBe(before);
+  expect(await readFile(stateFile, 'utf8')).toEqual(before);
 });
 
 test('terminal success still refuses an active reservation or an existing lock', async () => {
@@ -673,5 +673,35 @@ for (const json of [true, false]) {
     expect(stopped.stderr).toContain('Historical Issue format cannot be resumed');
     expect(await readFile(join(t.config.runDir, 'state.json'), 'utf8')).toBe(legacy);
     expect(await readFile(join(t.config.runDir, 'issue.stdout'), 'utf8')).toBe(raw);
+  });
+}
+
+for (const saved of [false, true]) {
+  test(`legacy knowledge refuses correction and review, preserving saved state: ${saved}`, async () => {
+    const t = await trial('normal');
+    const input = join(t.root, 'legacy-issue.txt');
+    await writeFile(input, 'Agreed requirement: correct source and docs');
+    t.config.issue = ['cat', input];
+    await writeFile(t.configFile, JSON.stringify(t.config));
+    if (saved) {
+      expect(t.execute().status).toBe(0);
+    }
+    const stateFile = join(t.config.runDir, 'state.json');
+    const before = saved ? await readFile(stateFile, 'utf8') : '';
+    const legacy = '~~~dotagents-knowledge\n[]\n~~~';
+    // A retained legacy Issue must also stop even if the fetched Issue is now clean.
+    await writeFile(saved ? join(t.config.runDir, 'issue.txt') : input, legacy);
+    const stopped = t.execute();
+    expect(stopped.status).toBe(1);
+    expect(stopped.stderr).toContain('Legacy dotagents-knowledge');
+    if (saved) {
+      expect(await readFile(stateFile, 'utf8')).toEqual(before);
+      expect(await readFile(join(t.config.runDir, 'issue.txt'), 'utf8')).toBe(legacy);
+    } else {
+      expect(existsSync(stateFile)).toBe(false);
+      expect(existsSync(join(t.config.runDir, 'repair-1.prompt'))).toBe(false);
+      expect(existsSync(join(t.config.runDir, 'review-1.prompt'))).toBe(false);
+      expect(existsSync(join(t.config.runDir, 'check-1.stdout'))).toBe(false);
+    }
   });
 }

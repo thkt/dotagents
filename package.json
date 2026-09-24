@@ -15,9 +15,7 @@
     "analyze:duplicates": "fallow dupes",
     "analyze:complexity": "fallow health --complexity --sort cognitive --report-only",
     "analyze:cycles": "fallow dead-code --circular-deps",
-    "check": "bun run lint && bun run format:check && bun run complexity && bun run typecheck && bun run check:unused && bun run knowledge:check && bun run test:control",
-    "knowledge:generate": "bun scripts/knowledge.ts",
-    "knowledge:check": "bun scripts/knowledge.ts --check"
+    "check": "bun run lint && bun run format:check && bun run complexity && bun run typecheck && bun run check:unused && bun run test:control"
   },
   "dependencies": {
     "zod": "4.6.5"
