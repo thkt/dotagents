@@ -14,11 +14,13 @@
 
 著作権表示はCopyright (c) 2026 Dillon Mulroyです。ライセンス全文を同梱します。原版から既存の波括弧・Oxfmt規約に合わせ、複雑度上限15のために関数を分割し、蓄積変数への再代入時はコピー時点の値を判定するようにしました。診断文は維持します。[index.ts](index.ts)はこのrepoで追加した単一ルールの登録です。
 
+[Issue #214](https://github.com/thkt/dotagents/issues/214)に従い、通常のIdentifierによるconst宣言から初期値を取得する処理を、[shared/array-method.ts](shared/array-method.ts)の`getConstInitializer`へ集約しています。蓄積変数の参照・コピー前の再代入・自己代入右辺の判定はルール側に、配列の型注釈と初期値の判定は`isKnownArrayExpression`側に残しています。循環防止とscopeによるbinding解決を含め、検出条件は変えません。
+
 独自ルールはreduce/reduceRightの直接指定callbackを調べ、蓄積変数とconstの別名を追跡します。Object.assignのオブジェクトリテラルへのコピー、Array.from、配列と認識できる初期値に対するconcat・slice・toSpliced・toSorted・toReversed・withが対象です。spreadは標準ルールが担当します。文字列concat、入力要素だけのコピー、新しく作った蓄積先への追加は許容します。名前付きcallback、別関数を介するコピー、認識できない初期値などは検出範囲外です。実際の値の増加や性能効果を測定するものではありません。
 
 ## 更新
 
-更新時は上記commitと候補版の対象2ファイル・ライセンスを比較し、ローカルの関数分割と検出条件への影響を確認します。他ルールや新たな適用範囲は自動で取り込まず、要求が変わる場合は人の合意へ戻します。採用するcommit・ライセンス・ローカル変更の説明も同時に更新します。
+更新時は上記commitと候補版の対象2ファイル・ライセンスを比較し、ローカルの関数分割・const初期値取得の共有化と検出条件への影響を確認します。他ルールや新たな適用範囲は自動で取り込まず、要求が変わる場合は人の合意へ戻します。採用するcommit・ライセンス・ローカル変更の説明も同時に更新します。
 
 Oxlintと`@oxlint/plugins`は1.80.0に揃え、package.jsonとbun.lockで固定します。API更新時は両方の版と型定義を照合し、インストールスクリプトを無効にしてlockfileを更新します。セットアップには既存の`bun install --frozen-lockfile --ignore-scripts`を使います。
 

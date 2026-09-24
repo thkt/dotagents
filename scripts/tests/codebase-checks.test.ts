@@ -60,6 +60,8 @@ test('lint rejects unsafe assertions and accumulator copies while preserving che
         acc.push({ ...item }, Object.assign({}, item)); return acc;
       }, []);
       export const joined = ['a', 'b'].reduce((acc, item) => acc.concat(item), '');
+      const textSeed = '';
+      export const joinedFromConst = ['a', 'b'].reduce((acc, item) => acc.concat(item), textSeed);
       export const assigned = [{ id: 1 }].reduce<Record<string, number>>((acc, item) =>
         Object.assign(acc, item), {});
       export const shadowed = [{ id: 1 }].reduce((acc, item) => {
@@ -94,6 +96,12 @@ test('lint rejects unsafe assertions and accumulator copies while preserving che
         path: 'scripts/trial-concat.ts',
         source:
           'export const result = [1, 2].reduce<number[]>((acc, item) => acc.concat(item), []);',
+        code: 'anti-slop(no-reduce-accumulator-copy)',
+      },
+      {
+        path: 'scripts/tests/trial-const-initial.ts',
+        source: `const seed = [0]; const initial = seed;
+          export const result = [1, 2].reduce((acc, item) => acc.concat(item), initial);`,
         code: 'anti-slop(no-reduce-accumulator-copy)',
       },
       {
