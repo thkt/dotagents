@@ -107,6 +107,7 @@ test('one model produces human and AI definitions while preserving selection and
     expect(original).not.toContain(rule.statement);
     expect(explanation).toContain(rule.statement);
     expect(ai).toContain(rule.statement);
+    expect(ai).toContain('## hypothesis — 仮説（未検証）');
     expect(ai).toContain('teleology / hypothesis / unverified');
     expect(ai).toContain('問い直す前提: Which input was reviewed?');
     expect(ai).toContain('適用条件: Before starting');
@@ -122,6 +123,7 @@ test('one model produces human and AI definitions while preserving selection and
     expect(ai).not.toContain('https://example.com/draft');
     expect(ai).toContain('関係: rule → proposal: Possible revision');
     const proposed = renderKnowledge(selectKnowledge(changed, { ...reference, ids: ['proposal'] }));
+    expect(proposed).toContain('## proposal — 提案（提案中）');
     expect(proposed).toContain('nomology / proposal / proposed');
     expect(proposed).toContain('Consider another review.');
   } finally {
@@ -372,7 +374,8 @@ if(role === 'review') {
       for (const node of expectedNodes) {
         assert(typeof node.id === 'string' && typeof node.facet === 'string');
         assert(typeof node.kind === 'string' && typeof node.status === 'string');
-        expect(prompt).toContain(`## ${node.id} (${node.facet} / ${node.kind} / ${node.status})`);
+        expect(prompt).toContain(`## ${node.id} —`);
+        expect(prompt).toContain(`分類: ${node.facet} / ${node.kind} / ${node.status}`);
         assert(typeof node.statement === 'string');
         assert(typeof node.question === 'string');
         assert(typeof node.scope === 'string');
