@@ -15,6 +15,7 @@
     "scripts/verify-review.ts"
   ],
   "includeEntryExports": true,
+  "ignorePatterns": ["docs/research/formal-state-trial-20260921/probe.ts"],
   "ignoreDependencies": [
     "@textlint-rule/textlint-rule-no-invalid-control-character",
     "textlint-rule-ja-no-redundant-expression",
