@@ -9,6 +9,7 @@ import { issueText } from './issue.ts';
 import { readTarget } from './target.ts';
 import { assertRunning } from './process.ts';
 import type { Reader } from './target.ts';
+import { graphQlPrPublication, matchPrPublication, referencesIssue } from './pr-identity.ts';
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 async function json(path: string): Promise<unknown> {
@@ -178,26 +179,27 @@ export async function checkRevision(
       isRecord(pr.headRepositoryOwner),
     'Invalid revision PR response',
   );
+  const match = matchPrPublication(graphQlPrPublication(pr), {
+    url: revision.url,
+    actor: revision.actor,
+    branch: revision.branch,
+    repository: revision.repository,
+    commit: head,
+    base: revision.baseBranch,
+    body,
+  });
   assert(
-    pr.url === revision.url &&
-      pr.state === 'OPEN' &&
-      pr.author.login === revision.actor &&
-      pr.headRefName === revision.branch &&
-      pr.headRefOid === head &&
-      pr.baseRefName === revision.baseBranch &&
-      pr.isCrossRepository === false &&
-      `${String(pr.headRepositoryOwner.login)}/${String(pr.headRepository.name)}` ===
-        revision.repository,
+    match.target && match.author && pr.isCrossRepository === false,
     'Revision PR identity changed; reconcile repository, author, head and base',
   );
   assert(
-    typeof pr.body === 'string' && (captureBody || pr.body === body),
+    typeof pr.body === 'string' && (captureBody || match.body),
     'Revision PR body changed; preserve unreviewed edits',
   );
   // Non-default bases have no automatic closing links; the harness publishes an
   // explicit Issue reference in the body. Any links returned must still agree.
   assert(
-    new RegExp(`Closes #${revision.issue}(?![0-9])`).test(pr.body) &&
+    referencesIssue(pr.body, revision.issue) &&
       Array.isArray(pr.closingIssuesReferences) &&
       pr.closingIssuesReferences.length <= 1 &&
       pr.closingIssuesReferences.every(
@@ -218,14 +220,14 @@ export async function checkRevision(
   );
   if (draft) {
     assert(typeof pr.isDraft === 'boolean', 'Revision PR draft state unavailable');
-    if (draft === 'ensure' && !pr.isDraft) {
+    if (draft === 'ensure' && !match.draft) {
       assertRunning();
       await read(['gh', 'pr', 'ready', revision.url, '--repo', revision.repository, '--undo'], cwd);
       assertRunning();
       // The mutation invalidates the earlier target, actor, Issue and body observations.
       return checkRevision(revision, cwd, read, { head, body, draft: 'require' });
     }
-    assert(pr.isDraft, 'Revision PR is not draft; reconcile before further publication');
+    assert(match.draft, 'Revision PR is not draft; reconcile before further publication');
   }
   return pr.body;
 }

@@ -97,7 +97,6 @@ async function fixture(root: string, media = false, setup: string[][] = [], know
     'Adopted review: reset must clear the result. Scope: reset only. Source: human review #100.',
   );
   const hooks: {
-    mode: string;
     issueText: string;
     implementations: number;
     pushes: number;
@@ -106,7 +105,6 @@ async function fixture(root: string, media = false, setup: string[][] = [], know
     beforeVerify?: () => Promise<void>;
     beforeActor?: () => Promise<void>;
   } = {
-    mode: '',
     issueText: knowledge
       ? selectedIssue(git(repo, 'rev-parse', `HEAD:${knowledgePath}`), ['preserve-work'])
       : issue,
@@ -124,19 +122,9 @@ async function fixture(root: string, media = false, setup: string[][] = [], know
         expect(pr.isDraft).toBe(true);
       }
       hooks.pushes++;
-      if (hooks.mode === 'push_failed') {
-        return { ...ok(), code: 1, stderr: 'push rejected fixture' };
-      }
       remoteHead = git(cwd, 'rev-parse', 'HEAD');
       pr.headRefOid = remoteHead;
-      if (hooks.mode === 'push_interrupt') {
-        process.emit('SIGINT');
-        throw Error('Interrupted push fixture');
-      }
       return ok();
-    }
-    if (argv.includes('commit') && hooks.mode === 'commit_failed') {
-      return { ...ok(), code: 1, stderr: 'commit rejected fixture' };
     }
     return command(argv, cwd, input, timeout);
   }
@@ -147,42 +135,15 @@ async function fixture(root: string, media = false, setup: string[][] = [], know
     }
     expect(pr.isDraft).toBe(true);
     hooks.edits++;
-    if (hooks.mode === 'edit_failed') {
-      return { ...ok(), code: 1, stderr: 'body update failed fixture' };
-    }
     const body = argv[argv.indexOf('--body-file') + 1];
     assert(body);
     pr.body = await readFile(body, 'utf8');
-    if (hooks.mode === 'edit_interrupt') {
-      process.emit('SIGTERM');
-    }
-    if (hooks.mode === 'readback_changed') {
-      pr.body = 'Concurrent edit';
-    }
     return ok();
-  }
-  function issueReply() {
-    return ok(
-      hooks.mode === 'issue_after_push' && hooks.pushes > 1
-        ? hooks.issueText.replace('Keep result visible', 'Changed requirement')
-        : hooks.issueText,
-    );
   }
   function undoDraft(argv: string[]) {
     expect(argv).toEqual(['gh', 'pr', 'ready', pr.url, '--repo', 'team/component', '--undo']);
     expect(hooks.pushes).toBe(1);
-    if (hooks.mode === 'draft_failed') {
-      return { ...ok(), code: 1, stderr: 'draft conversion failed fixture' };
-    }
-    if (hooks.mode !== 'draft_mismatch') {
-      pr.isDraft = true;
-    }
-    if (hooks.mode === 'draft_body_changed') {
-      pr.body += '\nConcurrent edit during draft conversion';
-    }
-    if (hooks.mode === 'draft_unknown') {
-      throw Error('draft conversion response lost fixture');
-    }
+    pr.isDraft = true;
     return ok();
   }
   function branchPulls() {
@@ -199,26 +160,13 @@ async function fixture(root: string, media = false, setup: string[][] = [], know
         },
       ],
     ];
-    if (hooks.mode === 'shared_branch') {
-      pages.push([
-        {
-          html_url: 'https://github.com/team/component/pull/101',
-          head: { ref: pr.headRefName, repo: { full_name: 'team/component' } },
-          base: { ref: 'main' },
-          draft: false,
-        },
-      ]);
-    }
     return pages;
   }
   async function githubCommand(argv: string[]) {
     switch (`${argv[1]}/${argv[2]}`) {
       case 'issue/view':
-        return issueReply();
+        return ok(hooks.issueText);
       case 'pr/view':
-        if (hooks.mode === 'ci_failed' && argv.at(-1)?.includes('statusCheckRollup')) {
-          return { ...ok(), code: 1, stderr: 'CI unavailable fixture' };
-        }
         return ok(JSON.stringify(pr));
       case 'api/repos/team/component/pulls':
         expect(argv).toEqual([
@@ -277,12 +225,6 @@ async function fixture(root: string, media = false, setup: string[][] = [], know
       join(cwd, 'result.txt'),
       hooks.implementations === 1 ? 'implemented' : 'reset corrected',
     );
-    if (hooks.mode === 'body_changed') {
-      pr.body += '\nHand edit';
-    }
-    if (hooks.mode === 'request_changed') {
-      await writeFile(request, 'Expanded scope');
-    }
     return ok(JSON.stringify({ status: 'repaired', findings: 'Changed requested behavior' }));
   }
   const io = {
@@ -350,16 +292,6 @@ async function fixture(root: string, media = false, setup: string[][] = [], know
           publicationCommands.push(argv);
           const result = await io.command(argv, cwd, '', 660000);
           assert(result.code === 0, result.stderr);
-          if (hooks.mode === 'target_after_push' && argv[2] === 'repos/team/component') {
-            return JSON.stringify({
-              full_name: 'team/component',
-              id: 456,
-              permissions: { push: true },
-            });
-          }
-          if (hooks.mode === 'readback_actor_changed' && hooks.edits && argv[2] === 'user') {
-            return JSON.stringify({ login: 'another-operator' });
-          }
           return result.stdout.trim();
         },
       });
@@ -426,6 +358,73 @@ function revisionInput(root: string): Revision {
     localOnly: false,
   };
 }
+
+test('revision rejects missing repository names instead of matching their string coercion', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'revision-pr-response-'));
+  try {
+    const revision = revisionInput(root);
+    await writeFile(revision.requestFile, revision.request);
+    for (const [owner, name] of [
+      ['undefined', 'component'],
+      ['team', 'undefined'],
+    ]) {
+      revision.repository = `${owner}/${name}`;
+      const pr = {
+        url: revision.url,
+        state: 'OPEN',
+        isDraft: true,
+        author: { login: revision.actor },
+        headRefName: revision.branch,
+        headRefOid: revision.head,
+        baseRefName: revision.baseBranch,
+        headRepositoryOwner: { login: owner },
+        headRepository: { name },
+        isCrossRepository: false,
+        body: revision.body,
+        closingIssuesReferences: [],
+      };
+      const check = () =>
+        checkRevision(
+          revision,
+          root,
+          async (argv) => {
+            if (argv[0] === 'git') {
+              return revision.branch;
+            }
+            if (argv[1] === 'pr') {
+              return JSON.stringify(pr);
+            }
+            expect(argv).toEqual([
+              'gh',
+              'api',
+              `repos/${revision.repository}/git/ref/heads/${revision.branch}`,
+            ]);
+            return JSON.stringify({ object: { sha: revision.head } });
+          },
+          {
+            draft: 'require',
+            issue: revision.issueText,
+            target: {
+              cwd: root,
+              config: { ...targetConfig, repository: revision.repository },
+              actor: revision.actor,
+              repositoryId: revision.repositoryId,
+              text: revision.targetText,
+            },
+          },
+        );
+      expect(await check()).toBe(revision.body);
+      if (owner === 'undefined') {
+        pr.headRepositoryOwner.login = undefined;
+      } else {
+        pr.headRepository.name = undefined;
+      }
+      await assert.rejects(check, /Revision PR identity changed/);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('configuration validates revision input before execution', () => {
   const config = correctionConfig('/revision-config');
@@ -556,39 +555,10 @@ test('standalone revision validates external configuration and binds it to the p
   }
 });
 
-const failures: Record<string, RegExp> = {
-  shared_branch:
-    /Open PR already uses this branch: https:\/\/github.com\/team\/component\/pull\/101/,
-  draft_failed: /draft conversion failed fixture/,
-  draft_mismatch: /not draft/,
-  draft_unknown: /draft conversion response lost fixture/,
-  draft_body_changed: /PR body changed/,
-  dirty: /Checkout differs|clean tracked/,
-  wrong_head: /PR identity changed/,
-  wrong_author: /PR identity changed/,
-  wrong_repo: /PR identity changed/,
-  wrong_base: /PR identity changed/,
-  wrong_issue: /PR Issue changed/,
-  wrong_body_issue: /PR Issue changed/,
-  wrong_pr: /PR identity changed/,
-  body_changed: /PR body changed/,
-  issue_after_push: /Agreed Issue changed/,
-  target_after_push: /Revision target or actor changed/,
-  unfinished_sibling: /Unfinished or uncertain execution/,
-  uncertain_sibling: /Unfinished or uncertain execution/,
-  unfinished: /Previous verification is unfinished/,
-  uncertain: /Previous publication is incomplete/,
-  request_changed: /Revision request changed/,
-  commit_failed: /commit rejected fixture/,
-  push_failed: /push rejected fixture/,
-  push_interrupt: /Interrupted push fixture/,
-  edit_failed: /body update failed fixture/,
-  edit_interrupt: /Interrupted execution/,
-  readback_changed: /PR body changed/,
-  readback_actor_changed: /Revision target or actor changed/,
-  ci_failed: /unavailable:/,
-};
-async function successfulRevision(f: Awaited<ReturnType<typeof fixture>>, mode: string) {
+async function successfulRevision(
+  f: RevisionFixture,
+  { localOnly = false, alreadyDraft = false }: { localOnly?: boolean; alreadyDraft?: boolean } = {},
+) {
   const { pr, hooks } = f;
   const verifiedHeads: string[] = [];
   let beforeCommit = -1;
@@ -598,8 +568,8 @@ async function successfulRevision(f: Awaited<ReturnType<typeof fixture>>, mode: 
       beforeCommit = f.commands.length;
     }
   };
-  const result = await develop(f.args, f.io);
-  expect(result.status).toBe(mode === 'local' ? 'verified_local' : 'published_draft');
+  const result = await runRevision(f);
+  expect(result.status).toBe(localOnly ? 'verified_local' : 'published_draft');
   const config = await readObject(join(f.dir, 'verification-config.json'));
   expect(config.baseCommit).toBe(f.initialBase);
   expect(config).toMatchObject({
@@ -609,7 +579,7 @@ async function successfulRevision(f: Awaited<ReturnType<typeof fixture>>, mode: 
     revision: { head: f.oldHead },
   });
   expect(result.url).toBe(pr.url);
-  expect(hooks.edits).toBe(mode === 'local' ? 0 : 1);
+  expect(hooks.edits).toBe(localOnly ? 0 : 1);
   // Start inputs are checked at entry and after setup, once per canonical checkout.
   expect(f.commands.filter(({ argv }) => argv[1] === 'hash-object')).toEqual(
     Array.from({ length: 2 }, () => ({
@@ -617,7 +587,7 @@ async function successfulRevision(f: Awaited<ReturnType<typeof fixture>>, mode: 
       cwd: f.cwd,
     })),
   );
-  if (mode === 'local') {
+  if (localOnly) {
     expect(verifiedHeads).toEqual([f.oldHead]);
     expect(git(f.cwd, 'rev-parse', 'HEAD')).toBe(f.oldHead);
     expect(result.publication).toBe('not_attempted');
@@ -643,9 +613,9 @@ async function successfulRevision(f: Awaited<ReturnType<typeof fixture>>, mode: 
     expect(push).toBeGreaterThan(beforePush);
     expect(
       f.commands.slice(beforePush, push).filter(({ argv }) => argv[2] === 'user'),
-    ).toHaveLength(mode === 'already_draft' ? 1 : 2);
+    ).toHaveLength(alreadyDraft ? 1 : 2);
     const conversions = f.commands.filter(({ argv }) => argv[2] === 'ready');
-    expect(conversions).toHaveLength(mode === 'already_draft' ? 0 : 1);
+    expect(conversions).toHaveLength(alreadyDraft ? 0 : 1);
     expect(pr.isDraft).toBe(true);
     expect(result.remaining).toEqual(['published_body_check', 'mark_ready', 'human_review']);
     expect(result.commit).not.toBe(f.oldHead);
@@ -659,181 +629,470 @@ async function successfulRevision(f: Awaited<ReturnType<typeof fixture>>, mode: 
     expect(f.publicationCommands.filter((argv) => argv[2] === 'user')).toHaveLength(2);
   }
 }
-async function stoppedRevision(f: Awaited<ReturnType<typeof fixture>>, mode: string) {
-  const { pr, hooks } = f;
-  const expected = failures[mode];
-  assert(expected);
-  await assert.rejects(() => withInterrupts(() => develop(f.args, f.io)), expected);
-  const result = await readObject(join(f.dir, 'result.json')).catch(() => undefined);
-  if (mode === 'shared_branch') {
-    expect(pr.isDraft).toBe(false);
-    expect(pr.headRefOid).toBe(f.oldHead);
-    expect(pr.body).toBe(f.oldBody);
-    expect(f.commands.some(({ argv }) => argv[2] === 'ready' || argv[2] === 'edit')).toBe(false);
-  }
-  if (
-    [
-      'shared_branch',
-      'draft_failed',
-      'draft_mismatch',
-      'draft_unknown',
-      'draft_body_changed',
-      'push_failed',
-      'push_interrupt',
-      'edit_failed',
-      'edit_interrupt',
-      'readback_changed',
-      'readback_actor_changed',
-      'ci_failed',
-      'commit_failed',
-      'request_changed',
-      'body_changed',
-      'issue_after_push',
-      'target_after_push',
-    ].includes(mode)
-  ) {
-    assert(result);
-    expect(result.url).toBe(pr.url);
-    expect(result.status).toBe('stopped');
-    expect(result.publication).toBe(
-      mode === 'ci_failed'
-        ? 'published'
-        : ['shared_branch', 'commit_failed', 'request_changed', 'body_changed'].includes(mode)
-          ? 'not_attempted'
-          : 'unconfirmed',
-    );
-    expect(result.nextAction).toBeTruthy();
-    if (['issue_after_push', 'target_after_push'].includes(mode)) {
-      expect(hooks.edits).toBe(0);
-      expect(hooks.pushes).toBe(2);
-    }
-    if (mode === 'readback_actor_changed') {
-      expect(hooks.edits).toBe(1);
-      expect(hooks.pushes).toBe(2);
-    }
-    if (!['request_changed', 'commit_failed', 'body_changed'].includes(mode)) {
-      expect(result.commit).not.toBe(f.oldHead);
-    }
-  } else {
-    expect(hooks.implementations).toBe(1);
-  }
-  if (
-    [
-      'shared_branch',
-      'draft_failed',
-      'draft_mismatch',
-      'draft_unknown',
-      'draft_body_changed',
-      'dirty',
-      'wrong_head',
-      'wrong_author',
-      'wrong_repo',
-      'wrong_base',
-      'wrong_issue',
-      'wrong_body_issue',
-      'wrong_pr',
-      'body_changed',
-      'unfinished',
-      'uncertain',
-      'request_changed',
-      'commit_failed',
-    ].includes(mode)
-  ) {
-    expect(hooks.pushes).toBe(1);
-    expect(hooks.edits).toBe(0);
-  }
-}
-for (const mode of ['success', 'already_draft', 'local', ...Object.keys(failures)]) {
-  test(`existing PR revision: ${mode}`, async () => {
+type RevisionFixture = Awaited<ReturnType<typeof fixture>>;
+
+function testRevision(name: string, check: (f: RevisionFixture) => Promise<void>) {
+  test(`existing PR revision: ${name}`, async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-')));
     try {
-      const f = await fixture(root);
-      const priorState = await readFile(join(f.prior, 'verification/state.json'), 'utf8');
-      const priorResult = await readFile(join(f.prior, 'result.json'), 'utf8');
-      const { pr, hooks } = f;
-      hooks.mode = mode;
-      if (mode === 'already_draft') {
-        f.pr.isDraft = true;
-      }
-      const identityChanges: Record<string, () => void> = {
-        wrong_head: () => {
-          pr.headRefOid = 'a'.repeat(40);
-        },
-        wrong_author: () => {
-          pr.author.login = 'someone';
-        },
-        wrong_repo: () => {
-          pr.headRepositoryOwner.login = 'another';
-        },
-        wrong_base: () => {
-          pr.baseRefName = 'main';
-        },
-        wrong_issue: () => {
-          pr.closingIssuesReferences = [{ url: 'https://github.com/team/component/issues/98' }];
-        },
-        wrong_body_issue: () => {
-          pr.body = pr.body.replace('Closes #99', 'Closes #990');
-        },
-        wrong_pr: () => {
-          pr.url = 'https://github.com/team/component/pull/101';
-        },
-      };
-      identityChanges[mode]?.();
-      if (mode === 'dirty') {
-        await writeFile(join(f.cwd, 'untracked.txt'), 'keep me');
-      }
-      if (mode === 'unfinished') {
-        await writeFile(
-          join(f.prior, 'verification/state.json'),
-          JSON.stringify({
-            ...(await readObject(join(f.prior, 'verification/state.json'))),
-            active: { role: 'repair', prefix: 'unfinished' },
-          }),
-        );
-      }
-      if (mode === 'uncertain') {
-        await writeFile(
-          join(f.prior, 'result.json'),
-          JSON.stringify({
-            ...(await readObject(join(f.prior, 'result.json'))),
-            publication: 'unconfirmed',
-          }),
-        );
-      }
-      if (mode.endsWith('_sibling')) {
-        const sibling = join(root, 'other-revision');
-        await mkdir(sibling);
-        await writeFile(
-          join(sibling, 'result.json'),
-          JSON.stringify({
-            checkout: f.cwd,
-            reason: mode === 'unfinished_sibling' ? '' : 'Interrupted',
-            publication: mode === 'uncertain_sibling' ? 'unconfirmed' : 'not_attempted',
-          }),
-        );
-      }
-      if (mode === 'local') {
-        f.args.push('--no-publish');
-        pr.closingIssuesReferences = [{ url: 'https://github.com/team/component/issues/99' }];
-      }
-      if (['success', 'already_draft', 'local'].includes(mode)) {
-        await successfulRevision(f, mode);
-      } else {
-        await stoppedRevision(f, mode);
-      }
-      if (!['unfinished', 'uncertain'].includes(mode)) {
-        expect(await readFile(join(f.prior, 'verification/state.json'), 'utf8')).toBe(priorState);
-        expect(await readFile(join(f.prior, 'result.json'), 'utf8')).toBe(priorResult);
-      }
-      if (mode === 'dirty') {
-        expect(await readFile(join(f.cwd, 'untracked.txt'), 'utf8')).toBe('keep me');
-      }
+      await check(await fixture(root));
     } finally {
       await withInterrupts(async () => {});
       await rm(root, { recursive: true, force: true });
     }
   });
 }
+
+function runRevision(f: RevisionFixture): ReturnType<typeof develop>;
+function runRevision(f: RevisionFixture, reason: RegExp): Promise<void>;
+async function runRevision(
+  f: RevisionFixture,
+  reason?: RegExp,
+): Promise<Awaited<ReturnType<typeof develop>> | void> {
+  // Snapshot after case preparation, including intentionally unfinished/uncertain records.
+  const priorState = await readFile(join(f.prior, 'verification/state.json'), 'utf8');
+  const priorResult = await readFile(join(f.prior, 'result.json'), 'utf8');
+  try {
+    if (reason) {
+      // Match only execution errors; preservation failures must fail the test independently.
+      await assert.rejects(() => withInterrupts(() => develop(f.args, f.io)), reason);
+      return;
+    }
+    return await withInterrupts(() => develop(f.args, f.io));
+  } finally {
+    expect(await readFile(join(f.prior, 'verification/state.json'), 'utf8')).toBe(priorState);
+    expect(await readFile(join(f.prior, 'result.json'), 'utf8')).toBe(priorResult);
+  }
+}
+
+function noRevisionPublication(f: RevisionFixture) {
+  expect(f.hooks.pushes).toBe(1); // The fixture's original publication only.
+  expect(f.hooks.edits).toBe(0);
+}
+
+async function stoppedRevision(f: RevisionFixture, reason: RegExp) {
+  await runRevision(f, reason);
+  const result = await readObject(join(f.dir, 'result.json'));
+  expect(result.url).toBe(f.pr.url);
+  expect(result.status).toBe('stopped');
+  expect(result.nextAction).toBeTruthy();
+  return result;
+}
+
+testRevision('success', async (f) => {
+  await successfulRevision(f);
+});
+
+testRevision('already_draft', async (f) => {
+  f.pr.isDraft = true;
+  await successfulRevision(f, { alreadyDraft: true });
+});
+
+testRevision('local', async (f) => {
+  f.args.push('--no-publish');
+  f.pr.closingIssuesReferences = [{ url: 'https://github.com/team/component/issues/99' }];
+  await successfulRevision(f, { localOnly: true });
+});
+
+testRevision('shared_branch', async (f) => {
+  const execute = f.io.command;
+  f.io.command = async (...args) => {
+    const result = await execute(...args);
+    if (args[0][2] === 'repos/team/component/pulls' && f.hooks.implementations >= 2) {
+      // Keep the normal first page; the conflicting PR is on a later page and another base.
+      const pages: unknown = JSON.parse(result.stdout);
+      assert(Array.isArray(pages));
+      pages.push([
+        {
+          html_url: 'https://github.com/team/component/pull/101',
+          head: { ref: f.pr.headRefName, repo: { full_name: 'team/component' } },
+          base: { ref: 'main' },
+          draft: false,
+        },
+      ]);
+      return ok(JSON.stringify(pages));
+    }
+    return result;
+  };
+  const result = await stoppedRevision(
+    f,
+    /Open PR already uses this branch: https:\/\/github.com\/team\/component\/pull\/101/,
+  );
+  expect(result.publication).toBe('not_attempted');
+  expect(result.commit).not.toBe(f.oldHead);
+  noRevisionPublication(f);
+  expect(f.pr.isDraft).toBe(false);
+  expect(f.pr.headRefOid).toBe(f.oldHead);
+  expect(f.pr.body).toBe(f.oldBody);
+  expect(f.commands.some(({ argv }) => argv[2] === 'ready' || argv[2] === 'edit')).toBe(false);
+});
+
+testRevision('draft_failed', async (f) => {
+  const execute = f.io.command;
+  f.io.command = async (...args) => {
+    if (args[0][2] === 'ready') {
+      expect(args[0]).toEqual([
+        'gh',
+        'pr',
+        'ready',
+        f.pr.url,
+        '--repo',
+        'team/component',
+        '--undo',
+      ]);
+      expect(f.hooks.pushes).toBe(1);
+      return { ...ok(), code: 1, stderr: 'draft conversion failed fixture' };
+    }
+    return execute(...args);
+  };
+  const result = await stoppedRevision(f, /draft conversion failed fixture/);
+  expect(result.publication).toBe('unconfirmed');
+  expect(result.commit).not.toBe(f.oldHead);
+  noRevisionPublication(f);
+});
+
+testRevision('draft_mismatch', async (f) => {
+  const execute = f.io.command;
+  f.io.command = async (...args) => {
+    const result = await execute(...args);
+    if (args[0][2] === 'ready') {
+      f.pr.isDraft = false;
+    }
+    return result;
+  };
+  const result = await stoppedRevision(f, /not draft/);
+  expect(result.publication).toBe('unconfirmed');
+  expect(result.commit).not.toBe(f.oldHead);
+  noRevisionPublication(f);
+});
+
+testRevision('draft_unknown', async (f) => {
+  const execute = f.io.command;
+  f.io.command = async (...args) => {
+    const result = await execute(...args);
+    if (args[0][2] === 'ready') {
+      throw Error('draft conversion response lost fixture');
+    }
+    return result;
+  };
+  const result = await stoppedRevision(f, /draft conversion response lost fixture/);
+  expect(result.publication).toBe('unconfirmed');
+  expect(result.commit).not.toBe(f.oldHead);
+  noRevisionPublication(f);
+});
+
+testRevision('draft_body_changed', async (f) => {
+  const execute = f.io.command;
+  f.io.command = async (...args) => {
+    const result = await execute(...args);
+    if (args[0][2] === 'ready') {
+      f.pr.body += '\nConcurrent edit during draft conversion';
+    }
+    return result;
+  };
+  const result = await stoppedRevision(f, /PR body changed/);
+  expect(result.publication).toBe('unconfirmed');
+  expect(result.commit).not.toBe(f.oldHead);
+  noRevisionPublication(f);
+});
+
+testRevision('dirty', async (f) => {
+  await writeFile(join(f.cwd, 'untracked.txt'), 'keep me');
+  await runRevision(f, /Checkout differs|clean tracked/);
+  expect(f.hooks.implementations).toBe(1);
+  noRevisionPublication(f);
+  expect(await readFile(join(f.cwd, 'untracked.txt'), 'utf8')).toBe('keep me');
+});
+
+for (const [name, change, reason] of [
+  [
+    'wrong_head',
+    (pr: RevisionFixture['pr']) => {
+      pr.headRefOid = 'a'.repeat(40);
+    },
+    /PR identity changed/,
+  ],
+  [
+    'wrong_author',
+    (pr: RevisionFixture['pr']) => {
+      pr.author.login = 'someone';
+    },
+    /PR identity changed/,
+  ],
+  [
+    'wrong_repo',
+    (pr: RevisionFixture['pr']) => {
+      pr.headRepositoryOwner.login = 'another';
+    },
+    /PR identity changed/,
+  ],
+  [
+    'wrong_branch',
+    (pr: RevisionFixture['pr']) => {
+      pr.headRefName = 'codex/development-100';
+    },
+    /PR identity changed/,
+  ],
+  [
+    'wrong_base',
+    (pr: RevisionFixture['pr']) => {
+      pr.baseRefName = 'main';
+    },
+    /PR identity changed/,
+  ],
+  [
+    'wrong_issue',
+    (pr: RevisionFixture['pr']) => {
+      pr.closingIssuesReferences = [{ url: 'https://github.com/team/component/issues/98' }];
+    },
+    /PR Issue changed/,
+  ],
+  [
+    'wrong_body_issue',
+    (pr: RevisionFixture['pr']) => {
+      pr.body = pr.body.replace('Closes #99', 'Closes #990');
+    },
+    /PR Issue changed/,
+  ],
+  [
+    'wrong_pr',
+    (pr: RevisionFixture['pr']) => {
+      pr.url = 'https://github.com/team/component/pull/101';
+    },
+    /PR identity changed/,
+  ],
+] as const) {
+  testRevision(name, async (f) => {
+    change(f.pr);
+    await runRevision(f, reason);
+    expect(f.hooks.implementations).toBe(1);
+    noRevisionPublication(f);
+  });
+}
+
+testRevision('body_changed', async (f) => {
+  const execute = f.io.command;
+  f.io.command = async (...args) => {
+    const result = await execute(...args);
+    if (args[0].includes('repair')) {
+      f.pr.body += '\nHand edit';
+    }
+    return result;
+  };
+  const result = await stoppedRevision(f, /PR body changed/);
+  expect(result.publication).toBe('not_attempted');
+  noRevisionPublication(f);
+});
+
+testRevision('request_changed', async (f) => {
+  const execute = f.io.command;
+  f.io.command = async (...args) => {
+    const result = await execute(...args);
+    if (args[0].includes('repair')) {
+      await writeFile(f.request, 'Expanded scope');
+    }
+    return result;
+  };
+  const result = await stoppedRevision(f, /Revision request changed/);
+  expect(result.publication).toBe('not_attempted');
+  noRevisionPublication(f);
+});
+
+testRevision('issue_after_push', async (f) => {
+  const execute = f.io.command;
+  f.io.command = async (...args) => {
+    const result = await execute(...args);
+    if (args[0][1] === 'issue' && f.hooks.pushes > 1) {
+      return ok(f.hooks.issueText.replace('Keep result visible', 'Changed requirement'));
+    }
+    return result;
+  };
+  const result = await stoppedRevision(f, /Agreed Issue changed/);
+  expect(result.publication).toBe('unconfirmed');
+  expect(result.commit).not.toBe(f.oldHead);
+  expect(f.hooks.pushes).toBe(2);
+  expect(f.hooks.edits).toBe(0);
+});
+
+testRevision('target_after_push', async (f) => {
+  const execute = f.io.command;
+  f.io.command = async (...args) => {
+    const result = await execute(...args);
+    // The publisher is entered after push, and performs its own target observation.
+    if (args[0][2] === 'repos/team/component' && f.publicationCommands.length > 0) {
+      return ok(
+        JSON.stringify({ full_name: 'team/component', id: 456, permissions: { push: true } }),
+      );
+    }
+    return result;
+  };
+  const result = await stoppedRevision(f, /Revision target or actor changed/);
+  expect(result.publication).toBe('unconfirmed');
+  expect(result.commit).not.toBe(f.oldHead);
+  expect(f.hooks.pushes).toBe(2);
+  expect(f.hooks.edits).toBe(0);
+});
+
+for (const [name, reason, publication] of [
+  ['unfinished_sibling', '', 'not_attempted'],
+  ['uncertain_sibling', 'Interrupted', 'unconfirmed'],
+] as const) {
+  testRevision(name, async (f) => {
+    const sibling = join(f.prior, '..', 'other-revision');
+    await mkdir(sibling);
+    await writeFile(
+      join(sibling, 'result.json'),
+      JSON.stringify({ checkout: f.cwd, reason, publication }),
+    );
+    await runRevision(f, /Unfinished or uncertain execution/);
+    expect(f.hooks.implementations).toBe(1);
+    noRevisionPublication(f);
+  });
+}
+
+testRevision('unfinished', async (f) => {
+  const path = join(f.prior, 'verification/state.json');
+  await writeFile(
+    path,
+    JSON.stringify({
+      ...(await readObject(path)),
+      active: { role: 'repair', prefix: 'unfinished' },
+    }),
+  );
+  await runRevision(f, /Previous verification is unfinished/);
+  expect(f.hooks.implementations).toBe(1);
+  noRevisionPublication(f);
+});
+
+testRevision('uncertain', async (f) => {
+  const path = join(f.prior, 'result.json');
+  await writeFile(
+    path,
+    JSON.stringify({ ...(await readObject(path)), publication: 'unconfirmed' }),
+  );
+  await runRevision(f, /Previous publication is incomplete/);
+  expect(f.hooks.implementations).toBe(1);
+  noRevisionPublication(f);
+});
+
+testRevision('commit_failed', async (f) => {
+  const execute = f.io.command;
+  f.io.command = async (...args) => {
+    if (args[0][0] === 'git' && args[0].includes('commit')) {
+      return { ...ok(), code: 1, stderr: 'commit rejected fixture' };
+    }
+    return execute(...args);
+  };
+  const result = await stoppedRevision(f, /commit rejected fixture/);
+  expect(result.publication).toBe('not_attempted');
+  noRevisionPublication(f);
+});
+
+testRevision('push_failed', async (f) => {
+  const execute = f.io.command;
+  f.io.command = async (...args) => {
+    if (args[0][0] === 'git' && args[0].includes('push')) {
+      expect(f.pr.isDraft).toBe(true);
+      f.hooks.pushes++;
+      return { ...ok(), code: 1, stderr: 'push rejected fixture' };
+    }
+    return execute(...args);
+  };
+  const result = await stoppedRevision(f, /push rejected fixture/);
+  expect(result.publication).toBe('unconfirmed');
+  expect(result.commit).not.toBe(f.oldHead);
+});
+
+testRevision('push_interrupt', async (f) => {
+  const execute = f.io.command;
+  f.io.command = async (...args) => {
+    const result = await execute(...args);
+    if (args[0][0] === 'git' && args[0].includes('push')) {
+      process.emit('SIGINT');
+      throw Error('Interrupted push fixture');
+    }
+    return result;
+  };
+  const result = await stoppedRevision(f, /Interrupted push fixture/);
+  expect(result.publication).toBe('unconfirmed');
+  expect(result.commit).not.toBe(f.oldHead);
+});
+
+testRevision('edit_failed', async (f) => {
+  const execute = f.io.command;
+  f.io.command = async (...args) => {
+    if (args[0][1] === 'pr' && args[0][2] === 'edit' && !args[0].includes('--attach')) {
+      expect(f.pr.isDraft).toBe(true);
+      f.hooks.edits++;
+      return { ...ok(), code: 1, stderr: 'body update failed fixture' };
+    }
+    return execute(...args);
+  };
+  const result = await stoppedRevision(f, /body update failed fixture/);
+  expect(result.publication).toBe('unconfirmed');
+  expect(result.commit).not.toBe(f.oldHead);
+});
+
+testRevision('edit_interrupt', async (f) => {
+  const execute = f.io.command;
+  f.io.command = async (...args) => {
+    const result = await execute(...args);
+    if (args[0][1] === 'pr' && args[0][2] === 'edit' && !args[0].includes('--attach')) {
+      process.emit('SIGTERM');
+    }
+    return result;
+  };
+  const result = await stoppedRevision(f, /Interrupted execution/);
+  expect(result.publication).toBe('unconfirmed');
+  expect(result.commit).not.toBe(f.oldHead);
+});
+
+testRevision('readback_changed', async (f) => {
+  const execute = f.io.command;
+  f.io.command = async (...args) => {
+    const result = await execute(...args);
+    if (args[0][1] === 'pr' && args[0][2] === 'edit' && !args[0].includes('--attach')) {
+      f.pr.body = 'Concurrent edit';
+    }
+    return result;
+  };
+  const result = await stoppedRevision(f, /PR body changed/);
+  expect(result.publication).toBe('unconfirmed');
+  expect(result.commit).not.toBe(f.oldHead);
+});
+
+testRevision('readback_actor_changed', async (f) => {
+  const execute = f.io.command;
+  f.io.command = async (...args) => {
+    const result = await execute(...args);
+    if (args[0][2] === 'user' && f.hooks.edits > 0 && f.publicationCommands.length > 0) {
+      return ok(JSON.stringify({ login: 'another-operator' }));
+    }
+    return result;
+  };
+  const result = await stoppedRevision(f, /Revision target or actor changed/);
+  expect(result.publication).toBe('unconfirmed');
+  expect(result.commit).not.toBe(f.oldHead);
+  expect(f.hooks.pushes).toBe(2);
+  expect(f.hooks.edits).toBe(1);
+});
+
+testRevision('ci_failed', async (f) => {
+  const execute = f.io.command;
+  f.io.command = async (...args) => {
+    if (
+      args[0][1] === 'pr' &&
+      args[0][2] === 'view' &&
+      args[0].at(-1)?.includes('statusCheckRollup')
+    ) {
+      return { ...ok(), code: 1, stderr: 'CI unavailable fixture' };
+    }
+    return execute(...args);
+  };
+  const result = await stoppedRevision(f, /unavailable:/);
+  expect(result.publication).toBe('published');
+  expect(result.commit).not.toBe(f.oldHead);
+});
 
 for (const changed of ['none', 'actor', 'draft']) {
   test(`revision attachment reconciles a fresh target once: changed=${changed}`, async () => {
@@ -1239,11 +1498,11 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
       const verification = join(f.dir, 'verification');
       const entryFailure = mode.endsWith('body_changed');
       if (entryFailure) {
-        f.hooks.mode = 'body_changed';
         const execute = f.io.command;
         f.io.command = async (...args) => {
           const result = await execute(...args);
           if (args[0].includes('repair')) {
+            f.pr.body += '\nHand edit';
             await writeFile(livePr, JSON.stringify(f.pr));
             if (mode === 'locked_body_changed') {
               await mkdir(join(verification, 'lock'), { recursive: true });
@@ -1383,7 +1642,7 @@ test('a revision reserves existing result evidence before another initial actor 
       await assert.rejects(() => develop(parallel, f.io), /Unfinished or uncertain execution/);
       reconciled = true;
     };
-    await successfulRevision(f, 'success');
+    await successfulRevision(f);
     expect(reconciled).toBe(true);
     expect(f.hooks.implementations).toBe(2);
   } finally {

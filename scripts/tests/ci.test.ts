@@ -34,6 +34,8 @@ const scenarios: {
   frames: unknown[];
   status?: string;
   observed?: string;
+  expectedObservation?: Partial<NonNullable<CiResult['lastObservation']>>;
+  expectedViews?: number;
   elapsed?: number[];
   starts?: number[];
   sleeps?: number[];
@@ -111,6 +113,7 @@ const scenarios: {
     name: 'same-name failure is not hidden by success',
     frames: [frame([...required, check('verify', 'FAILURE')]), frame(required)],
     status: 'failed',
+    expectedViews: 1,
   },
   {
     name: 'other check failure',
@@ -144,6 +147,15 @@ const scenarios: {
     elapsed: [20],
     status: 'timed_out',
     observed: 'missing',
+    expectedObservation: {
+      checks: [
+        { name: 'checks', state: 'SUCCESS' },
+        { name: 'checks', state: 'PENDING' },
+      ],
+      missing: ['verify'],
+      running: [{ name: 'checks', state: 'PENDING' }],
+      unmet: ['checks', 'verify'],
+    },
   },
   {
     name: 'registered checks still running at deadline',
@@ -204,6 +216,11 @@ const scenarios: {
     { ...frame(required), statusCheckRollup: null },
     frame([{ name: 'verify', status: 'COMPLETED', conclusion: null }]),
     { statusCheckRollup: required },
+    ...['headRefOid', 'baseRefName', 'state', 'isDraft', 'url', 'body'].map((field) => ({
+      ...frame(required),
+      [field]: undefined,
+    })),
+    { ...frame(required), isDraft: 'true' },
   ].map((value, index) => ({
     name: `invalid response ${index}`,
     frames: [value],
@@ -249,16 +266,8 @@ function checkObservation(scenario: (typeof scenarios)[number], result: CiResult
       storage_failed: 'writable evidence storage',
     }[result.status],
   );
-  if (scenario.name.startsWith('running at deadline')) {
-    expect(result.lastObservation).toMatchObject({
-      checks: [
-        { name: 'checks', state: 'SUCCESS' },
-        { name: 'checks', state: 'PENDING' },
-      ],
-      missing: ['verify'],
-      running: [{ name: 'checks', state: 'PENDING' }],
-      unmet: ['checks', 'verify'],
-    });
+  if (scenario.expectedObservation) {
+    expect(result.lastObservation).toMatchObject(scenario.expectedObservation);
   }
   if (scenario.status === 'failed') {
     expect(result.lastObservation?.failed.length).toBeGreaterThan(0);
@@ -266,8 +275,8 @@ function checkObservation(scenario: (typeof scenarios)[number], result: CiResult
   if (scenario.status === 'passed') {
     expect(views).toBe(scenario.frames.length);
   }
-  if (scenario.name === 'same-name failure is not hidden by success') {
-    expect(views).toBe(1);
+  if (scenario.expectedViews !== undefined) {
+    expect(views).toBe(scenario.expectedViews);
   }
 }
 

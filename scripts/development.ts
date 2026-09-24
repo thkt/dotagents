@@ -26,7 +26,11 @@ import type { Config, State, ReportReference, StopReason, Revision } from './inp
 import { knowledgeReferences, readKnowledge } from './knowledge.ts';
 import { writeRunReport } from './run-report.ts';
 
-const runtime = { command, verify: run, publish };
+const runtime: {
+  command: typeof command;
+  verify: (config: Config) => Promise<State>;
+  publish: typeof publish;
+} = { command, verify: run, publish };
 // Applied separately to each local verification command and the CI wait.
 const checkTimeMs = 540000;
 // General commands and post-publication target checks retain their 11-minute limit.
