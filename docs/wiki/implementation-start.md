@@ -9,11 +9,13 @@ scenes: ["plan","implement"]
 
 正本: ../knowledge/implementation-start.json / Git blob: f0ce4423369ef041f5ec2e441a3f5dab33b645aa / この表示に含むID: preserve-work, start-objects, authority, start-identity, isolation, setup-recheck, less-rework, index-counterexample, revisit-identity
 
+## 内容
+
 適用範囲: thkt/dotagentsで新しいIssueの初回実装を始める際の条件を中心に扱う。#85・PR #89を採用した#90の内容に基づく。既存PRの修正では各定義の適用条件を確認し、初回実装の隔離条件を流用しない。
 
 これは対象repoの知識です。今回の要求・許可はIssueと合意記録、実行制御は信頼するホストが担当します。形式照合は意味・合意・効果を保証しません。関係先のIDは参照であり、未選択の定義を要求へ追加しません。
 
-## preserve-work — 目的（合意済み）
+### preserve-work — 目的（合意済み）
 
 分類: teleology / purpose / agreed
 
@@ -31,7 +33,7 @@ scenes: ["plan","implement"]
 
 関係: preserve-work → less-rework: 期待する効果は未計測
 
-## start-objects — 概念（合意済み）
+### start-objects — 概念（合意済み）
 
 分類: ontology / concept / agreed
 
@@ -47,7 +49,7 @@ scenes: ["plan","implement"]
 
 関係: start-objects → authority: 内容・合意・実行を区別する
 
-## authority — 規則（合意済み）
+### authority — 規則（合意済み）
 
 分類: ontology / rule / agreed
 
@@ -63,7 +65,7 @@ scenes: ["plan","implement"]
 
 関係: authority → revisit-identity: 不一致の戻り先を判断する
 
-## start-identity — 規則（合意済み）
+### start-identity — 規則（合意済み）
 
 分類: nomology / rule / agreed
 
@@ -81,7 +83,7 @@ scenes: ["plan","implement"]
 
 関係: start-identity → setup-recheck: 異なる時点で同じ条件を確認する
 
-## isolation — 規則（合意済み）
+### isolation — 規則（合意済み）
 
 分類: nomology / rule / agreed
 
@@ -97,7 +99,7 @@ scenes: ["plan","implement"]
 
 関係: isolation → start-identity: 隔離元を確定する
 
-## setup-recheck — 規則（合意済み）
+### setup-recheck — 規則（合意済み）
 
 分類: nomology / rule / agreed
 
@@ -113,7 +115,7 @@ scenes: ["plan","implement"]
 
 関係: setup-recheck → isolation: 元checkoutと隔離先の両方
 
-## less-rework — 仮説（未検証）
+### less-rework — 仮説（未検証）
 
 分類: teleology / hypothesis / unverified
 
@@ -127,7 +129,7 @@ scenes: ["plan","implement"]
 
 関係: less-rework → preserve-work: 期待する望ましい状態
 
-## index-counterexample — 観測（確認済み）
+### index-counterexample — 観測（確認済み）
 
 分類: nomology / observation / observed
 
@@ -145,7 +147,7 @@ scenes: ["plan","implement"]
 
 関係: index-counterexample → revisit-identity: 結果から前提を見直す
 
-## revisit-identity — 提案（提案中）
+### revisit-identity — 提案（提案中）
 
 分類: nomology / proposal / proposed
 
@@ -163,7 +165,7 @@ scenes: ["plan","implement"]
 
 関係: revisit-identity → authority: 調査と人の判断を分担する
 
-## 根拠の参照
+## 根拠
 
 - issue-90: [出典](https://github.com/thkt/dotagents/issues/90) / 版: updatedAt 2026-09-17T11:38:02Z（実装依頼で提示された本文） / agreed / 適用: 初回対象、#85の採用済み要求と共有モデルの範囲。モデル作成時は#85・PR #89をIssue #90の引用と採用コードで照合
 
