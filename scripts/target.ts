@@ -14,12 +14,17 @@ export interface TargetConfig {
   ciChecks: string[];
   capture: null | { command: string[]; destination: string; required: boolean };
 }
+type TargetSettings = Omit<TargetConfig, 'setup' | 'check'> & {
+  setup: string[][] | string;
+  check: string[] | string;
+};
 function argv(value: unknown): value is string[] {
   return isCommandArray(value) && value[0].trim().length > 0;
 }
-function assertTarget(
-  value: unknown,
-): asserts value is Omit<TargetConfig, 'check'> & { check: string | string[] } {
+function shellCommand(command: string) {
+  return ['/bin/sh', '-c', command];
+}
+function assertTarget(value: unknown): asserts value is TargetSettings {
   assert(isRecord(value), 'Missing target configuration');
   assert(
     !('writing' in value),
@@ -32,7 +37,9 @@ function assertTarget(
   assert(typeof value.remote === 'string' && /^[\w.-]+$/.test(value.remote), 'Invalid remote');
   assert(typeof value.baseBranch === 'string' && value.baseBranch.trim(), 'Missing base branch');
   assert(
-    Array.isArray(value.setup) && value.setup.every(argv),
+    typeof value.setup === 'string'
+      ? value.setup.trim().length > 0
+      : Array.isArray(value.setup) && value.setup.every(argv),
     'Explicit setup commands required (empty array allowed)',
   );
   assert(
@@ -87,7 +94,8 @@ export async function readTarget(checkout: string, read: Reader, writable = fals
   assertTarget(settings);
   const config: TargetConfig = {
     ...settings,
-    check: typeof settings.check === 'string' ? ['/bin/sh', '-c', settings.check] : settings.check,
+    setup: typeof settings.setup === 'string' ? [shellCommand(settings.setup)] : settings.setup,
+    check: typeof settings.check === 'string' ? shellCommand(settings.check) : settings.check,
   };
   for (const direction of [[], ['--push']]) {
     const urls = await read(

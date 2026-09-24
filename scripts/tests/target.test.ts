@@ -153,6 +153,31 @@ test('target shell checks preserve quoting, checkout, source text and exit statu
   }
 });
 
+test('target shell setup runs in the checkout and preserves its exit status', async () => {
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'target-shell-setup-')));
+  try {
+    await initializeTarget(cwd);
+    for (const code of [0, 7]) {
+      const setup = `printf '%s\\n' "quoted value" "$PWD" > 'setup result.txt'; exit ${code}`;
+      const text = JSON.stringify({ ...targetConfig, setup });
+      await writeFile(join(cwd, '.dotagents.json'), text);
+      const target = await readTarget(
+        cwd,
+        async (argv) => githubTarget(argv) ?? git(cwd, ...argv.slice(1)),
+      );
+      expect(target.text).toBe(text);
+      expect(target.config.setup).toEqual([['/bin/sh', '-c', setup]]);
+      const setupArgv = target.config.setup[0];
+      assert(setupArgv);
+      const result = await command(setupArgv, target.cwd, '', 10000);
+      expect(result).toMatchObject({ code, stderr: '', timedOut: false });
+      expect(await Bun.file(join(cwd, 'setup result.txt')).text()).toBe(`quoted value\n${cwd}\n`);
+    }
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('target rejects invalid commands before further target access', async () => {
   const cwd = await realpath(await mkdtemp(join(tmpdir(), 'target-invalid-argv-')));
   const read = async (argv: string[]) => {
@@ -203,6 +228,22 @@ test('target rejects invalid commands before further target access', async () =>
     ] as const) {
       await writeFile(join(cwd, '.dotagents.json'), JSON.stringify({ ...targetConfig, ...change }));
       await assert.rejects(() => readTarget(cwd, read), reason);
+    }
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('target rejects invalid top-level setup values', async () => {
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'target-invalid-setup-')));
+  try {
+    await initializeTarget(cwd);
+    for (const setup of ['', ' \t\n', ['tool'], ['tool', 'other']]) {
+      await writeFile(join(cwd, '.dotagents.json'), JSON.stringify({ ...targetConfig, setup }));
+      await assert.rejects(
+        () => readTarget(cwd, async (argv) => git(cwd, ...argv.slice(1))),
+        /Explicit setup commands required/,
+      );
     }
   } finally {
     await rm(cwd, { recursive: true, force: true });
