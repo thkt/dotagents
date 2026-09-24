@@ -3,8 +3,17 @@
   "categories": {
     "correctness": "error"
   },
+  "options": {
+    "typeAware": true
+  },
   "ignorePatterns": [
     "node_modules/**"
+  ],
+  "jsPlugins": [
+    {
+      "name": "anti-slop",
+      "specifier": "./scripts/lint/anti-slop/index.ts"
+    }
   ],
   "overrides": [
     {
@@ -12,13 +21,13 @@
         "scripts/**/*.ts"
       ],
       "rules": {
-        "typescript/consistent-type-imports": "error",
-        "typescript/no-explicit-any": "error",
-        "typescript/no-non-null-assertion": "error",
         "prefer-const": "error",
         "no-var": "error",
         "eqeqeq": "error",
         "curly": "error",
+        "typescript/consistent-type-imports": "error",
+        "typescript/no-explicit-any": "error",
+        "typescript/no-non-null-assertion": "error",
         "typescript/no-floating-promises": [
           "error",
           {
@@ -36,15 +45,6 @@
         "oxc/no-accumulating-spread": "error",
         "anti-slop/no-reduce-accumulator-copy": "error"
       }
-    }
-  ],
-  "options": {
-    "typeAware": true
-  },
-  "jsPlugins": [
-    {
-      "name": "anti-slop",
-      "specifier": "./scripts/lint/anti-slop/index.ts"
     }
   ]
 }
