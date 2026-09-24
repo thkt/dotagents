@@ -43,13 +43,6 @@ const updatedIssue = JSON.stringify(updatedRequirements);
 const ok = (stdout = '') => ({ stdout, stderr: '', code: 0, timedOut: false, ms: 1 });
 const reportPath = 'docs/research/start.md';
 const reportContent = 'Reviewed start evidence.\n';
-const legacyIssue = JSON.stringify({
-  ...updatedRequirements,
-  body:
-    '```dotagents-knowledge\n[{"path":"model.json","blob":"' +
-    'a'.repeat(40) +
-    '","ids":["rule"]}]\n```',
-});
 
 // Real Git and the existing development/publish entry points; only external responses are simulated.
 async function fixture(root: string, media = false, setup: string[][] = [], report = false) {
@@ -1296,24 +1289,14 @@ for (const [mode, current, reason] of [
 }
 
 for (const [mode, reason] of [
-  ['current', /Legacy dotagents-knowledge/],
-  ['retained', /Legacy dotagents-knowledge/],
   ['missing_report', /Required report is missing from start commit/],
   ['published_report', /Required report differs from reviewed version/],
 ] as const) {
   test(`revision rejects unsupported evidence before setup: ${mode}`, async () => {
-    const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-legacy-')));
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-input-')));
     try {
       const setup = ['git', 'status', '--porcelain'];
       const f = await fixture(root, false, [setup], mode.endsWith('report'));
-      if (mode === 'current') {
-        f.hooks.issueText = legacyIssue;
-      } else if (mode === 'retained') {
-        await writeFile(join(f.prior, 'issue.json'), legacyIssue);
-        const path = join(f.prior, 'verification/state.json');
-        const state = await readObject(path);
-        await writeFile(path, JSON.stringify({ ...state, issueHash: hash(legacyIssue) }));
-      }
       if (mode.endsWith('report')) {
         const configPath = join(f.prior, 'verification-config.json');
         const config = await readObject(configPath);
@@ -1720,7 +1703,7 @@ test('a revision reserves existing result evidence before another initial actor 
   }
 });
 
-test('previous Issue evidence uses exact new hashes and confines newline compatibility to legacy records', async () => {
+test('previous Issue evidence requires the exact current hash', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-evidence-')));
   try {
     const f = await fixture(root);
@@ -1730,25 +1713,17 @@ test('previous Issue evidence uses exact new hashes and confines newline compati
     const path = join(f.prior, 'verification/state.json');
     const original = await readObject(path);
     const evidence = join(f.prior, 'issue.json');
-    for (const issueFormat of [undefined, 1]) {
-      for (const suffix of ['', '\n']) {
-        const state = JSON.stringify({ ...original, issueFormat, issueHash: hash(issue + suffix) });
-        await writeFile(path, state);
-        await writeFile(evidence, issue);
-        const read = () => previousRun(f.prior, f.cwd, '99', target);
-        if (issueFormat === 1 && suffix) {
-          await assert.rejects(read, /Previous Issue evidence differs/);
-        } else {
-          await read();
-          for (const changed of [issue.replace('Keep result visible', 'Changed'), issue + '\n']) {
-            await writeFile(evidence, changed);
-            await assert.rejects(read, /Previous Issue evidence differs/);
-            expect(await readFile(evidence, 'utf8')).toBe(changed);
-          }
-        }
-        expect(await readFile(path, 'utf8')).toBe(state);
-      }
+    const state = JSON.stringify({ ...original, issueHash: hash(issue) });
+    await writeFile(path, state);
+    await writeFile(evidence, issue);
+    const read = () => previousRun(f.prior, f.cwd, '99', target);
+    await read();
+    for (const changed of [issue.replace('Keep result visible', 'Changed'), issue + '\n']) {
+      await writeFile(evidence, changed);
+      await assert.rejects(read, /Previous Issue evidence differs/);
+      expect(await readFile(evidence, 'utf8')).toBe(changed);
     }
+    expect(await readFile(path, 'utf8')).toBe(state);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

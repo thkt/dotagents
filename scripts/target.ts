@@ -27,8 +27,10 @@ function shellCommand(command: string) {
 function assertTarget(value: unknown): asserts value is TargetSettings {
   assert(isRecord(value), 'Missing target configuration');
   assert(
-    !('writing' in value),
-    'writing is no longer supported; remove writing from .dotagents.json and review the target documentation policy before starting a new run. Preserve existing runs.',
+    Object.keys(value).every((key) =>
+      ['repository', 'remote', 'baseBranch', 'setup', 'check', 'ciChecks', 'capture'].includes(key),
+    ),
+    'Unknown target configuration field',
   );
   assert(
     typeof value.repository === 'string' && /^[\w.-]+\/[\w.-]+$/.test(value.repository),

@@ -424,6 +424,9 @@ test('attempt limits require explicit null or positive integers', () => {
       expect(() => assertConfig({ ...config, [key]: limit })).toThrow(`Invalid ${key}`);
     }
   }
+  expect(() => assertConfig({ ...config, unexpected: true })).toThrow(
+    'Unknown configuration field',
+  );
   expect(() => assertConfig({ ...config, repairLimit: null, reviewLimit: null })).not.toThrow();
 });
 
@@ -450,7 +453,6 @@ test('invalid saved state is retained and rejected before execution', async () =
   expect(() => assertState(saved)).not.toThrow();
   expect(() => assertState({ ...saved, reviewHistory: [] })).not.toThrow();
   for (const [change, reason] of [
-    [{ reviewFormat: 3 }, 'Historical review format cannot be converted or resumed'],
     ...[null, 0, 5, '4'].map(
       (reviewFormat) => [{ reviewFormat }, 'Invalid review format'] as const,
     ),
@@ -666,42 +668,12 @@ for (const json of [true, false]) {
       expect(await t.state()).toEqual(state);
     }
     expect(await readFile(join(t.config.runDir, 'issue.stdout'), 'utf8')).toBe(raw);
-    const legacy = JSON.stringify({ ...state, issueFormat: undefined });
-    await writeFile(join(t.config.runDir, 'state.json'), legacy);
+    const invalid = JSON.stringify({ ...state, issueFormat: undefined });
+    await writeFile(join(t.config.runDir, 'state.json'), invalid);
     const stopped = t.execute();
     expect(stopped.status).toBe(1);
-    expect(stopped.stderr).toContain('Historical Issue format cannot be resumed');
-    expect(await readFile(join(t.config.runDir, 'state.json'), 'utf8')).toBe(legacy);
+    expect(stopped.stderr).toContain('Invalid Issue format');
+    expect(await readFile(join(t.config.runDir, 'state.json'), 'utf8')).toBe(invalid);
     expect(await readFile(join(t.config.runDir, 'issue.stdout'), 'utf8')).toBe(raw);
-  });
-}
-
-for (const saved of [false, true]) {
-  test(`legacy knowledge refuses correction and review, preserving saved state: ${saved}`, async () => {
-    const t = await trial('normal');
-    const input = join(t.root, 'legacy-issue.txt');
-    await writeFile(input, 'Agreed requirement: correct source and docs');
-    t.config.issue = ['cat', input];
-    await writeFile(t.configFile, JSON.stringify(t.config));
-    if (saved) {
-      expect(t.execute().status).toBe(0);
-    }
-    const stateFile = join(t.config.runDir, 'state.json');
-    const before = saved ? await readFile(stateFile, 'utf8') : '';
-    const legacy = '~~~dotagents-knowledge\n[]\n~~~';
-    // A retained legacy Issue must also stop even if the fetched Issue is now clean.
-    await writeFile(saved ? join(t.config.runDir, 'issue.txt') : input, legacy);
-    const stopped = t.execute();
-    expect(stopped.status).toBe(1);
-    expect(stopped.stderr).toContain('Legacy dotagents-knowledge');
-    if (saved) {
-      expect(await readFile(stateFile, 'utf8')).toEqual(before);
-      expect(await readFile(join(t.config.runDir, 'issue.txt'), 'utf8')).toBe(legacy);
-    } else {
-      expect(existsSync(stateFile)).toBe(false);
-      expect(existsSync(join(t.config.runDir, 'repair-1.prompt'))).toBe(false);
-      expect(existsSync(join(t.config.runDir, 'review-1.prompt'))).toBe(false);
-      expect(existsSync(join(t.config.runDir, 'check-1.stdout'))).toBe(false);
-    }
   });
 }

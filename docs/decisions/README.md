@@ -8,9 +8,10 @@ Claude／Codexとも[共通手順](../../skills/references/documents.md)で今�
 | --- | --- | --- |
 | [DR-0001：要求と根拠を分けて同じ参照を渡す](0001-separate-requirements-from-evidence.md) | superseded by DR-0003 | #90・PR #92で採用した共有モデル選択と根拠の引き継ぎ |
 | [DR-0002：過去の検証結果を固定資料として保全する](0002-retain-historical-evidence.md) | accepted | #161・PR #163で採用した過去報告の扱い |
-| [DR-0003：共有モデル選択を終了し、説明をwikiへ集約する](0003-retire-shared-knowledge-selection.md) | accepted | #265で合意した選択・生成の廃止と報告参照の維持 |
+| [DR-0003：共有モデル選択を終了し、説明をwikiへ集約する](0003-retire-shared-knowledge-selection.md) | superseded by DR-0004 | #265で合意した選択・生成の廃止と報告参照の維持 |
+| [DR-0004：文書参照と実行記録は現行形式だけを受け付ける](0004-use-current-document-inputs-only.md) | accepted | #270で合意した旧文書運用の互換処理の終了 |
 
-ここには置換済みの判断を含め3件を載せています。過去資料全件が採用済みという意味ではありません。[移行準備の記録](../research/documentation-migration.md)には、見送り・保留・未合意の提案、公開前の資料、元のhashを取得できなかった原本も区別して残しています。
+ここには置換済みの判断を含め4件を載せています。過去資料全件が採用済みという意味ではありません。[移行準備の記録](../research/documentation-migration.md)には、見送り・保留・未合意の提案、公開前の資料、元のhashを取得できなかった原本も区別して残しています。
 
 ## 状態と更新
 

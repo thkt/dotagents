@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { checkRevision, revisionContext } from './revision.ts';
-import { assertNoLegacyKnowledge, issueText } from './issue.ts';
+import { issueText } from './issue.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
 import { parseReview, reviewInstructions, reviewSummary } from './review.ts';
 import type { Review } from './review.ts';
@@ -773,10 +773,6 @@ async function execute(config: Config): Promise<State> {
   try {
     const value: unknown = JSON.parse(await readFile(path, 'utf8'));
     assertState(value);
-    assert(
-      value.issueFormat === 1,
-      'Historical Issue format cannot be resumed; preserve existing run and use a new run',
-    );
     state = value;
   } catch (error) {
     if (!isMissing(error)) {
@@ -790,11 +786,7 @@ async function execute(config: Config): Promise<State> {
   if (state?.active) {
     throw Error(interruptionMessage);
   }
-  if (state) {
-    assertNoLegacyKnowledge(await readFile(resolve(config.runDir, 'issue.txt'), 'utf8'));
-  }
   const issue = await readEntryIssue(config, !state);
-  assertNoLegacyKnowledge(issue);
   const base =
     state?.baseCommit ??
     config.baseCommit ??

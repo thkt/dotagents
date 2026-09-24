@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { reviewModel } from './review.ts';
-import { assertNoLegacyKnowledge, issueText } from './issue.ts';
+import { issueText } from './issue.ts';
 import { prBody } from './pr-body.ts';
 import { mkdir, readFile, writeFile, realpath, rename } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
@@ -231,7 +231,6 @@ async function selectStart(args: string[], io: typeof runtime) {
   const rawIssue = await checkedOutput(io, issue, repo);
   const original = issueText(rawIssue);
   const requirements = issueValue(original);
-  assertNoLegacyKnowledge(original);
   const revision = await prepareRevision(
     prior,
     parsed.values['request-file'],
