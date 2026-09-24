@@ -5,6 +5,7 @@ import { writeFile } from 'node:fs/promises';
 import type { command } from './process.ts';
 import { assertRunning, OutputStorageError } from './process.ts';
 import { isRecord } from './values.ts';
+import { graphQlPrTarget, matchPrTarget, referencesIssue } from './pr-identity.ts';
 
 type Target = {
   cwd: string;
@@ -157,12 +158,11 @@ function parseTarget(stdout: string, target: Target, publicationIssue?: string) 
         typeof pr.isDraft === 'boolean',
       'Invalid PR target response',
     );
-    if (
-      pr.headRefOid !== target.commit ||
-      pr.baseRefName !== target.baseBranch ||
-      pr.state !== 'OPEN' ||
-      !pr.isDraft
-    ) {
+    const match = matchPrTarget(graphQlPrTarget(pr), {
+      commit: target.commit,
+      base: target.baseBranch,
+    });
+    if (!match.target || !match.draft) {
       return {
         status: 'target_changed' as const,
         reason: `PR target changed: head=${pr.headRefOid}, base=${pr.baseRefName}, state=${pr.state}, draft=${pr.isDraft}; expected ${target.commit}, ${target.baseBranch}, OPEN, draft`,
@@ -173,10 +173,7 @@ function parseTarget(stdout: string, target: Target, publicationIssue?: string) 
         typeof pr.url === 'string' && typeof pr.body === 'string',
         'Invalid PR publication response',
       );
-      if (
-        pr.url !== target.url ||
-        !new RegExp(`Closes #${publicationIssue}(?![0-9])`).test(pr.body)
-      ) {
+      if (pr.url !== target.url || !referencesIssue(pr.body, publicationIssue)) {
         return {
           status: 'target_changed' as const,
           reason: `Published PR URL or Issue reference changed; expected ${target.url}, Closes #${publicationIssue}`,

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { withInterrupts } from '../process.ts';
-import { publish, publishCli, PublicationError } from '../publish.ts';
+import { publish, publishCli, checkPublishedPr, PublicationError } from '../publish.ts';
 import { readTarget } from '../target.ts';
 import { initializeTarget, githubTarget, git } from './support/target.ts';
 
@@ -256,6 +256,46 @@ for (const [name, change] of [
     expect(f.publications).toEqual(['list', 'create']);
   });
 }
+
+testPublisher('malformed_rest_identity', async (f) => {
+  const input = {
+    cwd: f.repo,
+    repository: 'team/component',
+    url: 'https://github.com/team/component/pull/2',
+    actor: 'operator',
+    body: 'Reviewable body',
+    head: 'codex/test',
+    base: 'release',
+    commit: f.pr.head.sha,
+  };
+  const response = { ...f.pr, html_url: input.url };
+  for (const [patch, reason] of [
+    [{ user: null }, /PR author differs/],
+    [{ state: 'OPEN' }, /Published PR target differs/],
+    [{ head: { ref: input.head, sha: input.commit } }, /Published PR target differs/],
+    [
+      { head: { ref: 'codex/other', sha: input.commit, repo: { full_name: 'team/component' } } },
+      /Published PR target differs/,
+    ],
+    [
+      { base: { ref: input.base, repo: { full_name: 'other/repo' } } },
+      /Published PR target differs/,
+    ],
+    [{ draft: undefined }, /not confirmed draft/],
+    [{ draft: 'true' }, /not confirmed draft/],
+    [{ body: null }, /Existing PR body differs/],
+  ] as const) {
+    await assert.rejects(
+      () => checkPublishedPr(input, async () => JSON.stringify({ ...response, ...patch })),
+      (error: unknown) => {
+        assert(error instanceof PublicationError);
+        expect(error.url).toBe(input.url);
+        assert.match(error.message, reason);
+        return true;
+      },
+    );
+  }
+});
 
 testPublisher('interrupted', async (f, io) => {
   const github = f.github;

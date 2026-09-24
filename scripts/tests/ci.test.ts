@@ -216,6 +216,11 @@ const scenarios: {
     { ...frame(required), statusCheckRollup: null },
     frame([{ name: 'verify', status: 'COMPLETED', conclusion: null }]),
     { statusCheckRollup: required },
+    ...['headRefOid', 'baseRefName', 'state', 'isDraft', 'url', 'body'].map((field) => ({
+      ...frame(required),
+      [field]: undefined,
+    })),
+    { ...frame(required), isDraft: 'true' },
   ].map((value, index) => ({
     name: `invalid response ${index}`,
     frames: [value],
