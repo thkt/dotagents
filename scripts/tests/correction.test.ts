@@ -4,7 +4,6 @@ import { existsSync } from 'node:fs';
 import { mkdir, symlink, writeFile, readFile, rm, rename, chmod } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import {
   correctionConfig,
   correctionFixture,
