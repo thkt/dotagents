@@ -33,7 +33,7 @@ Chosen option: "報告を固定資料にし、原本と生成器を参照可能�
 
 ### Confirmation
 
-[固定報告](../evidence/harness-review-2026-09-14.md)の対象版と未確認事項、`package.json` の現在のcheck、終了した生成器へのGit履歴参照を照合します。過去の実測原本を現行の値へ書き換えず、今回の文書変更のcheckと独立評価は別に記録します。
+[固定報告](../research/harness-review-2026-09-14.md)の対象版と未確認事項、`package.json` の現在のcheck、終了した生成器へのGit履歴参照を照合します。過去の実測原本を現行の値へ書き換えず、今回の文書変更のcheckと独立評価は別に記録します。
 
 ## More Information
 
