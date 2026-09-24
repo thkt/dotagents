@@ -14,10 +14,17 @@ export interface TargetConfig {
   ciChecks: string[];
   capture: null | { command: string[]; destination: string; required: boolean };
 }
+type TargetSettings = Omit<TargetConfig, 'setup' | 'check'> & {
+  setup: string[][] | string;
+  check: string[] | string;
+};
 function argv(value: unknown): value is string[] {
   return isCommandArray(value) && value[0].trim().length > 0;
 }
-function assertTarget(value: unknown): asserts value is TargetConfig {
+function shellCommand(command: string) {
+  return ['/bin/sh', '-c', command];
+}
+function assertTarget(value: unknown): asserts value is TargetSettings {
   assert(isRecord(value), 'Missing target configuration');
   assert(
     !('writing' in value),
@@ -30,10 +37,15 @@ function assertTarget(value: unknown): asserts value is TargetConfig {
   assert(typeof value.remote === 'string' && /^[\w.-]+$/.test(value.remote), 'Invalid remote');
   assert(typeof value.baseBranch === 'string' && value.baseBranch.trim(), 'Missing base branch');
   assert(
-    Array.isArray(value.setup) && value.setup.every(argv),
+    typeof value.setup === 'string'
+      ? value.setup.trim().length > 0
+      : Array.isArray(value.setup) && value.setup.every(argv),
     'Explicit setup commands required (empty array allowed)',
   );
-  assert(argv(value.check), 'Verification command is required');
+  assert(
+    typeof value.check === 'string' ? value.check.trim().length > 0 : argv(value.check),
+    'Verification command is required',
+  );
   assert(
     Array.isArray(value.ciChecks) &&
       value.ciChecks.every((name) => typeof name === 'string' && name.trim()) &&
@@ -78,8 +90,13 @@ export async function readTarget(checkout: string, read: Reader, writable = fals
     'Target must be the checkout root',
   );
   const text = await readFile(resolve(cwd, '.dotagents.json'), 'utf8');
-  const config: unknown = JSON.parse(text);
-  assertTarget(config);
+  const settings: unknown = JSON.parse(text);
+  assertTarget(settings);
+  const config: TargetConfig = {
+    ...settings,
+    setup: typeof settings.setup === 'string' ? [shellCommand(settings.setup)] : settings.setup,
+    check: typeof settings.check === 'string' ? shellCommand(settings.check) : settings.check,
+  };
   for (const direction of [[], ['--push']]) {
     const urls = await read(
       ['git', 'remote', 'get-url', ...direction, '--all', config.remote],
