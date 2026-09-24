@@ -19,17 +19,68 @@ import type { Config } from '../input.ts';
 import { initializeTarget, githubTarget, git, targetConfig } from './support/target.ts';
 import { reviewReplySource } from './support/correction.ts';
 
-const modelPath = 'docs/knowledge/implementation-start.json';
-const content = await readFile(resolve(import.meta.dir, '../..', modelPath), 'utf8');
-const model = () => parseKnowledge(JSON.parse(content));
-const ids = [
-  'preserve-work',
-  'start-objects',
-  'start-identity',
-  'index-counterexample',
-  'less-rework',
-];
-const reference = { path: modelPath, blob: 'a'.repeat(40), ids };
+// Handwritten inputs keep format/selection behavior independent of repository prose.
+const model = () => ({
+  schemaVersion: 1,
+  title: 'Example knowledge',
+  scope: 'Synthetic test only',
+  sources: [
+    {
+      id: 'agreement',
+      url: 'https://example.com/agreement',
+      version: 'revision-1',
+      scope: 'Example rule and hypothesis',
+      status: 'agreed',
+    },
+    {
+      id: 'draft',
+      url: 'https://example.com/draft',
+      version: 'draft-2',
+      scope: 'Example proposal only',
+      status: 'proposed',
+    },
+  ],
+  nodes: [
+    {
+      id: 'rule',
+      facet: 'nomology',
+      kind: 'rule',
+      status: 'agreed',
+      statement: 'Keep the reviewed input.',
+      question: 'Which input was reviewed?',
+      scope: 'Before starting',
+      sources: ['agreement'],
+      relations: [{ to: 'proposal', meaning: 'Possible revision' }],
+    },
+    {
+      id: 'hypothesis',
+      facet: 'teleology',
+      kind: 'hypothesis',
+      status: 'unverified',
+      statement: 'Review may reduce rework.',
+      question: 'Has rework been measured?',
+      scope: 'No measured effect',
+      sources: ['agreement'],
+      relations: [{ to: 'rule', meaning: 'Expected benefit' }],
+    },
+    {
+      id: 'proposal',
+      facet: 'nomology',
+      kind: 'proposal',
+      status: 'proposed',
+      statement: 'Consider another review.',
+      question: 'Is another review needed?',
+      scope: 'Requires agreement',
+      sources: ['draft'],
+      relations: [],
+    },
+  ],
+});
+const reference = {
+  path: 'docs/example.json',
+  blob: 'a'.repeat(40),
+  ids: ['hypothesis', 'rule'], // Deliberately differs from model order.
+};
 const issueBody = (references: unknown) =>
   `Required behavior: preserve work.\n\n\`\`\`dotagents-knowledge\n${JSON.stringify(references)}\n\`\`\``;
 
@@ -37,13 +88,15 @@ test('one model produces human and AI definitions while preserving selection and
   const root = await mkdtemp(join(tmpdir(), 'knowledge-render-'));
   try {
     const path = join(root, 'model.json');
-    await writeFile(path, content);
+    const input = model();
+    expect(parseKnowledge(input)).toEqual(input);
+    await writeFile(path, JSON.stringify(input));
     await generateKnowledge(path, false);
     const original = await readFile(join(root, 'model.md'), 'utf8');
     const changed = model();
-    const goal = changed.nodes.find(({ id }) => id === 'preserve-work');
-    assert(goal);
-    goal.statement = 'Changed purpose: preserve the other developer’s work.';
+    const rule = changed.nodes[0];
+    assert(rule);
+    rule.statement = 'Keep the reviewed input and its version.';
     await writeFile(path, JSON.stringify(changed));
     await assert.rejects(() => generateKnowledge(path, true), /Knowledge Markdown is stale/);
     await generateKnowledge(path, false);
@@ -51,17 +104,26 @@ test('one model produces human and AI definitions while preserving selection and
     const explanation = await readFile(join(root, 'model.md'), 'utf8');
     const selected = selectKnowledge(changed, reference);
     const ai = renderKnowledge(selected);
-    expect(original).not.toContain(goal.statement);
-    expect(explanation).toContain(goal.statement);
-    expect(ai).toContain(goal.statement);
+    expect(original).not.toContain(rule.statement);
+    expect(explanation).toContain(rule.statement);
+    expect(ai).toContain(rule.statement);
     expect(ai).toContain('teleology / hypothesis / unverified');
-    expect(ai).toContain('config_index・report_index');
-    expect(ai).toContain('765adbb29c51747b2d4ada473ca03a3e40ed7651');
-    expect(ai).toContain('適用条件:');
-    expect(selected.nodes.map(({ id }) => id)).toEqual(ids);
-    expect(ai).not.toContain('## revisit-identity');
-    expect(ai).not.toContain('本文一致だけを開始可能と説明する資料が見つかった場合');
-    expect(ai).toContain('→ revisit-identity'); // Traceable relation without importing its proposal.
+    expect(ai).toContain('問い直す前提: Which input was reviewed?');
+    expect(ai).toContain('適用条件: Before starting');
+    expect(ai).toContain('根拠: agreement');
+    expect(ai).toContain(
+      '[出典](https://example.com/agreement) / 版: revision-1 / agreed / 適用: Example rule and hypothesis',
+    );
+    expect(selected.nodes.map(({ id }) => id)).toEqual(['hypothesis', 'rule']);
+    expect(selected.sources.map(({ id }) => id)).toEqual(['agreement']);
+    expect(ai.indexOf('## hypothesis')).toBeLessThan(ai.indexOf('## rule'));
+    expect(ai).not.toContain('## proposal');
+    expect(ai).not.toContain('Consider another review.');
+    expect(ai).not.toContain('https://example.com/draft');
+    expect(ai).toContain('関係: rule → proposal: Possible revision');
+    const proposed = renderKnowledge(selectKnowledge(changed, { ...reference, ids: ['proposal'] }));
+    expect(proposed).toContain('nomology / proposal / proposed');
+    expect(proposed).toContain('Consider another review.');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -76,7 +138,7 @@ test('Issue selection is optional but malformed, duplicate and unsafe selections
     ),
   ).toEqual([reference]);
   for (const [selection, error] of [
-    [[{ ...reference, ids: ['start-identity', 'start-identity'] }], 'Duplicate knowledge'],
+    [[{ ...reference, ids: ['rule', 'rule'] }], 'Duplicate knowledge'],
     [[reference, reference], 'Duplicate knowledge'],
     [[{ ...reference, path: '../model.json' }], 'repo-relative'],
     [[{ ...reference, blob: 'latest' }], 'Git blob'],
@@ -136,6 +198,9 @@ test('model structure rejects unresolved identities, references and promotion of
   expect(() => selectKnowledge(model(), { ...reference, ids: ['missing'] })).toThrow(
     'Unknown selected',
   );
+  expect(() => selectKnowledge(model(), { ...reference, ids: ['rule', 'rule'] })).toThrow(
+    'Duplicate knowledge',
+  );
   for (const [mutate, reason] of [
     [
       (value: ReturnType<typeof model>) => value.nodes.push(value.nodes[0] ?? assert.fail()),
@@ -161,6 +226,22 @@ test('model structure rejects unresolved identities, references and promotion of
     ],
     [
       (value: ReturnType<typeof model>) => {
+        const node = value.nodes[0];
+        assert(node);
+        node.status = 'invalid';
+      },
+      'Invalid knowledge value',
+    ],
+    [
+      (value: ReturnType<typeof model>) => {
+        const node = value.nodes.find(({ kind }) => kind === 'proposal');
+        assert(node);
+        node.status = 'agreed';
+      },
+      'not an agreed requirement',
+    ],
+    [
+      (value: ReturnType<typeof model>) => {
         const node = value.nodes.find(({ kind }) => kind === 'hypothesis');
         assert(node);
         node.status = 'observed';
@@ -175,6 +256,29 @@ test('model structure rejects unresolved identities, references and promotion of
 });
 
 test('Issue-selected #85 knowledge reaches implementation, correction and independent review at the same base version', async () => {
+  const modelPath = 'docs/knowledge/implementation-start.json';
+  const content = await readFile(resolve(import.meta.dir, '../..', modelPath), 'utf8');
+  const ids = [
+    'preserve-work',
+    'start-objects',
+    'start-identity',
+    'index-counterexample',
+    'less-rework',
+  ];
+  const reference = { path: modelPath, blob: 'a'.repeat(40), ids };
+  // Transport expectations come from the real input, without select/render transformations.
+  const original: unknown = JSON.parse(content);
+  assert(isRecord(original) && isArray(original.nodes) && isArray(original.sources));
+  const nodes = original.nodes;
+  const expectedNodes = ids.map((id) => {
+    const node = nodes.find((node) => isRecord(node) && node.id === id);
+    assert(isRecord(node));
+    return node;
+  });
+  const expectedSources = original.sources.filter((source) => {
+    assert(isRecord(source));
+    return expectedNodes.some((node) => isArray(node.sources) && node.sources.includes(source.id));
+  });
   const root = await mkdtemp(join(tmpdir(), 'knowledge-flow-'));
   const repo = join(root, 'repo');
   const dir = join(root, 'run');
@@ -265,7 +369,25 @@ if(role === 'review') {
     for (const prompt of [initial, repaired, reviewed]) {
       expect(prompt).toContain(base);
       expect(prompt).toContain(`Git blob: ${blob}`);
-      expect(prompt).toContain('config_index・report_index');
+      for (const node of expectedNodes) {
+        assert(typeof node.id === 'string' && typeof node.facet === 'string');
+        assert(typeof node.kind === 'string' && typeof node.status === 'string');
+        expect(prompt).toContain(`## ${node.id} (${node.facet} / ${node.kind} / ${node.status})`);
+        assert(typeof node.statement === 'string');
+        assert(typeof node.question === 'string');
+        assert(typeof node.scope === 'string');
+        expect(prompt).toContain(node.statement);
+        expect(prompt).toContain(node.question);
+        expect(prompt).toContain(node.scope);
+      }
+      for (const source of expectedSources) {
+        assert(isRecord(source));
+        assert(typeof source.url === 'string' && typeof source.version === 'string');
+        assert(typeof source.status === 'string' && typeof source.scope === 'string');
+        expect(prompt).toContain(
+          `[出典](${source.url}) / 版: ${source.version} / ${source.status} / 適用: ${source.scope}`,
+        );
+      }
       expect(prompt).toContain('teleology / hypothesis / unverified');
       expect(prompt).not.toContain('Proposed revision during repair');
       expect(prompt).not.toContain('## revisit-identity');
@@ -282,16 +404,8 @@ if(role === 'review') {
       blob,
       ids,
     });
-    assert(isArray(snapshot.nodes));
-    const rule = snapshot.nodes.find((value) => isRecord(value) && value.id === 'start-identity');
-    assert(isRecord(rule));
-    expect(rule.status).toBe('agreed');
-    expect(rule.statement).toContain('indexやモードを含む未commit差分がない');
-    const hypothesis = snapshot.nodes.find(
-      (value) => isRecord(value) && value.id === 'less-rework',
-    );
-    assert(isRecord(hypothesis));
-    expect(hypothesis.status).toBe('unverified');
+    expect(snapshot.nodes).toEqual(expectedNodes);
+    expect(snapshot.sources).toEqual(expectedSources);
     expect(await readFile(join(repo, 'result.txt'), 'utf8')).toBe('Unrelated work must survive');
     expect(await readFile(join(repo, 'untracked.txt'), 'utf8')).toBe('Other developer’s notes');
     assert(verification);
