@@ -20,6 +20,6 @@
 
 ## 検証と残る制約
 
-[CLIの回帰テスト](../scripts/tests/discovery.test.ts)で、入力本文の保存、再保存、既存内容の保全、保存先のsymlink・Git ignoreによる拒否、Git経由のworktree・cloneへの引き継ぎ、セッション評価の分離を確認する。実行結果と独立評価は対応PRに記録する。
+[CLIの回帰テスト](https://github.com/thkt/dotagents/blob/f85cdbf1a266c1d8f407deb2a1e89b5a20cbe4f4/scripts/tests/discovery.test.ts)で、入力本文の保存、再保存、既存内容の保全、保存先のsymlink・Git ignoreによる拒否、Git経由のworktree・cloneへの引き継ぎ、セッション評価の分離を確認する。実行結果と独立評価は対応PRに記録する。
 
 保存CLIは報告本文の機密性や十分な説明を自動判定しない。共有する本文と公開範囲の確認は担当者が行う。Gitへの保存や十分性gateの成功は、仕様の採用・要求の合意・実装許可の代替にはならない。実モデルによるscopingから実装までの通し試行は、この調査では行っていない。
