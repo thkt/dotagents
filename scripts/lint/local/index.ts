@@ -1,4 +1,5 @@
-import { defineRule } from '@oxlint/plugins';
+// Adapted from https://github.com/dmmulroy/anti-slop/blob/c44ef22ca116d0ba62a3ff663a0bd13a3f3fa40b/src/rules/no-reduce-accumulator-copy.ts (MIT; see LICENSE).
+import { definePlugin, defineRule } from '@oxlint/plugins';
 import type { ESTree, SourceCode, Variable } from '@oxlint/plugins';
 
 import {
@@ -7,7 +8,7 @@ import {
   isKnownArrayExpression,
   resolveArrayBinding,
   unwrapArrayExpression,
-} from '../shared/array-method.ts';
+} from './shared/array-method.ts';
 
 function enclosingReducer(node: ESTree.Node) {
   let parent = node.parent;
@@ -143,7 +144,7 @@ function copiesReducerAccumulator(
 }
 
 /** Reject non-spread copies of reducer accumulators; pair with oxc/no-accumulating-spread. */
-export const noReduceAccumulatorCopyRule = defineRule({
+const noReduceAccumulatorCopyRule = defineRule({
   meta: {
     type: 'problem',
     docs: {
@@ -191,4 +192,9 @@ export const noReduceAccumulatorCopyRule = defineRule({
       },
     };
   },
+});
+
+export default definePlugin({
+  meta: { name: 'local' },
+  rules: { 'no-reduce-accumulator-copy': noReduceAccumulatorCopyRule },
 });
