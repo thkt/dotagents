@@ -102,7 +102,7 @@ process.exitCode = ${mode === 'nonzero' ? 7 : 0};
           mode === 'write_error' ? 'ulimit -f 16; trap "" XFSZ; exec "$@"' : 'exec "$@"',
           'actor-test',
           process.execPath,
-          resolve('scripts/codex-actor.ts'),
+          resolve('scripts/implement/codex-actor.ts'),
           role,
           root,
         ],

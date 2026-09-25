@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import { readFile, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { isRecord } from './values.ts';
+import { isRecord } from '../values.ts';
 import { assertConfig } from './input.ts';
 import { checkRevision } from './revision.ts';
 import type { Revision } from './input.ts';
-import { readTarget } from './target.ts';
+import { readTarget } from '../target.ts';
 import { restPrPublication, matchPrPublication } from './pr-identity.ts';
-import { command as runCommand, assertRunning, withInterrupts } from './process.ts';
+import { command as runCommand, assertRunning, withInterrupts } from '../process.ts';
 
 async function command(argv: string[], cwd: string) {
   const env = { ...process.env };

@@ -6,9 +6,9 @@ import { parseReview, reviewInstructions, reviewSummary } from './review.ts';
 import type { Review } from './review.ts';
 import { researchContext, verifyReportBase } from './research-handoff.ts';
 import { assertConfig, assertState } from './input.ts';
-import { outside } from './values.ts';
+import { outside } from '../values.ts';
 import type { Config, State, ActorRole, StopReason, CaptureDecision } from './input.ts';
-import { command, assertRunning, withInterrupts, interruptionMessage } from './process.ts';
+import { command, assertRunning, withInterrupts, interruptionMessage } from '../process.ts';
 import { createHash } from 'node:crypto';
 import {
   readFile,
@@ -846,7 +846,7 @@ if (import.meta.main) {
     await withInterrupts(async () => {
       const configFile = process.argv[2];
       if (!configFile) {
-        throw Error('Usage: bun scripts/correction.ts CONFIG_FILE');
+        throw Error('Usage: bun scripts/implement/correction.ts CONFIG_FILE');
       }
       const config: unknown = JSON.parse(await readFile(configFile, 'utf8'));
       const result = await run(config);

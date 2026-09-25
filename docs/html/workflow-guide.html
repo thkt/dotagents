@@ -110,7 +110,7 @@ bun run check
 </table>
 <p>これは責任の分担です。担当人数を規定するものではありません。実際に誰がそれぞれを担当するかは、対象repoの運用に従います。</p>
 <p>独立評価のAIが受入可能と答えても、人の承認が済んだことにはなりません。公開前の評価は、これから公開担当と人へ渡すための判断です。</p>
-</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source=".codex/OUTCOME.md">.codex/OUTCOME.md</a> · <a data-source="scripts/README.md">scripts/README.md</a></p><p>実装内部では、コマンド実行と中断管理を<a data-source="scripts/process.ts">process.ts</a>が、基本的な値の検査を<a data-source="scripts/values.ts">values.ts</a>が受け持ちます。実行中のプロセスと中断状態を一か所で管理し、修正フローへの不要な依存と入力検査・独立評価の循環依存を解消しています。初回実装と修正に共通する指示・応答検査は<a data-source="scripts/repair.ts">repair.ts</a>にまとめています。利用者の操作や承認手順は変わりません。</p></details></section>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source=".codex/OUTCOME.md">.codex/OUTCOME.md</a> · <a data-source="scripts/README.md">scripts/README.md</a></p><p>実装内部では、コマンド実行と中断管理を<a data-source="scripts/process.ts">process.ts</a>が、基本的な値の検査を<a data-source="scripts/values.ts">values.ts</a>が受け持ちます。実行中のプロセスと中断状態を一か所で管理し、修正フローへの不要な依存と入力検査・独立評価の循環依存を解消しています。初回実装と修正に共通する指示・応答検査は<a data-source="scripts/implement/repair.ts">repair.ts</a>にまとめています。利用者の操作や承認手順は変わりません。</p></details></section>
 <section id="checks-and-materials" class="chapter"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">補足</span><h2>何を読み、どこで、誰が確かめるのか</h2></header><div class="chapter-body"><p>工程ごとに、使う資料、機械による確認、AIによる内容の精査、人の判断を整理します。本文・確認表・詳細図は、2026年9月25日に同じcommit <code data-commit></code>の文書とコードへ照合しました。</p>
 <h3><code>.dotagents.json</code> は何の設定か</h3>
 <p><strong>このハーネスが、開発対象のリポジトリを扱うために読む設定です。</strong> 対象リポジトリのルートに置きます。Codex一般の設定ファイルではありません。ファイル名と読み方はdotagents側の実装で決まっており、対象の照合は<code>scripts/target.ts</code>が担当します。</p>
@@ -171,7 +171,7 @@ bun run check
 <p><strong>実装の精査。</strong> 独立評価では、テストの成功や実装担当の説明だけで結論を出さず、現在の差分と影響を受ける呼出元・呼出先、境界条件、失敗時の動作、関連テストを読み、具体的な冗長性も確認します。前回の指摘を修正済みや非該当とする判断も、現在の成果物と必要な検証で確かめ、理由を残します。</p>
 <p>たとえば「一覧を名前順にする」という要求なら、表示が変わったことに加え、同名の項目、空の一覧、絞り込みとの組み合わせなど、今回の仕様に関係する条件を調べます。どの条件が必要かは対象アプリの要求と実装から選び、不明な期待値を推測で補いません。この例をすべての変更に対する必須チェックリストにはしません。</p>
 <p>既存PRの再調査や、QA・デザイナー・企画向けの確認ガイドは、後続の章にある設計方針です。担当者や対象アプリ固有の確認条件で未確定のものは、その実装や運用を具体化する際に確認します。</p>
-</div><details class="evidence"><summary>この補足の根拠（<span data-commit="short"></span>）</summary><p><a data-source="scripts/target.ts">scripts/target.ts</a> · <a data-source="scripts/development.ts">scripts/development.ts</a> · <a data-source="scripts/correction.ts">scripts/correction.ts</a> · <a data-source="scripts/review.ts">scripts/review.ts</a> · <a data-source="skills/scoping/SKILL.md">skills/scoping/SKILL.md</a> · <a data-source="skills/scoping/references/sufficiency.md">skills/scoping/references/sufficiency.md</a> · <a data-source="skills/scoping/references/issue.md">skills/scoping/references/issue.md</a> · <a data-source="scripts/README.md">scripts/README.md</a> · <a data-source=".codex/DEVELOPMENT.md">.codex/DEVELOPMENT.md</a></p></details></section>
+</div><details class="evidence"><summary>この補足の根拠（<span data-commit="short"></span>）</summary><p><a data-source="scripts/target.ts">scripts/target.ts</a> · <a data-source="scripts/implement/orchestrator.ts">scripts/implement/orchestrator.ts</a> · <a data-source="scripts/implement/correction.ts">scripts/implement/correction.ts</a> · <a data-source="scripts/implement/review.ts">scripts/implement/review.ts</a> · <a data-source="skills/scoping/SKILL.md">skills/scoping/SKILL.md</a> · <a data-source="skills/scoping/references/sufficiency.md">skills/scoping/references/sufficiency.md</a> · <a data-source="skills/scoping/references/issue.md">skills/scoping/references/issue.md</a> · <a data-source="scripts/README.md">scripts/README.md</a> · <a data-source=".codex/DEVELOPMENT.md">.codex/DEVELOPMENT.md</a></p></details></section>
 <section id="context-principles" class="chapter"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">知識</span><h2>判断の前提を、たどって見直せるようにする</h2></header><div class="chapter-body"><p><strong>実装開始の条件はwikiで説明し、必要な根拠を同じ版で各工程へ渡します。</strong> 要求・許可はIssue、根拠の版付き引き継ぎは報告参照、実行制御はホストが担います。共有モデルのJSON正本・ID選択・生成説明はIssue #265で終了します。</p>
 <h3>目的・概念・振る舞いを、根拠と結び付ける</h3>
 <p>このガイドでは、Teleologyを「何を望ましい状態とするか」、Ontologyを「何が存在し、どんな意味や関係を持つか」、Nomologyを「どんな規則があり、どう動くと考えているか」をそれぞれ問う観点として使います。目的・概念・振る舞いを考えることと、それを型やデータへ表すことは分けます。三つを順番に確定する工程にはせず、分かったことに応じて互いを見直します。</p>
@@ -252,7 +252,7 @@ bun run check
 <p>既存PRの修正は、<a href="#post-review">採用済み指摘と前回公開runからの開始条件</a>に従い、同じcheckout・branchと新しい実行保存先を使います。</p>
 <p>合意を経てIssue本文を更新した場合も、既存PR修正の開始時に最新のopen Issueを読み、その本文で新runを固定できます。前回runの要求や検証を現在の成功として引き継がず、開始後の変更は従来どおり停止します。</p>
 <p><strong>ここで残るもの：</strong> 開始時の要求と設定、主体、作業場所、実行記録。以後、要求や対象、設定、主体が変わった場合は停止し、古い条件のまま続行しません。</p>
-</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="scripts/development.ts">scripts/development.ts</a> · <a data-source="scripts/README.md">scripts/README.md</a></p></details></section>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="scripts/implement/orchestrator.ts">scripts/implement/orchestrator.ts</a> · <a data-source="scripts/README.md">scripts/README.md</a></p></details></section>
 <section id="build" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">07</span><h2>作り、確かめ、必要なところを直す</h2></header><div class="chapter-body"><p>実装担当のAIは、Issue全文と既存資産を読み、コード、必要なテスト、文書、撮影定義を用意します。合意範囲内の通常の実装判断は進めます。要求・範囲・権限・実行上限の変更が必要なら、初回実装も追加修正も<code>needs_human</code>を返し、既存の<code>findings</code>に問い・人に必要な選択・影響を説明して、回答に依存する作業を止めます。指示ファイルが原因なら、実際に読んだファイルへのリンクと該当文を示し、明示条件と解釈を区別します。</p>
 <p>文書だけのIssueも同じフローで扱います。文章や構成の整備という要求に対して、不要なコードやテストを追加することは求めません。実装に伴って操作、設定、仕様、制約の説明が変わる場合は、その文書更新も成果物へ含めます。</p>
 <p>初回はIssue全体の要求を実装し、追加修正は検証や独立評価で見つかった原因を直します。通常の追加修正・独立評価は、回数だけでは止めず、合意範囲の必須指摘を解消します。</p>
@@ -274,7 +274,7 @@ bun run check
 <p>不備は修正し、変更文書も含めて必要な撮影、check、独立評価をやり直します。撮影の再利用は同じ実行内の許可条件に限ります。公開前には最新の要求・成果物と終端の成功結果を照合し、対象が変わっていれば停止します。</p>
 <p>旧runと記録は保全し、新形式へ変換・再開しません。新しい実行の応答形式は<a data-source="scripts/README.md">CLIガイド</a>を参照してください。</p>
 <p><strong>ここで残るもの：</strong> 検証対象の差分、ログ、独立評価の所見と、公開担当・人に残る作業。受入可能という結果は、PR公開と人のレビューへ渡せる状態を表します。</p>
-</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="scripts/review.ts">scripts/review.ts</a> · <a data-source="scripts/input.ts">scripts/input.ts</a> · <a data-source="scripts/correction.ts">scripts/correction.ts</a> · <a data-source=".codex/DEVELOPMENT.md">.codex/DEVELOPMENT.md</a></p></details></section>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="scripts/implement/review.ts">scripts/implement/review.ts</a> · <a data-source="scripts/implement/input.ts">scripts/implement/input.ts</a> · <a data-source="scripts/implement/correction.ts">scripts/implement/correction.ts</a> · <a data-source=".codex/DEVELOPMENT.md">.codex/DEVELOPMENT.md</a></p></details></section>
 <section id="writing" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">08</span><h2>文書の内容を、各担当が確かめる</h2></header><div class="chapter-body"><p>文書確認は執筆・既存の独立評価で行い、生成PR本文の意味確認はdraft公開後へ集約します。専用の校正工程を挟まず、担当ごとに次へ渡せる内容かを確かめます。</p>
 <ol>
 <li><strong>執筆担当：</strong> 事実、数量、否定、条件、範囲、権限、断定の強さ、未確認事項、参照を原資料と照合し、平易な日本語で書きます。事実不足は調査へ、要求や権限の変更は人との合意へ戻します。</li>
@@ -330,7 +330,7 @@ bun run check
 <p>説明の不備は本文修正、成果物の不備は修正・check・独立評価、事実不足は調査、要求・権限の変更は人の判断へ戻します。確認不足ならreadyへ移さず、操作結果不明時は記録と判明URLを保持して実状態を確認します。自動再試行や以前のreadyへの自動復帰はしません。詳細は<a data-source="scripts/README.md#公開後確認とreadyへの切替">操作の正本</a>に従います。</p>
 <p>draftでも本文は閲覧可能です。後から修正しても開示は取り消せません。readyへの切替は人の承認・マージを代行せず、操作間の他者変更を完全に防ぐ保証でもありません。</p>
 <p><strong>ここで残るもの：</strong> PR URL、対象commit、ローカル検証・独立評価・CIの結果、必要な媒体確認の状態、人に残る作業。PRができてもCIを確認できなければ、URLと記録を保って未達として報告します。</p>
-</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="scripts/development.ts">scripts/development.ts</a> · <a data-source="scripts/publish.ts">scripts/publish.ts</a> · <a data-source="scripts/ci.ts">scripts/ci.ts</a></p></details></section>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="scripts/implement/orchestrator.ts">scripts/implement/orchestrator.ts</a> · <a data-source="scripts/implement/publish.ts">scripts/implement/publish.ts</a> · <a data-source="scripts/implement/ci.ts">scripts/implement/ci.ts</a></p></details></section>
 <section id="human" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">11</span><h2>人が、変更を受け入れるか判断する</h2></header><div class="chapter-body"><p>人は、何が変わり、なぜ必要で、何を確かめ、何が未確認なのかをPRから読み取ります。Issueの要求と差分を照らし、検証がその要求を守っているかも確認します。</p>
 <p>検証コマンド、テスト、lint設定、対象選択、依存などを変える場合は、検出できなくなる条件とその対応を説明します。CI成功だけで要求達成や検証の妥当性を保証するものではありません。人が検証の無効化を見落とした場合まで、この仕組みが防ぐとは扱いません。</p>
 <p>dotagentsリポジトリの方針では、mainへはPR経由で入り、必要なCI、最新mainとの整合、未解決会話の解消を確認します。PR作者本人も内容を確認してマージを判断できる運用です。他のrepoの必須承認条件は、そのrepoに従います。保護設定の実状態は公開時に確認します。</p>
@@ -437,7 +437,7 @@ bun run check
 <h3>通常は回数で止めず、有限試行と中断条件を区別する</h3>
 <p>通常の新規implementと既存PR修正では、初回作業・追加修正・独立評価にモデル時間の上限を設けません。経過時間は記録しますが、初回実装の時間を後工程から差し引きません。追加修正・独立評価も回数上限なし（<code>repairLimit: null</code>・<code>reviewLimit: null</code>）です。回数だけを理由とした続行承認は求めず、合意範囲内の必須指摘を解消した最新成果物のcheckと独立評価acceptedまで修正を続けます。各check、撮影、CI待機の上限はそれぞれ9分、汎用コマンドと公開後の対象照合は11分です。単独試行では明示した有限の回数・モデル時間上限も使えます。両回数上限はそれぞれ正の整数か明示的な<code>null</code>が必須で、省略・不正値を上限なしに読み替えません。回数・経過時間・指摘・結果・active予約の記録は続けます。時間・使用量・保存量が増える可能性があり、収束は保証しません。</p>
 <p>新しい設定は採用後の新規実行に適用します。過去のrunを無制限設定へ変更・変換・自動再開したり、記録を削除して消費回数を初期化したりしません。通常の中断は実行中のコマンドと同一プロセスグループの子を停止し、出力保存を待ちます。強制終了やOS停止では子プロセスが残る場合があり、実状態の確認が必要です。完全自動再開は提供していません。</p>
-</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="scripts/README.md">scripts/README.md</a> · <a data-source="scripts/correction.ts">scripts/correction.ts</a></p></details></section>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="scripts/README.md">scripts/README.md</a> · <a data-source="scripts/implement/correction.ts">scripts/implement/correction.ts</a></p></details></section>
 <section id="records" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">16</span><h2>成果物と根拠を、次の人がたどれるようにする</h2></header><div class="chapter-body"><table>
 <thead>
 <tr><th>置き場所</th><th>残すもの</th><th>使い方</th></tr>
@@ -464,7 +464,7 @@ bun run check
 <li><strong>裁定して知らせる。</strong> 独立した裁定を行えた場合は添え、<code>skill-eval.ts report</code>で前後を比較します。公開可能な要約を関係Issue・PRへ残し、人が改善・悪化・判定不能と限界を見て採用を判断します。CLIは投稿やマージを行いません。</li>
 </ol>
 <p>通常の<code>implement</code>の<code>report.html</code>は1実行の行動・評価を読む資料です。この比較evalのケース別記録とは形式も判断単位も異なり、どちらかをもう一方の成功証拠へ読み替えません。</p>
-</div><details class="evidence"><summary>この補足の根拠</summary><p><a data-source="scripts/README.md#指示変更時の同条件eval">比較evalの手順</a> · <a data-source="scripts/skill-eval.ts">skill-eval.ts</a> · <a data-source="scripts/skill-eval-report.ts">skill-eval-report.ts</a> · <a data-source="scripts/run-report.ts">run-report.ts</a></p></details></section>
+</div><details class="evidence"><summary>この補足の根拠</summary><p><a data-source="scripts/README.md#指示変更時の同条件eval">比較evalの手順</a> · <a data-source="scripts/skill-eval/skill-eval.ts">skill-eval.ts</a> · <a data-source="scripts/skill-eval/skill-eval-report.ts">skill-eval-report.ts</a> · <a data-source="scripts/implement/run-report.ts">run-report.ts</a></p></details></section>
 <section id="questions" class="chapter pending"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">17</span><h2>合意した方向性と、今後の実装</h2></header><div class="chapter-body"><p><strong>このガイドで説明する方向性は揃いました。</strong> 読者は初めてハーネスを導入する人です。要求整理からPR、人の判断に加えて、差し戻しの調査と見直し、関係者への動作説明、アプリのリリース・運用・振り返りまでを扱います。</p>
 <p>差し戻しは、人が対象PRと指摘を示して依頼し、担当AIが根拠と影響範囲を調べます。必要なら要求整理やIssue作成へ戻り、必要な合意を揃えて進めます。PRで用意した説明は、QA・デザイナー・企画側が確認できる資料へつなげます。</p>
 <p>通常の開発と既存PR修正の上限・停止条件はCLIガイドに従います。中断記録を変換・再開せず、新しい明示的な修正依頼は新runとして扱います。</p>
@@ -482,13 +482,13 @@ bun run check
 <li><a data-source="skills/scoping/references/issue.md">Issue公開の手順</a></li>
 <li><a data-source="skills/implement/SKILL.md">implementの進め方</a></li>
 <li><a data-source="scripts/README.md">制御CLI・調査報告の受け渡し・撮影・公開・中断の手順</a></li>
-<li><a data-source="scripts/development.ts">初回実装から公開までの実装</a></li>
-<li><a data-source="scripts/correction.ts">修正・検証・独立評価・停止の実装</a></li>
-<li><a data-source="scripts/repair.ts">初回実装・修正に共通する指示と応答検査</a></li>
-<li><a data-source="scripts/research-handoff.ts">調査報告の版の照合と参照の引き継ぎ</a></li>
-<li><a data-source="scripts/ci.ts">CI結果の分類とPR対象の照合</a></li>
-<li><a data-source="scripts/run-report.ts">実装runのローカルHTML表示</a></li>
-<li><a data-source="scripts/skill-eval.ts">指示変更時の同条件eval入口</a></li>
+<li><a data-source="scripts/implement/orchestrator.ts">初回実装から公開までの実装</a></li>
+<li><a data-source="scripts/implement/correction.ts">修正・検証・独立評価・停止の実装</a></li>
+<li><a data-source="scripts/implement/repair.ts">初回実装・修正に共通する指示と応答検査</a></li>
+<li><a data-source="scripts/implement/research-handoff.ts">調査報告の版の照合と参照の引き継ぎ</a></li>
+<li><a data-source="scripts/implement/ci.ts">CI結果の分類とPR対象の照合</a></li>
+<li><a data-source="scripts/implement/run-report.ts">実装runのローカルHTML表示</a></li>
+<li><a data-source="scripts/skill-eval/skill-eval.ts">指示変更時の同条件eval入口</a></li>
 </ul>
 <p>読者を初めてハーネスを導入する人とし、アプリ・サービスのリリース・運用・振り返りまで扱うことは、2026年9月16日の記事作成時に依頼者と確認しました。リリース・運用は、アプリごとに異なる手順へ当てはめる共通の考え方として説明します。</p>
 <p>差し戻しの3分類を土台に、人が対象PRと指摘を示して依頼し、担当AIが根拠・影響範囲・戻り先を調べる方向性を合意しました。必要ならIssue作成から見直します。PRの動作説明をQA・デザイナー・企画向けの確認ガイドへつなぐ方向性も合意しています。既存PRの修正入口は導入済みです。関係者向けの自動引き継ぎやアプリの運用は別に具体化します。</p>

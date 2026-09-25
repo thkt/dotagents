@@ -3,7 +3,7 @@ import { realpath, mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import type { Config } from '../../input.ts';
+import type { Config } from '../../implement/input.ts';
 import { isRecord, isArray } from '../../values.ts';
 
 export function object(value: unknown) {
@@ -29,7 +29,7 @@ function reviewReply(status,findings) {
 }
 `;
 
-export const controller = resolve(import.meta.dir, '../../correction.ts');
+export const controller = resolve(import.meta.dir, '../../implement/correction.ts');
 
 export function correctionConfig(root: string, mode = 'normal'): Config {
   const helper = join(root, 'helper.js');

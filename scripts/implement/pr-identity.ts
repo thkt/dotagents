@@ -1,4 +1,4 @@
-import { isRecord } from './values.ts';
+import { isRecord } from '../values.ts';
 
 // Projections preserve missing/invalid values. Each caller owns response validation
 // and diagnostics; normalization must not supply a successful default.

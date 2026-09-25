@@ -1,18 +1,17 @@
 {
   "$schema": "./node_modules/fallow/schema.json",
   "entry": [
-    "scripts/capture.ts",
+    "scripts/capture/capture.ts",
     "scripts/check-unused.ts",
-    "scripts/codex-actor.ts",
-    "scripts/correction.ts",
-    "scripts/development.ts",
-    "scripts/knowledge.ts",
-    "scripts/publish.ts",
-    "scripts/skill-eval.ts",
+    "scripts/implement/codex-actor.ts",
+    "scripts/implement/correction.ts",
+    "scripts/implement/development.ts",
+    "scripts/implement/publish.ts",
+    "scripts/skill-eval/skill-eval.ts",
     "scripts/scoping/target.ts",
     "scripts/test.ts",
     "scripts/verify-capture.ts",
-    "scripts/verify-review.ts"
+    "scripts/implement/verify-review.ts"
   ],
   "includeEntryExports": true,
   "ignoreDependencies": [

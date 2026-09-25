@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
-import { assertReportReferences } from '../input.ts';
-import { researchHandoff } from '../research-handoff.ts';
+import { assertReportReferences } from '../implement/input.ts';
+import { researchHandoff } from '../implement/research-handoff.ts';
 
 test('repository research, wiki and decisions share the versioned document boundary', () => {
   for (const path of [

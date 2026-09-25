@@ -12,7 +12,7 @@
 ## IssueからPR作成
 
 ```sh
-bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to/target-checkout
+bun /absolute/path/to/trusted/scripts/implement/development.ts 99 --repo /absolute/path/to/target-checkout
 ```
 
 番号または対象repoのIssue URLを渡します。実行前に対象のREADME、開発方針、適用される指示、下記の設定を確認してください。ハーネスはBun、Git、gh、Codex CLIを使います。対象repoの言語やテストツールは設定に従います。
@@ -42,7 +42,7 @@ CI未確認時もPR URLと取得済みの公開結果・ログを保持し、非
 開始前に担当ホストは、既存の要求精査で現在のIssueが人の合意済みであり、今回の明示的な修正依頼と許可範囲が整合することを確認します。前回公開後にIssueを更新した場合も、この確認を経て同じPRの新runを開始できます。本文の差分やOPEN状態だけで人の合意を自動判定しません。未合意の要求変更は人の合意へ戻します。
 
 ```sh
-bun /absolute/path/to/trusted/scripts/development.ts 99 \
+bun /absolute/path/to/trusted/scripts/implement/development.ts 99 \
   --repo /absolute/path/to/previous-run/checkout \
   --previous-run /absolute/path/to/previous-run \
   --request-file /absolute/path/to/adopted-review.md \
@@ -80,7 +80,7 @@ draft確認の開始前から今回の`publication`を`unconfirmed`として既�
 報告の内容を確認した時点で、`git hash-object --no-filters -- docs/research/reset-behavior.md`の出力を`REVIEWED_BLOB`として記録します。報告をcommitした後、`git rev-parse HEAD`で開始commitを取得し、`git rev-parse HEAD:docs/research/reset-behavior.md`が確認済みblobと一致することを確かめます。次の`START_COMMIT`と`REVIEWED_BLOB`を、それぞれの完全なIDに置き換えて指定してください。
 
 ```sh
-bun /absolute/path/to/trusted/scripts/development.ts 99 \
+bun /absolute/path/to/trusted/scripts/implement/development.ts 99 \
   --repo /absolute/path/to/target-checkout \
   --start-commit START_COMMIT \
   --report docs/research/reset-behavior.md=REVIEWED_BLOB
@@ -140,7 +140,7 @@ bun /absolute/path/to/trusted/scripts/scoping/target.ts /absolute/path/to/target
 
 必要な媒体は対象設定のcapture commandで撮影します。コマンドにはcheckout外の新しい絶対出力ディレクトリを最後の引数として渡します。PNG、JPEG、WebP、MP4、WebMだけを直下に保存し、動画contextを閉じて確定してください。撮影中はcheckoutに媒体、コード、文書、レポートを書き込みません。ホストは空の出力、不正な形式、symlinkを拒否し、対象が変わっていないことを確認したうえで `destination` へ取り込みます。生成媒体専用領域は内容を置き換えるため、手書きの記録を置かないでください。
 
-付属のPlaywrightアダプターは `bun {harness}/scripts/capture.ts SPEC CONFIG ABSOLUTE_OUTPUT` です。対象repo側のPlaywright依存、指定したspec、設定のprojectsやwebServerを使います。元設定からの相対的な`testDir`、global setup/teardown、`tsconfig`、`webServer.cwd`を解決します。指定したspecが通常の`testDir`外にある場合は、そのspecのディレクトリへ探索範囲を広げます。各撮影projectでは指定したspecだけを選び、依存projectやteardown projectは元の選択条件を保ちます。projectの`use`とブラウザーの選択、ホストの`PLAYWRIGHT_BROWSERS_PATH`を引き継ぎます。specの欠落、指定specの実行0件、skip、失敗はいずれも成功扱いしません。setupだけ成功しても撮影成功にはしません。[trial repo](https://github.com/thkt/dotagents-workflow-trial/blob/d0134086ad9bdddb5ed2693327cb1ffb0859c4a2/README.md)では同repoのspec、config、媒体保存先を使います。この共通repoはプロダクトを含まず、Playwright依存も持ちません。ブラウザーやサーバーは対象設定で起動し、起動失敗をレポートから分類します。
+付属のPlaywrightアダプターは `bun {harness}/scripts/capture/capture.ts SPEC CONFIG ABSOLUTE_OUTPUT` です。対象repo側のPlaywright依存、指定したspec、設定のprojectsやwebServerを使います。元設定からの相対的な`testDir`、global setup/teardown、`tsconfig`、`webServer.cwd`を解決します。指定したspecが通常の`testDir`外にある場合は、そのspecのディレクトリへ探索範囲を広げます。各撮影projectでは指定したspecだけを選び、依存projectやteardown projectは元の選択条件を保ちます。projectの`use`とブラウザーの選択、ホストの`PLAYWRIGHT_BROWSERS_PATH`を引き継ぎます。specの欠落、指定specの実行0件、skip、失敗はいずれも成功扱いしません。setupだけ成功しても撮影成功にはしません。[trial repo](https://github.com/thkt/dotagents-workflow-trial/blob/d0134086ad9bdddb5ed2693327cb1ffb0859c4a2/README.md)では同repoのspec、config、媒体保存先を使います。この共通repoはプロダクトを含まず、Playwright依存も持ちません。ブラウザーやサーバーは対象設定で起動し、起動失敗をレポートから分類します。
 
 アダプターは新しい外部出力先を要求し、生成設定、JSONレポート、artifactsの保存先もその隣へ指定します。既存snapshotの参照先は元設定の場所から解決し、snapshot更新は無効にします。媒体は拡張子とファイル先頭の形式識別子を照合し、空の出力とsymlinkを拒否します。完全なデコードや表示品質はこの照合では保証しません。spec、global hook、webServer自身の書き込みもcheckout外へ向けてください。任意の対象コードの書き込みを隔離する機能ではないため、ホストは撮影後に対象が変わっていないかを照合します。
 
@@ -176,7 +176,7 @@ correctionを単独で設定する場合も、capture commandに加えて `captu
 ## 準備と実行
 
 ```text
-bun scripts/correction.ts /absolute/path/config.json
+bun scripts/implement/correction.ts /absolute/path/config.json
 ```
 
 設定は信頼する公開・実行担当が用意します。対象base branchと照合した隔離作業コピーを用意し、設定、制御コード、証拠ディレクトリを修正対象の外へ配置します。以下は設定形式の例です。Issue番号、絶対パス、実行上限はその試行で合意した値を起動前に設定してください。例の値自体は新たな実行許可を意味しません。
@@ -187,8 +187,8 @@ bun scripts/correction.ts /absolute/path/config.json
   "runDir": "/absolute/path/evidence",
   "issue": ["gh", "issue", "view", "DELIVERABLE_ISSUE_NUMBER", "--repo", "OWNER/REPO", "--json", "title,body,updatedAt"],
   "check": ["bun", "run", "check"],
-  "repair": ["bun", "/absolute/path/controller/scripts/codex-actor.ts", "repair", "/absolute/path/evidence"],
-  "review": ["bun", "/absolute/path/controller/scripts/codex-actor.ts", "review", "/absolute/path/evidence"],
+  "repair": ["bun", "/absolute/path/controller/scripts/implement/codex-actor.ts", "repair", "/absolute/path/evidence"],
+  "review": ["bun", "/absolute/path/controller/scripts/implement/codex-actor.ts", "review", "/absolute/path/evidence"],
   "repairLimit": 2,
   "reviewLimit": 2,
   "modelTimeMs": 1200000,
@@ -216,9 +216,9 @@ bun scripts/correction.ts /absolute/path/config.json
 
 ### 修正・独立評価の担当
 
-初回実装と修正は[repair.ts](repair.ts)の共通指示と応答検査を使います。文書・テスト・撮影・公開禁止の指示を共有し、初回はIssue全体の実装とホスト検証の準備、修正は失敗の根拠に沿う原因診断・修正確認を担当します。初回のsetup後照合と結果保存はdevelopment、修正の起動前予約・回数・中断状態の保持はcorrectionが担当します。初回実装は追加修正のカウンタに数えず、修正後のcheckと独立評価はホストが実行します。
+初回実装と修正は[repair.ts](implement/repair.ts)の共通指示と応答検査を使います。文書・テスト・撮影・公開禁止の指示を共有し、初回はIssue全体の実装とホスト検証の準備、修正は失敗の根拠に沿う原因診断・修正確認を担当します。初回のsetup後照合と結果保存はdevelopment、修正の起動前予約・回数・中断状態の保持はcorrectionが担当します。初回実装は追加修正のカウンタに数えず、修正後のcheckと独立評価はホストが実行します。
 
-`repair`と`review`は、要求と失敗の根拠を標準入力で受け取り、結果のJSONだけを標準出力へ返します。`repair`は`status: repaired | needs_human`と文字列`findings`を返します。`review`は[review.ts](review.ts)の専用schemaに従います。独自のreviewコマンドにも同じ形式が必要です。
+`repair`と`review`は、要求と失敗の根拠を標準入力で受け取り、結果のJSONだけを標準出力へ返します。`repair`は`status: repaired | needs_human`と文字列`findings`を返します。`review`は[review.ts](implement/review.ts)の専用schemaに従います。独自のreviewコマンドにも同じ形式が必要です。
 
 レビュー応答の項目・型・許可値と余分な項目の拒否は、`review.ts`のZod定義を正本とします。受信時の構造検証とCodexの`--output-schema`へ渡すJSON Schemaをここから作り、保存用の完全なレビューも応答定義を組み合わせて検証・型推論します。応答項目を変更するときは該当するZod定義を変更し、関連テスト・指示文・利用側への影響を確認します。JSON SchemaやTypeScript型を別途手書きで同期する必要はありません。Zodは[package.json](../package.json)とlockfileで固定した直接依存です。actorの修正応答や一般のJSON読込みには適用しません。
 
@@ -288,7 +288,7 @@ PR本文のdraft公開・CI・公開後確認・ready切替は本文作成時点
 
 ## 結果と再実行
 
-Issueの取得・保存・hash・再照合には、[issue.ts](issue.ts)の共通表現を使います。`title`・`body`が文字列のJSONオブジェクトでは、外側の空白・改行だけを除きます。JSONの再直列化は行わず、本文文字列の空白・改行、UTF-8、title・body・state・updatedAtを保持します。それ以外の単独correctionのIssue出力は平文としてそのまま扱い、先頭・末尾の空白や改行も変更検出の対象にします。一般コマンドの出力処理にはこの変換を適用しません。
+Issueの取得・保存・hash・再照合には、[issue.ts](implement/issue.ts)の共通表現を使います。`title`・`body`が文字列のJSONオブジェクトでは、外側の空白・改行だけを除きます。JSONの再直列化は行わず、本文文字列の空白・改行、UTF-8、title・body・state・updatedAtを保持します。それ以外の単独correctionのIssue出力は平文としてそのまま扱い、先頭・末尾の空白や改行も変更検出の対象にします。一般コマンドの出力処理にはこの変換を適用しません。
 
 開始時のraw出力はdevelopmentの`issue.stdout`、correctionのrunDir内の`issue.stdout`に保持します。比較用テキストはそれぞれ`issue.json`・`issue.txt`に保存し、correctionの`state.json`には`issueFormat: 1`と同じテキストの`issueHash`を記録します。レビュー対象にもこのテキストとhashを渡します。correction開始時のstdout・stderrは、取得後の照合に失敗した場合も保存し、既存stateの照合で上書きしません。state保存前に失敗した場合も、`issue.stdout`・`issue.stderr`・`issue.txt`のいずれかが残る保存先は、Issueの再取得前に拒否します。失敗記録を保持し、別のrunDirで開始してください。現行形式に合わない保存stateは再開しません。[既存PRの修正](#既存prの修正)でも、前回runに現行形式を要求します。
 
@@ -301,7 +301,7 @@ Issueの取得・保存・hash・再照合には、[issue.ts](issue.ts)の共通
 HTML生成に失敗した場合も元の`result.json`は変更せず、エラーを表示します。保存済みの新しいrunから再生成するには、既存HTMLを上書きしない別名を指定します。古いrunの変換・再評価や停止runの再開には使いません。
 
 ```sh
-bun scripts/run-report.ts /absolute/path/to/run --output /absolute/path/to/run/report-new.html
+bun scripts/implement/run-report.ts /absolute/path/to/run --output /absolute/path/to/run/report-new.html
 ```
 
 既知の検証停止では、`nextAction`に理由別の対応と`verification/state.json`への参照を返します。担当AIは既存の許可範囲で事実を調べ、ホスト環境の変更に追加権限が必要ならその許可を求めます。環境の調査自体を一律に人の判断待ちにはしません。
@@ -407,7 +407,7 @@ SIGKILLのテストでは残存プロセスをテスト側で後片付けして�
 レビュー品質の観測が必要な場合に、共通checkと別にホストで次を実行します。改善案の比較には[改善効果の比較方針](../.codex/DEVELOPMENT.md#改善効果の比較)を適用し、要求充足・実質差分・費用の順に判断します。保存記録で判定方法だけを比較できる条件と再実行が必要な条件も同方針に従い、比較のために常に新しい試行を求めません。既存のCodex認証を使い、ブラウザーやサーバーの起動、GitHub公開は必要ありません。
 
 ```sh
-bun scripts/verify-review.ts
+bun scripts/implement/verify-review.ts
 ```
 
 レビュー応答のSchemaを変更した場合も、この入口から実際のCodexによる受理と応答を確認します。`review-codex-*/schema.json`が`--output-schema`へ渡した生成物です。同じディレクトリの`final.json`と、検証済みの`verification/review-1.json`を照合し、CLIのSchema受理とホストによる応答検証を分けて確認してください。生成差分では必須項目・型・enum・余分な項目の拒否・値の制約を確認します。`$schema`やnullableの`anyOf`などの表現差だけで互換性を判断せず、模擬Codexの制御テストとSchema生成の成功だけでは実CLI確認の代わりにしません。
@@ -469,7 +469,7 @@ gh pr view 123 --json body --jq .body | bun run lint:docs -- --stdin --stdin-fil
 
 ```sh
 bun /absolute/path/to/trusted/scripts/scoping/target.ts /absolute/path/target-checkout --write
-bun /absolute/path/to/trusted/scripts/publish.ts --repo /absolute/path/target-checkout --actor USER_LOGIN --head codex/example --title '変更の概要' --body-file /absolute/path/pr.md
+bun /absolute/path/to/trusted/scripts/implement/publish.ts --repo /absolute/path/target-checkout --actor USER_LOGIN --head codex/example --title '変更の概要' --body-file /absolute/path/pr.md
 ```
 
 `target.ts CHECKOUT --write`は対象repo、base branch、remoteとghのpush権限、実効ユーザーを照合し、PRを作らず確認結果を返します。`--actor` は事前に確認したloginを指定します。developmentは開始時のloginを公開時にも渡し、不一致で停止します。PR書き込みの細かなtoken権限や組織ポリシーは読み取り確認だけで保証せず、公開失敗時は停止理由とGitHub上の実状態を確認します。
@@ -527,9 +527,9 @@ gh pr edit PR_NUMBER --repo OWNER/REPO \
 
 ## 指示変更時の同条件eval
 
-`scoping`・`implement`や、それらに適用する`AGENTS.md`を改善するとき、[Issue #191](https://github.com/thkt/dotagents/issues/191)の合意に従って、変更前後の行動・成果・負担を比べます。入口は `bun scripts/skill-eval.ts plan|run CONFIG` と `report RUN_DIRECTORY [JUDGMENTS_JSON]` です。通常のdevelopment、定期監査、全PRのCIには接続しません。既存の証拠で判断できる変更には実モデル呼出しを追加しません。
+`scoping`・`implement`や、それらに適用する`AGENTS.md`を改善するとき、[Issue #191](https://github.com/thkt/dotagents/issues/191)の合意に従って、変更前後の行動・成果・負担を比べます。入口は `bun scripts/skill-eval/skill-eval.ts plan|run CONFIG` と `report RUN_DIRECTORY [JUDGMENTS_JSON]` です。通常のdevelopment、定期監査、全PRのCIには接続しません。既存の証拠で判断できる変更には実モデル呼出しを追加しません。
 
-[ケース](../evals/skills/cases.json)は、[#183の公開コメント](https://github.com/thkt/dotagents/issues/183#issuecomment-5793406460)にある依頼文5件を再利用しています。実際の失敗の再現ではなく、公開済みの適用条件から作った正例2件・負例2件・採点外の境界1件です。期待ラベル・要求充足の観測基準・出典はホストだけが読みます。実装ケースには[Issue #187の公開本文](../evals/skills/issue-187.json)の固定コピーを `evaluation-issue.json` として渡し、その場所だけを依頼文に追記します。過去の中断runや他条件の回答は渡しません。ケースを追加・変更する場合は、実際の見落としの根拠と適用範囲をIssueへ残し、新旧集合を同条件の改善率にしません。
+[ケース](skill-eval/corpus/cases.json)は、[#183の公開コメント](https://github.com/thkt/dotagents/issues/183#issuecomment-5793406460)にある依頼文5件を再利用しています。実際の失敗の再現ではなく、公開済みの適用条件から作った正例2件・負例2件・採点外の境界1件です。期待ラベル・要求充足の観測基準・出典はホストだけが読みます。実装ケースには[Issue #187の公開本文](skill-eval/corpus/issue-187.json)の固定コピーを `evaluation-issue.json` として渡し、その場所だけを依頼文に追記します。過去の中断runや他条件の回答は渡しません。この2ファイルは版管理する評価入力で、雛形や実行結果ではありません。実行結果は`outputDirectory`で指定したリポジトリ外へ保存します。移動後の評価では、新しい配置を含むcommitを`corpusCommit`に指定します。ケースを追加・変更する場合は、実際の見落としの根拠と適用範囲をIssueへ残し、新旧集合を同条件の改善率にしません。
 
 ### 実行条件を固定する
 
@@ -574,9 +574,9 @@ gh pr edit PR_NUMBER --repo OWNER/REPO \
 ファイルリストは例です。対象課題に必要な公開コード・検証・参照文書を `workspaceFiles` に、今回有効にする両スキルの参照ファイルと適用する全 `AGENTS.md` を `instructionFiles` に列挙します。UTF-8の通常Git blobだけを使い、symlink、作業差分、未追跡資料、評価の期待値は入力にしません。両リストの重複、未知のケース、有限上限や公開範囲の欠落を拒否します。課題側は共通commit、指示側だけはbefore/afterから取得します。対象commitに他のコード差分があっても、その差分を課題側へ混ぜません。指定した指示に差がなければモデルを起動しません。
 
 ```sh
-bun scripts/skill-eval.ts plan /absolute/path/eval-config.json
-bun scripts/skill-eval.ts run /absolute/path/eval-config.json
-bun scripts/skill-eval.ts report /absolute/path/outside-checkout/new-eval
+bun scripts/skill-eval/skill-eval.ts plan /absolute/path/eval-config.json
+bun scripts/skill-eval/skill-eval.ts run /absolute/path/eval-config.json
+bun scripts/skill-eval/skill-eval.ts report /absolute/path/outside-checkout/new-eval
 ```
 
 `plan` はモデルを呼ばず、入力内容、各ファイルと固定した実行コードのSHA-256、変えた指示、ケース・判定基準を表示します。ホスト担当者が公開済み資料だけであること、必要な参照が揃うこと、意図した変更だけが有効になることを確認します。`run` は同じ計画を保存し、ケース・時間・モデル要求数・公開範囲を表示してから、beforeの全ケース、afterの全ケースを各1回実行します。ケースの順序と集合は両条件で同じです。モデルには現在のケースの依頼文と入力ファイルだけが見えます。スキルは新しいコンテナーのホームから、その条件の実体へ登録します。既存の登録や進行中タスクは変更しません。

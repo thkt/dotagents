@@ -3,11 +3,11 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { z } from 'zod';
-import { command, withInterrupts, assertRunning } from './process.ts';
+import { command, withInterrupts, assertRunning } from '../process.ts';
 import { evalCase, evalConfig, validatePlan } from './skill-eval-data.ts';
 import type { EvalConfig } from './skill-eval-data.ts';
 import { sandboxTrial } from './skill-eval-sandbox.ts';
-import { isRecord } from './values.ts';
+import { isRecord } from '../values.ts';
 import { writeComparison } from './skill-eval-report.ts';
 
 async function git(repo: string, args: string[]) {
@@ -58,11 +58,13 @@ export async function preparePlan(repo: string, config: EvalConfig) {
   const runtimeHash = createHash('sha256').update(runtimeSource).digest('hex');
   const cases = z
     .array(evalCase)
-    .parse(JSON.parse(await blob(repo, config.corpusCommit, 'evals/skills/cases.json')));
+    .parse(
+      JSON.parse(await blob(repo, config.corpusCommit, 'scripts/skill-eval/corpus/cases.json')),
+    );
   const selected = [];
   for (const item of validatePlan(config, cases)) {
     const contextBody = item.context
-      ? await blob(repo, config.corpusCommit, `evals/skills/${item.context}`)
+      ? await blob(repo, config.corpusCommit, `scripts/skill-eval/corpus/${item.context}`)
       : null;
     selected.push({ ...item, contextBody });
   }
@@ -259,7 +261,10 @@ export async function runEvaluation(repo: string, config: EvalConfig) {
 if (import.meta.main) {
   try {
     const [mode, file, extra] = process.argv.slice(2);
-    assert(file, 'Usage: skill-eval.ts plan|run CONFIG | report RUN_DIRECTORY [JUDGMENTS_JSON]');
+    assert(
+      file,
+      'Usage: bun scripts/skill-eval/skill-eval.ts plan|run CONFIG | report RUN_DIRECTORY [JUDGMENTS_JSON]',
+    );
     if (mode === 'report') {
       await writeComparison(resolve(file), extra ? resolve(extra) : undefined);
     } else {

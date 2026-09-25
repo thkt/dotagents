@@ -12,9 +12,9 @@ import {
   events,
   reviewReplySource,
 } from './support/correction.ts';
-import { parseRepairReply } from '../repair.ts';
-import { assertConfig, assertState } from '../input.ts';
-import { snapshot } from '../correction.ts';
+import { parseRepairReply } from '../implement/repair.ts';
+import { assertConfig, assertState } from '../implement/input.ts';
+import { snapshot } from '../implement/correction.ts';
 import { git } from './support/target.ts';
 
 const { trial, cleanup } = correctionFixture();

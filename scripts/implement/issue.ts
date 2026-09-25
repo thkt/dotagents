@@ -1,4 +1,4 @@
-import { isRecord } from './values.ts';
+import { isRecord } from '../values.ts';
 
 // Only the whitespace outside a JSON Issue is output framing. Do not reserialize
 // JSON or trim plain requirements: their spaces and newlines are content.

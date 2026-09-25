@@ -10,12 +10,12 @@ import { parseArgs } from 'node:util';
 import { run, snapshot } from './correction.ts';
 import { previousRun, checkRevision, revisionContext } from './revision.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
-import { command, assertRunning, withInterrupts } from './process.ts';
-import { isRecord, outside } from './values.ts';
+import { command, assertRunning } from '../process.ts';
+import { isRecord, outside } from '../values.ts';
 import { publish, checkPublishedPr, PublicationError } from './publish.ts';
 import { waitForCi } from './ci.ts';
 import type { CiResult } from './ci.ts';
-import { readTarget, issueNumber, targetCommand, pushArguments } from './target.ts';
+import { readTarget, issueNumber, targetCommand, pushArguments } from '../target.ts';
 import {
   researchContext,
   researchHandoff,
@@ -192,7 +192,7 @@ async function selectStart(args: string[], io: typeof runtime) {
   });
   assert(
     parsed.positionals.length === 1,
-    'Usage: bun scripts/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report docs/research/NAME.md=BLOB] [--previous-run DIRECTORY --request-file PATH]',
+    'Usage: bun scripts/implement/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report docs/research/NAME.md=BLOB] [--previous-run DIRECTORY --request-file PATH]',
   );
   const repo = await realpath(parsed.values.repo ?? process.cwd());
   const git = (...argv: string[]) => checked(io, ['git', ...argv], repo);
@@ -899,15 +899,4 @@ async function saveResult(result: DevelopmentResult, failure: unknown) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
-}
-
-if (import.meta.main) {
-  try {
-    console.log(
-      JSON.stringify(await withInterrupts(() => develop(process.argv.slice(2))), null, 2),
-    );
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-  }
 }

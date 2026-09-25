@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { dirname, resolve } from 'node:path';
 import { createRequire } from 'node:module';
-import { isRecord, isArray, outside } from './values.ts';
+import { isRecord, isArray, outside } from '../values.ts';
 
 function pathSetting(value: unknown, fallback: string, base: string) {
   assert(value === undefined || typeof value === 'string', 'Invalid capture path');

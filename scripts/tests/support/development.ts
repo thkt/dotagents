@@ -4,10 +4,10 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { command, withInterrupts } from '../../process.ts';
-import type { Config, State } from '../../input.ts';
-import type { PublishInput } from '../../publish.ts';
-import { reviewSummary } from '../../review.ts';
-import type { Review } from '../../review.ts';
+import type { Config, State } from '../../implement/input.ts';
+import type { PublishInput } from '../../implement/publish.ts';
+import { reviewSummary } from '../../implement/review.ts';
+import type { Review } from '../../implement/review.ts';
 import { initializeTarget, githubTarget, targetConfig } from './target.ts';
 
 export const issue = JSON.stringify({
@@ -292,7 +292,7 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
         return githubCommand(argv, cwd, timeout, prefix);
       }
       expect(argv.slice(1, 3)).toEqual([
-        new URL('../../codex-actor.ts', import.meta.url).pathname,
+        new URL('../../implement/codex-actor.ts', import.meta.url).pathname,
         'repair',
       ]);
       expect(timeout).toBeNull();

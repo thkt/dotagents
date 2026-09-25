@@ -13,16 +13,16 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { develop } from '../development.ts';
-import { publish, publishCli } from '../publish.ts';
-import type { PublishInput } from '../publish.ts';
-import { run, snapshot } from '../correction.ts';
+import { develop } from '../implement/orchestrator.ts';
+import { publish, publishCli } from '../implement/publish.ts';
+import type { PublishInput } from '../implement/publish.ts';
+import { run, snapshot } from '../implement/correction.ts';
 import { command, withInterrupts } from '../process.ts';
-import { assertConfig } from '../input.ts';
-import { checkRevision, previousRun } from '../revision.ts';
+import { assertConfig } from '../implement/input.ts';
+import { checkRevision, previousRun } from '../implement/revision.ts';
 import { readTarget } from '../target.ts';
 import { correctionConfig, reviewReplySource } from './support/correction.ts';
-import type { Config, State, Revision } from '../input.ts';
+import type { Config, State, Revision } from '../implement/input.ts';
 import { isRecord } from '../values.ts';
 import { initializeTarget, githubTarget, git, targetConfig } from './support/target.ts';
 

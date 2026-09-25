@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { test, expect, spyOn } from 'bun:test';
 import * as fs from 'node:fs/promises';
@@ -15,13 +16,13 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { develop } from '../development.ts';
-import { run } from '../correction.ts';
+import { develop } from '../implement/orchestrator.ts';
+import { run } from '../implement/correction.ts';
 import { createHash } from 'node:crypto';
 import { reviewReplySource } from './support/correction.ts';
-import { PublicationError } from '../publish.ts';
+import { PublicationError } from '../implement/publish.ts';
 import { command, interruptionMessage, withInterrupts } from '../process.ts';
-import type { Config, State } from '../input.ts';
+import type { Config, State } from '../implement/input.ts';
 import { isRecord } from '../values.ts';
 import { initializeTarget, githubTarget, targetConfig } from './support/target.ts';
 
@@ -31,6 +32,21 @@ import type { DevelopmentFixture } from './support/development.ts';
 const reportPath = 'docs/research/result-behavior.md';
 const reportContent = 'Reviewed finding: keep the result visible until reset.\n';
 const secondReport = 'docs/wiki/result-validation.md';
+
+test('development CLI rejects a missing Issue before reading a target', () => {
+  const result = spawnSync(
+    process.execPath,
+    [join(import.meta.dir, '../implement/development.ts')],
+    {
+      cwd: tmpdir(),
+      encoding: 'utf8',
+      timeout: 10000,
+    },
+  );
+  expect(result.status).toBe(1);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toContain('Usage: bun scripts/implement/development.ts ISSUE');
+});
 
 async function commitReport(repo: string) {
   await mkdir(join(repo, 'docs/research'), { recursive: true });
