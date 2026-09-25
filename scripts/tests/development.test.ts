@@ -1342,22 +1342,6 @@ for (const [phase, change, reason] of [
   });
 }
 
-testStartInput(
-  'legacy knowledge stops before setup or implementation',
-  async ({ args, base, hooks, io, dir }) => {
-    args.push('--start-commit', base);
-    hooks.issue = JSON.stringify({
-      title: 'Legacy selection',
-      state: 'OPEN',
-      body: '```dotagents-knowledge\n[]\n```',
-    });
-    await assert.rejects(() => develop(args, io), /Legacy dotagents-knowledge.*new Issue.*new run/);
-    expect(hooks.setups).toBe(0);
-    expect(existsSync(join(dir, 'checkout'))).toBe(false);
-    expect(existsSync(join(dir, 'implementation.prompt'))).toBe(false);
-  },
-);
-
 for (const location of ['checkout', 'git', 'symlink'] as const) {
   testStartInput(
     `development does not save into unsafe ${location} storage`,

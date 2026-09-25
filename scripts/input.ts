@@ -64,9 +64,9 @@ export function assertReportReferences(value: unknown): asserts value is ReportR
     assert(isRecord(report), 'Invalid required report');
     assert(
       relativeDirectory(report.path) &&
-        /^(?:research|docs\/research|docs\/wiki|docs\/decisions)\//.test(report.path) &&
+        /^docs\/(?:research|wiki|decisions)\//.test(report.path) &&
         report.path.endsWith('.md'),
-      'Required report must be a repo-relative Markdown path under docs/research/, docs/wiki/, docs/decisions/ or legacy research/',
+      'Required report must be a repo-relative Markdown path under docs/research/, docs/wiki/, docs/decisions/',
     );
     assert(
       typeof report.blob === 'string' && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(report.blob),
@@ -134,7 +134,7 @@ export interface State {
   reviewHistory: Review[];
   configHash: string;
   issueHash: string;
-  issueFormat?: 1;
+  issueFormat: 1;
   repair: number;
   review: number;
   checks: number;
@@ -159,8 +159,28 @@ const command = (value: unknown) => isCommandArray(value) && value[0].length > 0
 export function assertConfig(value: unknown): asserts value is Config {
   assert(isRecord(value), 'Invalid configuration object');
   assert(
-    !('writing' in value),
-    'writing is no longer supported; remove writing from correction input and review the documentation policy before starting a new run. Preserve existing runs.',
+    Object.keys(value).every((key) =>
+      [
+        'baseCommit',
+        'revision',
+        'reports',
+        'reviewModel',
+        'cwd',
+        'runDir',
+        'issue',
+        'check',
+        'capture',
+        'captureDestination',
+        'captureRequired',
+        'repair',
+        'review',
+        'repairLimit',
+        'reviewLimit',
+        'modelTimeMs',
+        'checkTimeMs',
+      ].includes(key),
+    ),
+    'Unknown configuration field',
   );
   assert(optionalString(value.baseCommit), 'Invalid base commit');
   assertRevision(value.revision);
@@ -228,15 +248,8 @@ function validResult(value: unknown) {
 }
 export function assertState(value: unknown): asserts value is State {
   assert(isRecord(value), 'Invalid saved state');
-  assert(
-    value.reviewFormat !== undefined &&
-      value.reviewFormat !== 1 &&
-      value.reviewFormat !== 2 &&
-      value.reviewFormat !== 3,
-    'Historical review format cannot be converted or resumed; preserve existing run',
-  );
   assert(value.reviewFormat === 4, 'Invalid review format');
-  assert(value.issueFormat === undefined || value.issueFormat === 1, 'Invalid Issue format');
+  assert(value.issueFormat === 1, 'Invalid Issue format');
   assert(
     typeof value.configHash === 'string' && typeof value.issueHash === 'string',
     'Invalid saved hashes',

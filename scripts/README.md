@@ -53,7 +53,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
 
 前回記録にあるrepo・Issue番号・PR・公開commit・checkout・主体・対象設定をGit/GitHubの実状態と照合します。checkoutは記録した公開headと一致し、追跡対象・未追跡の作業差分がないことが必要です。既存本文は開始時に読み取り、固定した修正入力とともに担当者へ渡します。未完了の実行、結果不明、対象不一致、残った作業があれば開始せず、記録と作業を保ったまま原因・次の対応を返します。別checkoutの自動作成、stash、作業差分の移植、rebase、旧stateの変換・再開は行いません。
 
-前回のIssue内容は前回stateのhashと照合し、保存記録の整合性を検査します。新規runの`issueFormat: 1`では保存した比較用テキストのhashだけを照合します。識別のない旧runに限り、当時の保存テキストと末尾改行1個付きstdoutのhashを互換読取りの対象にします。保存ファイルへの改行追記や本文の改変は拒否し、旧記録は書き換えません。現在のIssueには前回との内容一致を求めず、同じrepo・Issue番号のOPENな要求で、空でないtitle・bodyがあることを確認します。開始時に取得したtitle・body・state・updatedAtを今回の固定入力とし、新runの`issue.json`と修正の検証設定へ保存します。前回のIssueとstateは書き換えません。この条件は採用後に開始する新runへ適用し、停止した実行の再開や旧記録の移行には使いません。
+前回のIssue内容は前回stateのhashと照合し、保存記録の整合性を検査します。前回runに`issueFormat: 1`を要求し、保存した比較用テキストのhashだけを照合します。保存ファイルへの改行追記や本文の改変は拒否し、前回の記録は書き換えません。現在のIssueには前回との内容一致を求めず、同じrepo・Issue番号のOPENな要求で、空でないtitle・bodyがあることを確認します。開始時に取得したtitle・body・state・updatedAtを今回の固定入力とし、新runの`issue.json`と修正の検証設定へ保存します。前回のIssueとstateは書き換えません。この条件は新しい修正runへ適用し、停止した実行の再開や旧記録の移行には使いません。
 
 新しい明示的な修正依頼ごとに初回修正を行い、追加修正・独立評価の回数上限は設けません。モデル時間制限も設けず、check・capture・CI等は通常developmentの時間枠と処理を共用します。過去のaccepted・check・capture成功や指摘IDは新runへ移しません。固定後のIssue変更は開始準備中も拒否し、setup前・実装前や後続の工程境界で検出したら停止します。修正入力・主体・権限・設定・PRの本文・head・baseなどの変化も引き続き停止対象です。人が要求・許可範囲を変更する場合は合意へ戻し、新しい明示的な依頼で別のrunを開始します。
 
@@ -86,7 +86,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
   --report docs/research/reset-behavior.md=REVIEWED_BLOB
 ```
 
-`--report`には対象repoの`docs/research/`、`docs/wiki/`、`docs/decisions/`配下のMarkdownを指定できます。新規の引き継ぎでは旧`research/`を受け付けません。保存済みrunや既存PR修正が保持する旧path・blobは当時の参照として検査し、保存記録を変換しません。wiki・DRも同じpath・blob・開始commitで照合し、原本の採用状態と適用条件を保ちます。`--report`は必要な報告ごとに繰り返し、`--start-commit`も指定します。開始・停止の条件は[wikiの開始条件](../docs/wiki/implementation-start.md)を参照してください。初回実装にはIssue URL、開始commit、報告パスとblobを渡します。報告本文を読み、内容の十分性と合意・共有状態を確認する責任は担当者に残ります。
+`--report`には対象repoの`docs/research/`、`docs/wiki/`、`docs/decisions/`配下のMarkdownを指定できます。現行の文書参照だけを受け付けます。wiki・DRも同じpath・blob・開始commitで照合し、原本の採用状態と適用条件を保ちます。`--report`は必要な報告ごとに繰り返し、`--start-commit`も指定します。開始・停止の条件は[wikiの開始条件](../docs/wiki/implementation-start.md)を参照してください。初回実装にはIssue URL、開始commit、報告パスとblobを渡します。報告本文を読み、内容の十分性と合意・共有状態を確認する責任は担当者に残ります。
 
 選んだ報告のパスとblob IDは、同じ実行の検証設定の`reports`へ自動で渡します。初回実装、修正、独立評価は同じ開始commitと参照一覧を受け取り、Issueや報告から出典、適用条件、合意状態を確認します。対象repoの`.dotagents.json`や別の引き継ぎ文書に報告本文を転記する必要はありません。必要な報告がない場合も、Issueが参照する今回関連する資料を担当者が選びます。
 
@@ -95,16 +95,6 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
 判断を左右する参照の欠落や古さ、矛盾がある場合は、影響する判断と戻り先を示します。事実不足は調査し、要求・許容範囲・権限の変更は人の合意へ戻します。独立評価では判断を妨げる不足を必須の未解決指摘として扱い、公開後の作業へ送ってacceptedにはしません。参照した文書の役割と理由、各観点の評価、残る確認は構造化評価から[公開用のPR説明](#レビュー対象と参照記録)へ渡します。検証結果の再利用条件とCI分類の再設計は、この参照引き継ぎでは扱いません。
 
 上記の開始条件を満たす未共有の報告でも、既存の許可範囲で`--no-publish`の実装を開始できます。共有・commitの許可と状態の扱いは[引き継ぎ手順](../skills/scoping/references/session.md#調査成果の引き継ぎ)に従います。参照の機械的な照合は人の合意や実装許可を代替しません。
-
-## 旧共有知識からの移行
-
-[Issue #265](https://github.com/thkt/dotagents/issues/265)により、`dotagents-knowledge`によるJSON・ID選択、`scripts/knowledge.ts`、`knowledge:generate`・`knowledge:check`を廃止しました。実装開始の説明は手で更新する[wiki](../docs/wiki/implementation-start.md)へまとめます。新しいIssueは選択ブロックなしで開始し、必要な根拠だけを上記の`--report`で引き継ぎます。
-
-旧版で選択とされた独立した`dotagents-knowledge`のコード囲みがIssueにある場合、初回実装、修正・独立評価の入口で`Legacy dotagents-knowledge`エラーになります。バッククォート・チルダ、未閉鎖・不正JSON・空の選択も停止します。説明用の外側の囲み、引用・リスト・HTML内の例は従来どおり選択ではありません。
-
-担当者は旧Issueのpath・blob・IDが指していた原本を当時のGit blobから読み、今回も必要な根拠と適用範囲を確認してください。原本や合意が不足する場合は調査・人の判断へ戻します。必要な説明を通常のMarkdownへ整理し、要求・許可と旧Issueへの参照を新しいIssueで合意した上で、確認済みの報告path・blob・開始commitと新しい保存先で開始します。旧Issue・run・Git blobはそのまま保存し、旧選択の削除や最新版への自動置換で停止を回避しません。
-
-保存済みrunは保存したIssueも検査します。完了済みrunの結果の再利用、`--previous-run`による既存PR修正も、旧選択があれば停止します。旧runのstate変換・再開や、過去PRと新しいrunの自動接続は行いません。既存PRの継続が必要なら、旧記録を保全したまま、担当者が対象・根拠・許可と移行方法を判断してください。旧選択のない保存済みrunは従来の同一性検査に従います。
 
 ## 対象repoの設定
 
@@ -300,7 +290,7 @@ PR本文のdraft公開・CI・公開後確認・ready切替は本文作成時点
 
 Issueの取得・保存・hash・再照合には、[issue.ts](issue.ts)の共通表現を使います。`title`・`body`が文字列のJSONオブジェクトでは、外側の空白・改行だけを除きます。JSONの再直列化は行わず、本文文字列の空白・改行、UTF-8、title・body・state・updatedAtを保持します。それ以外の単独correctionのIssue出力は平文としてそのまま扱い、先頭・末尾の空白や改行も変更検出の対象にします。一般コマンドの出力処理にはこの変換を適用しません。
 
-開始時のraw出力はdevelopmentの`issue.stdout`、correctionのrunDir内の`issue.stdout`に保持します。比較用テキストはそれぞれ`issue.json`・`issue.txt`に保存し、correctionの`state.json`には`issueFormat: 1`と同じテキストの`issueHash`を記録します。レビュー対象にもこのテキストとhashを渡します。correction開始時のstdout・stderrは、取得後の照合に失敗した場合も保存し、既存stateの照合で上書きしません。state保存前に失敗した場合も、`issue.stdout`・`issue.stderr`・`issue.txt`のいずれかが残る保存先は、Issueの再取得前に拒否します。失敗記録を保持し、別のrunDirで開始してください。識別のない旧stateをcorrectionで再開せず、新しい修正runからの参照には[既存PRの修正](#既存prの修正)の互換読取りを使います。
+開始時のraw出力はdevelopmentの`issue.stdout`、correctionのrunDir内の`issue.stdout`に保持します。比較用テキストはそれぞれ`issue.json`・`issue.txt`に保存し、correctionの`state.json`には`issueFormat: 1`と同じテキストの`issueHash`を記録します。レビュー対象にもこのテキストとhashを渡します。correction開始時のstdout・stderrは、取得後の照合に失敗した場合も保存し、既存stateの照合で上書きしません。state保存前に失敗した場合も、`issue.stdout`・`issue.stderr`・`issue.txt`のいずれかが残る保存先は、Issueの再取得前に拒否します。失敗記録を保持し、別のrunDirで開始してください。現行形式に合わない保存stateは再開しません。[既存PRの修正](#既存prの修正)でも、前回runに現行形式を要求します。
 
 新しい通常の`development.ts`実行では、最初に`result.json`を読み、`details`や`evidence`から必要な証拠へ進みます。検証停止時と`--no-publish`完了時の`details`は`verification/state.json`を指します。公開へ進んだ後も、`evidence`が示すrun保存先の`verification/state.json`から[検証の要約・評価履歴・生ログ](#レビュー対象と参照記録)を辿れます。安全な新規保存先を確保できた場合、準備途中の失敗から、実装・検証・公開・CIでの停止、成功、`--no-publish`の完了まで同じ場所へ保存します。新規runでは`verification-summary.md`と`stopped.txt`を作りません。過去の要約Markdown・`result.json`・`stopped.txt`・下位state・生ログは変換・削除せず、その版の記録として保持します。repo外で要約Markdownを読む独自利用者の有無と互換性は未確認です。単独のcorrection・publish・評価実験CLIの結果形式は変更しません。
 
@@ -468,23 +458,6 @@ Issue #66の試行結果は[2026-09-15の実モデル検証記録](https://githu
 必要報告がある場合は、出典・対象版・適用条件・合意状態・未確認事項を読み、[引き継ぎ手順](../skills/scoping/references/session.md#調査成果の引き継ぎ)で確認済みblobと開始commitを照合します。Issueと出典で足りる場合は報告不要の判断を伝えます。既存の実装入口テストは、報告の欠落・未commit・版違い・setupによる改変を拒否する条件を確認します。
 
 観測した判断と出力、対象版、使った参照、停止・再評価の理由、未実施範囲は既存のcheckout外の実行記録へ残し、共有が必要な根拠だけをdocs/research/へ置きます。この手順の記載は実施済みを意味しません。変更文書は既存の独立評価に含め、Issue・原資料・コード・検証結果と照合します。模擬コマンドの制御テスト、新しいタスクでの手順確認、実モデルによる意味判断、実際のGitHub公開は別の結果として報告します。スキルの文字列一致やCLIの終了値で意味判断の正しさを保証しません。
-
-## 専用校正の廃止と切替
-
-文書の作成・評価は[日本語確認の方針](../.codex/DEVELOPMENT.md#pr本文人向け文書の日本語確認)に従い、執筆、既存の独立評価、draft公開後の完成本文確認で行います。`writing-review.ts`の`file`・`documents`、Gemini校正、Codexの`review-text`は提供しません。設定未指定時の自動校正も終了します。`agy`の導入・実行・認証はハーネスの前提ではありません。利用者のCLIや認証情報は削除しません。
-
-対象repoの`.dotagents.json`またはstandalone correction入力に`writing`があれば、空の指定や`null`も含めてモデル実行・公開前に拒否します。対象の文書方針を確認し、専用校正の廃止がそのrepoの運用に与える変更を説明した上で、`writing`キーを削除してください。互換実行や任意の校正モードはありません。専用校正が必要な利用先は切替前に方針を決め、未解決なら旧版を保持します。他repoの設定・方針を一括で書き換えません。
-
-採用版からの新規実行だけに新しい契約を使います。実行中の旧版を差し替えず、保存済みの原文・候補・評価・失敗記録・runは削除、変換、再開しません。新しい保存先を使うことも、旧runの停止理由や上限を迂回する許可にはなりません。
-
-切替の受入確認はホストが次の手順で行います。通常のcheckとは別の確認であり、この手順の記載だけでは実施済みになりません。
-
-1. 合意した対象repo・Issue・許可範囲で、文書変更を含む新しいタスクを選びます。変更後のハーネスを隔離先に固定し、その実体パス、HEAD、未commit差分を含むファイルhashを実行前後に記録します。固定した実体の`development.ts`から新しい保存先へ開始し、生成された`verification-config.json`のrepair・reviewが同じ版の`codex-actor.ts`を参照し、`writing`を含まないことを確認します。登録済みの旧入口や進行中のrunは差し替えません。
-2. 担当AIは、`verification/review-N.target.json`、同じ番号の`.diff`・`.additions.json`・`.json`、checkログを照合します。変更文書が評価対象に含まれることに加え、実モデルの評価が原資料・Issue・変更文書・check結果の内容と整合するかを読みます。具体的な内容不備があれば修正へ戻し、変更後のcheckと独立評価を確認します。単なるファイル名の掲載やaccepted応答だけを意味の確認とは扱いません。
-3. PR本文は、そのタスクのacceptedな評価と検証済みcommitから生成された`pr.md`を使います。Issue番号、対象commit、要求との対応、検証結果、未確認事項、文書リンクを評価記録・対象ソース・checkログと照合します。`--no-publish`はcommitと本文生成の前に停止するため、文書評価までの部分的な証拠です。本文確認のために公開禁止を外したり、仮のcommitや固定応答で完了扱いにしたりしません。公開が許可されたタスクではdraftで公開し、[公開後確認とreadyへの切替](#公開後確認とreadyへの切替)で実際の本文と同じPR headのCIを確認します。対象・権限の変更が必要なら人の判断へ戻します。
-4. 既存のcheckout外の証拠保存先に、対象版、実行コマンド、対象Issue、評価・check・本文の記録への参照と担当AIの照合結果、未実施範囲を残します。共有する根拠だけを対象repoの合意した保存先へ置き、再評価へ渡します。実行結果や過去の受入記録を現行の操作説明へ混ぜず、旧runや旧版での成功を新しい版の証拠に流用しません。
-
-制御テストによる受け渡し、実モデルの意味判断、実際のGitHub公開は別の確認です。模擬応答が通っただけで文章の意味が正しいとは扱いません。文体統一・保護対象の機械比較・校正前後の別モデル照合は廃止しており、既存評価が同じ検査を代替すると説明しません。
 
 ## 人向け文書の静的lint
 

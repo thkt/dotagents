@@ -1,5 +1,5 @@
 ---
-status: "accepted"
+status: "superseded by DR-0004"
 date: "2026-09-25"
 decision-makers: "Issue #265の要求を合意した依頼者"
 ---
@@ -30,7 +30,7 @@ Chosen option: "選択・生成を終了し、wikiと既存の報告参照へ集
 
 - 新しいIssueはJSON・ID選択なしで開始できます。必要なMarkdownのpath・blob・開始commitの照合、意味・合意・権限の境界は維持します。
 - wikiは手で更新し、コード・Issue・版付き原本との整合を既存の独立評価で確認します。生成物照合、モデルのID・関係・状態の形式検査、選択内容の専用抽出は終了します。
-- 旧選択を含むIssueや保存済みrunは明示的に停止します。担当者が原本と合意を確認し、新しいIssue・報告参照・runへ移る条件を[CLI手順](../../scripts/README.md#旧共有知識からの移行)に示します。旧記録を変換・再開しません。
+- 旧選択を含むIssueや保存済みrunは明示的に停止します。担当者が原本と合意を確認し、新しいIssue・報告参照・runへ移る条件を[CLI手順](https://github.com/thkt/dotagents/blob/dadea8f8f2dd5cfe58e25fb70a549b6acfdbdaab/scripts/README.md#旧共有知識からの移行)に示します。旧記録を変換・再開しません。
 - 説明の更新責任は執筆・既存の独立評価・人の確認に残ります。生成機構の廃止が品質、時間、費用、手戻りを改善したとは判断しません。
 
 ### Confirmation
@@ -41,7 +41,7 @@ Chosen option: "選択・生成を終了し、wikiと既存の報告参照へ集
 
 ### Evidence and Scope
 
-合意の出典は#265の2026-09-24T17:36:37Z版の本文です。dateは今回の判断を記録した日で、マージ・公開の完了日ではありません。確認基点は`104082c8b586681f8142a2097730df654ec743a0`です。[旧原本](https://github.com/thkt/dotagents/blob/104082c8b586681f8142a2097730df654ec743a0/docs/knowledge/implementation-start.json)と[当時の検証記録](../evidence/shared-knowledge-90.md)を保存し、過去の観測を今回の効果へ読み替えません。過去報告にある削除済みファイルへの相対リンクは、その報告の当時の版で辿ります。
+合意の出典は#265の2026-09-24T17:36:37Z版の本文です。dateは今回の判断を記録した日で、マージ・公開の完了日ではありません。確認基点は`104082c8b586681f8142a2097730df654ec743a0`です。[旧原本](https://github.com/thkt/dotagents/blob/104082c8b586681f8142a2097730df654ec743a0/docs/knowledge/implementation-start.json)と[当時の検証記録](../research/shared-knowledge-90.md)を保存し、過去の観測を今回の効果へ読み替えません。過去報告にある削除済みファイルへの相対リンクは、その報告の当時の版で辿ります。
 
 対象はdotagentsの共有機構と開始条件の説明です。全repoへのwiki作成義務、報告参照の廃止、過去Issue・run・検証結果の改変は含みません。
 

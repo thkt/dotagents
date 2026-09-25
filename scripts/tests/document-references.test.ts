@@ -4,7 +4,6 @@ import { researchHandoff } from '../research-handoff.ts';
 
 test('repository research, wiki and decisions share the versioned document boundary', () => {
   for (const path of [
-    'research/result.md',
     'docs/research/result.md',
     'docs/wiki/start.md',
     'docs/decisions/0001-start.md',
@@ -16,6 +15,7 @@ test('repository research, wiki and decisions share the versioned document bound
     '/docs/wiki/start.md',
     'docs/wiki-copy/start.md',
     'docs/decisions/start.json',
+    'research/result.md',
     'README.md',
   ]) {
     expect(() => assertReportReferences([{ path, blob: 'a'.repeat(40) }])).toThrow();
@@ -23,7 +23,7 @@ test('repository research, wiki and decisions share the versioned document bound
   expect(() => assertReportReferences([{ path: 'docs/wiki/start.md', blob: 'HEAD' }])).toThrow();
 });
 
-test('new handoffs use docs while saved legacy references remain readable', () => {
+test('handoffs accept only current docs paths', () => {
   const base = 'b'.repeat(40);
   const blob = 'a'.repeat(40);
   for (const path of [
@@ -34,7 +34,7 @@ test('new handoffs use docs while saved legacy references remain readable', () =
     expect(researchHandoff(base, base, [`${path}=${blob}`])).toEqual([{ path, blob }]);
   }
   expect(() => researchHandoff(base, base, [`research/result.md=${blob}`])).toThrow(
-    'New report handoffs must use docs/',
+    'Required report must be a repo-relative Markdown path',
   );
-  expect(() => assertReportReferences([{ path: 'research/result.md', blob }])).not.toThrow();
+  expect(() => assertReportReferences([{ path: 'research/result.md', blob }])).toThrow();
 });

@@ -225,6 +225,7 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
       expect(await readFile(join(config.cwd, 'result.txt'), 'utf8')).toBe('implemented');
       return {
         reviewFormat: 4,
+        issueFormat: 1,
         baseCommit: await git(config.cwd, 'rev-parse', 'HEAD'),
         reviewHistory: history,
         configHash: '',

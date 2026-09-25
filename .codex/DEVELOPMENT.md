@@ -55,7 +55,7 @@ PR本文は、独立評価AIが公開用の説明と根拠を記したaccepted�
 
 [Issue #128](https://github.com/thkt/dotagents/issues/128)の合意により、自動生成本文の公開前の意味確認をdraft公開後へ集約します。draftでも本文は閲覧でき、公開後の修正は開示を取り消しません。従来と同じ公開前の保証を維持するものではありません。readyへの切替は承認ではなく、人がレビュー・承認・マージを判断します。
 
-[Issue #84](https://github.com/thkt/dotagents/issues/84)の合意により、専用Gemini校正、保護対象の機械比較、別モデルによる校正前後の意味照合は終了します。執筆・既存の独立評価・人の確認へ責任を集約しますが、従来と同じ独立検査を維持するものではありません。文書やPR本文のためのモデル呼び出しは追加しません。この方針は[#59](https://github.com/thkt/dotagents/issues/59)・[#67](https://github.com/thkt/dotagents/issues/67)の専用校正部分を置き換えます。利用先ごとの方針確認と旧設定・記録の扱いは[切替手順](../scripts/README.md#専用校正の廃止と切替)に従います。
+[Issue #84](https://github.com/thkt/dotagents/issues/84)の合意により、専用Gemini校正、保護対象の機械比較、別モデルによる校正前後の意味照合は終了します。執筆・既存の独立評価・人の確認へ責任を集約しますが、従来と同じ独立検査を維持するものではありません。文書やPR本文のためのモデル呼び出しは追加しません。この方針は[#59](https://github.com/thkt/dotagents/issues/59)・[#67](https://github.com/thkt/dotagents/issues/67)の専用校正部分を置き換えます。現行の設定形式は[対象repoの設定](../scripts/README.md#対象repoの設定)に従います。
 
 ## 旧資産の保全と登録変更
 
@@ -99,7 +99,7 @@ JSONやYAMLなどの構造化は、ID、関係、状態、参照など、機械�
 
 機械は定義した形式、参照、状態遷移などの制約への適合を確認します。AIは根拠の適用や意味の整合を評価し、人は目的、許容範囲、権限と重要な変更を判断します。形式検証やAI評価の成功を、事実の正しさや人の合意の保証とは扱いません。
 
-dotagentsの実装開始の条件は[wiki](../docs/wiki/implementation-start.md)で説明します。必要な根拠は[報告参照](../scripts/README.md#調査報告を指定した実装開始)のpath・blob・開始commitで渡します。実行制御はホスト、意味と適用の評価はAI、要求・権限の変更は人の合意で扱います。[Issue #265](https://github.com/thkt/dotagents/issues/265)によりJSON正本・ID選択・説明生成を終了します。旧選択を含むIssue・runは[移行条件](../scripts/README.md#旧共有知識からの移行)で停止し、過去の記録やGit blobを書き換えません。wikiの作成を全repoの開始条件にはしません。
+dotagentsの実装開始の条件は[wiki](../docs/wiki/implementation-start.md)で説明します。必要な根拠は[報告参照](../scripts/README.md#調査報告を指定した実装開始)のpath・blob・開始commitで渡します。実行制御はホスト、意味と適用の評価はAI、要求・権限の変更は人の合意で扱います。[Issue #265](https://github.com/thkt/dotagents/issues/265)によりJSON正本・ID選択・説明生成を終了します。現行入力だけを受け付ける判断は[DR-0004](../docs/decisions/0004-use-current-document-inputs-only.md)に記録します。wikiの作成を全repoの開始条件にはしません。
 
 要求の正本はIssueと合意記録とし、プロダクトの知識から今回必要な根拠を参照します。対象repoの実行方法は`.dotagents.json`で扱います。コンテキスト整備のために実行の区切りやゲートを増やすことは前提にせず、既存のIssue・PRへの受け渡しを使います。
 

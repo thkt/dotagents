@@ -20,24 +20,23 @@ scenes: ["plan", "implement"]
 
 [既存PRの修正](../../scripts/README.md#既存prの修正)では、前回の検証済み公開headと同じcheckout、追跡・未追跡差分のない状態、採用した修正依頼、新しい保存先を確認します。新規実装の隔離条件を流用せず、前回の開始commitと報告参照を維持します。報告を実装中に改訂した場合は、固定した開始版との差分として評価します。
 
-旧選択を含むIssueや保存済みrunは、[移行条件](../../scripts/README.md#旧共有知識からの移行)に従って停止します。過去の原本を黙って読み落としたり、保存記録を最新版へ書き換えたりしません。
-
 ## 過去の観測と未検証事項
 
 [当時の検証定義](https://github.com/thkt/dotagents/blob/765adbb29c51747b2d4ada473ca03a3e40ed7651/scripts/tests/development.test.ts)には、設定や必要報告のindexを変更した後、本文だけを元に戻しても停止する条件がありました。本文一致だけで開始可能とする説明ではこの条件を表せません。これは模擬コマンドと一時Git repoによる確認例であり、新しい実障害の報告ではありません。
 
-[Issue #90の検証記録](../evidence/shared-knowledge-90.md)は当時の選択・生成機構の検証です。現在の操作や今回の実行結果として流用しません。準備や手戻りを減らす効果、実モデルの意味判断の品質、時間・費用の改善は未検証です。今回の機構廃止から効果を推定しません。反する観測があれば、影響する開始判断と出典を既存のfindings・assessmentsへ示し、事実不足は調査、条件・要求・権限の変更は人の判断へ戻します。
+[Issue #90の検証記録](../research/shared-knowledge-90.md)は当時の選択・生成機構の検証です。現在の操作や今回の実行結果として流用しません。準備や手戻りを減らす効果、実モデルの意味判断の品質、時間・費用の改善は未検証です。今回の機構廃止から効果を推定しません。反する観測があれば、影響する開始判断と出典を既存のfindings・assessmentsへ示し、事実不足は調査、条件・要求・権限の変更は人の判断へ戻します。
 
 ## 参照コード
 
 - [development.ts](../../scripts/development.ts) の `selectStart`・`verifyStartInputs`・`prepare`・`implement`：開始入力、setup前後、隔離先、実装直前の照合。
 - [research-handoff.ts](../../scripts/research-handoff.ts) の `verifyReportBase`・`verifyReports`・`researchContext`：報告の版照合と権限の区別。
-- [issue.ts](../../scripts/issue.ts) の `assertNoLegacyKnowledge`、[revision.ts](../../scripts/revision.ts) の `previousRun`、[correction.ts](../../scripts/correction.ts) の `execute`：旧選択の停止と保存記録の保全。
+- [revision.ts](../../scripts/revision.ts) の `previousRun`、[correction.ts](../../scripts/correction.ts) の `execute`：現行形式の保存記録と実行中の同一性を照合。
 - [development.test.ts](../../scripts/tests/development.test.ts)：必要入力・無関係な作業・setup後の変化の制御テスト。実モデルの効果測定ではありません。
 
 ## 由来
 
-- [DR-0003](../decisions/0003-retire-shared-knowledge-selection.md)：説明をwikiへ集約し、要求と根拠を分けた版付き引き継ぎを維持する判断。
+- [DR-0004](../decisions/0004-use-current-document-inputs-only.md)：現行形式だけを受け付ける判断。
+- [DR-0003](../decisions/0003-retire-shared-knowledge-selection.md)：共有モデル選択を終え、説明をwikiへ集約した経緯。
 
 ## 根拠
 

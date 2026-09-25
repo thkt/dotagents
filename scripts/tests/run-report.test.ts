@@ -34,6 +34,7 @@ async function fixture(status: 'stopped' | 'verified_local' | 'published_draft')
       join(verification, 'state.json'),
       JSON.stringify({
         reviewFormat: 4,
+        issueFormat: 1,
         baseCommit: result.startCommit,
         reviewHistory: [],
         configHash: 'config',

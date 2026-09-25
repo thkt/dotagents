@@ -311,8 +311,8 @@ test('CI check policy must be explicit with unique nonempty names', async () => 
   }
 });
 
-test('target rejects retired writing settings before GitHub access', async () => {
-  const cwd = await mkdtemp(join(tmpdir(), 'retired-writing-'));
+test('target rejects unknown settings before GitHub access', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'unknown-setting-'));
   try {
     await initializeTarget(cwd);
     let githubReads = 0;
@@ -323,12 +323,9 @@ test('target rejects retired writing settings before GitHub access', async () =>
       }
       return git(cwd, ...argv.slice(1));
     };
-    const text = JSON.stringify({ ...targetConfig, writing: null });
+    const text = JSON.stringify({ ...targetConfig, unexpected: true });
     await writeFile(join(cwd, '.dotagents.json'), text);
-    await assert.rejects(
-      () => readTarget(cwd, read),
-      /writing is no longer supported; remove writing from .dotagents.json/,
-    );
+    await assert.rejects(() => readTarget(cwd, read), /Unknown target configuration field/);
     expect(await Bun.file(join(cwd, '.dotagents.json')).text()).toBe(text);
     expect(githubReads).toBe(0);
   } finally {
