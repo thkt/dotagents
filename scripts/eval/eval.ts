@@ -4,11 +4,11 @@ import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import { command, withInterrupts, assertRunning } from '../process.ts';
-import { evalCase, evalConfig, validatePlan } from './skill-eval-data.ts';
-import type { EvalConfig } from './skill-eval-data.ts';
-import { sandboxTrial } from './skill-eval-sandbox.ts';
+import { evalCase, evalConfig, validatePlan } from './data.ts';
+import type { EvalConfig } from './data.ts';
+import { sandboxTrial } from './sandbox.ts';
 import { isRecord } from '../values.ts';
-import { writeComparison } from './skill-eval-report.ts';
+import { writeComparison } from './report.ts';
 
 async function git(repo: string, args: string[]) {
   const result = await command(['git', ...args], repo, '', 30000, undefined, {
@@ -54,17 +54,15 @@ export async function preparePlan(repo: string, config: EvalConfig) {
       'Pinned input must be a commit',
     );
   }
-  const runtimeSource = await readFile(resolve(import.meta.dir, 'skill-eval-container.ts'), 'utf8');
+  const runtimeSource = await readFile(resolve(import.meta.dir, 'container.ts'), 'utf8');
   const runtimeHash = createHash('sha256').update(runtimeSource).digest('hex');
   const cases = z
     .array(evalCase)
-    .parse(
-      JSON.parse(await blob(repo, config.corpusCommit, 'scripts/skill-eval/corpus/cases.json')),
-    );
+    .parse(JSON.parse(await blob(repo, config.corpusCommit, 'scripts/eval/corpus/cases.json')));
   const selected = [];
   for (const item of validatePlan(config, cases)) {
     const contextBody = item.context
-      ? await blob(repo, config.corpusCommit, `scripts/skill-eval/corpus/${item.context}`)
+      ? await blob(repo, config.corpusCommit, `scripts/eval/corpus/${item.context}`)
       : null;
     selected.push({ ...item, contextBody });
   }
@@ -146,7 +144,7 @@ async function executeCase(
   if (contextBody) {
     prompt += '\n\nIssueの固定した公開本文: /work/repo/evaluation-issue.json';
   }
-  await writeFile(resolve(runtime, 'skill-eval-container.ts'), runtimeSource);
+  await writeFile(resolve(runtime, 'container.ts'), runtimeSource);
   assert(expiresAt > Date.now(), 'Time budget exhausted during input preparation');
   await writeFile(
     resolve(runtime, 'settings.json'),
@@ -263,7 +261,7 @@ if (import.meta.main) {
     const [mode, file, extra] = process.argv.slice(2);
     assert(
       file,
-      'Usage: bun scripts/skill-eval/skill-eval.ts plan|run CONFIG | report RUN_DIRECTORY [JUDGMENTS_JSON]',
+      'Usage: bun scripts/eval/eval.ts plan|run CONFIG | report RUN_DIRECTORY [JUDGMENTS_JSON]',
     );
     if (mode === 'report') {
       await writeComparison(resolve(file), extra ? resolve(extra) : undefined);

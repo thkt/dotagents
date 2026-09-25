@@ -459,12 +459,12 @@ bun run check
 <section id="harness-eval" class="chapter"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">補足</span><h2>指示変更の効果を、必要なときに比較する</h2></header><div class="chapter-body">
 <p><code>scoping</code>・<code>implement</code>や適用される<code>AGENTS.md</code>の変更で、既存の根拠だけでは効果を判断できない場合に使う手動の同条件evalです。通常の開発run、定期実行、全PRのCIに自動接続されません。レビュー試験専用HTMLの案は取り下げましたが、レビュー品質の観測に使う既存の<code>verify-review.ts</code>と記録は残ります。</p>
 <ol>
-<li><strong>条件を固定する。</strong> <code>skill-eval.ts plan</code>で変更前後のcommit、同じケース・モデル・設定・ツール、呼出し数と時間上限、保存先と公開範囲を確認します。条件や隔離を確認できなければ実モデルを起動せず、理由を返します。</li>
-<li><strong>隔離して実行する。</strong> <code>skill-eval.ts run</code>で選択・非選択、要求充足、安全条件、時間・使用量を記録します。失敗や未評価も残し、成功するまで自動再試行しません。</li>
-<li><strong>裁定して知らせる。</strong> 独立した裁定を行えた場合は添え、<code>skill-eval.ts report</code>で前後を比較します。公開可能な要約を関係Issue・PRへ残し、人が改善・悪化・判定不能と限界を見て採用を判断します。CLIは投稿やマージを行いません。</li>
+<li><strong>条件を固定する。</strong> <code>eval.ts plan</code>で変更前後のcommit、同じケース・モデル・設定・ツール、呼出し数と時間上限、保存先と公開範囲を確認します。条件や隔離を確認できなければ実モデルを起動せず、理由を返します。</li>
+<li><strong>隔離して実行する。</strong> <code>eval.ts run</code>で選択・非選択、要求充足、安全条件、時間・使用量を記録します。失敗や未評価も残し、成功するまで自動再試行しません。</li>
+<li><strong>裁定して知らせる。</strong> 独立した裁定を行えた場合は添え、<code>eval.ts report</code>で前後を比較します。公開可能な要約を関係Issue・PRへ残し、人が改善・悪化・判定不能と限界を見て採用を判断します。CLIは投稿やマージを行いません。</li>
 </ol>
 <p>通常の<code>implement</code>の<code>report.html</code>は1実行の行動・評価を読む資料です。この比較evalのケース別記録とは形式も判断単位も異なり、どちらかをもう一方の成功証拠へ読み替えません。</p>
-</div><details class="evidence"><summary>この補足の根拠</summary><p><a data-source="scripts/README.md#指示変更時の同条件eval">比較evalの手順</a> · <a data-source="scripts/skill-eval/skill-eval.ts">skill-eval.ts</a> · <a data-source="scripts/skill-eval/skill-eval-report.ts">skill-eval-report.ts</a> · <a data-source="scripts/implement/run-report.ts">run-report.ts</a></p></details></section>
+</div><details class="evidence"><summary>この補足の根拠</summary><p><a data-source="scripts/README.md#指示変更時の同条件eval">比較evalの手順</a> · <a data-source="scripts/eval/eval.ts">eval.ts</a> · <a data-source="scripts/eval/report.ts">report.ts</a> · <a data-source="scripts/implement/run-report.ts">run-report.ts</a></p></details></section>
 <section id="questions" class="chapter pending"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">17</span><h2>合意した方向性と、今後の実装</h2></header><div class="chapter-body"><p><strong>このガイドで説明する方向性は揃いました。</strong> 読者は初めてハーネスを導入する人です。要求整理からPR、人の判断に加えて、差し戻しの調査と見直し、関係者への動作説明、アプリのリリース・運用・振り返りまでを扱います。</p>
 <p>差し戻しは、人が対象PRと指摘を示して依頼し、担当AIが根拠と影響範囲を調べます。必要なら要求整理やIssue作成へ戻り、必要な合意を揃えて進めます。PRで用意した説明は、QA・デザイナー・企画側が確認できる資料へつなげます。</p>
 <p>通常の開発と既存PR修正の上限・停止条件はCLIガイドに従います。中断記録を変換・再開せず、新しい明示的な修正依頼は新runとして扱います。</p>
@@ -488,7 +488,7 @@ bun run check
 <li><a data-source="scripts/implement/research-handoff.ts">調査報告の版の照合と参照の引き継ぎ</a></li>
 <li><a data-source="scripts/implement/ci.ts">CI結果の分類とPR対象の照合</a></li>
 <li><a data-source="scripts/implement/run-report.ts">実装runのローカルHTML表示</a></li>
-<li><a data-source="scripts/skill-eval/skill-eval.ts">指示変更時の同条件eval入口</a></li>
+<li><a data-source="scripts/eval/eval.ts">指示変更時の同条件eval入口</a></li>
 </ul>
 <p>読者を初めてハーネスを導入する人とし、アプリ・サービスのリリース・運用・振り返りまで扱うことは、2026年9月16日の記事作成時に依頼者と確認しました。リリース・運用は、アプリごとに異なる手順へ当てはめる共通の考え方として説明します。</p>
 <p>差し戻しの3分類を土台に、人が対象PRと指摘を示して依頼し、担当AIが根拠・影響範囲・戻り先を調べる方向性を合意しました。必要ならIssue作成から見直します。PRの動作説明をQA・デザイナー・企画向けの確認ガイドへつなぐ方向性も合意しています。既存PRの修正入口は導入済みです。関係者向けの自動引き継ぎやアプリの運用は別に具体化します。</p>

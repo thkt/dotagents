@@ -4,7 +4,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { command, assertRunning } from '../process.ts';
-import type { EvalConfig } from './skill-eval-data.ts';
+import type { EvalConfig } from './data.ts';
 import { isRecord } from '../values.ts';
 
 export function containerArgs(
@@ -61,7 +61,7 @@ export function containerArgs(
   if (role === 'gateway') {
     args.push('--env', 'OPENAI_API_KEY', '--sysctl', 'net.ipv4.ip_forward=0');
   }
-  args.push(image, '/runtime/skill-eval-container.ts', role);
+  args.push(image, '/runtime/container.ts', role);
   return args;
 }
 

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFile, writeFile, lstat, realpath } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
 import { z } from 'zod';
-import { evalConfig } from './skill-eval-data.ts';
+import { evalConfig } from './data.ts';
 import { isRecord } from '../values.ts';
 
 const reference = z.strictObject({

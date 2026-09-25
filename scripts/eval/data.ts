@@ -67,7 +67,9 @@ export function validatePlan(config: EvalConfig, cases: EvalCase[]) {
   for (const path of paths) {
     assert(path !== 'evaluation-issue.json', 'Reserved case context path');
     assert(
-      !path.includes('skill-eval') && !path.includes('comparison'),
+      !path.includes('skill-eval') &&
+        !path.startsWith('scripts/eval/') &&
+        !path.includes('comparison'),
       'Cannot expose host-only evaluation files',
     );
     assert(!/^(evals|\.git|\.agents)(\/|$)/.test(path), 'Cannot expose host-only files');

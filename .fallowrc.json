@@ -7,7 +7,7 @@
     "scripts/implement/correction.ts",
     "scripts/implement/development.ts",
     "scripts/implement/publish.ts",
-    "scripts/skill-eval/skill-eval.ts",
+    "scripts/eval/eval.ts",
     "scripts/scoping/target.ts",
     "scripts/test.ts",
     "scripts/verify-capture.ts",
