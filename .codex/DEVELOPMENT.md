@@ -252,7 +252,7 @@ for (const item of items) {
 
 オブジェクトもローカルの蓄積先に追加し、入力や共有値は変更しません。入力要素単体のコピーと文字列concatは許容します。
 
-独自ルールは標準ルールが扱わないコピーだけを補います。直接指定したreduce/reduceRightのcallbackと、追跡できる蓄積変数を対象とします。名前付きcallbackや認識できない初期値は検出しません。出典は[ルール](../scripts/lint/local/index.ts)と[配列判定](../scripts/lint/local/shared/array-method.ts)に、許諾文は[LICENSE](../scripts/lint/local/LICENSE)に残します。更新時は固定した原版とローカル差分を比較します。必要な処理を妨げる場合は、disableで通さず具体例から適用範囲を再検討します。
+独自ルールは標準ルールが扱わないコピーだけを補います。直接指定したreduce/reduceRightのcallbackと、追跡できる蓄積変数を対象とします。名前付きcallbackや認識できない初期値は検出しません。出典は[統合したルール](../scripts/lint/local/index.ts)に、許諾文は[LICENSE](../scripts/lint/local/LICENSE)に残します。更新時は固定した原版とローカル差分を比較します。必要な処理を妨げる場合は、disableで通さず具体例から適用範囲を再検討します。
 
 ## テストの実行完了
 
