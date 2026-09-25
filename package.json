@@ -11,7 +11,7 @@
     "format:check": "oxfmt --check scripts",
     "lint": "oxlint --deny-warnings scripts",
     "complexity": "biome lint scripts",
-    "check:unused": "bun scripts/lint/check-unused.ts",
+    "check:unused": "bun scripts/lint/fallow.ts",
     "analyze:duplicates": "fallow dupes",
     "analyze:complexity": "fallow health --complexity --sort cognitive --report-only",
     "analyze:cycles": "fallow dead-code --circular-deps",
