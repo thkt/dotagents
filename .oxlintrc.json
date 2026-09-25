@@ -11,8 +11,8 @@
   ],
   "jsPlugins": [
     {
-      "name": "anti-slop",
-      "specifier": "./scripts/lint/anti-slop/index.ts"
+      "name": "local",
+      "specifier": "./scripts/lint/local/index.ts"
     }
   ],
   "overrides": [
@@ -43,7 +43,7 @@
         "typescript/no-unsafe-return": "error",
         "typescript/no-unsafe-type-assertion": "error",
         "oxc/no-accumulating-spread": "error",
-        "anti-slop/no-reduce-accumulator-copy": "error"
+        "local/no-reduce-accumulator-copy": "error"
       }
     }
   ]

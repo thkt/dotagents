@@ -1,3 +1,4 @@
+// Adapted from https://github.com/dmmulroy/anti-slop/blob/c44ef22ca116d0ba62a3ff663a0bd13a3f3fa40b/src/shared/array-method.ts (MIT; see ../LICENSE).
 import type { ESTree, Scope, SourceCode, Variable } from '@oxlint/plugins';
 
 /** Unwrap syntax-only wrappers when inspecting array methods and accumulator references. */

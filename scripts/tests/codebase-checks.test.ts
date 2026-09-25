@@ -19,7 +19,7 @@ async function fixture(scope: 'graph' | 'lint' | 'format') {
       'tsconfig.json',
     ],
     // Local checks use the production configuration and plugin, plus each test's probes.
-    lint: ['scripts/lint/anti-slop', '.oxlintrc.json', 'tsconfig.json'],
+    lint: ['scripts/lint/local', '.oxlintrc.json', 'tsconfig.json'],
     format: ['.oxfmtrc.json'],
   };
   for (const path of ['package.json', '.gitignore', ...inputs[scope]]) {
@@ -96,33 +96,33 @@ test('lint rejects unsafe assertions and accumulator copies while preserving che
         path: 'scripts/trial-concat.ts',
         source:
           'export const result = [1, 2].reduce<number[]>((acc, item) => acc.concat(item), []);',
-        code: 'anti-slop(no-reduce-accumulator-copy)',
+        code: 'local(no-reduce-accumulator-copy)',
       },
       {
         path: 'scripts/tests/trial-const-initial.ts',
         source: `const seed = [0]; const initial = seed;
           export const result = [1, 2].reduce((acc, item) => acc.concat(item), initial);`,
-        code: 'anti-slop(no-reduce-accumulator-copy)',
+        code: 'local(no-reduce-accumulator-copy)',
       },
       {
         path: 'scripts/tests/trial-assign-concat.ts',
         source: `export const result = [1, 2].reduce<number[]>((acc, item) => {
           acc = acc.concat(item); return acc;
         }, []);`,
-        code: 'anti-slop(no-reduce-accumulator-copy)',
+        code: 'local(no-reduce-accumulator-copy)',
       },
       {
         path: 'scripts/tests/trial-assign.ts',
         source: `export const result = [{ id: 1 }].reduce<Record<string, number>>((acc, item) =>
           Object.assign({}, acc, item), {});`,
-        code: 'anti-slop(no-reduce-accumulator-copy)',
+        code: 'local(no-reduce-accumulator-copy)',
       },
       {
         path: 'scripts/tests/trial-assign-self.ts',
         source: `export const result = [{ id: 1 }].reduce<Record<string, number>>((acc, item) => {
           acc = Object.assign({}, acc, item); return acc;
         }, {});`,
-        code: 'anti-slop(no-reduce-accumulator-copy)',
+        code: 'local(no-reduce-accumulator-copy)',
       },
       {
         path: 'scripts/trial-spread.ts',
@@ -140,7 +140,7 @@ test('lint rejects unsafe assertions and accumulator copies while preserving che
         source: `export const result = [1, 2].reduceRight<number[]>((acc, item) => {
           const alias = acc; const next = Array.from(alias); next.push(item); return next;
         }, []);`,
-        code: 'anti-slop(no-reduce-accumulator-copy)',
+        code: 'local(no-reduce-accumulator-copy)',
       },
     ];
     for (const { path, source } of cases) {
