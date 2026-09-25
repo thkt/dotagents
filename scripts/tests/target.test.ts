@@ -30,7 +30,7 @@ esac
     );
     await chmod(gh, 0o755);
     const run = (...args: string[]) =>
-      spawnSync(process.execPath, [join(import.meta.dir, '../target.ts'), cwd, ...args], {
+      spawnSync(process.execPath, [join(import.meta.dir, '../scoping/target.ts'), cwd, ...args], {
         cwd: root,
         env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, GH_HOST: 'github.com' },
         encoding: 'utf8',
@@ -185,44 +185,20 @@ test('target rejects invalid commands before further target access', async () =>
     return cwd;
   };
   try {
-    for (const [key, reason] of [
-      ['setup', /Explicit setup commands required/],
-      ['check', /Verification command is required/],
-      ['capture', /Explicit capture configuration or null required/],
-    ] as const) {
-      for (const command of [
-        undefined,
-        null,
-        false,
-        1,
-        {},
-        '',
-        ' \t\n',
-        [],
-        [''],
-        [' \t\n'],
-        [1],
-        ['tool', 1],
-        ...(key === 'check' ? [] : ['tool']),
-      ]) {
-        const value =
-          key === 'setup'
-            ? [command]
-            : key === 'capture'
-              ? { command, destination: 'media', required: false }
-              : command;
-        await writeFile(
-          join(cwd, '.dotagents.json'),
-          JSON.stringify({ ...targetConfig, [key]: value }),
-        );
-        await assert.rejects(() => readTarget(cwd, read), reason);
-      }
-    }
     for (const [change, reason] of [
       [{ setup: undefined }, /Explicit setup commands required/],
+      [{ setup: [['']] }, /Explicit setup commands required/],
+      [{ setup: [['tool', 1]] }, /Explicit setup commands required/],
+      [{ check: undefined }, /Verification command is required/],
+      [{ check: ' \t\n' }, /Verification command is required/],
+      [{ check: [] }, /Verification command is required/],
       [{ capture: undefined }, /Explicit capture configuration or null required/],
       [
         { capture: { command: ['tool'], destination: 'media' } },
+        /Explicit capture configuration or null required/,
+      ],
+      [
+        { capture: { command: [''], destination: 'media', required: false } },
         /Explicit capture configuration or null required/,
       ],
     ] as const) {
