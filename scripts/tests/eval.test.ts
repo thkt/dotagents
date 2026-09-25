@@ -4,7 +4,7 @@ import { withInterrupts } from '../process.ts';
 import { createHash } from 'node:crypto';
 import { isRecord } from '../values.ts';
 import { expect, test } from 'bun:test';
-import { evalConfig, validatePlan } from '../skill-eval/skill-eval-data.ts';
+import { evalConfig, validatePlan } from '../eval/data.ts';
 
 const config = evalConfig.parse({
   repository: 'thkt/dotagents',
@@ -35,6 +35,10 @@ const config = evalConfig.parse({
     summary: 'manual-issue-or-pr',
   },
 });
+const caseContext = {
+  body: 'PUBLIC_ISSUE_BODY_CANARY',
+};
+
 const cases = [
   {
     id: 'positive',
@@ -50,7 +54,7 @@ test('planning rejects unknown cases, insufficient budgets and hidden answer fil
   expect(() => validatePlan({ ...config, cases: ['missing'] }, cases)).toThrow('case');
   expect(() => validatePlan({ ...config, maxTrials: 1 }, cases)).toThrow('trial');
   expect(() =>
-    validatePlan({ ...config, workspaceFiles: ['scripts/skill-eval/corpus/cases.json'] }, cases),
+    validatePlan({ ...config, workspaceFiles: ['scripts/eval/corpus/cases.json'] }, cases),
   ).toThrow('host-only');
   expect(() => validatePlan({ ...config, instructionFiles: ['docs/README.md'] }, cases)).toThrow(
     'instruction',
@@ -73,9 +77,9 @@ test('evaluation targets accept only this repository on the exact GitHub host', 
   }
 });
 
-import { providerGateway, providerBody } from '../skill-eval/skill-eval-container.ts';
-import { assessTrial, readUsage } from '../skill-eval/skill-eval-report.ts';
-import { containerArgs, verifyImage, verifyNetwork } from '../skill-eval/skill-eval-sandbox.ts';
+import { providerGateway, providerBody } from '../eval/container.ts';
+import { assessTrial, readUsage } from '../eval/report.ts';
+import { containerArgs, verifyImage, verifyNetwork } from '../eval/sandbox.ts';
 
 const limits = {
   model: 'example-model',
@@ -94,8 +98,8 @@ const request = (input: unknown = body, path = '/v1/responses') =>
 
 test('canonical paths cannot smuggle answer files or collide with effective instructions', () => {
   for (const path of [
-    './scripts/skill-eval/corpus/cases.json',
-    'docs/../scripts/skill-eval/corpus/cases.json',
+    './scripts/eval/corpus/cases.json',
+    'docs/../scripts/eval/corpus/cases.json',
     './README.md',
   ]) {
     expect(() => evalConfig.parse({ ...config, workspaceFiles: [path] })).toThrow();
@@ -281,14 +285,14 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initializeTarget, git, targetConfig } from './support/target.ts';
-import { preparePlan, runEvaluation } from '../skill-eval/skill-eval.ts';
-import { writeComparison } from '../skill-eval/skill-eval-report.ts';
+import { preparePlan, runEvaluation } from '../eval/eval.ts';
+import { writeComparison } from '../eval/report.ts';
 
 async function fixture(root: string) {
   const repo = join(root, 'repo');
   await mkdir(repo);
   await initializeTarget(repo, { ...targetConfig, repository: 'thkt/dotagents', remote: 'origin' });
-  for (const path of ['scripts/skill-eval/corpus', 'skills/scoping', 'skills/implement']) {
+  for (const path of ['scripts/eval/corpus', 'skills/scoping', 'skills/implement']) {
     await mkdir(join(repo, path), { recursive: true });
   }
   await writeFile(join(repo, 'README.md'), 'Public task context');
@@ -296,8 +300,10 @@ async function fixture(root: string) {
   await writeFile(join(repo, 'skills/scoping/SKILL.md'), 'Public scoping body');
   await writeFile(join(repo, 'skills/implement/SKILL.md'), 'Public implement body');
   await writeFile(
-    join(repo, 'scripts/skill-eval/corpus/cases.json'),
-    JSON.stringify([{ ...cases[0], criteria: ['HOST_ONLY_EXPECTED_CANARY'] }]),
+    join(repo, 'scripts/eval/corpus/cases.json'),
+    JSON.stringify([
+      { ...cases[0], criteria: ['HOST_ONLY_EXPECTED_CANARY'], context: caseContext },
+    ]),
   );
   git(repo, 'add', '.');
   git(repo, 'commit', '-qm', 'public inputs');
@@ -345,7 +351,7 @@ if(args[0]==='start'&&args.at(-1).endsWith('-actor')) {
  const saved=JSON.parse(readFileSync(join(root,args.at(-1)+'.json')));
  const settings=JSON.parse(readFileSync(join(saved.runtime,'settings.json')));
  const input=saved.args.find(a=>a.startsWith('type=bind')&&a.includes('dst=/input')).split(',')[1].slice(4);
- appendFileSync(join(root,'actor-input.jsonl'),JSON.stringify({settings,readme:readFileSync(join(input,'README.md'),'utf8')})+'\\n');
+ appendFileSync(join(root,'actor-input.jsonl'),JSON.stringify({settings,readme:readFileSync(join(input,'README.md'),'utf8'),issue:readFileSync(join(input,'evaluation-issue.json'),'utf8')})+'\\n');
  if(process.env.EVAL_TEST_FAILURE==='timeout') process.exit(124);
  if(process.env.EVAL_TEST_FAILURE==='interrupt') {writeFileSync(join(root,'interrupt-ready'),'ready');await Bun.sleep(5000);}
  console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:12,cached_input_tokens:5,output_tokens:3}}));
@@ -447,7 +453,16 @@ test.serial(
       ).toEqual(['completed', 'completed']);
       expect(await savedExecutions(plan.outputDirectory)).toEqual(['completed', 'completed']);
       const input = await readFile(join(root, 'actor-input.jsonl'), 'utf8');
+      expect(input).toContain('PUBLIC_ISSUE_BODY_CANARY');
       expect(input).not.toContain('HOST_ONLY_EXPECTED_CANARY');
+      expect(
+        JSON.parse(
+          await readFile(
+            join(plan.outputDirectory, 'before-positive', 'input', 'evaluation-issue.json'),
+            'utf8',
+          ),
+        ),
+      ).toEqual(caseContext);
       expect(input).not.toContain('PRIVATE_UNCOMMITTED_CANARY');
       expect(input).not.toContain('SIMULATED_PROVIDER_AUTH');
       await writeComparison(plan.outputDirectory);

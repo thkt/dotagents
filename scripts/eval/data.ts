@@ -48,7 +48,11 @@ export const evalCase = z.strictObject({
   prompt: z.string().min(1),
   expected: z.enum(['scoping', 'implement', 'none', 'boundary']),
   criteria: z.array(z.string().min(1)).nonempty(),
-  context: z.literal('issue-187.json').optional(),
+  context: z
+    .strictObject({
+      body: z.string().min(1),
+    })
+    .optional(),
 });
 export type EvalCase = z.infer<typeof evalCase>;
 
@@ -67,7 +71,9 @@ export function validatePlan(config: EvalConfig, cases: EvalCase[]) {
   for (const path of paths) {
     assert(path !== 'evaluation-issue.json', 'Reserved case context path');
     assert(
-      !path.includes('skill-eval') && !path.includes('comparison'),
+      !path.includes('skill-eval') &&
+        !path.startsWith('scripts/eval/') &&
+        !path.includes('comparison'),
       'Cannot expose host-only evaluation files',
     );
     assert(!/^(evals|\.git|\.agents)(\/|$)/.test(path), 'Cannot expose host-only files');
