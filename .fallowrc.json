@@ -9,7 +9,7 @@
     "scripts/implement/publish.ts",
     "scripts/eval/eval.ts",
     "scripts/scoping/target.ts",
-    "scripts/test.ts",
+    "scripts/tests/runner.ts",
     "scripts/capture/verify.ts",
     "scripts/implement/verify-review.ts"
   ],
