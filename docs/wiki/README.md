@@ -8,4 +8,4 @@ Claude／Codexとも[共通手順](../../skills/references/documents.md)で関�
 - [判断に使う根拠を同じ版で引き継ぐ](reference-handoff.md): 実装・修正・独立評価へ選んだ根拠を渡し、版と合意状態を確認するときに読みます。
 - [検証結果を観測した範囲で使う](evidence-scope.md): 過去の実測や合成課題の結果を、今回の判断へ使う前に読みます。
 
-新しいページは[wikiテンプレート](../../skills/references/wiki-template.md)を使います。現行説明と過去の根拠を区別し、要求や権限を文書だけで追加しません。
+新しいページは[wikiテンプレート](../../skills/templates/wiki.md)を使います。現行説明と過去の根拠を区別し、要求や権限を文書だけで追加しません。

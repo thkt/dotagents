@@ -15,7 +15,7 @@ Claude／Codexとも[共通手順](../../skills/references/documents.md)で今�
 
 ## 状態と更新
 
-[MADR形式のテンプレート](../../skills/references/decision-template.md)を使い、状態をfrontmatterの`status`へ記します。
+[MADR形式のテンプレート](../../skills/templates/decision.md)を使い、状態をfrontmatterの`status`へ記します。
 
 | 状態 | 意味 |
 | --- | --- |

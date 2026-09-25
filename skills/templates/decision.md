@@ -42,4 +42,4 @@ decision-makers: "確認できた人または役割。未確認なら未確認"
 - 見直す条件。
 ```
 
-Decision Drivers、Pros and Cons of the Options、consulted、informedは判断に必要な場合だけ加える。状態と置換方法は[共通手順](documents.md#残す更新する)に従う。
+Decision Drivers、Pros and Cons of the Options、consulted、informedは判断に必要な場合だけ加える。状態と置換方法は[共通手順](../references/documents.md#残す更新する)に従う。
