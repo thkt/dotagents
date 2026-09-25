@@ -129,7 +129,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
 読み取りによる照合は次で行えます。`--write` はghのpush権限も検証します。IssueやPRの作成・更新はここで表示するghユーザーの認証を使います。scoping担当者が合意と対象を照合して既存ghのIssueを操作します。
 
 ```sh
-bun /absolute/path/to/trusted/scripts/target.ts /absolute/path/to/target-checkout https://github.com/team/component/issues/99 --write
+bun /absolute/path/to/trusted/scripts/scoping/target.ts /absolute/path/to/target-checkout https://github.com/team/component/issues/99 --write
 ```
 
 対応環境は現在のmacOSホストとgithub.comです。GitHub Enterprise、他のホスティング、旧code/cleanup入口、旧state変換は対象外です。全調査への必須監査、質問・回答のruntime所有、公開intentの機械的拘束、自動再開は提供しません。人の合意と変更時の停止、対象の検証、独立評価、検証済み対象の同一性確認を維持します。
@@ -468,7 +468,7 @@ gh pr view 123 --json body --jq .body | bun run lint:docs -- --stdin --stdin-fil
 公開担当は信頼するハーネスから対象checkoutを指定し、ユーザーの既存gh認証を使います。App設定、署名鍵、installation tokenは不要です。環境変数のtokenが保存済み認証より優先される場合もあるため、実効主体を `gh api user` で確認します。対象hostはgithub.comです。`GH_HOST`が別hostを指定している場合はGitHub操作前に停止します。認証情報をrepo、ログ、PR本文へ保存しません。
 
 ```sh
-bun /absolute/path/to/trusted/scripts/target.ts /absolute/path/target-checkout --write
+bun /absolute/path/to/trusted/scripts/scoping/target.ts /absolute/path/target-checkout --write
 bun /absolute/path/to/trusted/scripts/publish.ts --repo /absolute/path/target-checkout --actor USER_LOGIN --head codex/example --title '変更の概要' --body-file /absolute/path/pr.md
 ```
 

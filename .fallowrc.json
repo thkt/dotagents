@@ -9,7 +9,7 @@
     "scripts/knowledge.ts",
     "scripts/publish.ts",
     "scripts/skill-eval.ts",
-    "scripts/target.ts",
+    "scripts/scoping/target.ts",
     "scripts/test.ts",
     "scripts/verify-capture.ts",
     "scripts/verify-review.ts"

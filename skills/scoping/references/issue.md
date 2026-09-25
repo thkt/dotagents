@@ -1,15 +1,16 @@
 # Issueへの反映
 
-合意した要求を公開・更新するときに使う。依頼と既存の許可範囲に従い、対象・合意・実行条件を担当者が照合する。公開前の下書きはローカルで扱い、保存を公開許可に読み替えない。
+合意した要求をIssueへ公開・更新するときに使う。下書きの保存を公開許可に読み替えない。
 
-1. [対象repoの設定](../../../scripts/README.md#対象repoの設定)を照合し、信頼するスキル実体から解決した `scripts/target.ts CHECKOUT [ISSUE_URL] --write` をBunで実行する。checkout・設定のrepo・fetch/push remote・base branch・ghの主体と権限を確認し、不一致や未設定は公開前に解消する。`gh api user` の主体がIssueを作成・更新する。Issue URLのrepoを数字だけへ変換して別repoへ流用しない。`gh issue list --repo OWNER/REPO --state all --search '関連語'`と候補の本文で重複を調べる。指定されたIssueは`gh issue view NUMBER --repo OWNER/REPO --json title,body,state,url`で読む。
-2. 目的、今回の範囲、完了条件、対象repo固有のセットアップ・検証方法・必要媒体と保存先、合意の根拠を、リポジトリ内のMarkdown本文へまとめる。既存の下書きがあれば更新し、新規なら`docs/research/issue-N.md`や`issues/`など、用途が分かる場所でローカルに扱う。未解決事項と次の判断も必要な範囲で残し、質問ごとの転記や別の再開台帳は作らない。実装方法の細部や試行管理の条件を要求へ混ぜず、未合意事項を合意済みと書かない。
-3. 要求の抜け・矛盾・曖昧さ、既存の要求と会話の合意・根拠との一致を確認する。未確定事項を合意済みにせず、必要な独立評価と人の合意を維持する。人向けの調査報告も[日本語確認の方針](../../../.codex/DEVELOPMENT.md#pr本文人向け文書の日本語確認)に従い、原資料との照合と既存の評価を実施する。
-4. 公開直前にも対象とghの主体・権限を再照合する。Issueと後続のimplementによるPRは、確認したユーザーのgh認証で作成する。新規なら`gh issue create --repo OWNER/REPO --title '要求を表すタイトル' --body-file PATH`で作成する。既存Issueの更新が依頼範囲なら最新本文を読み、既存の要求・他担当の内容を保持して`gh issue edit NUMBER --repo OWNER/REPO --body-file PATH`で反映する。重複候補の範囲が異なる場合は勝手に統合しない。
-5. 公開・更新したIssueを`gh issue view NUMBER --repo OWNER/REPO --json title,body,state,url`で読み戻す。担当者はその読戻し結果で対象repo・本文・URLを照合し、同じ本文から今回の決定、合意範囲と根拠、未解決事項、次の判断を辿れることをまとめて確認する。
+1. [対象repoの設定](../../../scripts/README.md#対象repoの設定)を確認し、信頼するスキル実体から解決した `scripts/scoping/target.ts CHECKOUT [ISSUE_URL] --write` をBunで実行する。checkout・設定のrepo・fetch/push remote・base branch・ghの主体と権限の不一致を解消する。Issue URLのrepoを数字だけに変えて別repoへ流用しない。
+2. `gh issue list --repo OWNER/REPO --state all --search '関連語'`と候補本文で重複を調べる。指定されたIssueは`gh issue view NUMBER --repo OWNER/REPO --json title,body,state,url`で読む。重複候補の範囲が異なれば統合しない。
+3. 目的、今回の範囲、完了条件、対象repo固有のセットアップ・検証方法・必要媒体と保存先、合意の根拠をリポジトリ内のMarkdown下書きへまとめる。未解決事項と次の判断を残し、重要な判断を先送りするなら理由・再判断の条件・判断する人を記す。実装方法の細部や試行管理を要求へ混ぜず、未合意事項を合意済みと書かない。
+4. 下書きを要求・合意・根拠と照合し、抜け・矛盾・曖昧さを解消する。人向け文書は[日本語確認の方針](../../../.codex/DEVELOPMENT.md#pr本文人向け文書の日本語確認)に従い、必要な独立評価と人の合意へつなぐ。
+5. 公開直前に対象とghの主体・権限を再照合する。新規なら`gh issue create --repo OWNER/REPO --title '要求を表すタイトル' --body-file PATH`で作成する。既存Issueの更新が依頼範囲なら最新本文を読み、既存要求・他担当の内容を保持して`gh issue edit NUMBER --repo OWNER/REPO --body-file PATH`で反映する。
+6. `gh issue view NUMBER --repo OWNER/REPO --json title,body,state,url`で読み戻し、対象repo・本文・URL、決定・合意範囲・根拠・未解決事項を確認する。
 
-   通信断などで作成・更新結果が不明なら、担当者が一覧と本文でGitHub上の実状態を照合してから再試行の要否を判断し、重複作成しない。実状態を確認できない間は再試行や公開完了の扱いを保留し、本文と判明した状態、残る確認を引き継ぐ。権限不足の場合は本文を保持し、必要な権限・対応を人へ伝える。
+   通信断などで結果が不明なら、一覧と本文からGitHub上の実状態を確認してから再試行する。確認できない間は公開完了とせず、本文・判明した状態・残る確認を引き継ぐ。権限不足なら本文を保持して必要な対応を伝える。
 
-   本文の不足・不一致は手順3で要求・合意・根拠と照合する。調査できる事実は担当者が調べ、要求や許可の判断は人へ戻す。判断を左右する不足があれば[十分性の判断](sufficiency.md)に従って依存作業を止め、解消後に再評価する。本文の修正が必要なら既存の許可範囲で手順4から更新し、更新後の本文を読み戻して確認する。
+   本文の不足・不一致は要求・合意・根拠と照合して修正し、再度読み戻す。判断を左右する不足は[十分性の判断](sufficiency.md)に戻す。
 
-   確認したIssue URLと合意範囲を報告し、[調査成果の引き継ぎ](session.md#調査成果の引き継ぎ)に従って必要な報告の参照・版と保存・commit・共有の状態、未完了の操作を実装担当へ渡す。報告commit後の版照合やIssue更新後の読戻しには、変更前の確認を流用しない。商品実装や実装CLIの起動はこの呼び出しに含めない。
+   Issue URLと合意範囲を報告し、[調査成果の引き継ぎ](session.md#調査成果の引き継ぎ)に従って報告の版・共有状態・未完了の操作を渡す。変更前の確認を報告改訂やIssue更新に流用しない。
