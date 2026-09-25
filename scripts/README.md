@@ -27,7 +27,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 --repo /absolute/path/to
 
 保存先は `~/.local/share/dotagents/development/<Git管理ディレクトリの識別値>/<Issue番号>/` です。`--run-dir DIRECTORY` でcheckoutやGit管理領域の外を指定できます。`target.json` に対象設定、repo ID、gh主体を残し、ほかに要求、指示と結果、検証ログ、作業checkout、PR本文とURL、CI結果を残します。既存の保存先は再実行に使いません。中断後は記録、実プロセス、GitHubの状態を照合し、保存先の削除や別名での自動再試行は行いません。
 
-`--no-publish` は独立評価までで止め、commit、push、PR作成、draft/ready操作を行いません。push権限の確認も不要です。通常実行は検証済み対象を再照合し、commit、acceptedな評価からのPR本文生成、ユーザー認証と権限の再確認、gh主体の資格情報を明示したpush、ユーザー認証によるdraft PR作成と対象・本文・draft状態の読戻しへ進みます。pushにはコマンド内だけで定義するHTTPSの公開先を使い、GitのURL書き換え後も対象が一致することを確認します。SSHへの切り替えや別repoへの書き換えは拒否します。`push.followTags`の設定にかかわらず、タグを同時に公開しません。通常入口ではpush前に同じhead branchのopen PRがないことを確認し、あれば既存PR修正の入口へ戻します。別baseのPRも同じbranchのpushで更新されるため対象に含めます。設定した保存先から生成媒体の変更を添付します。
+`--no-publish` は独立評価までで止め、commit、push、PR作成、draft/ready操作をしません。push権限の確認も不要です。通常実行は検証済み対象を再照合し、commit、acceptedな評価からのPR本文生成、ユーザー認証と権限の再確認、gh主体の資格情報を明示したpush、ユーザー認証によるdraft PR作成と対象・本文・draft状態の読戻しへ進みます。pushにはコマンド内だけで定義するHTTPSの公開先を使い、GitのURL書き換え後も対象が一致することを確認します。SSHへの切り替えや別repoへの書き換えは拒否します。`push.followTags`の設定にかかわらず、タグを同時に公開しません。通常入口ではpush前に同じhead branchのopen PRがないことを確認し、あれば既存PR修正の入口へ戻します。別baseのPRも同じbranchのpushで更新されるため対象に含めます。設定した保存先から生成媒体の変更を添付します。
 
 `ciChecks`に指定した全checkの登録とSUCCESSを待ち、取得ごとにPRのhead・base・OPEN・draft状態を照合します。必要なcheckのSKIPPEDやNEUTRALは成功と扱わず、同名checkが複数ある場合は全件の成功を求めます。他の登録済みcheckに失敗や保留がある場合も完了にしません。
 
@@ -55,7 +55,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
 
 前回のIssue内容は前回stateのhashと照合し、保存記録の整合性を検査します。前回runに`issueFormat: 1`を要求し、保存した比較用テキストのhashだけを照合します。保存ファイルへの改行追記や本文の改変は拒否し、前回の記録は書き換えません。現在のIssueには前回との内容一致を求めず、同じrepo・Issue番号のOPENな要求で、空でないtitle・bodyがあることを確認します。開始時に取得したtitle・body・state・updatedAtを今回の固定入力とし、新runの`issue.json`と修正の検証設定へ保存します。前回のIssueとstateは書き換えません。この条件は新しい修正runへ適用し、停止した実行の再開や旧記録の移行には使いません。
 
-新しい明示的な修正依頼ごとに初回修正を行い、追加修正・独立評価の回数上限は設けません。モデル時間制限も設けず、check・capture・CI等は通常developmentの時間枠と処理を共用します。過去のaccepted・check・capture成功や指摘IDは新runへ移しません。固定後のIssue変更は開始準備中も拒否し、setup前・実装前や後続の工程境界で検出したら停止します。修正入力・主体・権限・設定・PRの本文・head・baseなどの変化も引き続き停止対象です。人が要求・許可範囲を変更する場合は合意へ戻し、新しい明示的な依頼で別のrunを開始します。
+新しい明示的な修正依頼ごとに初回修正し、追加修正・独立評価の回数上限は設けません。モデル時間制限も設けず、check・capture・CI等は通常developmentの時間枠と処理を共用します。過去のaccepted・check・capture成功や指摘IDは新runへ移しません。固定後のIssue変更は開始準備中も拒否し、setup前・実装前や後続の工程境界で検出したら停止します。修正入力・主体・権限・設定・PRの本文・head・baseなどの変化も引き続き停止対象です。人が要求・許可範囲を変更する場合は合意へ戻し、新しい明示的な依頼で別のrunを開始します。
 
 検証入口の修正対象照合はcorrectionが担当します。設定・保存先、lock、保存stateを確認してから、修正入力・Issue・対象・主体・権限・PR・remote ref・並行runを照合します。同時に異常がある場合、保存先・lock・stateの異常で先に停止し、その時点では外部対象の変化を照合しません。検証後とsetup・モデル実行・commit・push・本文更新・draft/ready切替をまたぐ再照合は継続します。
 
@@ -71,7 +71,7 @@ correctionの`readIssue`はIssueを取得して比較用テキストへ変換し
 
 draft確認の開始前から今回の`publication`を`unconfirmed`として既知のURLとともに`result.json`へ保存し、本文更新後の本文・ref・PR head・draftの読戻しで`published`とします。更新前に本文等が変わっていれば未確認の手編集を上書きしません。更新後は既存処理で同じheadのCIを確認します。GitHubの複数操作は原子的ではなく、通信断や割込み後に自動再試行せず、失敗時にreadyへ自動復帰しません。draft化やpush成功後の失敗でもPR URLと判明状態・次の対応を残し、旧headを今回の最新成功として案内しません。
 
-`--no-publish`では修正後の独立評価までで止まり、commit・push・本文更新・draft/ready操作を行いません。自動コメント投稿、会話のresolve、承認、マージも行いません。媒体がある対象は通常の添付・公開後確認を継続します。制御テストの模擬応答、実モデルの意味判断、実際のPR更新は別の検証です。
+`--no-publish`では修正後の独立評価までで止まり、commit・push・本文更新・draft/ready操作をしません。自動コメント投稿、会話のresolve、承認、マージも行いません。媒体がある対象は通常の添付・公開後確認を継続します。制御テストの模擬応答、実モデルの意味判断、実際のPR更新は別の検証です。
 
 ## 調査報告を指定した実装開始
 
@@ -98,7 +98,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
 
 ## 対象repoの設定
 
-対象checkoutのルートに `.dotagents.json` を置き、コミット済みの合意した設定から開始します。設定自体を変更するIssueは、実行前に適用する設定と検証方法を照合してください。実行中の設定置換で検証を省略することはできません。
+対象checkoutのルートに `.dotagents.json` を置き、コミット済みの合意した設定から開始します。設定自体を変更するIssueは、実行前に適用する設定と検証方法を照合してください。実行中の設定置換で検証を省略できません。
 
 このファイルはハーネスの対象repoと実行・検証方法の設定です。Codex一般の設定やプロダクト知識の保存先には使いません。要求と合意はIssueから、判断根拠は関連文書や必要な調査報告から参照します。
 
@@ -126,7 +126,7 @@ bun /absolute/path/to/trusted/scripts/development.ts 99 \
 
 `{harness}` はコマンド引数内で信頼するハーネス実体の絶対パスへ展開します。このハーネス自身の設定は [../.dotagents.json](../.dotagents.json) が正本です。別repoへこの設定を無条件にコピーしないでください。
 
-読み取りによる照合は次で行えます。`--write` はghのpush権限も検証します。IssueやPRの作成・更新はここで表示するghユーザーの認証を使います。scoping担当者が合意と対象を照合して既存ghのIssue操作を行います。
+読み取りによる照合は次で行えます。`--write` はghのpush権限も検証します。IssueやPRの作成・更新はここで表示するghユーザーの認証を使います。scoping担当者が合意と対象を照合して既存ghのIssueを操作します。
 
 ```sh
 bun /absolute/path/to/trusted/scripts/target.ts /absolute/path/to/target-checkout https://github.com/team/component/issues/99 --write
@@ -208,7 +208,7 @@ bun scripts/correction.ts /absolute/path/config.json
 
 成果物のIssueには、目的、変更範囲、完了条件、適用する合意済み方針を記載します。成果物に必要な検証と説明も含めます。文書整理なら、読む順序、正本の配置、リンクの整合性などを要求にし、その実験の計測や公開作業を成果物へ書き込む指示にはしません。
 
-実験を行う場合は、実験管理のIssueから成果物のIssueを参照し、比較条件、実行上限、計測項目、結果の保管と公開を管理します。通常の変更に実験管理Issueを追加する必要はありません。実行担当はそこで合意した上限と権限を設定・実行に反映します。
+実験する場合は、実験管理のIssueから成果物のIssueを参照し、比較条件、実行上限、計測項目、結果の保管と公開を管理します。通常の変更に実験管理Issueを追加する必要はありません。実行担当はそこで合意した上限と権限を設定・実行に反映します。
 
 `config.issue`には成果物のIssueを指定します。完了条件の理解に必要な別Issueの本文は取得対象に含めますが、実験管理の本文を一括で連結しません。要求と実験手順が混在している場合は、実行前にIssueを分けて合意し、見出し抽出で要求を省略する運用は避けます。過去の実測を再利用する場合は元のIssueや証拠を保持し、分離した要求を新しいIssueに記録します。
 
@@ -349,7 +349,7 @@ CLIは保存に成功した`verified_local`または`published_draft`だけをst
 
 最後の対象取得やその保存に失敗した場合も、先に観測した成功だけでCI成功としません。公開直後の初回取得も上表の分類で`result.json`へ保存します。初回の公開対象の取得・応答・保存に異常があるか対象が不一致なら、その応答のcheck判定・CI待機・最終対象照合へ進みません。公開対象が一致してもCIデータが欠落・不正なら上表の応答不正として扱います。CI判定・待機を終えた後は、11分を上限に対象を再照合します。PR URLは`pr-url.txt`、初回の生応答は`pr.json`と`pr-publication.stdout`、診断は`pr-publication.stderr`に保持し、CI初回ログとして複製しません。後続取得は`ci-registration-N.stdout`および`.stderr`（Nは1から）、最終対象照合は`ci-final-target.stdout`および`.stderr`へ保存します。stdout・stderrは片方の保存に失敗しても両方の保存を試みます。保存例外には取得済みの両出力と終了情報を含め、CIでは停止理由にも残します。初回取得ではログ保存に失敗しても`pr.json`への保存を試みます。保存に失敗した記録は欠落・不完全な場合があります。`pr.json`が既にある場合は上書きせず停止します。取得不能時の`pr.json`は有効なJSONとは限らないため、生の応答として確認してください。
 
-待機中の保存失敗後も最終対象照合を行います。最終照合も失敗した場合は`storage_failed`を保ち、先行する保存原因・保存先と最終照合の失敗理由・対応を両方残します。
+待機中の保存失敗後も最終対象を照合します。最終照合も失敗した場合は`storage_failed`を保ち、先行する保存原因・保存先と最終照合の失敗理由・対応を両方残します。
 
 `ciDetails.timedOut`はCI待機上限への到達を示し、最後の観測を消しません。期限時点で失敗を取得した場合は`failed`として残します。取得不能や対象変更で終了した場合も、それ以前のcheck観測は履歴として保持し、現在の対象での成功とは扱いません。待機の再開、自動再実行、予算延長は行いません。`remaining`の`ci`と`nextAction`を担当AIへ、`human_review`を人へ引き継ぎ、媒体がある場合の`rendered_media_check`も別に確認します。
 
@@ -360,8 +360,6 @@ CLIは保存に成功した`verified_local`または`published_draft`だけをst
 - 同じ設定・証拠ディレクトリの再実行は回数を初期化しません。終端結果があれば再実行せず、対象が変わっていれば古い成功を返しません。
 - モデルの時間上限の有無にかかわらず、SIGINT/SIGTERMでは実行中のコマンドと同一プロセスグループの子をSIGKILLで停止し、コマンド終了と出力保存を待って異常終了します。active予約を完了に読み替えず、次のコマンドへ進みません。
 - 中断した予約やlockが残った場合は停止します。既存プロセス、ログ、消費量の照合が必要です。lockやstateを削除して制限を回避しないでください。完全自動再開は対象外です。
-
-初回準備で知識モデルと選択IDを検査します。終端の再照合では参照形式と開始commit内のファイル種別・blob一致、知識blobの存在・型の確認を残し、知識JSONの読み込み・解析・選択内容の抽出を省きます。
 
 SIGKILLやOS停止は捕捉できません。CLIだけが強制終了すると、子プロセスが残る場合があります。この場合もlockまたはactive予約が再実行を拒否しますが、書き込み停止の保証とは別です。プロセスグループから離脱した子も停止保証の対象外です。
 
@@ -382,21 +380,11 @@ SIGKILLやOS停止は捕捉できません。CLIだけが強制終了すると�
 | 共有入口で守る条件 | 既存検証と残る確認 |
 | --- | --- |
 | スキルの役割・参照解決・合意の引き継ぎ | スキルと原資料の意味は既存の独立評価で照合し、選択・登録は[新しいタスクでの手順確認](#scopingの切替と手順確認)で観測します。文字列一致のテストでは代替しません |
-| 対象設定・CLI引数と対象照合 | [target.test.ts](tests/target.test.ts)はIssue形式、argvの保持、CI指定・旧設定の拒否、実CLIからの対象解決と`--write`の効果を確認します。[development.test.ts](tests/development.test.ts)は対象不一致、開始入力やsetup後の変更、別技術構成、`--no-publish`の公開抑止を確認します。GitHub応答は模擬のため実際の認証・権限は別途照合します |
-| 通常開発・既存PR修正・単独試行と公開 | [development.test.ts](tests/development.test.ts)、[revision.test.ts](tests/revision.test.ts)、下表のcorrection系、[publish.test.ts](tests/publish.test.ts)が停止・保全・draft・公開対象を確認します。実モデルの判断品質や実際の公開の成功は別の証拠です |
+| 対象設定・CLI引数と対象照合 | [target.test.ts](tests/target.test.ts)はIssue形式、argvの保持、CI指定・未知キーや不正値の拒否、実CLIからの対象解決と`--write`の効果を確認します。[development.test.ts](tests/development.test.ts)は対象不一致、開始入力やsetup後の変更、別技術構成、`--no-publish`の公開抑止を確認します。GitHub応答は模擬のため実際の認証・権限は別途照合します |
+| 通常開発・既存PR修正・単独試行と公開 | [development.test.ts](tests/development.test.ts)、[revision.test.ts](tests/revision.test.ts)、[correction.test.ts](tests/correction.test.ts)、[correction-process.test.ts](tests/correction-process.test.ts)、[publish.test.ts](tests/publish.test.ts)が停止・保全・draft・公開対象を確認します。実モデルの判断品質や実際の公開の成功は別の証拠です |
 | 結果の状態・理由・証拠への導線 | developmentの成功・停止・ローカル完了の記録と、[run-report.test.ts](tests/run-report.test.ts)の状態の区別・証拠リンク・不正記録・既存出力の保持を使います。HTMLの生成確認はブラウザーでの実表示確認ではありません |
 
 文書・設定・CLIの変更前後で、今回影響する呼出し方の成功と想定する失敗を同じ条件で確認し、対象版・入力・結果・未実施範囲を既存のfindingsと独立評価へ残します。未使用検査の成功は、この確認の代わりにはなりません。
-
-| 対象 | テスト |
-| --- | --- |
-| 最終レビューの応答検証・対象記録・指摘の再評価 | [review.test.ts](tests/review.test.ts) |
-| 修正フローの結果・上限・入力・保存状態 | [correction.test.ts](tests/correction.test.ts) |
-| 制御プロセスの中断・timeout・ログ | [correction-process.test.ts](tests/correction-process.test.ts) |
-| 撮影設定の解決・実行判定・外部出力 | [capture.test.ts](tests/capture.test.ts)、[capture-browser-errors.test.ts](tests/capture-browser-errors.test.ts) |
-| 撮影・媒体の保持と再利用 | [correction-capture.test.ts](tests/correction-capture.test.ts) |
-| テスト実行完了の判定 | [test-runner.test.ts](tests/test-runner.test.ts) |
-| 未使用コードの検出・解析失敗、実行時importの循環拒否と型のみの参照の許容、TS整形の対象と出力、通常lintの型変換・累積コピーの拒否と許容例 | [codebase-checks.test.ts](tests/codebase-checks.test.ts) |
 
 撮影アダプターの実動作はホスト専用の一時fixtureでも確認できます。既存のPlaywright依存と導入済みブラウザーを持つ対象repoを明示します。依存の導入や対象repoへの書き込みは行わず、OSの一時ディレクトリにfixture、媒体、ログを保持します。ブラウザーを起動するためsandbox内では実行しません。
 
@@ -430,7 +418,7 @@ OSの一時ディレクトリに公開可能な小さなページ分割関数の
 
 cwd、prompt、target record、差分・追加ファイル、checkログ、actor・Codexの実行引数には正誤ラベルやホスト用資料への参照を渡しません。通常の要求、コード、テスト、レビュー基準、対象版の記録は維持します。`test`や`review`という一般名や、欠陥を読み取れるコード・テストは隠しません。これは偶発的な手掛かりを減らす措置であり、意図的な周辺ファイル探索を防ぐセキュリティ境界ではありません。[制御テスト](tests/verify-review.test.ts)は実際のCLIとactorを通し、Codexだけを模擬して生成入力と参照資料を捕捉します。実モデルの判断の証拠とは区別します。
 
-各レビュー後に`host/ケースID/oracle.ts`で独立した再現を実行し、同じディレクトリの`result.json`に制御上の終了理由、対象、実時間、モデル時間、使用量、独立した再現入力と期待値・実結果、裁定待ちの指摘を保存します。対応表・既知の欠陥・再現・裁定結果を既定のレビュー入力に含めません。ホストは対応表と結果を照合し、各指摘をコードと再現入力で裁定して、真の指摘、誤指摘、未確認、既知の欠陥の見落としを理由とともに記録します。単にneeds_changesなら検出成功、acceptedなら誤指摘なしとは扱いません。モデルが委譲した場合は子の使用量も照合し、合計を確定できないときは未確認とします。CLIの集計だけで親子合計を保証しません。
+各レビュー後に`host/ケースID/oracle.ts`で独立した再現手順を実行し、同じディレクトリの`result.json`に制御上の終了理由、対象、実時間、モデル時間、使用量、独立した再現入力と期待値・実結果、裁定待ちの指摘を保存します。対応表・既知の欠陥・再現・裁定結果を既定のレビュー入力に含めません。ホストは対応表と結果を照合し、各指摘をコードと再現入力で裁定して、真の指摘、誤指摘、未確認、既知の欠陥の見落としを理由とともに記録します。単にneeds_changesなら検出成功、acceptedなら誤指摘なしとは扱いません。モデルが委譲した場合は子の使用量も照合し、合計を確定できないときは未確認とします。CLIの集計だけで親子合計を保証しません。
 
 実行環境、時間、使用量、裁定、未確認範囲を、秘密情報を除いた証拠として`docs/research/`へ残してから完了条件を確認します。制御テスト、実モデルの検出結果、今回の変更の独立評価、最新commitのCIは別の結果です。少数の合成課題から一般的な検出率や速度改善は判断しません。
 

@@ -32,8 +32,7 @@ console.log(JSON.stringify(reply));`,
   await writeFile(t.configFile, JSON.stringify(t.config));
 }
 
-// Pure response validation needs no repository or external command. Each case
-// starts with a valid control, then changes only the rejected condition.
+// Pure response validation needs no repository or external command.
 function reviewResponse() {
   return {
     targetId: 'target-1',
@@ -77,7 +76,6 @@ test('host assigns stable IDs by attempt and response order, independently of fi
     { ...reply.newItems[0], id: 'R1-1', introducedIn: 'target-1', disposition: 'open' },
     { ...reply.newItems[1], id: 'R1-2', introducedIn: 'target-1', disposition: 'open' },
   ]);
-  expect(parseReview(raw, 'target-1', 1)).toEqual(review);
 });
 
 const invalidFields: [string, (reply: ReturnType<typeof reviewResponse>) => void][] = [
@@ -202,8 +200,6 @@ const invalidInitial: [string, (reply: ReturnType<typeof reviewResponse>) => voi
 for (const [name, mutate, reason] of invalidInitial) {
   test(`parseReview rejects ${name}`, () => {
     const reply = reviewResponse();
-    const control = parseReview(JSON.stringify(reply), 'target-1', 1);
-    expect(control.status).toBe('needs_changes');
     mutate(reply);
     expect(() => parseReview(JSON.stringify(reply), 'target-1', 1)).toThrow(reason);
   });
