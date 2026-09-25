@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { withInterrupts } from '../process.ts';
+import { withInterrupts } from '../shared/process.ts';
 import { createHash } from 'node:crypto';
-import { isRecord } from '../values.ts';
+import { isRecord } from '../shared/values.ts';
 import { expect, test } from 'bun:test';
 import { evalConfig, validatePlan } from '../eval/data.ts';
 

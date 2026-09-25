@@ -5,8 +5,15 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initializeTarget, git, githubTarget, targetConfig } from './support/target.ts';
-import { readTarget, pushArguments, issueNumber } from '../target.ts';
-import { command } from '../process.ts';
+import { readTarget, pushArguments, issueNumber, targetCommand } from '../shared/target.ts';
+import { command } from '../shared/process.ts';
+
+test('target commands resolve the trusted harness root after source relocation', () => {
+  expect(targetCommand(['bun', '{harness}/scripts/capture/capture.ts'])).toEqual([
+    'bun',
+    join(import.meta.dir, '../..', 'scripts/capture/capture.ts'),
+  ]);
+});
 
 test('target CLI resolves another checkout and enforces Issue and write arguments', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'target-cli-')));

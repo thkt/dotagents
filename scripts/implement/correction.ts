@@ -6,9 +6,9 @@ import { parseReview, reviewInstructions, reviewSummary } from './review.ts';
 import type { Review } from './review.ts';
 import { researchContext, verifyReportBase } from './research-handoff.ts';
 import { assertConfig, assertState } from './input.ts';
-import { outside } from '../values.ts';
+import { outside } from '../shared/values.ts';
 import type { Config, State, ActorRole, StopReason, CaptureDecision } from './input.ts';
-import { command, assertRunning, withInterrupts, interruptionMessage } from '../process.ts';
+import { command, assertRunning, withInterrupts, interruptionMessage } from '../shared/process.ts';
 import { createHash } from 'node:crypto';
 import {
   readFile,

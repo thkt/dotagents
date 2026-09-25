@@ -3,9 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { command, assertRunning } from '../process.ts';
+import { command, assertRunning } from '../shared/process.ts';
 import type { EvalConfig } from './data.ts';
-import { isRecord } from '../values.ts';
+import { isRecord } from '../shared/values.ts';
 
 export function containerArgs(
   name: string,

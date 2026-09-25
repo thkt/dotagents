@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { parseArgs } from 'node:util';
-import { command } from '../process.ts';
-import { issueNumber, readTarget } from '../target.ts';
+import { command } from '../shared/process.ts';
+import { issueNumber, readTarget } from '../shared/target.ts';
 
 if (import.meta.main) {
   try {

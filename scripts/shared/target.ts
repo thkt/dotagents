@@ -168,5 +168,5 @@ export async function pushArguments(repository: string, branch: string, cwd: str
 }
 
 export function targetCommand(command: string[]) {
-  return command.map((part) => part.replaceAll('{harness}', resolve(import.meta.dir, '..')));
+  return command.map((part) => part.replaceAll('{harness}', resolve(import.meta.dir, '../..')));
 }

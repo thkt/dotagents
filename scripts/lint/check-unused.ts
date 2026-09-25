@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { isRecord } from './values.ts';
+import { isRecord } from '../shared/values.ts';
 
 try {
   const result = spawnSync(

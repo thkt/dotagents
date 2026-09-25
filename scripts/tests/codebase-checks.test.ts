@@ -174,7 +174,7 @@ test('unused check detects unreachable code but preserves real entries and impor
     await writeFile(join(cwd, 'scripts/trial-unused.ts'), 'export const trialUnusedFile = 712;\n');
     await writeFile(join(cwd, 'scripts/trial-used.ts'), 'export const trialUsedExport = 421;\n');
     await appendFile(
-      join(cwd, 'scripts/values.ts'),
+      join(cwd, 'scripts/shared/values.ts'),
       '\nexport const trialUnusedExport = 913;\nexport type TrialUnusedType = { marker: string };\n',
     );
     await appendFile(
@@ -188,12 +188,15 @@ test('unused check detects unreachable code but preserves real entries and impor
     expect(report).toMatchObject({
       total_issues: 4,
       unused_files: [{ path: 'scripts/trial-unused.ts' }],
-      unused_types: [{ path: 'scripts/values.ts', export_name: 'TrialUnusedType' }],
+      unused_types: [{ path: 'scripts/shared/values.ts', export_name: 'TrialUnusedType' }],
     });
     expect(report).toHaveProperty(
       'unused_exports',
       expect.arrayContaining([
-        expect.objectContaining({ path: 'scripts/values.ts', export_name: 'trialUnusedExport' }),
+        expect.objectContaining({
+          path: 'scripts/shared/values.ts',
+          export_name: 'trialUnusedExport',
+        }),
         expect.objectContaining({
           path: 'scripts/tests/review.test.ts',
           export_name: 'trialEntryUnused',

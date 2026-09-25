@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { TargetConfig } from '../../target.ts';
+import type { TargetConfig } from '../../shared/target.ts';
 
 export const targetConfig: TargetConfig = {
   repository: 'team/component',

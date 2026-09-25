@@ -21,9 +21,9 @@ import { run } from '../implement/correction.ts';
 import { createHash } from 'node:crypto';
 import { reviewReplySource } from './support/correction.ts';
 import { PublicationError } from '../implement/publish.ts';
-import { command, interruptionMessage, withInterrupts } from '../process.ts';
+import { command, interruptionMessage, withInterrupts } from '../shared/process.ts';
 import type { Config, State } from '../implement/input.ts';
-import { isRecord } from '../values.ts';
+import { isRecord } from '../shared/values.ts';
 import { initializeTarget, githubTarget, targetConfig } from './support/target.ts';
 
 import { git, issue, ok, mediaCapture, testDevelopment } from './support/development.ts';

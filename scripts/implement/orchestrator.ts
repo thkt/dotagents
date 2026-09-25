@@ -10,12 +10,12 @@ import { parseArgs } from 'node:util';
 import { run, snapshot } from './correction.ts';
 import { previousRun, checkRevision, revisionContext } from './revision.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
-import { command, assertRunning } from '../process.ts';
-import { isRecord, outside } from '../values.ts';
+import { command, assertRunning } from '../shared/process.ts';
+import { isRecord, outside } from '../shared/values.ts';
 import { publish, checkPublishedPr, PublicationError } from './publish.ts';
 import { waitForCi } from './ci.ts';
 import type { CiResult } from './ci.ts';
-import { readTarget, issueNumber, targetCommand, pushArguments } from '../target.ts';
+import { readTarget, issueNumber, targetCommand, pushArguments } from '../shared/target.ts';
 import {
   researchContext,
   researchHandoff,

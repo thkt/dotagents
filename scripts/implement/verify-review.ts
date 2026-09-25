@@ -5,8 +5,8 @@ import { mkdtemp, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { run, snapshot } from './correction.ts';
-import { command, withInterrupts } from '../process.ts';
-import { isRecord } from '../values.ts';
+import { command, withInterrupts } from '../shared/process.ts';
+import { isRecord } from '../shared/values.ts';
 import { reviewModel } from './review.ts';
 
 const requirements = {

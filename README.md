@@ -42,11 +42,11 @@ Bun 1.4.2を使います。checkはlint、書式、Biomeの認知的複雑度15�
 
 ### 未使用コード検査とコードベース調査
 
-`bun run check:unused`は、未使用ファイル・export・型・依存（dev・optionalを含む）と実行時importの循環の指摘を失敗にします。[実行入口](scripts/check-unused.ts)はfallowの終了失敗を引き継ぎ、終了0でもJSONの`workspace_diagnostics`に`degrades_analysis: true`があれば不合格にします。構文解析の中断や読取り不能などで不完全になった解析を、指摘なしの成功と扱わないためです。結果のJSONには指摘位置と診断が残ります。設定不正や起動失敗も成功に変換しません。CIの`checks`も同じ`bun run check`を使います。
+`bun run check:unused`は、未使用ファイル・export・型・依存（dev・optionalを含む）と実行時importの循環の指摘を失敗にします。[実行入口](scripts/lint/check-unused.ts)はfallowの終了失敗を引き継ぎ、終了0でもJSONの`workspace_diagnostics`に`degrades_analysis: true`があれば不合格にします。構文解析の中断や読取り不能などで不完全になった解析を、指摘なしの成功と扱わないためです。結果のJSONには指摘位置と診断が残ります。設定不正や起動失敗も成功に変換しません。CIの`checks`も同じ`bun run check`を使います。
 
 [Issue #147](https://github.com/thkt/dotagents/issues/147)で合意した循環検出は、同じfallow実行の`--circular-deps`で行います。保証範囲はfallowが解析できる実行時importの循環に限ります。型のみの参照は循環として拒否せず、非循環の逆向き依存や全ての責務境界を検査するものではありません。これらは調査・レビューで判断し、実行時の権限・鮮度・停止・データ保全は既存の制御テストと独立評価で確認します。循環検査のための追加の適用除外は設けません。
 
-[.fallowrc.json](.fallowrc.json)の`entry`には、外部から起動するCLIを自動発見への追加入口として指定します。固定版fallow 3.27.0では、`scripts/tests/**/*.test.ts`をBunプラグインが、Oxlintが読み込む[ローカルプラグイン](scripts/lint/anti-slop/index.ts)をOxlintプラグインが自動検出します。`includeEntryExports`で入口のexportも検査し、カスタム`framework`の`usedExports`と`enablers`では、Oxlint有効時の`default` exportの利用を宣言します。このexportの利用は通常lintの実行テストでも確認します。未使用ファイル・export・型・通常依存は既定の`error`を使い、既定が`warn`のdev・optional依存は明示的に`error`とします。他のexportやファイル・依存の未使用検査は維持します。fallowの版を更新する際は、既定重大度と自動入口検出を再確認してください。使用判定を調べる場合は`bunx --no-install fallow list`で入口を、`bunx --no-install fallow dead-code --trace scripts/values.ts:isRecord`でexportの参照を確認してください。
+[.fallowrc.json](.fallowrc.json)の`entry`には、外部から起動するCLIを自動発見への追加入口として指定します。固定版fallow 3.27.0では、`scripts/tests/**/*.test.ts`をBunプラグインが、Oxlintが読み込む[ローカルプラグイン](scripts/lint/anti-slop/index.ts)をOxlintプラグインが自動検出します。`includeEntryExports`で入口のexportも検査し、カスタム`framework`の`usedExports`と`enablers`では、Oxlint有効時の`default` exportの利用を宣言します。このexportの利用は通常lintの実行テストでも確認します。未使用ファイル・export・型・通常依存は既定の`error`を使い、既定が`warn`のdev・optional依存は明示的に`error`とします。他のexportやファイル・依存の未使用検査は維持します。fallowの版を更新する際は、既定重大度と自動入口検出を再確認してください。使用判定を調べる場合は`bunx --no-install fallow list`で入口を、`bunx --no-install fallow dead-code --trace scripts/shared/values.ts:isRecord`でexportの参照を確認してください。
 
 整形は`bun run format`、書式確認は`bun run format:check`を使います。Oxfmtには`scripts`を渡し、[.oxfmtrc.json](.oxfmtrc.json)のignore指定で従来どおり`scripts/**/*.ts`だけを対象にします。package scriptにTSのglobを渡すと、fallowが整形対象を入口として追加し、未参照ファイルを見逃すためです。CLI・テストやformat設定を変えた際は、入口と検出条件も確認してください。
 

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { createRequire } from 'node:module';
-import { isRecord } from './values.ts';
+import { isRecord } from './shared/values.ts';
 
 export function checkReport(runner: 'bun' | 'playwright', text: string) {
   let total: unknown, skipped: unknown;
