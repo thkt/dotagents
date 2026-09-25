@@ -29,7 +29,7 @@
       "name": "local-oxlint-plugin",
       "usedExports": [
         {
-          "pattern": "scripts/lint/anti-slop/index.ts",
+          "pattern": "scripts/lint/local/index.ts",
           "exports": [
             "default"
           ]
