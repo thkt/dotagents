@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { writeRunReport } from '../run-report.ts';
+import { writeRunReport } from '../implement/run-report.ts';
 
 async function fixture(status: 'stopped' | 'verified_local' | 'published_draft') {
   const dir = await mkdtemp(join(tmpdir(), 'run-report-'));

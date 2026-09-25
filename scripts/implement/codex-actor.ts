@@ -8,7 +8,7 @@ import { pipeline } from 'node:stream/promises';
 // Logs stay outside the actor's worktree. The parent owns limits and process termination.
 const [role, evidenceDir] = process.argv.slice(2);
 if ((role !== 'repair' && role !== 'review') || !evidenceDir) {
-  throw Error('Usage: bun scripts/codex-actor.ts repair|review EVIDENCE_DIR');
+  throw Error('Usage: bun scripts/implement/codex-actor.ts repair|review EVIDENCE_DIR');
 }
 const dir = await mkdtemp(join(evidenceDir, `${role}-codex-`));
 const final = join(dir, 'final.json');

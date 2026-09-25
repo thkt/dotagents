@@ -6,7 +6,7 @@ import { parseArgs } from 'node:util';
 import { z } from 'zod';
 import { assertState } from './input.ts';
 import type { State } from './input.ts';
-import { isRecord } from './values.ts';
+import { isRecord } from '../values.ts';
 import type { Review } from './review.ts';
 
 const resultShape = z.object({
@@ -424,7 +424,7 @@ if (import.meta.main) {
     });
     assert(
       parsed.positionals.length === 1,
-      'Usage: bun scripts/run-report.ts RUN_DIR [--output RUN_DIR/NAME.html]',
+      'Usage: bun scripts/implement/run-report.ts RUN_DIR [--output RUN_DIR/NAME.html]',
     );
     console.log(await writeRunReport(parsed.positionals[0] ?? '', parsed.values.output));
   } catch (error) {

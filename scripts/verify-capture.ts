@@ -6,7 +6,7 @@ import { createServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { command, withInterrupts } from './process.ts';
-import { validateCaptureMedia } from './capture.ts';
+import { validateCaptureMedia } from './capture/capture.ts';
 
 async function availablePort() {
   const server = createServer();
@@ -97,7 +97,7 @@ async function verify(name: string, spec: string, status: number, rejection?: Re
   const before = await contents();
   const result = await withInterrupts(() =>
     command(
-      [process.execPath, resolve(import.meta.dir, 'capture.ts'), spec, config, output],
+      [process.execPath, resolve(import.meta.dir, 'capture/capture.ts'), spec, config, output],
       repo,
       '',
       60000,

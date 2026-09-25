@@ -4,7 +4,7 @@ import { resolve, isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
-import { isRecord, outside } from './values.ts';
+import { isRecord, outside } from '../values.ts';
 
 // A fixed-browser probe could reject a working target that uses a different browser.
 export function captureUnavailable(report: unknown) {
@@ -99,7 +99,7 @@ export async function validateCaptureMedia(output: string) {
 async function capture() {
   const [specPath, configPath, output] = process.argv.slice(2);
   if (!specPath || !configPath || !output || !isAbsolute(output)) {
-    throw Error('Usage: capture.ts SPEC CONFIG ABSOLUTE_OUTPUT');
+    throw Error('Usage: bun scripts/capture/capture.ts SPEC CONFIG ABSOLUTE_OUTPUT');
   }
   const cwd = await realpath(process.cwd());
   const spec = resolve(cwd, specPath);
@@ -123,7 +123,7 @@ async function capture() {
   await writeFile(
     config,
     `import base from ${JSON.stringify(pathToFileURL(configFile).href)};
-import { captureConfig } from ${JSON.stringify(pathToFileURL(resolve(import.meta.dir, 'capture-config.ts')).href)};
+import { captureConfig } from ${JSON.stringify(pathToFileURL(resolve(import.meta.dir, 'config.ts')).href)};
 export default captureConfig(base, ${JSON.stringify(configFile)}, ${JSON.stringify(spec)}, ${JSON.stringify(outputPath)});
 `,
     { flag: 'wx' },

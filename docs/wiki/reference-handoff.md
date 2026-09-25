@@ -1,5 +1,5 @@
 ---
-globs: ["scripts/research-handoff.ts", "scripts/development.ts", "scripts/correction.ts", "scripts/review.ts"]
+globs: ["scripts/implement/research-handoff.ts", "scripts/implement/orchestrator.ts", "scripts/implement/correction.ts", "scripts/implement/review.ts"]
 scenes: ["plan", "implement", "pr-create"]
 ---
 
@@ -18,10 +18,10 @@ scenes: ["plan", "implement", "pr-create"]
 
 ## 参照コード
 
-- `scripts/research-handoff.ts` の `verifyReportBase`・`verifyReports`：開始版、通常ファイル、確認済み内容を照合します。
-- `scripts/research-handoff.ts` の `researchContext`：出典、適用性、合意の区別と、根拠が変わった場合の戻り先を各工程へ渡します。
-- `scripts/correction.ts` の `reviewTarget`・`documentVersions`：選択した根拠と、評価で参照した文書の対象版を記録します。
-- `scripts/review.ts` の `reviewInstructions`・`parseReview`：意味の独立評価を指示し、必須の未解決指摘が残る受入を拒否します。意味の正しさ自体は形式検査の保証外です。
+- `scripts/implement/research-handoff.ts` の `verifyReportBase`・`verifyReports`：開始版、通常ファイル、確認済み内容を照合します。
+- `scripts/implement/research-handoff.ts` の `researchContext`：出典、適用性、合意の区別と、根拠が変わった場合の戻り先を各工程へ渡します。
+- `scripts/implement/correction.ts` の `reviewTarget`・`documentVersions`：選択した根拠と、評価で参照した文書の対象版を記録します。
+- `scripts/implement/review.ts` の `reviewInstructions`・`parseReview`：意味の独立評価を指示し、必須の未解決指摘が残る受入を拒否します。意味の正しさ自体は形式検査の保証外です。
 
 ## 由来
 

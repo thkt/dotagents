@@ -13,8 +13,8 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { captureConfig } from '../capture-config.ts';
-import { capturePassed, captureUnavailable, validateCaptureMedia } from '../capture.ts';
+import { captureConfig } from '../capture/config.ts';
+import { capturePassed, captureUnavailable, validateCaptureMedia } from '../capture/capture.ts';
 
 const configFile = '/target/config/playwright.config.ts';
 const spec = '/target/config/tests/capture[1].spec.ts';
@@ -194,7 +194,7 @@ test('capture CLI fails for missing specs before checking browser availability',
     const missingSpec = join(repo, 'missing.spec.ts');
     const result = spawnSync(
       process.execPath,
-      [resolve(import.meta.dir, '../capture.ts'), missingSpec, 'config.ts', media],
+      [resolve(import.meta.dir, '../capture/capture.ts'), missingSpec, 'config.ts', media],
       { cwd: repo, encoding: 'utf8' },
     );
     expect(result.status).toBe(1);
@@ -291,7 +291,7 @@ writeFileSync(output + '/view.png', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAA
       const result = spawnSync(
         process.execPath,
         [
-          resolve(import.meta.dir, '../capture.ts'),
+          resolve(import.meta.dir, '../capture/capture.ts'),
           'config/tests/capture.spec.ts',
           'config/playwright.config.mjs',
           output,

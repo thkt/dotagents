@@ -1,5 +1,5 @@
 ---
-globs: ["scripts/verify-review.ts", "scripts/review.ts", "scripts/correction.ts"]
+globs: ["scripts/implement/verify-review.ts", "scripts/implement/review.ts", "scripts/implement/correction.ts"]
 scenes: ["plan", "implement", "pr-create"]
 ---
 
@@ -28,9 +28,9 @@ scenes: ["plan", "implement", "pr-create"]
 
 ## 参照コード
 
-- `scripts/verify-review.ts` の `probe`：対象成果物を評価した後、レビュー対象外の再現結果を記録し、裁定を `pending_host_adjudication` として残します。
-- `scripts/verify-review.ts` の実行入口：正誤とは独立したケースIDと順序を使い、実モデル試行を通常のcheckから分けます。
-- `scripts/review.ts` の `reviewInstructions`：実測と仮説、形式の妥当性と判断の妥当性を区別するよう求めます。
+- `scripts/implement/verify-review.ts` の `probe`：対象成果物を評価した後、レビュー対象外の再現結果を記録し、裁定を `pending_host_adjudication` として残します。
+- `scripts/implement/verify-review.ts` の実行入口：正誤とは独立したケースIDと順序を使い、実モデル試行を通常のcheckから分けます。
+- `scripts/implement/review.ts` の `reviewInstructions`：実測と仮説、形式の妥当性と判断の妥当性を区別するよう求めます。
 - `.codex/DEVELOPMENT.md` の「改善効果の比較」：同じ条件での比較、観測範囲、費用、未確認事項の扱いを定めています。
 
 ## 由来

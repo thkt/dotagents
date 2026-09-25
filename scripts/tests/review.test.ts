@@ -10,9 +10,9 @@ import {
   object,
   reviewReplySource,
 } from './support/correction.ts';
-import { parseReview } from '../review.ts';
-import type { ReviewItem } from '../review.ts';
-import { prBody } from '../pr-body.ts';
+import { parseReview } from '../implement/review.ts';
+import type { ReviewItem } from '../implement/review.ts';
+import { prBody } from '../implement/pr-body.ts';
 import { git } from './support/target.ts';
 
 const { trial, cleanup } = correctionFixture();
@@ -210,9 +210,9 @@ test('review locations preserve nullable paths, safe positive lines and untrimme
   reply.findings = '  Keep original review text\n';
   for (const location of [
     { path: null, line: null },
-    { path: ' scripts/review.ts ', line: null },
-    { path: 'scripts/review.ts', line: 1 },
-    { path: 'scripts/review.ts', line: Number.MAX_SAFE_INTEGER },
+    { path: ' scripts/implement/review.ts ', line: null },
+    { path: 'scripts/implement/review.ts', line: 1 },
+    { path: 'scripts/implement/review.ts', line: Number.MAX_SAFE_INTEGER },
   ]) {
     object(reply.newItems[0]).location = location;
     const review = parseReview(JSON.stringify(reply), 'target-1', 1);
@@ -224,9 +224,9 @@ test('review locations preserve nullable paths, safe positive lines and untrimme
     { path: '', line: null },
     { path: ' \t', line: null },
     { path: 42, line: null },
-    { path: 'scripts/review.ts' },
+    { path: 'scripts/implement/review.ts' },
     ...[0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '1'].map((line) => ({
-      path: 'scripts/review.ts',
+      path: 'scripts/implement/review.ts',
       line,
     })),
   ]) {

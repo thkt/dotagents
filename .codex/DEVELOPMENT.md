@@ -226,7 +226,7 @@ strict型検査はtscで行い、認知的複雑度の上限15はBiomeの`noExce
 
 Oxlintの`typeAware`を有効にし、TSには`no-floating-promises`（`ignoreVoid: false`）、`no-misused-promises`、`await-thenable`、`no-unsafe-assignment` / `call` / `member-access` / `argument` / `return`をerrorで適用します。correctnessの型情報を必要とするルールも有効です。設定は[.oxlintrc.json](../.oxlintrc.json)、型検査の対象・条件は[tsconfig.json](../tsconfig.json)で確認できます。
 
-設定・保存状態のJSONは[input.ts](../scripts/input.ts)でunknownから必要な形・値を確認し、テスト側も期待値を独立に検証します。型アサーション、明示的any、disableでの回避はしません。型検査は外部データの正しさを保証せず、不正入力の拒否も保存履歴の真正性や完全な意味的一貫性を保証しません。
+設定・保存状態のJSONは[input.ts](../scripts/implement/input.ts)でunknownから必要な形・値を確認し、テスト側も期待値を独立に検証します。型アサーション、明示的any、disableでの回避はしません。型検査は外部データの正しさを保証せず、不正入力の拒否も保存履歴の真正性や完全な意味的一貫性を保証しません。
 
 [Issue #178](https://github.com/thkt/dotagents/issues/178)の3ルールはテストを含む`scripts/**/*.ts`の`bun run lint`で適用します。`value as unknown as T`などの危険な絞り込みは、外部入力を値検査や型ガードで確かめてから使います。型アサーション、`unknown`・`typeof`、filter/mapを一律には禁止しません。
 

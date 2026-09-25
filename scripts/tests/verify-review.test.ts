@@ -160,7 +160,7 @@ mock.module('node:crypto',()=>({...crypto,randomInt:()=>${draw}}));`,
       );
       const execution = spawnSync(
         process.execPath,
-        ['--preload', preload, resolve('scripts/verify-review.ts')],
+        ['--preload', preload, resolve('scripts/implement/verify-review.ts')],
         {
           env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, TMPDIR: work },
           encoding: 'utf8',

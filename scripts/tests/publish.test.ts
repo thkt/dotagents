@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { withInterrupts } from '../process.ts';
-import { publish, publishCli, checkPublishedPr, PublicationError } from '../publish.ts';
+import { publish, publishCli, checkPublishedPr, PublicationError } from '../implement/publish.ts';
 import { readTarget } from '../target.ts';
 import { initializeTarget, githubTarget, git } from './support/target.ts';
 
@@ -311,10 +311,14 @@ testPublisher('interrupted', async (f, io) => {
 });
 
 test('publisher CLI rejects missing target before touching credentials', () => {
-  const result = spawnSync(process.execPath, [resolve(import.meta.dir, '../publish.ts')], {
-    encoding: 'utf8',
-    timeout: 10000,
-  });
+  const result = spawnSync(
+    process.execPath,
+    [resolve(import.meta.dir, '../implement/publish.ts')],
+    {
+      encoding: 'utf8',
+      timeout: 10000,
+    },
+  );
   expect(result.status).toBe(1);
   expect(result.stderr).toContain('Publish failed: Required: --repo CHECKOUT');
 });

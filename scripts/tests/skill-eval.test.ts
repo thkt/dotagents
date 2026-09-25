@@ -4,7 +4,7 @@ import { withInterrupts } from '../process.ts';
 import { createHash } from 'node:crypto';
 import { isRecord } from '../values.ts';
 import { expect, test } from 'bun:test';
-import { evalConfig, validatePlan } from '../skill-eval-data.ts';
+import { evalConfig, validatePlan } from '../skill-eval/skill-eval-data.ts';
 
 const config = evalConfig.parse({
   repository: 'thkt/dotagents',
@@ -50,7 +50,7 @@ test('planning rejects unknown cases, insufficient budgets and hidden answer fil
   expect(() => validatePlan({ ...config, cases: ['missing'] }, cases)).toThrow('case');
   expect(() => validatePlan({ ...config, maxTrials: 1 }, cases)).toThrow('trial');
   expect(() =>
-    validatePlan({ ...config, workspaceFiles: ['evals/skills/cases.json'] }, cases),
+    validatePlan({ ...config, workspaceFiles: ['scripts/skill-eval/corpus/cases.json'] }, cases),
   ).toThrow('host-only');
   expect(() => validatePlan({ ...config, instructionFiles: ['docs/README.md'] }, cases)).toThrow(
     'instruction',
@@ -73,9 +73,9 @@ test('evaluation targets accept only this repository on the exact GitHub host', 
   }
 });
 
-import { providerGateway, providerBody } from '../skill-eval-container.ts';
-import { assessTrial, readUsage } from '../skill-eval-report.ts';
-import { containerArgs, verifyImage, verifyNetwork } from '../skill-eval-sandbox.ts';
+import { providerGateway, providerBody } from '../skill-eval/skill-eval-container.ts';
+import { assessTrial, readUsage } from '../skill-eval/skill-eval-report.ts';
+import { containerArgs, verifyImage, verifyNetwork } from '../skill-eval/skill-eval-sandbox.ts';
 
 const limits = {
   model: 'example-model',
@@ -94,8 +94,8 @@ const request = (input: unknown = body, path = '/v1/responses') =>
 
 test('canonical paths cannot smuggle answer files or collide with effective instructions', () => {
   for (const path of [
-    './evals/skills/cases.json',
-    'docs/../evals/skills/cases.json',
+    './scripts/skill-eval/corpus/cases.json',
+    'docs/../scripts/skill-eval/corpus/cases.json',
     './README.md',
   ]) {
     expect(() => evalConfig.parse({ ...config, workspaceFiles: [path] })).toThrow();
@@ -281,14 +281,14 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initializeTarget, git, targetConfig } from './support/target.ts';
-import { preparePlan, runEvaluation } from '../skill-eval.ts';
-import { writeComparison } from '../skill-eval-report.ts';
+import { preparePlan, runEvaluation } from '../skill-eval/skill-eval.ts';
+import { writeComparison } from '../skill-eval/skill-eval-report.ts';
 
 async function fixture(root: string) {
   const repo = join(root, 'repo');
   await mkdir(repo);
   await initializeTarget(repo, { ...targetConfig, repository: 'thkt/dotagents', remote: 'origin' });
-  for (const path of ['evals/skills', 'skills/scoping', 'skills/implement']) {
+  for (const path of ['scripts/skill-eval/corpus', 'skills/scoping', 'skills/implement']) {
     await mkdir(join(repo, path), { recursive: true });
   }
   await writeFile(join(repo, 'README.md'), 'Public task context');
@@ -296,7 +296,7 @@ async function fixture(root: string) {
   await writeFile(join(repo, 'skills/scoping/SKILL.md'), 'Public scoping body');
   await writeFile(join(repo, 'skills/implement/SKILL.md'), 'Public implement body');
   await writeFile(
-    join(repo, 'evals/skills/cases.json'),
+    join(repo, 'scripts/skill-eval/corpus/cases.json'),
     JSON.stringify([{ ...cases[0], criteria: ['HOST_ONLY_EXPECTED_CANARY'] }]),
   );
   git(repo, 'add', '.');

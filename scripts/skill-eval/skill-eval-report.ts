@@ -4,7 +4,7 @@ import { readFile, writeFile, lstat, realpath } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
 import { z } from 'zod';
 import { evalConfig } from './skill-eval-data.ts';
-import { isRecord } from './values.ts';
+import { isRecord } from '../values.ts';
 
 const reference = z.strictObject({
   file: z.string().regex(/^[a-zA-Z0-9_.-]+$/),
