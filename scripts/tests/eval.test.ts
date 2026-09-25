@@ -35,6 +35,13 @@ const config = evalConfig.parse({
     summary: 'manual-issue-or-pr',
   },
 });
+const caseContext = {
+  source: 'https://github.com/thkt/dotagents/issues/187',
+  body: 'PUBLIC_ISSUE_BODY_CANARY',
+  title: 'Public issue title',
+  updatedAt: '2026-09-23T09:23:48Z',
+};
+
 const cases = [
   {
     id: 'positive',
@@ -297,7 +304,9 @@ async function fixture(root: string) {
   await writeFile(join(repo, 'skills/implement/SKILL.md'), 'Public implement body');
   await writeFile(
     join(repo, 'scripts/eval/corpus/cases.json'),
-    JSON.stringify([{ ...cases[0], criteria: ['HOST_ONLY_EXPECTED_CANARY'] }]),
+    JSON.stringify([
+      { ...cases[0], criteria: ['HOST_ONLY_EXPECTED_CANARY'], context: caseContext },
+    ]),
   );
   git(repo, 'add', '.');
   git(repo, 'commit', '-qm', 'public inputs');
@@ -345,7 +354,7 @@ if(args[0]==='start'&&args.at(-1).endsWith('-actor')) {
  const saved=JSON.parse(readFileSync(join(root,args.at(-1)+'.json')));
  const settings=JSON.parse(readFileSync(join(saved.runtime,'settings.json')));
  const input=saved.args.find(a=>a.startsWith('type=bind')&&a.includes('dst=/input')).split(',')[1].slice(4);
- appendFileSync(join(root,'actor-input.jsonl'),JSON.stringify({settings,readme:readFileSync(join(input,'README.md'),'utf8')})+'\\n');
+ appendFileSync(join(root,'actor-input.jsonl'),JSON.stringify({settings,readme:readFileSync(join(input,'README.md'),'utf8'),issue:readFileSync(join(input,'evaluation-issue.json'),'utf8')})+'\\n');
  if(process.env.EVAL_TEST_FAILURE==='timeout') process.exit(124);
  if(process.env.EVAL_TEST_FAILURE==='interrupt') {writeFileSync(join(root,'interrupt-ready'),'ready');await Bun.sleep(5000);}
  console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:12,cached_input_tokens:5,output_tokens:3}}));
@@ -447,7 +456,16 @@ test.serial(
       ).toEqual(['completed', 'completed']);
       expect(await savedExecutions(plan.outputDirectory)).toEqual(['completed', 'completed']);
       const input = await readFile(join(root, 'actor-input.jsonl'), 'utf8');
+      expect(input).toContain('PUBLIC_ISSUE_BODY_CANARY');
       expect(input).not.toContain('HOST_ONLY_EXPECTED_CANARY');
+      expect(
+        JSON.parse(
+          await readFile(
+            join(plan.outputDirectory, 'before-positive', 'input', 'evaluation-issue.json'),
+            'utf8',
+          ),
+        ),
+      ).toEqual(caseContext);
       expect(input).not.toContain('PRIVATE_UNCOMMITTED_CANARY');
       expect(input).not.toContain('SIMULATED_PROVIDER_AUTH');
       await writeComparison(plan.outputDirectory);

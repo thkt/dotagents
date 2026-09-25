@@ -529,7 +529,7 @@ gh pr edit PR_NUMBER --repo OWNER/REPO \
 
 `scoping`・`implement`や、それらに適用する`AGENTS.md`を改善するとき、[Issue #191](https://github.com/thkt/dotagents/issues/191)の合意に従って、変更前後の行動・成果・負担を比べます。入口は `bun scripts/eval/eval.ts plan|run CONFIG` と `report RUN_DIRECTORY [JUDGMENTS_JSON]` です。通常のdevelopment、定期監査、全PRのCIには接続しません。既存の証拠で判断できる変更には実モデル呼出しを追加しません。
 
-[ケース](eval/corpus/cases.json)は、[#183の公開コメント](https://github.com/thkt/dotagents/issues/183#issuecomment-5793406460)にある依頼文5件を再利用しています。実際の失敗の再現ではなく、公開済みの適用条件から作った正例2件・負例2件・採点外の境界1件です。期待ラベル・要求充足の観測基準・出典はホストだけが読みます。実装ケースには[Issue #187の公開本文](eval/corpus/issue-187.json)の固定コピーを `evaluation-issue.json` として渡し、その場所だけを依頼文に追記します。過去の中断runや他条件の回答は渡しません。この2ファイルは版管理する評価入力で、雛形や実行結果ではありません。実行結果は`outputDirectory`で指定したリポジトリ外へ保存します。移動後の評価では、新しい配置を含むcommitを`corpusCommit`に指定します。ケースを追加・変更する場合は、実際の見落としの根拠と適用範囲をIssueへ残し、新旧集合を同条件の改善率にしません。
+[ケース](eval/corpus/cases.json)は、[#183の公開コメント](https://github.com/thkt/dotagents/issues/183#issuecomment-5793406460)にある依頼文5件を再利用しています。実際の失敗の再現ではなく、公開済みの適用条件から作った正例2件・負例2件・採点外の境界1件です。ケースの依頼文の出典・期待ラベル・採点基準はホストだけが読みます。実装ケースの`context`には[Issue #187の公開本文](https://github.com/thkt/dotagents/issues/187)の固定コピーを含め、選択時には文脈だけを`evaluation-issue.json`として渡し、その場所だけを依頼文に追記します。過去の中断runや他条件の回答は渡しません。この1ファイルは版管理する評価入力で、雛形や実行結果ではありません。実行結果は`outputDirectory`で指定したリポジトリ外へ保存します。統合後の評価では、新しい配置と内容を含むcommitを`corpusCommit`に指定します。ケースを追加・変更する場合は、実際の見落としの根拠と適用範囲をIssueへ残し、新旧集合を同条件の改善率にしません。
 
 ### 実行条件を固定する
 

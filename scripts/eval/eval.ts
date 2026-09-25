@@ -60,10 +60,8 @@ export async function preparePlan(repo: string, config: EvalConfig) {
     .array(evalCase)
     .parse(JSON.parse(await blob(repo, config.corpusCommit, 'scripts/eval/corpus/cases.json')));
   const selected = [];
-  for (const item of validatePlan(config, cases)) {
-    const contextBody = item.context
-      ? await blob(repo, config.corpusCommit, `scripts/eval/corpus/${item.context}`)
-      : null;
+  for (const { context, ...item } of validatePlan(config, cases)) {
+    const contextBody = context ? `${JSON.stringify(context, null, 2)}\n` : null;
     selected.push({ ...item, contextBody });
   }
   const workspaceFiles: Record<string, string> = {};

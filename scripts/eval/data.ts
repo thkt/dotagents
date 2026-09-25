@@ -48,7 +48,14 @@ export const evalCase = z.strictObject({
   prompt: z.string().min(1),
   expected: z.enum(['scoping', 'implement', 'none', 'boundary']),
   criteria: z.array(z.string().min(1)).nonempty(),
-  context: z.literal('issue-187.json').optional(),
+  context: z
+    .strictObject({
+      source: z.string().url(),
+      body: z.string().min(1),
+      title: z.string().min(1),
+      updatedAt: z.string().datetime(),
+    })
+    .optional(),
 });
 export type EvalCase = z.infer<typeof evalCase>;
 
