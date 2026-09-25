@@ -192,7 +192,12 @@ test('target rejects invalid commands before further target access', async () =>
       [{ check: undefined }, /Verification command is required/],
       [{ check: ' \t\n' }, /Verification command is required/],
       [{ check: [] }, /Verification command is required/],
+      [{ check: false }, /Verification command is required/],
       [{ capture: undefined }, /Explicit capture configuration or null required/],
+      [
+        { capture: { command: false, destination: 'media', required: false } },
+        /Explicit capture configuration or null required/,
+      ],
       [
         { capture: { command: ['tool'], destination: 'media' } },
         /Explicit capture configuration or null required/,
