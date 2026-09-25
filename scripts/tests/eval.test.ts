@@ -36,10 +36,7 @@ const config = evalConfig.parse({
   },
 });
 const caseContext = {
-  source: 'https://github.com/thkt/dotagents/issues/187',
   body: 'PUBLIC_ISSUE_BODY_CANARY',
-  title: 'Public issue title',
-  updatedAt: '2026-09-23T09:23:48Z',
 };
 
 const cases = [

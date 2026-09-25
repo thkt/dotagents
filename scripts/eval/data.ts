@@ -50,10 +50,7 @@ export const evalCase = z.strictObject({
   criteria: z.array(z.string().min(1)).nonempty(),
   context: z
     .strictObject({
-      source: z.string().url(),
       body: z.string().min(1),
-      title: z.string().min(1),
-      updatedAt: z.string().datetime(),
     })
     .optional(),
 });
