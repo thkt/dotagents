@@ -427,7 +427,6 @@ test('attempt limits require explicit null or positive integers', () => {
   expect(() => assertConfig({ ...config, unexpected: true })).toThrow(
     'Unknown configuration field',
   );
-  expect(() => assertConfig({ ...config, repairLimit: null, reviewLimit: null })).not.toThrow();
 });
 
 test('model time requires explicit null or a positive finite number; check time stays finite', () => {

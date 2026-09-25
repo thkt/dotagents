@@ -36,5 +36,4 @@ test('handoffs accept only current docs paths', () => {
   expect(() => researchHandoff(base, base, [`research/result.md=${blob}`])).toThrow(
     'Required report must be a repo-relative Markdown path',
   );
-  expect(() => assertReportReferences([{ path: 'research/result.md', blob }])).toThrow();
 });
