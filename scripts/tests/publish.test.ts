@@ -4,9 +4,9 @@ import { realpath, mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { withInterrupts } from '../process.ts';
+import { withInterrupts } from '../shared/process.ts';
 import { publish, publishCli, checkPublishedPr, PublicationError } from '../implement/publish.ts';
-import { readTarget } from '../target.ts';
+import { readTarget } from '../shared/target.ts';
 import { initializeTarget, githubTarget, git } from './support/target.ts';
 
 afterEach(async () => {

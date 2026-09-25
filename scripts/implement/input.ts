@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { isReview } from './review.ts';
 import type { Review } from './review.ts';
-import { isArray, isCommandArray, isRecord, relativeDirectory } from '../values.ts';
+import { isArray, isCommandArray, isRecord, relativeDirectory } from '../shared/values.ts';
 
 export interface Revision {
   previousRun: string;

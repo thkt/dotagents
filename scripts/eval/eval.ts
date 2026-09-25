@@ -3,11 +3,11 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { z } from 'zod';
-import { command, withInterrupts, assertRunning } from '../process.ts';
+import { command, withInterrupts, assertRunning } from '../shared/process.ts';
 import { evalCase, evalConfig, validatePlan } from './data.ts';
 import type { EvalConfig } from './data.ts';
 import { sandboxTrial } from './sandbox.ts';
-import { isRecord } from '../values.ts';
+import { isRecord } from '../shared/values.ts';
 import { writeComparison } from './report.ts';
 
 async function git(repo: string, args: string[]) {

@@ -256,7 +256,7 @@ for (const item of items) {
 
 ## テストの実行完了
 
-`bun run test:control`は`scripts/test.ts`からBunを実行し、`CI=true`でonlyを拒否します。`--only-failures`で個別の成功行を抑え、件数の要約と失敗の診断、テスト内のconsole出力は残します。終了成功後にJUnit集計を読み、テスト0件、skip等の未実行、必要な集計の欠落・不正や切れたレポートを失敗とします。固定Bunの集計形式を対象とし、XML全体を検証するものではありません。集計も通過した場合だけ`All tests executed.`を表示して終了0となります。
+`bun run test:control`は`scripts/tests/runner.ts`からBunを実行し、`CI=true`でonlyを拒否します。`--only-failures`で個別の成功行を抑え、件数の要約と失敗の診断、テスト内のconsole出力は残します。終了成功後にJUnit集計を読み、テスト0件、skip等の未実行、必要な集計の欠落・不正や切れたレポートを失敗とします。固定Bunの集計形式を対象とし、XML全体を検証するものではありません。集計も通過した場合だけ`All tests executed.`を表示して終了0となります。
 
 JUnitはOSの一時ディレクトリへ毎回作成します。Bun自体は成功したものの、読めたレポートの集計をrunnerが拒否した場合は、終了1として拒否理由と`JUnit report retained:`に続く実際のパスを表示し、原文を残します。skipしたテスト名・ファイル名は、そのXMLを開いて確認してください。一時領域なので恒久保存は保証しません。必要な調査が済んだレポートは利用者が削除します。
 

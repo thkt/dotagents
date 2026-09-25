@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { setTimeout } from 'node:timers/promises';
 import { join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
-import type { command } from '../process.ts';
-import { assertRunning, OutputStorageError } from '../process.ts';
-import { isRecord } from '../values.ts';
+import type { command } from '../shared/process.ts';
+import { assertRunning, OutputStorageError } from '../shared/process.ts';
+import { isRecord } from '../shared/values.ts';
 import { graphQlPrTarget, matchPrTarget, referencesIssue } from './pr-identity.ts';
 
 type Target = {

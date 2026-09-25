@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { command, withInterrupts } from '../../process.ts';
+import { command, withInterrupts } from '../../shared/process.ts';
 import type { Config, State } from '../../implement/input.ts';
 import type { PublishInput } from '../../implement/publish.ts';
 import { reviewSummary } from '../../implement/review.ts';

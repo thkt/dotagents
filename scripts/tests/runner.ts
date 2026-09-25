@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { createRequire } from 'node:module';
-import { isRecord } from './values.ts';
+import { isRecord } from '../shared/values.ts';
 
 export function checkReport(runner: 'bun' | 'playwright', text: string) {
   let total: unknown, skipped: unknown;
@@ -35,7 +35,7 @@ if (import.meta.main) {
     const runner = process.argv[2];
     assert(
       runner === 'bun' || runner === 'playwright',
-      'Usage: test.ts bun [TEST_DIRECTORY] | playwright CONFIG REPORT_DIRECTORY',
+      'Usage: runner.ts bun [TEST_DIRECTORY] | playwright CONFIG REPORT_DIRECTORY',
     );
     const config = process.argv[3];
     const reportDirectory = process.argv[4];

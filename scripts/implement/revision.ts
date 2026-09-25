@@ -4,11 +4,11 @@ import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { assertConfig, assertState } from './input.ts';
 import type { Revision } from './input.ts';
-import { isRecord } from '../values.ts';
+import { isRecord } from '../shared/values.ts';
 import { issueText } from './issue.ts';
-import { readTarget } from '../target.ts';
-import { assertRunning } from '../process.ts';
-import type { Reader } from '../target.ts';
+import { readTarget } from '../shared/target.ts';
+import { assertRunning } from '../shared/process.ts';
+import type { Reader } from '../shared/target.ts';
 import { graphQlPrPublication, matchPrPublication, referencesIssue } from './pr-identity.ts';
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');

@@ -1,5 +1,5 @@
 import { develop } from './orchestrator.ts';
-import { withInterrupts } from '../process.ts';
+import { withInterrupts } from '../shared/process.ts';
 
 if (import.meta.main) {
   try {

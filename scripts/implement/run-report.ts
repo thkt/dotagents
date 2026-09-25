@@ -6,7 +6,7 @@ import { parseArgs } from 'node:util';
 import { z } from 'zod';
 import { assertState } from './input.ts';
 import type { State } from './input.ts';
-import { isRecord } from '../values.ts';
+import { isRecord } from '../shared/values.ts';
 import type { Review } from './review.ts';
 
 const resultShape = z.object({

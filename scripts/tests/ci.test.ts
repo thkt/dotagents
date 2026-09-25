@@ -5,7 +5,7 @@ import type { CiResult } from '../implement/ci.ts';
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { command, OutputStorageError, withInterrupts } from '../process.ts';
+import { command, OutputStorageError, withInterrupts } from '../shared/process.ts';
 
 const target = {
   cwd: '/tmp',
