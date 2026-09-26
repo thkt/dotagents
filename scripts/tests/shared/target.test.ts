@@ -4,14 +4,14 @@ import { chmod, mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { initializeTarget, git, githubTarget, targetConfig } from './support/target.ts';
-import { readTarget, pushArguments, issueNumber, targetCommand } from '../shared/target.ts';
-import { command } from '../shared/process.ts';
+import { initializeTarget, git, githubTarget, targetConfig } from '../support/target.ts';
+import { readTarget, pushArguments, issueNumber, targetCommand } from '../../shared/target.ts';
+import { command } from '../../shared/process.ts';
 
 test('target commands resolve the trusted harness root after source relocation', () => {
   expect(targetCommand(['bun', '{harness}/scripts/capture/capture.ts'])).toEqual([
     'bun',
-    join(import.meta.dir, '../..', 'scripts/capture/capture.ts'),
+    join(import.meta.dir, '../../..', 'scripts/capture/capture.ts'),
   ]);
 });
 
@@ -37,12 +37,16 @@ esac
     );
     await chmod(gh, 0o755);
     const run = (...args: string[]) =>
-      spawnSync(process.execPath, [join(import.meta.dir, '../scoping/target.ts'), cwd, ...args], {
-        cwd: root,
-        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, GH_HOST: 'github.com' },
-        encoding: 'utf8',
-        timeout: 10000,
-      });
+      spawnSync(
+        process.execPath,
+        [join(import.meta.dir, '../../scoping/target.ts'), cwd, ...args],
+        {
+          cwd: root,
+          env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, GH_HOST: 'github.com' },
+          encoding: 'utf8',
+          timeout: 10000,
+        },
+      );
     const issue = 'https://github.com/team/component/issues/12';
     const valid = run(issue);
     expect(valid.status).toBe(0);

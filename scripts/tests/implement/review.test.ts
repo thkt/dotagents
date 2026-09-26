@@ -9,11 +9,11 @@ import {
   events,
   object,
   reviewReplySource,
-} from './support/correction.ts';
-import { parseReview } from '../implement/review.ts';
-import type { ReviewItem } from '../implement/review.ts';
-import { prBody } from '../implement/pr-body.ts';
-import { git } from './support/target.ts';
+} from '../support/correction.ts';
+import { parseReview } from '../../implement/review.ts';
+import type { ReviewItem } from '../../implement/review.ts';
+import { prBody } from '../../implement/pr-body.ts';
+import { git } from '../support/target.ts';
 
 const { trial, cleanup } = correctionFixture();
 afterEach(cleanup);

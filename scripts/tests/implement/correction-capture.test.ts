@@ -3,8 +3,8 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile, readFile, rm, symlink, chmod } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { reviewReplySource, correctionFixture, object, events } from './support/correction.ts';
-import { git } from './support/target.ts';
+import { reviewReplySource, correctionFixture, object, events } from '../support/correction.ts';
+import { git } from '../support/target.ts';
 
 const { trial, cleanup } = correctionFixture();
 afterEach(cleanup);

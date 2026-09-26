@@ -4,10 +4,15 @@ import { realpath, mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { withInterrupts } from '../shared/process.ts';
-import { publish, publishCli, checkPublishedPr, PublicationError } from '../implement/publish.ts';
-import { readTarget } from '../shared/target.ts';
-import { initializeTarget, githubTarget, git } from './support/target.ts';
+import { withInterrupts } from '../../shared/process.ts';
+import {
+  publish,
+  publishCli,
+  checkPublishedPr,
+  PublicationError,
+} from '../../implement/publish.ts';
+import { readTarget } from '../../shared/target.ts';
+import { initializeTarget, githubTarget, git } from '../support/target.ts';
 
 afterEach(async () => {
   await withInterrupts(async () => {});
@@ -313,7 +318,7 @@ testPublisher('interrupted', async (f, io) => {
 test('publisher CLI rejects missing target before touching credentials', () => {
   const result = spawnSync(
     process.execPath,
-    [resolve(import.meta.dir, '../implement/publish.ts')],
+    [resolve(import.meta.dir, '../../implement/publish.ts')],
     {
       encoding: 'utf8',
       timeout: 10000,

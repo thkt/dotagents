@@ -31,7 +31,7 @@ scenes: ["plan", "implement"]
 - [development.ts](../../scripts/implement/orchestrator.ts) の `selectStart`・`verifyStartInputs`・`prepare`・`implement`：開始入力、setup前後、隔離先、実装直前の照合。
 - [research-handoff.ts](../../scripts/implement/research-handoff.ts) の `verifyReportBase`・`verifyReports`・`researchContext`：報告の版照合と権限の区別。
 - [revision.ts](../../scripts/implement/revision.ts) の `previousRun`、[correction.ts](../../scripts/implement/correction.ts) の `execute`：現行形式の保存記録と実行中の同一性を照合。
-- [development.test.ts](../../scripts/tests/development.test.ts)：必要入力・無関係な作業・setup後の変化の制御テスト。実モデルの効果測定ではありません。
+- [development.test.ts](../../scripts/tests/implement/development.test.ts)：必要入力・無関係な作業・setup後の変化の制御テスト。実モデルの効果測定ではありません。
 
 ## 由来
 

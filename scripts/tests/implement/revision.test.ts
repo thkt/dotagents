@@ -13,18 +13,18 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { develop } from '../implement/orchestrator.ts';
-import { publish, publishCli } from '../implement/publish.ts';
-import type { PublishInput } from '../implement/publish.ts';
-import { run, snapshot } from '../implement/correction.ts';
-import { command, withInterrupts } from '../shared/process.ts';
-import { assertConfig } from '../implement/input.ts';
-import { checkRevision, previousRun } from '../implement/revision.ts';
-import { readTarget } from '../shared/target.ts';
-import { correctionConfig, reviewReplySource } from './support/correction.ts';
-import type { Config, State, Revision } from '../implement/input.ts';
-import { isRecord } from '../shared/values.ts';
-import { initializeTarget, githubTarget, git, targetConfig } from './support/target.ts';
+import { develop } from '../../implement/orchestrator.ts';
+import { publish, publishCli } from '../../implement/publish.ts';
+import type { PublishInput } from '../../implement/publish.ts';
+import { run, snapshot } from '../../implement/correction.ts';
+import { command, withInterrupts } from '../../shared/process.ts';
+import { assertConfig } from '../../implement/input.ts';
+import { checkRevision, previousRun } from '../../implement/revision.ts';
+import { readTarget } from '../../shared/target.ts';
+import { correctionConfig, reviewReplySource } from '../support/correction.ts';
+import type { Config, State, Revision } from '../../implement/input.ts';
+import { isRecord } from '../../shared/values.ts';
+import { initializeTarget, githubTarget, git, targetConfig } from '../support/target.ts';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const issue = JSON.stringify({

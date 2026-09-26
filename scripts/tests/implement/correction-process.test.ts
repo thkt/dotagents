@@ -9,7 +9,7 @@ import {
   controller,
   object,
   events,
-} from './support/correction.ts';
+} from '../support/correction.ts';
 
 const { trial, cleanup } = correctionFixture();
 afterEach(cleanup);
