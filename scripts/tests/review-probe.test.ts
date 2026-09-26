@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { events, object, reviewReplySource } from './support/correction.ts';
-import { readReviewerUsage } from '../implement/verify-review.ts';
+import { readReviewerUsage } from '../implement/review-probe.ts';
 
 async function json(path: string) {
   return object(JSON.parse(await readFile(path, 'utf8')));
@@ -180,7 +180,7 @@ mock.module('node:crypto',()=>({...crypto,randomInt:()=>${draw}}));`,
       );
       const execution = spawnSync(
         process.execPath,
-        ['--preload', preload, resolve('scripts/implement/verify-review.ts')],
+        ['--preload', preload, resolve('scripts/implement/review-probe.ts')],
         {
           env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, TMPDIR: work },
           encoding: 'utf8',
