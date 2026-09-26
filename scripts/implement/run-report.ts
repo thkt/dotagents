@@ -9,6 +9,7 @@ import { assertState } from './input.ts';
 import type { State } from './input.ts';
 import { isRecord } from '../shared/values.ts';
 import type { Review } from './review.ts';
+import { commandInputs } from './command-inputs.ts';
 
 const escape = (value: string) =>
   value.replace(/[&<>"']/g, (character) => {
@@ -71,8 +72,23 @@ function detail(label: string, content: string) {
   return `<details><summary>${escape(label)}</summary><div class="detail-body">${content}</div></details>`;
 }
 
-function eventDetail(label: string, status: string, content: string) {
-  return `<details class="event-disclosure"><summary><span class="event-heading">${escape(label)}</span><span class="event-status">${escape(status)}</span><span class="event-chevron" aria-hidden="true">›</span></summary><div class="event-body">${content}</div></details>`;
+function eventDetail(label: string, status: string, content: string, preview = '') {
+  return `<details class="event-disclosure"><summary><span class="event-heading">${escape(label)}${preview}</span><span class="event-status">${escape(status)}</span><span class="event-chevron" aria-hidden="true">›</span></summary><div class="event-body">${content}</div></details>`;
+}
+
+function inputFiles(command: string) {
+  const { paths, partial } = commandInputs(command);
+  const names = paths.map((path) => basename(path));
+  const labels = paths.map((path, index) => {
+    const name = names[index] ?? path;
+    const duplicate = names.indexOf(name) !== names.lastIndexOf(name);
+    return `<span class="input-file">${quote(name)}${duplicate ? `<span class="input-directory">${escape(dirname(path))}/</span>` : ''}</span>`;
+  });
+  const status = paths.length ? (partial ? '一部のみ抽出' : 'commandから抽出') : '抽出できず';
+  return {
+    preview: `<span class="command-inputs"><span class="input-caption">入力ファイル候補 · ${status}</span>${labels.join('')}</span>`,
+    body: `<section class="command-paths"><h4>入力ファイル候補 · 保存commandのパス</h4><p class="muted">静的に抽出した候補です。実際の読み込み成功やモデルの理解は未確認です。未対応の構文や標準入力などは抽出できず、入力ファイルがないとは限りません。相対パスは解決していません。</p>${paths.length ? `<ul>${paths.map((path) => `<li>${quote(path)}</li>`).join('')}</ul>` : '<p>抽出できず。元のcommandと原記録を確認してください。</p>'}</section>`,
+  };
 }
 
 function ioPanel(label: string, content: string, kind: 'input' | 'output' | 'neutral') {
@@ -131,13 +147,16 @@ function genericEvent(
 
 function actorAction(event: unknown, index: number, raw: string) {
   const item = isRecord(event) && isRecord(event.item) ? event.item : undefined;
-  if (isRecord(event) && event.type === 'item.completed' && item?.type === 'command_execution') {
+  if (isRecord(event) && item?.type === 'command_execution') {
+    const command = text(item.command) ?? '未記録';
+    const files = inputFiles(command);
     const exit =
       typeof item.exit_code === 'number' ? `終了コード ${item.exit_code}` : '終了コード未記録';
     return eventDetail(
       `行 ${index + 1} · コマンド実行`,
-      exit,
-      `<div class="io-grid">${ioPanel('入力 · command', `<pre>${excerpt(text(item.command) ?? '未記録')}</pre>`, 'input')}${ioPanel('出力 · aggregated_output', `<pre>${excerpt(text(item.aggregated_output) ?? '未記録')}</pre>`, 'output')}</div>`,
+      event.type === 'item.completed' ? exit : (eventStatuses.get(text(event.type) ?? '') ?? exit),
+      `${files.body}<div class="io-grid">${ioPanel('入力 · command', `<pre>${excerpt(command)}</pre>`, 'input')}${ioPanel('出力 · aggregated_output', `<pre>${excerpt(text(item.aggregated_output) ?? '未記録')}</pre>`, 'output')}</div>`,
+      files.preview,
     );
   }
   if (
@@ -371,6 +390,7 @@ async function render(runDir: string) {
 :root{font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;color:#23272e;background:#f6f7f9;line-height:1.6}*{box-sizing:border-box}body{margin:0}main{max-width:1080px;margin:auto;padding:36px 28px 90px}h1{font-size:30px;line-height:1.25;margin:12px 0}h2{font-size:21px;margin:0 0 14px}h3{font-size:17px;margin:0 0 10px}p{margin:8px 0 12px}.eyebrow{font-size:13px;color:#636e7d;font-weight:650;letter-spacing:.05em}.lead{font-size:16px;color:#566170}.pill{display:inline-block;background:#e8edf8;color:#263f75;border-radius:999px;padding:4px 12px;font-size:13px;font-weight:700}.pill.stopped{background:#fff0e5;color:#93480f}.section{margin-top:28px}.card{background:#fff;border:1px solid #dce1e7;border-radius:14px;padding:24px;box-shadow:0 1px 3px #1c26320d}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:0}dt{font-size:12px;color:#647080;font-weight:650}dd{margin:3px 0 0;overflow-wrap:anywhere;font-size:14px}code,pre{font-family:ui-monospace,SFMono-Regular,monospace;font-size:12px}code{overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f7fa;border:1px solid #e2e6ec;border-radius:8px;padding:12px;max-height:330px;overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:11px 12px;border-bottom:1px solid #e5e8ec;vertical-align:top;overflow-wrap:anywhere}th{color:#596474;font-weight:650}a{color:#2359a2}a:hover{text-decoration:underline}a:focus-visible,summary:focus-visible{outline:3px solid #5b78c5;outline-offset:3px}details{border:1px solid #dce1e7;border-radius:10px;background:#fff;margin-top:10px;overflow:hidden}summary{cursor:pointer;padding:14px 18px;font-weight:650}summary:hover{background:#f5f7fa}.detail-body{border-top:1px solid #dce1e7;padding:16px 18px}.detail-body details{margin:10px 0}.io-label{font-size:12px;font-weight:700;margin:12px 0 5px}.input{color:#305fa4}.output{color:#14735a}.muted{color:#687484}.table-wrap{overflow-x:auto}@media(max-width:700px){main{padding:22px 16px 60px}.grid,dl{grid-template-columns:1fr}.card{padding:18px}h1{font-size:25px}}
 .actor-group{margin-top:16px;border:1px solid #dce1e7;border-radius:10px;overflow:hidden;background:#fff}.actor-group>header{padding:18px 20px;border-bottom:1px solid #dce1e7}.actor-group>header h4{margin:0;font-size:15px}.actor-group>header p{margin:5px 0 0;font-size:13px;color:#687484}.activity-list>.event-disclosure{margin:0;border:0;border-radius:0}.activity-list>.event-disclosure+.event-disclosure{border-top:1px solid #dce1e7}.event-disclosure>summary{display:grid;grid-template-columns:minmax(0,1fr) auto 18px;align-items:center;gap:12px;padding:17px 20px;list-style:none;font-size:14px;text-decoration:none}.event-disclosure>summary::-webkit-details-marker{display:none}.event-disclosure>summary:hover{background:#f6f7f9;text-decoration:none}.event-disclosure>summary:hover .event-heading{text-decoration:underline;text-underline-offset:4px}.event-disclosure>summary:focus-visible{outline-offset:-4px}.event-disclosure[open]>summary{background:#f6f7f9}.event-status{border:1px solid #dce1e7;border-radius:5px;padding:2px 8px;background:#fff;color:#596474;font-size:12px;font-weight:500}.event-chevron{font-size:20px;line-height:1;justify-self:end;color:#687484}.event-disclosure[open] .event-chevron{transform:rotate(90deg)}.event-body{border-top:1px solid #dce1e7;background:#fafbfc;padding:20px}.event-body>.muted:first-child{margin-top:0}.io-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.io-panel{border:1px solid #dce1e7;border-radius:8px;background:#fff;overflow:hidden}.io-panel>h4{margin:0;padding:10px 14px;font-size:13px;border-bottom:1px solid}.io-panel>div{padding:14px;min-width:0}.io-panel pre{margin:0;background:#fff;border:0;padding:0}.input-panel{border-color:#c7d8f4}.input-panel>h4{background:#eef5ff;color:#215ba4;border-color:#c7d8f4}.output-panel{border-color:#dacdf0}.output-panel>h4{background:#f5effb;color:#6d43a0;border-color:#dacdf0}.neutral-panel>h4{background:#f6f7f9;color:#596474;border-color:#dce1e7}@media(max-width:700px){.io-grid{grid-template-columns:1fr}.event-disclosure>summary{grid-template-columns:minmax(0,1fr) 18px}.event-status{grid-column:1;grid-row:2;justify-self:start}.event-chevron{grid-column:2;grid-row:1}}
 .empty-list{padding:16px 20px}.finding-fields{display:block}.finding-fields>div+div{border-top:1px solid #e2e6ec;padding-top:12px;margin-top:12px}.finding-fields dt{font-size:12px}.finding-fields dd{font-size:14px;white-space:pre-wrap}.record-list{list-style:none;margin:0;padding:0;border:1px solid #dce1e7;border-radius:10px;overflow:hidden}.record-list li{padding:11px 16px;overflow-wrap:anywhere}.record-list li+li{border-top:1px solid #e5e8ec}.record-list .muted{margin-left:12px;font-size:12px}
+.command-inputs{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;font-weight:400;min-width:0}.input-caption{flex-basis:100%;font-size:12px;color:#596474}.input-file{display:flex;flex-direction:column;max-width:100%;border:1px solid #c7d8f4;border-radius:5px;background:#eef5ff;padding:3px 8px;overflow-wrap:anywhere}.input-directory{font-size:11px;color:#596474;overflow-wrap:anywhere}.command-paths{margin-bottom:18px}.command-paths h4{margin:0}.command-paths p{font-size:13px}.command-paths ul{padding-left:22px}.command-paths code,.input-file code{white-space:pre-wrap}.event-heading{min-width:0;overflow-wrap:anywhere}
 .review-summary{white-space:pre-wrap}
 </style></head><body><main><header><div class="eyebrow">IMPLEMENT / 1 RUN</div><h1>実装runの記録</h1><span class="pill ${escape(result.status)}">${escape(status)}</span><p class="lead">保存された事実と未確認事項を、この実行単位で示します。HTML生成は検証や公開を再実行しません。</p></header>
 <section class="section card"><h2>今回の結果</h2><dl>${field('Issue', externalLink(result.issue, result.issue))}${field('対象repo', shown(result.repository))}${field('開始commit', quote(result.startCommit))}${field('開始日時 · UTC', shown(result.startedAt))}${field('終了日時 · UTC', shown(result.finishedAt))}${field('HTML生成日時 · UTC', shown(generatedAt))}${field('終了状態', escape(status))}${field('最終工程', `${shown(result.phase)} / ${shown(result.operation)}`)}</dl><h3 style="margin-top:22px">停止理由・結果</h3><p>${shown(result.reason)}</p><h3 style="margin-top:18px">次の対応</h3><p>${shown(result.nextAction)}</p><p class="muted">残る作業: ${result.remaining.length ? result.remaining.map(escape).join('、') : '記録なし'}。人の承認・マージは、このrunの結果に含みません。</p></section>

@@ -234,3 +234,153 @@ test('published draft requires CI evidence, and invalid evidence or existing out
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('command input candidates follow literal read operands, excluding patterns, destinations and unsupported syntax', async () => {
+  const cases: { command: string; paths: string[] }[] = [
+    { command: 'cat README.md docs/policy.md', paths: ['README.md', 'docs/policy.md'] },
+    {
+      command: `cat 'docs/space name.md' "other file.md" escaped\\ name.md`,
+      paths: ['docs/space name.md', 'other file.md', 'escaped name.md'],
+    },
+    {
+      command: `cat docs/'mixed name'.md 'literal$path.md' "literal\\$name.md"`,
+      paths: ['docs/mixed name.md', 'literal$path.md', 'literal$name.md'],
+    },
+    {
+      command: `cat -- '-file.md'; sed -n '12,40p' src/one.ts src/two.ts`,
+      paths: ['-file.md', 'src/one.ts', 'src/two.ts'],
+    },
+    {
+      command: `pwd && /bin/cat -n README.md | head -n 5; tail -c20 log.txt\nhead -10 next.txt`,
+      paths: ['README.md', 'log.txt', 'next.txt'],
+    },
+    {
+      command: `sed -n -e '2,$p' 'space name.md'; tail -n +3 last.txt`,
+      paths: ['space name.md', 'last.txt'],
+    },
+    {
+      command: `/bin/zsh -lc 'cat README.md && sed -n "1,20p" docs/policy.md'`,
+      paths: ['README.md', 'docs/policy.md'],
+    },
+    {
+      command: `cat in.txt > out.txt 2> errors.txt && head -n 3 other.txt >> combined.txt`,
+      paths: ['in.txt', 'other.txt'],
+    },
+    {
+      command: `cat one.md one.md; cat two.md # cat comment.md\ncat three.md`,
+      paths: ['one.md', 'two.md', 'three.md'],
+    },
+    { command: 'cat \\\n continued.md', paths: ['continued.md'] },
+    {
+      command: `cat 'semi;pipe|and&&.md' || head -c 3 fallback.md`,
+      paths: ['semi;pipe|and&amp;&amp;.md', 'fallback.md'],
+    },
+    {
+      command: `rg -n 'cat fake.md' src; rg --files docs; find . -name '*.md'; ls docs`,
+      paths: [],
+    },
+    { command: `printf '%s' 'cat fake.md'; echo cat fake.md`, paths: [] },
+    { command: `sed -n '/needle/p' file.txt; sed -n '1p;w out.txt' file.txt`, paths: [] },
+    {
+      command: `cat --unknown value.txt; head -n invalid count.txt; tail --bytes 5 file.txt`,
+      paths: [],
+    },
+    { command: `cat "$INPUT"; cat static.md`, paths: [] },
+    { command: `cat $(printf 'cat fake.md'); cat static.md`, paths: [] },
+    { command: 'cat `echo file.md`', paths: [] },
+    { command: `cat *.md; cat ~user/file.md`, paths: [] },
+    { command: `cat <(cat process.md)`, paths: [] },
+    { command: `cat <<EOF\ncat fake.md\nEOF\ncat static.md`, paths: [] },
+    { command: `cat <<< 'cat fake.md'; cat static.md`, paths: [] },
+    { command: `for file in one.md; do cat fake.md; done`, paths: [] },
+    { command: `cat 'unfinished.md; cat fake.md`, paths: [] },
+    { command: 'cat -; head -n 5; cat < redirected.txt', paths: [] },
+  ];
+  const { dir } = await fixture('stopped');
+  try {
+    const actor = join(dir, 'repair-codex-inputs');
+    await mkdir(actor);
+    await writeFile(
+      join(actor, 'events.jsonl'),
+      cases
+        .map(({ command }) =>
+          JSON.stringify({
+            type: 'item.completed',
+            item: { type: 'command_execution', command, aggregated_output: '', exit_code: 0 },
+          }),
+        )
+        .join('\n'),
+    );
+    const html = await readFile(await writeRunReport(dir), 'utf8');
+    const bodies = [...html.matchAll(/<section class="command-paths">([\s\S]*?)<\/section>/g)];
+    expect(bodies).toHaveLength(cases.length);
+    cases.forEach(({ command, paths }, index) => {
+      const body = bodies[index]?.[1] ?? '';
+      const displayed = [...body.matchAll(/<li><code>([\s\S]*?)<\/code><\/li>/g)].map(
+        (match) => match[1],
+      );
+      expect(displayed, command).toEqual(paths);
+      if (!paths.length) {
+        expect(body, command).toContain('抽出できず');
+      }
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('collapsed commands show escaped filenames while full paths and original evidence survive alternate report generation', async () => {
+  const { dir } = await fixture('verified_local');
+  try {
+    const original = await writeRunReport(dir);
+    const originalHtml = await readFile(original, 'utf8');
+    const actor = join(dir, 'repair-codex-inputs');
+    await mkdir(actor);
+    const longPath = `${'long-directory/'.repeat(90)}same.md`;
+    const events = [
+      { type: 'item.started', item: { type: 'command_execution', command: 'cat pending.md' } },
+      {
+        type: 'item.completed',
+        item: {
+          type: 'command_execution',
+          command: `cat 'one/same.md' '${longPath}' '<img src=x onerror=alert(1)>&".md'; rg --files`,
+          aggregated_output: 'permission denied',
+          exit_code: 1,
+        },
+      },
+    ]
+      .map((event) => JSON.stringify(event))
+      .join('\n');
+    await writeFile(join(actor, 'events.jsonl'), events);
+    const result = await readFile(join(dir, 'result.json'), 'utf8');
+    const state = await readFile(join(dir, 'verification/state.json'), 'utf8');
+    const html = await readFile(await writeRunReport(dir, join(dir, 'report-inputs.html')), 'utf8');
+    const summaries = [...html.matchAll(/<summary>([\s\S]*?)<\/summary>/g)].map(
+      (match) => match[1] ?? '',
+    );
+    const summary = summaries.find((value) => value.includes('行 2 · コマンド実行')) ?? '';
+    expect(summary).toContain('一部のみ抽出');
+    expect(summary).toContain('<code>same.md</code>');
+    expect(summary).toContain('one/');
+    expect(summary).toContain('long-directory/'.repeat(90));
+    expect(summary).toContain('&lt;img src=x onerror=alert(1)&gt;&amp;&quot;.md');
+    expect(summary).toContain('終了コード 1');
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('<details class="event-disclosure" open');
+    expect(html).toContain(`<li><code>${longPath}</code></li>`);
+    expect(html).toContain('permission denied');
+    expect(html).toContain('開始 · 結果未確認');
+    expect(html).toContain('<code>pending.md</code>');
+    expect(html).toContain('実際の読み込み成功やモデルの理解は未確認');
+    expect(html).toContain('入力 · command');
+    expect(html).toContain('画面上の抜粋');
+    expect(html).toContain('href="./repair-codex-inputs/events.jsonl"');
+    expect(html).toContain("default-src 'none'");
+    expect(await readFile(original, 'utf8')).toBe(originalHtml);
+    expect(await readFile(join(dir, 'result.json'), 'utf8')).toBe(result);
+    expect(await readFile(join(dir, 'verification/state.json'), 'utf8')).toBe(state);
+    expect(await readFile(join(actor, 'events.jsonl'), 'utf8')).toBe(events);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
