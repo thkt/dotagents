@@ -122,6 +122,19 @@ test('run report distinguishes local verification from publication and links onl
     expect(html).toMatch(/\.summary-fields>div\+div,\.result-note\{[^}]*border-top:/);
     expect(html).toContain('<div class="result-note"><h3>停止理由・結果</h3>');
     expect(html).toContain('<div class="result-note"><h3>次の対応</h3>');
+    for (const note of [
+      'acceptedは公開後確認や人の承認を意味しません。',
+      'GitHubの現在状態ではなく、run終了時の保存記録です。',
+      '残る作業: 人によるレビュー。人の承認・マージは、このrunの結果に含みません。',
+    ]) {
+      expect(html).toContain(`<p class="report-note">${note}</p>`);
+    }
+    expect(html).toMatch(/\.report-note\{[^}]*font-size:13px;[^}]*color:#566170/);
+    const scopeNote =
+      '保存された事実と未確認事項を、この実行単位で示します。HTML生成は検証や公開を再実行しません。';
+    expect(html.split(scopeNote)).toHaveLength(2);
+    expect(html).toContain(`<footer class="section report-note"><p>${scopeNote}</p></footer>`);
+    expect(html.indexOf('<footer')).toBeGreaterThan(html.indexOf('<h2>原記録</h2>'));
     expect(html).toContain('href="./verification/check-1.stdout"');
     expect(html).not.toContain('href="./verification/check-1.stderr"');
     expect(html).toContain('1 · ホスト · 検証');
@@ -180,8 +193,12 @@ test('stopped run keeps its reason as escaped text without implying an evaluatio
     expect(html).toContain('9007199254740993');
     expect(html).toContain('1e400');
     expect(html).toContain('5/6行表示');
-    expect(html).toContain('constructor</span><span class="event-source">原記録：6行目</span>');
-    expect(html).toContain('__proto__</span><span class="event-source">原記録：7行目</span>');
+    expect(html).toContain(
+      'constructor</span><span class="event-source"><span aria-hidden="true">L6</span><span class="visually-hidden">原記録 events.jsonl の6行目</span>',
+    );
+    expect(html).toContain(
+      '__proto__</span><span class="event-source"><span aria-hidden="true">L7</span><span class="visually-hidden">原記録 events.jsonl の7行目</span>',
+    );
     expect(html).toContain('repair-codex-example/events.jsonl:3:');
     expect(html).toContain('href="./setup-1.stderr"');
     expect(html).toContain('href="./implementation.stderr"');
@@ -239,6 +256,65 @@ test('published draft requires CI evidence, and invalid evidence or existing out
       /Invalid result.json/,
     );
     expect(await readFile(join(dir, 'result.json'), 'utf8')).toContain('published_draft');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('report translates only exact known result messages and remaining tasks without changing saved evidence', async () => {
+  const { dir, result } = await fixture('published_draft');
+  const reason = 'All required checks succeeded and no registered check is failing or pending.';
+  const nextAction =
+    'CI confirmed for the published draft commit. Assigned AI: compare the latest public body with the Issue, commit, accepted assessment and verification, complete any rendered media check, then recheck target, body, evidence, actor, permissions and same-head CI before gh pr ready; read back the result before human review.';
+  try {
+    const saved = JSON.stringify({
+      ...result,
+      reason,
+      nextAction,
+      remaining: [
+        'local_verification',
+        'publication',
+        'ci',
+        'attachments',
+        'rendered_media_check',
+        'published_body_check',
+        'mark_ready',
+        'human_review',
+        '<unknown>',
+        'constructor',
+      ],
+    });
+    await writeFile(join(dir, 'result.json'), saved);
+    const html = await readFile(await writeRunReport(dir), 'utf8');
+    expect(html).toContain(
+      '必須チェックはすべて成功し、登録されたチェックに失敗や保留はありません。',
+    );
+    expect(html).toContain(
+      '公開したdraftのcommitについてCIを確認しました。担当AIは、最新の公開本文をIssue・commit・accepted評価・検証結果と照合し、必要な媒体の実表示確認を完了してください。その後、対象・本文・証拠・実行主体・権限・同じheadのCIを再確認してから gh pr ready を実行し、人のレビュー前に切替結果を読み戻してください。',
+    );
+    expect(html).toContain(
+      '残る作業: ローカル検証、公開、CI確認、媒体の添付、必要媒体の実表示確認、公開本文の確認、readyへの切替、人によるレビュー、&lt;unknown&gt;、constructor',
+    );
+    expect(html).not.toContain(reason);
+    expect(html).not.toContain(nextAction);
+    expect(await readFile(join(dir, 'result.json'), 'utf8')).toBe(saved);
+
+    const unknown = JSON.stringify({
+      ...result,
+      status: 'stopped',
+      reason: `${reason} <unconfirmed>`,
+      nextAction: `${nextAction} <new condition>`,
+    });
+    await writeFile(join(dir, 'result.json'), unknown);
+    const fallback = await readFile(
+      await writeRunReport(dir, join(dir, 'report-unknown.html')),
+      'utf8',
+    );
+    expect(fallback).toContain(`${reason} &lt;unconfirmed&gt;`);
+    expect(fallback).toContain(`${nextAction} &lt;new condition&gt;`);
+    expect(fallback).not.toContain('必須チェックはすべて成功');
+    expect(fallback).not.toContain('Draft公開・CI確認済み');
+    expect(await readFile(join(dir, 'result.json'), 'utf8')).toBe(unknown);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -367,9 +443,11 @@ test('collapsed commands show escaped filenames while full paths and original ev
     const summaries = [...html.matchAll(/<summary>([\s\S]*?)<\/summary>/g)].map(
       (match) => match[1] ?? '',
     );
-    const summary = summaries.find((value) => value.includes('原記録：2行目')) ?? '';
+    const summary = summaries.find((value) => value.includes('原記録 events.jsonl の2行目')) ?? '';
     expect(summary).toContain('<span class="event-title">コマンド実行</span>');
-    expect(summary).toContain('<span class="event-source">原記録：2行目</span>');
+    expect(summary).toContain(
+      '<span class="event-source"><span aria-hidden="true">L2</span><span class="visually-hidden">原記録 events.jsonl の2行目</span>',
+    );
     expect(summary).not.toContain('行 2 ·');
     expect(summary).toContain('一部のみ抽出');
     expect(summary).toContain('<code>same.md</code>');
@@ -388,7 +466,28 @@ test('collapsed commands show escaped filenames while full paths and original ev
       /\.event-disclosure>summary:hover \.event-title\{[^}]*text-decoration:underline/,
     );
     expect(html).not.toMatch(/\.event-disclosure>summary:hover \.event-heading\{/);
-    expect(html).toContain('「原記録」はこの保存イベントログの行位置です。');
+    expect(html).toMatch(
+      /\.event-source\{[^}]*display:inline-block;[^}]*margin-left:8px;[^}]*white-space:nowrap/,
+    );
+    expect(html).not.toMatch(/href="[^"]*events\.jsonl#/);
+    const notes = html.match(/<aside class="report-notes"[^>]*>([\s\S]*?)<\/aside>/)?.[1] ?? '';
+    for (const explanation of [
+      'L番号は各イベント原記録（events.jsonl）の物理行位置です。ソースコードの行番号ではありません。',
+      '保存commandから静的に抽出した候補です。',
+      '実際の読み込み成功やモデルの理解は未確認です。',
+      '未対応の構文や標準入力などは抽出できず、入力ファイルがないとは限りません。',
+      '相対パスは解決していません。',
+    ]) {
+      expect(notes).toContain(explanation);
+      expect(html.split(explanation)).toHaveLength(2);
+    }
+    expect(html.indexOf('<aside class="report-notes"')).toBeLessThan(
+      html.indexOf('<h3>ホスト工程</h3>'),
+    );
+    for (const body of html.matchAll(/<section class="command-paths">([\s\S]*?)<\/section>/g)) {
+      expect(body[1]).not.toContain('静的に抽出');
+      expect(body[1]).not.toContain('理解は未確認');
+    }
     expect(html).not.toContain('<img');
     expect(html).not.toContain('<details class="event-disclosure" open');
     expect(html).toContain(`<li><code>${longPath}</code></li>`);
