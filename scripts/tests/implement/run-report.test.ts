@@ -121,8 +121,15 @@ test('run report distinguishes local verification from publication and links onl
     expect(html).toContain('2026-09-23T01:02:03.000Z');
     expect(html).toContain('2026-09-23T01:03:04.000Z');
     expect(html).toContain('2回記録');
-    for (const heading of ['今回の結果', '検証と評価', '公開の記録']) {
-      expect(html).toContain(`<h2>${heading}</h2><dl class="summary-fields">`);
+    expect(html).toContain('<h2>今回の結果</h2><dl class="summary-fields">');
+    for (const [heading, note] of [
+      ['検証と評価', 'acceptedは公開後確認や人の承認を意味しません。'],
+      ['公開の記録', 'GitHubの現在状態ではなく、run終了時の保存記録です。'],
+    ] as const) {
+      expect(html).toContain(
+        `<h2>${heading}</h2><p class="report-note">${note}</p><dl class="summary-fields">`,
+      );
+      expect(html.split(note)).toHaveLength(2);
     }
     expect(html).toMatch(
       /\.summary-fields\{[^}]*display:grid;[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\);[^}]*gap:16px/,
@@ -134,13 +141,9 @@ test('run report distinguishes local verification from publication and links onl
     expect(html).toMatch(/\.result-note\{[^}]*border-top:/);
     expect(html).toContain('<div class="result-note"><h3>停止理由・結果</h3>');
     expect(html).toContain('<div class="result-note"><h3>次の対応</h3>');
-    for (const note of [
-      'acceptedは公開後確認や人の承認を意味しません。',
-      'GitHubの現在状態ではなく、run終了時の保存記録です。',
-      '残る作業: 人によるレビュー。人の承認・マージは、このrunの結果に含みません。',
-    ]) {
-      expect(html).toContain(`<p class="report-note">${note}</p>`);
-    }
+    expect(html).toContain(
+      '<p class="report-note">残る作業: 人によるレビュー。人の承認・マージは、このrunの結果に含みません。</p>',
+    );
     expect(html).toMatch(/\.report-note\{[^}]*font-size:13px;[^}]*color:#566170/);
     const scopeNote =
       '保存された事実と未確認事項を、この実行単位で示します。HTML生成は検証や公開を再実行しません。';
@@ -149,9 +152,9 @@ test('run report distinguishes local verification from publication and links onl
     expect(html.indexOf('<footer')).toBeGreaterThan(html.indexOf('<h2>原記録</h2>'));
     expect(html).toContain('href="./verification/check-1.stdout"');
     expect(html).not.toContain('href="./verification/check-1.stderr"');
-    expect(html).not.toContain('1 · ホスト · 検証');
+    expect(html).not.toContain('ホスト ·');
     expect(html).toContain(
-      'ホスト · 検証</span><span class="event-source"><span aria-hidden="true">L1</span><span class="visually-hidden">原記録 state.events の1番目（JSONの物理行ではありません）</span>',
+      '<span class="event-title">検証</span><span class="event-source"><span aria-hidden="true">L1</span><span class="visually-hidden">原記録 state.events の1番目（JSONの物理行ではありません）</span>',
     );
     expect(html).toContain('<span class="event-status tone-failure">時間切れ</span>');
     expect(html).toContain('<span class="event-status tone-success">修正済み</span>');
@@ -159,7 +162,7 @@ test('run report distinguishes local verification from publication and links onl
     expect(html).toContain('<span class="event-status tone-neutral">対象外</span>');
     const hostSummaries = [...html.matchAll(/<summary>([\s\S]*?)<\/summary>/g)]
       .map((match) => match[1] ?? '')
-      .filter((summary) => summary.includes('ホスト ·'));
+      .filter((summary) => summary.includes('原記録 state.events'));
     const outcomes = [
       ['failure', '時間切れ'],
       ['success', '終了コード 0'],
@@ -422,6 +425,7 @@ test('command input candidates follow literal read operands, excluding patterns,
       paths: [],
     },
     { command: `cat "$INPUT"; cat static.md`, paths: [] },
+    { command: 'cat "/tmp/$FILE"; cat "/private/tmp/$FILE"', paths: [] },
     { command: `cat $(printf 'cat fake.md'); cat static.md`, paths: [] },
     { command: 'cat `echo file.md`', paths: [] },
     { command: `cat *.md; cat ~user/file.md`, paths: [] },
@@ -480,6 +484,15 @@ test('collapsed commands show escaped filenames while full paths and original ev
     const actor = join(dir, 'repair-codex-inputs');
     await mkdir(actor);
     const longPath = `${'long-directory/'.repeat(90)}same.md`;
+    const tmpPaths = [
+      ['/tmp/same.md', true],
+      [`/private/tmp/${longPath}`, true],
+      ['/tmp-other/same.md', false],
+      ['/private/tmp-old/same.md', false],
+      ['tmp/same.md', false],
+      ['./tmp/same.md', false],
+      ['/var/tmp/same.md', false],
+    ] as const;
     const events = [
       { type: 'item.started', item: { type: 'command_execution', command: 'cat pending.md' } },
       {
@@ -488,6 +501,14 @@ test('collapsed commands show escaped filenames while full paths and original ev
           type: 'command_execution',
           command: `cat 'one/same.md' '${longPath}' '<img src=x onerror=alert(1)>&".md'; rg --files`,
           aggregated_output: 'permission denied',
+          exit_code: 1,
+        },
+      },
+      {
+        type: 'item.completed',
+        item: {
+          type: 'command_execution',
+          command: `cat ${tmpPaths.map(([path]) => `'${path}'`).join(' ')} '/tmp/<img src=x>&".md'`,
           exit_code: 1,
         },
       },
@@ -517,6 +538,24 @@ test('collapsed commands show escaped filenames while full paths and original ev
     expect(summary).toContain('&lt;img src=x onerror=alert(1)&gt;&amp;&quot;.md');
     expect(summary).toContain('終了コード 1');
     expect(summary).toContain('<span class="input-file" tabindex="0">');
+    const tmpSummary =
+      summaries.find((value) => value.includes('原記録 events.jsonl の3行目')) ?? '';
+    for (const [path, temporary] of tmpPaths) {
+      const slash = path.lastIndexOf('/');
+      const name = path.slice(slash + 1);
+      const parent = path.slice(0, slash + 1);
+      expect(tmpSummary).toContain(
+        `<span class="input-file${temporary ? ' input-file-tmp' : ''}" tabindex="0"><code>${name}</code><span class="input-directory">${parent}</span>${temporary ? '<span class="input-location">tmp</span>' : ''}</span>`,
+      );
+      expect(html).toContain(`<li><code>${path}</code></li>`);
+    }
+    expect(tmpSummary).toContain(
+      '<span class="input-file input-file-tmp" tabindex="0"><code>&lt;img src=x&gt;&amp;&quot;.md</code><span class="input-location">tmp</span></span>',
+    );
+    expect(tmpSummary).not.toContain('抽出');
+    expect(tmpSummary).not.toContain('入力ファイル候補');
+    expect(html).toMatch(/\.input-file-tmp\{[^}]*background:#f4f0e8/);
+    expect(html).toMatch(/\.input-location\{[^}]*font-size:11px/);
     expect(html).toMatch(/\.command-inputs\{[^}]*display:flex;[^}]*flex-wrap:wrap/);
     expect(html).toMatch(
       /\.input-file\{[^}]*display:inline-flex;[^}]*max-width:100%;[^}]*white-space:nowrap;[^}]*overflow-x:auto/,
@@ -538,6 +577,7 @@ test('collapsed commands show escaped filenames while full paths and original ev
       '実際の読み込み成功やモデルの理解は未確認です。',
       '未対応の構文や標準入力などは抽出できず、入力ファイルがないとは限りません。',
       '相対パスは解決していません。',
+      'tmpラベルは明示的な絶対パス /tmp/・/private/tmp/ 配下の候補を示す場所の印です。用途・不要・削除可・読了を示さず、変数・symlink・実在は確認していません。',
     ]) {
       expect(notes).toContain(explanation);
       expect(html.split(explanation)).toHaveLength(2);
