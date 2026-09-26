@@ -21,7 +21,7 @@ description: 合意済みGitHub Issueの実装依頼で、文書変更を含め�
 bun /absolute/path/to/trusted/scripts/implement/development.ts 99 --repo /absolute/path/to/target-checkout
 ```
 
-報告が必要なら[CLIの引き継ぎ手順](../../scripts/README.md#調査報告を指定した実装開始)で同じpath・blob・開始commitを初回実装・修正・独立評価へ渡す。テストの不足を判断するときだけ[今回必要なテストの例](references/testing.md)を読み、既存検証が守る失敗条件を重ねてテストしない。差分が揃ったら[文書の更新手順](../references/documents.md#残す更新する)を確認し、変更文書を含めて[日本語確認の方針](../../.codex/DEVELOPMENT.md#pr本文人向け文書の日本語確認)と独立評価を適用する。
+報告が必要なら[CLIの引き継ぎ手順](../../scripts/README.md#調査報告を指定した実装開始)で同じpath・blob・開始commitを初回実装・修正・独立評価へ渡す。テストの不足を判断するときだけ[今回必要なテストの例](references/testing.md)を読み、既存検証が守る失敗条件を重ねてテストしない。差分が揃ったら[文書の更新手順](../references/documents.md#残す更新する)を確認し、変更文書を含めて[日本語確認の方針](../../docs/wiki/development-policy.md#pr本文人向け文書の日本語確認)と独立評価を適用する。
 
 ## 公開と引き継ぎ
 

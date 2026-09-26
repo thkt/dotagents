@@ -4,8 +4,8 @@ This harness provides shared `scoping` and `implement` workflows. Agreed Issues 
 
 Use the references that apply to the change:
 
-- [Project outcome](.codex/OUTCOME.md): workflow responsibilities, supported scope and adoption status.
-- [Development policy](.codex/DEVELOPMENT.md): the relevant requirements, documentation, test or review policy. For Markdown changes, include its Japanese review requirements before adoption or publication.
+- [Project overview](README.md): workflow responsibilities, supported scope and adoption status.
+- [Development policy](docs/wiki/development-policy.md): the relevant requirements, documentation, test or review policy. For Markdown changes, include its Japanese review requirements before adoption or publication.
 - [CLI guide](scripts/README.md): target configuration, execution, publication or recovery operations.
 
 Complete authorized edits and affected checks without asking again for routine implementation choices. Follow explicit user instructions over general skill guidance within the agreed requirements and authorization. Investigate available facts; ask early for facts only the user can provide or unresolved intent and requirements. Before requesting approval, prepare a concrete proposal or result and explain its impact using work already authorized and independent of that decision. Wait for decisions that affect requirements or authorization, and continue independent work while awaiting them.
