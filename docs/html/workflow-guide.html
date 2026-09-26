@@ -457,7 +457,7 @@ bun run check
 <p>旧入口や旧run、未追跡・ignored資産、別worktree、失敗記録は保全します。現在の日常入口はscopingとimplementです。登録切替や復帰に影響する変更では、対象資産の保全・復元確認と、新しいタスクからの検出・実行確認を行います。通常のタスクごとに移行手順をやり直す運用ではありません。</p>
 </div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="docs/research/README.md">docs/research/README.md</a> · <a data-source="skills/scoping/references/session.md">skills/scoping/references/session.md</a></p></details></section>
 <section id="harness-eval" class="chapter"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">補足</span><h2>指示変更の効果を、必要なときに比較する</h2></header><div class="chapter-body">
-<p><code>scoping</code>・<code>implement</code>や適用される<code>AGENTS.md</code>の変更で、既存の根拠だけでは効果を判断できない場合に使う手動の同条件evalです。通常の開発run、定期実行、全PRのCIに自動接続されません。レビュー試験専用HTMLの案は取り下げましたが、レビュー品質の観測に使う既存の<code>verify-review.ts</code>と記録は残ります。</p>
+<p><code>scoping</code>・<code>implement</code>や適用される<code>AGENTS.md</code>の変更で、既存の根拠だけでは効果を判断できない場合に使う手動の同条件evalです。通常の開発run、定期実行、全PRのCIに自動接続されません。レビュー試験専用HTMLの案は取り下げましたが、レビュー品質の観測に使う既存の<code>review-probe.ts</code>と記録は残ります。</p>
 <ol>
 <li><strong>条件を固定する。</strong> <code>eval.ts plan</code>で変更前後のcommit、同じケース・モデル・設定・ツール、呼出し数と時間上限、保存先と公開範囲を確認します。条件や隔離を確認できなければ実モデルを起動せず、理由を返します。</li>
 <li><strong>隔離して実行する。</strong> <code>eval.ts run</code>で選択・非選択、要求充足、安全条件、時間・使用量を記録します。失敗や未評価も残し、成功するまで自動再試行しません。</li>
