@@ -1,10 +1,18 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
-import { withInterrupts } from '../shared/process.ts';
 import { createHash } from 'node:crypto';
-import { isRecord } from '../shared/values.ts';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, test } from 'bun:test';
+import { providerGateway, providerBody } from '../eval/container.ts';
 import { evalConfig, validatePlan } from '../eval/data.ts';
+import { preparePlan, runEvaluation } from '../eval/eval.ts';
+import { assessTrial, readUsage, writeComparison } from '../eval/report.ts';
+import { containerArgs, verifyImage, verifyNetwork } from '../eval/sandbox.ts';
+import { withInterrupts } from '../shared/process.ts';
+import { isRecord } from '../shared/values.ts';
+import { initializeTarget, git, targetConfig } from './support/target.ts';
 
 const config = evalConfig.parse({
   repository: 'thkt/dotagents',
@@ -56,6 +64,12 @@ test('planning rejects unknown cases, insufficient budgets and hidden answer fil
   expect(() =>
     validatePlan({ ...config, workspaceFiles: ['scripts/eval/corpus/cases.json'] }, cases),
   ).toThrow('host-only');
+  expect(
+    validatePlan(
+      { ...config, workspaceFiles: ['docs/research/issue-comparison-evaluation.md'] },
+      cases,
+    ),
+  ).toEqual(cases);
   expect(() => validatePlan({ ...config, instructionFiles: ['docs/README.md'] }, cases)).toThrow(
     'instruction',
   );
@@ -76,10 +90,6 @@ test('evaluation targets accept only this repository on the exact GitHub host', 
     expect(evalConfig.shape.issue.safeParse(issue).success).toBe(false);
   }
 });
-
-import { providerGateway, providerBody } from '../eval/container.ts';
-import { assessTrial, readUsage } from '../eval/report.ts';
-import { containerArgs, verifyImage, verifyNetwork } from '../eval/sandbox.ts';
 
 const limits = {
   model: 'example-model',
@@ -281,12 +291,18 @@ test('selection and outcome stay separate and missing usage is not zero', () => 
   });
 });
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { initializeTarget, git, targetConfig } from './support/target.ts';
-import { preparePlan, runEvaluation } from '../eval/eval.ts';
-import { writeComparison } from '../eval/report.ts';
+test('usage leaves fractional and overflowing token counts unaccounted', () => {
+  const event = (input_tokens: number) =>
+    JSON.stringify({
+      type: 'turn.completed',
+      usage: { input_tokens, cached_input_tokens: 0, output_tokens: 0 },
+    });
+  expect(readUsage([event(10), event(0.5), event(Number.MAX_SAFE_INTEGER)])).toMatchObject({
+    totals: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 0 },
+    completedTurns: 1,
+    incompleteLines: 2,
+  });
+});
 
 async function fixture(root: string) {
   const repo = join(root, 'repo');
