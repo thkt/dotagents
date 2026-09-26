@@ -4,8 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { events, object, reviewReplySource } from './support/correction.ts';
-import { readReviewerUsage } from '../implement/review-probe.ts';
+import { events, object, reviewReplySource } from '../support/correction.ts';
+import { readReviewerUsage } from '../../implement/review-probe.ts';
 
 async function json(path: string) {
   return object(JSON.parse(await readFile(path, 'utf8')));

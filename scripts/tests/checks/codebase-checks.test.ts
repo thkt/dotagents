@@ -4,7 +4,7 @@ import { appendFile, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const repo = resolve(import.meta.dir, '../..');
+const repo = resolve(import.meta.dir, '../../..');
 
 async function fixture(scope: 'graph' | 'lint' | 'format') {
   const cwd = await mkdtemp(join(tmpdir(), 'codebase-checks-'));
@@ -170,7 +170,6 @@ test('unused check detects unreachable code but preserves real entries and impor
   const cwd = await fixture('graph');
   try {
     expect(run(cwd, 'check:unused').status).toBe(0);
-    // Reuse Issue #174's file/export controls; add the entry-export and type boundaries.
     await writeFile(join(cwd, 'scripts/trial-unused.ts'), 'export const trialUnusedFile = 712;\n');
     await writeFile(join(cwd, 'scripts/trial-used.ts'), 'export const trialUsedExport = 421;\n');
     await appendFile(
@@ -178,8 +177,8 @@ test('unused check detects unreachable code but preserves real entries and impor
       '\nexport const trialUnusedExport = 913;\nexport type TrialUnusedType = { marker: string };\n',
     );
     await appendFile(
-      join(cwd, 'scripts/tests/review.test.ts'),
-      '\nimport { trialUsedExport } from "../trial-used.ts"; console.log(trialUsedExport);\n' +
+      join(cwd, 'scripts/tests/implement/review.test.ts'),
+      '\nimport { trialUsedExport } from "../../trial-used.ts"; console.log(trialUsedExport);\n' +
         'export const trialEntryUnused = 17;\n',
     );
     const result = run(cwd, 'check:unused');
@@ -198,7 +197,7 @@ test('unused check detects unreachable code but preserves real entries and impor
           export_name: 'trialUnusedExport',
         }),
         expect.objectContaining({
-          path: 'scripts/tests/review.test.ts',
+          path: 'scripts/tests/implement/review.test.ts',
           export_name: 'trialEntryUnused',
         }),
       ]),

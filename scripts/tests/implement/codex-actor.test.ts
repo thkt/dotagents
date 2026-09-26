@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, writeFile, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { events, object } from './support/correction.ts';
+import { events, object } from '../support/correction.ts';
 
 function sortedStrings(value: unknown) {
   const values = events(value);

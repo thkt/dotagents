@@ -380,9 +380,9 @@ SIGKILLやOS停止は捕捉できません。CLIだけが強制終了すると�
 | 共有入口で守る条件 | 既存検証と残る確認 |
 | --- | --- |
 | スキルの役割・参照解決・合意の引き継ぎ | スキルと原資料の意味は既存の独立評価で照合し、選択・登録は[新しいタスクでの手順確認](#scopingの切替と手順確認)で観測します。文字列一致のテストでは代替しません |
-| 対象設定・CLI引数と対象照合 | [target.test.ts](tests/target.test.ts)はIssue形式、argvの保持、CI指定・未知キーや不正値の拒否、実CLIからの対象解決と`--write`の効果を確認します。[development.test.ts](tests/development.test.ts)は対象不一致、開始入力やsetup後の変更、別技術構成、`--no-publish`の公開抑止を確認します。GitHub応答は模擬のため実際の認証・権限は別途照合します |
-| 通常開発・既存PR修正・単独試行と公開 | [development.test.ts](tests/development.test.ts)、[revision.test.ts](tests/revision.test.ts)、[correction.test.ts](tests/correction.test.ts)、[correction-process.test.ts](tests/correction-process.test.ts)、[publish.test.ts](tests/publish.test.ts)が停止・保全・draft・公開対象を確認します。実モデルの判断品質や実際の公開の成功は別の証拠です |
-| 結果の状態・理由・証拠への導線 | developmentの成功・停止・ローカル完了の記録と、[run-report.test.ts](tests/run-report.test.ts)の状態の区別・証拠リンク・不正記録・既存出力の保持を使います。HTMLの生成確認はブラウザーでの実表示確認ではありません |
+| 対象設定・CLI引数と対象照合 | [target.test.ts](tests/shared/target.test.ts)はIssue形式、argvの保持、CI指定・未知キーや不正値の拒否、実CLIからの対象解決と`--write`の効果を確認します。[development.test.ts](tests/implement/development.test.ts)は対象不一致、開始入力やsetup後の変更、別技術構成、`--no-publish`の公開抑止を確認します。GitHub応答は模擬のため実際の認証・権限は別途照合します |
+| 通常開発・既存PR修正・単独試行と公開 | [development.test.ts](tests/implement/development.test.ts)、[revision.test.ts](tests/implement/revision.test.ts)、[correction.test.ts](tests/implement/correction.test.ts)、[correction-process.test.ts](tests/implement/correction-process.test.ts)、[publish.test.ts](tests/implement/publish.test.ts)が停止・保全・draft・公開対象を確認します。実モデルの判断品質や実際の公開の成功は別の証拠です |
+| 結果の状態・理由・証拠への導線 | developmentの成功・停止・ローカル完了の記録と、[run-report.test.ts](tests/implement/run-report.test.ts)の状態の区別・証拠リンク・不正記録・既存出力の保持を使います。HTMLの生成確認はブラウザーでの実表示確認ではありません |
 
 文書・設定・CLIの変更前後で、今回影響する呼出し方の成功と想定する失敗を同じ条件で確認し、対象版・入力・結果・未実施範囲を既存のfindingsと独立評価へ残します。未使用検査の成功は、この確認の代わりにはなりません。
 
@@ -394,7 +394,7 @@ bun scripts/capture/verify.ts /absolute/path/to/target-repo firefox
 
 最後の引数は`chromium`、`firefox`、`webkit`のいずれかです。通常の相対`testDir`およびその範囲外にあるspec、依存project、既定の`webServer.cwd`、選択したブラウザー、checkoutの不変性、ならびに0件・skip・失敗・不正媒体・起動不能を実際のPlaywrightで確認します。この確認は共通checkには含めず、対象のPlaywrightバージョン、選択したブラウザー、ログの保存場所、および実行結果を別の証拠として報告します。
 
-Playwright runnerを起動する契約テストは[trial repoのtrial/control/](https://github.com/thkt/dotagents-workflow-trial/tree/93b38f0bc690373b4b1f68e37a42f721929d6386/trial/control)に置き、同repoの `test:trial-control` が商品側の依存を使って実行します。Bun runnerと両レポート形式の拒否条件は `scripts/tests/test-runner.test.ts` に残します。
+Playwright runnerを起動する契約テストは[trial repoのtrial/control/](https://github.com/thkt/dotagents-workflow-trial/tree/93b38f0bc690373b4b1f68e37a42f721929d6386/trial/control)に置き、同repoの `test:trial-control` が商品側の依存を使って実行します。Bun runnerと両レポート形式の拒否条件は `scripts/tests/checks/test-runner.test.ts` に残します。
 
 開発入口と必要報告のGitによる版照合、公開対象・権限、PR公開、Codex実行は、それぞれ `development.test.ts`、`target.test.ts`、`publish.test.ts`、`codex-actor.test.ts` で確認します。scopingの会話上の判断は[新しいタスクでの手順確認](#scopingの切替と手順確認)で扱います。共有する試験環境とモデル応答データの組み立ては `tests/support/` に置き、テストケースと期待値は各テストファイルに置きます。
 
@@ -416,7 +416,7 @@ OSの一時ディレクトリに公開可能な小さなページ分割関数の
 
 [Issue #138](https://github.com/thkt/dotagents/issues/138)に従い、checkoutとレビュー記録は正誤と無関係なランダム名の`case-*`配下に置き、両ケースの実行順もランダムに決めます。開始時に表示する保存先の`host/cases.json`が、実行順のケースIDと正誤の対応表です。最初のレビュー前に保存するため、中断時も対象を照合できます。実行環境とハーネスの版・差分は`host/environment.json`に保持します。停止したrunの上限や記録を変更して続行しません。
 
-cwd、prompt、target record、差分・追加ファイル、checkログ、actor・Codexの実行引数には正誤ラベルやホスト用資料への参照を渡しません。通常の要求、コード、テスト、レビュー基準、対象版の記録は維持します。`test`や`review`という一般名や、欠陥を読み取れるコード・テストは隠しません。これは偶発的な手掛かりを減らす措置であり、意図的な周辺ファイル探索を防ぐセキュリティ境界ではありません。[制御テスト](tests/review-probe.test.ts)は実際のCLIとactorを通し、Codexだけを模擬して生成入力と参照資料を捕捉します。実モデルの判断の証拠とは区別します。
+cwd、prompt、target record、差分・追加ファイル、checkログ、actor・Codexの実行引数には正誤ラベルやホスト用資料への参照を渡しません。通常の要求、コード、テスト、レビュー基準、対象版の記録は維持します。`test`や`review`という一般名や、欠陥を読み取れるコード・テストは隠しません。これは偶発的な手掛かりを減らす措置であり、意図的な周辺ファイル探索を防ぐセキュリティ境界ではありません。[制御テスト](tests/implement/review-probe.test.ts)は実際のCLIとactorを通し、Codexだけを模擬して生成入力と参照資料を捕捉します。実モデルの判断の証拠とは区別します。
 
 各レビュー後に`host/ケースID/oracle.ts`で独立した再現手順を実行し、同じディレクトリの`result.json`に制御上の終了理由、対象、実時間、モデル時間、使用量、独立した再現入力と期待値・実結果、裁定待ちの指摘を保存します。対応表・既知の欠陥・再現・裁定結果を既定のレビュー入力に含めません。ホストは対応表と結果を照合し、各指摘をコードと再現入力で裁定して、真の指摘、誤指摘、未確認、既知の欠陥の見落としを理由とともに記録します。単にneeds_changesなら検出成功、acceptedなら誤指摘なしとは扱いません。モデルが委譲した場合は子の使用量も照合し、合計を確定できないときは未確認とします。CLIの集計だけで親子合計を保証しません。
 

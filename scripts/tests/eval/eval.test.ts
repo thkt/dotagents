@@ -5,14 +5,14 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from 'bun:test';
-import { providerGateway, providerBody } from '../eval/container.ts';
-import { evalConfig, validatePlan } from '../eval/data.ts';
-import { preparePlan, runEvaluation } from '../eval/eval.ts';
-import { assessTrial, readUsage, writeComparison } from '../eval/report.ts';
-import { containerArgs, verifyImage, verifyNetwork } from '../eval/sandbox.ts';
-import { withInterrupts } from '../shared/process.ts';
-import { isRecord } from '../shared/values.ts';
-import { initializeTarget, git, targetConfig } from './support/target.ts';
+import { providerGateway, providerBody } from '../../eval/container.ts';
+import { evalConfig, validatePlan } from '../../eval/data.ts';
+import { preparePlan, runEvaluation } from '../../eval/eval.ts';
+import { assessTrial, readUsage, writeComparison } from '../../eval/report.ts';
+import { containerArgs, verifyImage, verifyNetwork } from '../../eval/sandbox.ts';
+import { withInterrupts } from '../../shared/process.ts';
+import { isRecord } from '../../shared/values.ts';
+import { initializeTarget, git, targetConfig } from '../support/target.ts';
 
 const config = evalConfig.parse({
   repository: 'thkt/dotagents',

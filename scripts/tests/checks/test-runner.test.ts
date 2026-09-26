@@ -1,11 +1,11 @@
 import { test, expect } from 'bun:test';
-import { checkReport } from './runner.ts';
+import { checkReport } from '../runner.ts';
 import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-const entry = resolve(import.meta.dir, 'runner.ts');
+const entry = resolve(import.meta.dir, '../runner.ts');
 
 async function runnerFixture(
   cwd: string,

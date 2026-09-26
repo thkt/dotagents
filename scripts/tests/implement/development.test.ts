@@ -16,18 +16,18 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { develop } from '../implement/orchestrator.ts';
-import { run } from '../implement/correction.ts';
+import { develop } from '../../implement/orchestrator.ts';
+import { run } from '../../implement/correction.ts';
 import { createHash } from 'node:crypto';
-import { reviewReplySource } from './support/correction.ts';
-import { PublicationError } from '../implement/publish.ts';
-import { command, interruptionMessage, withInterrupts } from '../shared/process.ts';
-import type { Config, State } from '../implement/input.ts';
-import { isRecord } from '../shared/values.ts';
-import { initializeTarget, githubTarget, targetConfig } from './support/target.ts';
+import { reviewReplySource } from '../support/correction.ts';
+import { PublicationError } from '../../implement/publish.ts';
+import { command, interruptionMessage, withInterrupts } from '../../shared/process.ts';
+import type { Config, State } from '../../implement/input.ts';
+import { isRecord } from '../../shared/values.ts';
+import { initializeTarget, githubTarget, targetConfig } from '../support/target.ts';
 
-import { git, issue, ok, mediaCapture, testDevelopment } from './support/development.ts';
-import type { DevelopmentFixture } from './support/development.ts';
+import { git, issue, ok, mediaCapture, testDevelopment } from '../support/development.ts';
+import type { DevelopmentFixture } from '../support/development.ts';
 
 const reportPath = 'docs/research/result-behavior.md';
 const reportContent = 'Reviewed finding: keep the result visible until reset.\n';
@@ -36,7 +36,7 @@ const secondReport = 'docs/wiki/result-validation.md';
 test('development CLI rejects a missing Issue before reading a target', () => {
   const result = spawnSync(
     process.execPath,
-    [join(import.meta.dir, '../implement/development.ts')],
+    [join(import.meta.dir, '../../implement/development.ts')],
     {
       cwd: tmpdir(),
       encoding: 'utf8',

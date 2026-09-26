@@ -3,8 +3,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test, expect } from 'bun:test';
-import { assertReportReferences } from '../implement/input.ts';
-import { researchHandoff, verifyReports } from '../implement/research-handoff.ts';
+import { assertReportReferences } from '../../implement/input.ts';
+import { researchHandoff, verifyReports } from '../../implement/research-handoff.ts';
 
 test('repository research, wiki and decisions share the versioned document boundary', () => {
   for (const path of [

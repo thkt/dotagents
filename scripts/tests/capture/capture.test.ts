@@ -13,8 +13,8 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { captureConfig } from '../capture/config.ts';
-import { capturePassed, captureUnavailable, validateCaptureMedia } from '../capture/capture.ts';
+import { captureConfig } from '../../capture/config.ts';
+import { capturePassed, captureUnavailable, validateCaptureMedia } from '../../capture/capture.ts';
 
 const configFile = '/target/config/playwright.config.ts';
 const spec = '/target/config/tests/capture[1].spec.ts';
@@ -181,6 +181,23 @@ test('capture report rejects non-execution and failures; only launch failures ar
   ).toBe(true);
   expect(captureUnavailable({ message: 'listen EPERM: operation not permitted' })).toBe(true);
   expect(captureUnavailable({ message: 'expect(received).toBe(expected)' })).toBe(false);
+  expect(
+    captureUnavailable({
+      message:
+        "Error: launch: Failed to launch chromium because executable doesn't exist at /nonexistent/capture-browser",
+    }),
+  ).toBe(true);
+  expect(
+    captureUnavailable({
+      message: "Error: EACCES: permission denied, open '/target/unwritable.txt'",
+    }),
+  ).toBe(false);
+  expect(
+    captureUnavailable({
+      message:
+        'Error: launch: Target page, context or browser has been closed\nBrowser logs:\nbootstrap_check_in org.chromium.Chromium.MachPortRendezvousServer.123: Permission denied (1100)',
+    }),
+  ).toBe(true);
 });
 
 test('capture CLI fails for missing specs before checking browser availability', async () => {
@@ -194,7 +211,7 @@ test('capture CLI fails for missing specs before checking browser availability',
     const missingSpec = join(repo, 'missing.spec.ts');
     const result = spawnSync(
       process.execPath,
-      [resolve(import.meta.dir, '../capture/capture.ts'), missingSpec, 'config.ts', media],
+      [resolve(import.meta.dir, '../../capture/capture.ts'), missingSpec, 'config.ts', media],
       { cwd: repo, encoding: 'utf8' },
     );
     expect(result.status).toBe(1);
@@ -291,7 +308,7 @@ writeFileSync(output + '/view.png', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAA
       const result = spawnSync(
         process.execPath,
         [
-          resolve(import.meta.dir, '../capture/capture.ts'),
+          resolve(import.meta.dir, '../../capture/capture.ts'),
           'config/tests/capture.spec.ts',
           'config/playwright.config.mjs',
           output,
