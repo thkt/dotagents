@@ -12,7 +12,7 @@
 
 - 公式リリース [adrs v0.12.1](https://github.com/joshrotenberg/adrs/releases/tag/v0.12.1) のmacOS arm64バイナリを一時ディレクトリに展開。配布チェックサムと一致することを確認した。
 - 公開済みの [Issue #84](https://github.com/thkt/dotagents/issues/84)、[Issue #128](https://github.com/thkt/dotagents/issues/128)、[Issue #149](https://github.com/thkt/dotagents/issues/149) を取得し、判断の一部分を3件の試験用ADRへ手動で要約した。ツールによる自動取り込みではない。
-- #84のうちPR本文の意味確認を公開前後の責務に残した部分を旧判断、#128のdraft公開後へ集約する判断を置換先として扱った。#84全体を廃止扱いにしていない。現在の方針も [.codex/DEVELOPMENT.md](../../.codex/DEVELOPMENT.md#pr本文人向け文書の日本語確認) と照合した。
+- #84のうちPR本文の意味確認を公開前後の責務に残した部分を旧判断、#128のdraft公開後へ集約する判断を置換先として扱った。#84全体を廃止扱いにしていない。現在の方針も [開発方針](../wiki/development-policy.md#pr本文人向け文書の日本語確認) と照合した。
 - #149からはTanStack Markdownの選定候補だけを取り出し、proposedとした。HTML表示機能の要求への合意と、ライブラリの採用判断を区別した。
 - `init`が生成するツール自身の採用記録1件は、比較対象の3件に数えていない。隔離環境内の記録であり、dotagentsでの採用合意ではない。
 - 同じ元Issueの本文を直接読み、検索した場合とも比較した。執筆担当自身による機能確認で、初見の利用者や独立した評価モデルによる比較ではない。

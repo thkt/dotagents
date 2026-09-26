@@ -27,7 +27,7 @@ Issueの記述と出典リンクで足りる場合は報告を作りません。
 
 保存したファイルは自動でcommit・pushされません。共有範囲と状態の確認は[引き継ぎ手順](../../skills/scoping/references/session.md#調査成果の引き継ぎ)に従い、確認済みの報告を通常の変更やPRに含めます。
 
-旧セッション、保存済み評価、lockはそのまま保全します。別worktreeやcloneへの調査成果の共有はGit経由で行い、過去の評価や合意を自動で引き継ぎません。外部保存庫の調査や旧Research資料は一括移管や削除をせず、必要な根拠を確認して共有用の報告へまとめます。旧stateの変換や再開は行いません。旧資産の保全条件は[開発方針](../../.codex/DEVELOPMENT.md#旧資産の保全と登録変更)を参照してください。
+旧セッション、保存済み評価、lockはそのまま保全します。別worktreeやcloneへの調査成果の共有はGit経由で行い、過去の評価や合意を自動で引き継ぎません。外部保存庫の調査や旧Research資料は一括移管や削除をせず、必要な根拠を確認して共有用の報告へまとめます。旧stateの変換や再開は行いません。旧資産の保全条件は[開発方針](../wiki/development-policy.md#旧資産の保全と登録変更)を参照してください。
 
 過去の調査（当時のarchive仕様を含み、現行手順ではありません）: [scopingの調査成果を共有する保存先](https://github.com/thkt/dotagents/blob/78a8ccee4829ac0bfe61bed5fdb9d0efdd62b772/research/scoping-research-storage.md)。
 

@@ -110,7 +110,7 @@ bun run check
 </table>
 <p>これは責任の分担です。担当人数を規定するものではありません。実際に誰がそれぞれを担当するかは、対象repoの運用に従います。</p>
 <p>独立評価のAIが受入可能と答えても、人の承認が済んだことにはなりません。公開前の評価は、これから公開担当と人へ渡すための判断です。</p>
-</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source=".codex/OUTCOME.md">.codex/OUTCOME.md</a> · <a data-source="scripts/README.md">scripts/README.md</a></p><p>実装内部では、コマンド実行と中断管理を<a data-source="scripts/shared/process.ts">process.ts</a>が、基本的な値の検査を<a data-source="scripts/shared/values.ts">values.ts</a>が受け持ちます。実行中のプロセスと中断状態を一か所で管理し、修正フローへの不要な依存と入力検査・独立評価の循環依存を解消しています。初回実装と修正に共通する指示・応答検査は<a data-source="scripts/implement/repair.ts">repair.ts</a>にまとめています。利用者の操作や承認手順は変わりません。</p></details></section>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="README.md">README.md</a> · <a data-source="scripts/README.md">scripts/README.md</a></p><p>実装内部では、コマンド実行と中断管理を<a data-source="scripts/shared/process.ts">process.ts</a>が、基本的な値の検査を<a data-source="scripts/shared/values.ts">values.ts</a>が受け持ちます。実行中のプロセスと中断状態を一か所で管理し、修正フローへの不要な依存と入力検査・独立評価の循環依存を解消しています。初回実装と修正に共通する指示・応答検査は<a data-source="scripts/implement/repair.ts">repair.ts</a>にまとめています。利用者の操作や承認手順は変わりません。</p></details></section>
 <section id="checks-and-materials" class="chapter"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">補足</span><h2>何を読み、どこで、誰が確かめるのか</h2></header><div class="chapter-body"><p>工程ごとに、使う資料、機械による確認、AIによる内容の精査、人の判断を整理します。本文・確認表・詳細図は、2026年9月25日に同じcommit <code data-commit></code>の文書とコードへ照合しました。</p>
 <h3><code>.dotagents.json</code> は何の設定か</h3>
 <p><strong>このハーネスが、開発対象のリポジトリを扱うために読む設定です。</strong> 対象リポジトリのルートに置きます。Codex一般の設定ファイルではありません。ファイル名と読み方はdotagents側の実装で決まっており、対象の照合は<code>scripts/shared/target.ts</code>が担当します。</p>
@@ -136,7 +136,7 @@ bun run check
 </thead>
 <tbody>
 <tr><td>GitHub Issue・合意記録</td><td data-label="このフローでの役割">今回実現する要求と完了条件</td><td data-label="誰がどう使うか">人が範囲を合意し、実装AIと評価AIが成果物を照合する</td></tr>
-<tr><td>対象repoの<code>AGENTS.md</code>、README、開発方針</td><td data-label="このフローでの役割">その場所で守る規則、操作、検証や文書の方針</td><td data-label="誰がどう使うか">担当AIが変更に関係する部分を読み、作業と評価に適用する。ここでの開発方針の正本は<code>.codex/DEVELOPMENT.md</code></td></tr>
+<tr><td>対象repoの<code>AGENTS.md</code>、README、開発方針</td><td data-label="このフローでの役割">その場所で守る規則、操作、検証や文書の方針</td><td data-label="誰がどう使うか">担当AIが変更に関係する部分を読み、作業と評価に適用する。ここでの開発方針の正本は<code>docs/wiki/development-policy.md</code></td></tr>
 <tr><td><code>skills/scoping/SKILL.md</code>、<code>skills/implement/SKILL.md</code></td><td data-label="このフローでの役割">担当AIが依頼をどう進めるか</td><td data-label="誰がどう使うか">要求整理・実装の担当AIが読み、必要な参照文書やCLIを使う</td></tr>
 <tr><td>skills配下の<code>agents/openai.yaml</code></td><td data-label="このフローでの役割">スキルの表示名、短い説明、起動例</td><td data-label="誰がどう使うか">スキルの入口で使う情報。このrepoではこれらの項目が記載されている</td></tr>
 <tr><td><code>.dotagents.json</code></td><td data-label="このフローでの役割">このハーネス用の対象repo設定</td><td data-label="誰がどう使うか">CLIが値を読み、操作先の照合と設定されたコマンドの実行に使う</td></tr>
@@ -171,7 +171,7 @@ bun run check
 <p><strong>実装の精査。</strong> 独立評価では、テストの成功や実装担当の説明だけで結論を出さず、現在の差分と影響を受ける呼出元・呼出先、境界条件、失敗時の動作、関連テストを読み、具体的な冗長性も確認します。前回の指摘を修正済みや非該当とする判断も、現在の成果物と必要な検証で確かめ、理由を残します。</p>
 <p>たとえば「一覧を名前順にする」という要求なら、表示が変わったことに加え、同名の項目、空の一覧、絞り込みとの組み合わせなど、今回の仕様に関係する条件を調べます。どの条件が必要かは対象アプリの要求と実装から選び、不明な期待値を推測で補いません。この例をすべての変更に対する必須チェックリストにはしません。</p>
 <p>既存PRの再調査や、QA・デザイナー・企画向けの確認ガイドは、後続の章にある設計方針です。担当者や対象アプリ固有の確認条件で未確定のものは、その実装や運用を具体化する際に確認します。</p>
-</div><details class="evidence"><summary>この補足の根拠（<span data-commit="short"></span>）</summary><p><a data-source="scripts/shared/target.ts">scripts/shared/target.ts</a> · <a data-source="scripts/implement/orchestrator.ts">scripts/implement/orchestrator.ts</a> · <a data-source="scripts/implement/correction.ts">scripts/implement/correction.ts</a> · <a data-source="scripts/implement/review.ts">scripts/implement/review.ts</a> · <a data-source="skills/scoping/SKILL.md">skills/scoping/SKILL.md</a> · <a data-source="skills/scoping/references/sufficiency.md">skills/scoping/references/sufficiency.md</a> · <a data-source="skills/scoping/references/issue.md">skills/scoping/references/issue.md</a> · <a data-source="scripts/README.md">scripts/README.md</a> · <a data-source=".codex/DEVELOPMENT.md">.codex/DEVELOPMENT.md</a></p></details></section>
+</div><details class="evidence"><summary>この補足の根拠（<span data-commit="short"></span>）</summary><p><a data-source="scripts/shared/target.ts">scripts/shared/target.ts</a> · <a data-source="scripts/implement/orchestrator.ts">scripts/implement/orchestrator.ts</a> · <a data-source="scripts/implement/correction.ts">scripts/implement/correction.ts</a> · <a data-source="scripts/implement/review.ts">scripts/implement/review.ts</a> · <a data-source="skills/scoping/SKILL.md">skills/scoping/SKILL.md</a> · <a data-source="skills/scoping/references/sufficiency.md">skills/scoping/references/sufficiency.md</a> · <a data-source="skills/scoping/references/issue.md">skills/scoping/references/issue.md</a> · <a data-source="scripts/README.md">scripts/README.md</a> · <a data-source="docs/wiki/development-policy.md">docs/wiki/development-policy.md</a></p></details></section>
 <section id="context-principles" class="chapter"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">知識</span><h2>判断の前提を、たどって見直せるようにする</h2></header><div class="chapter-body"><p><strong>実装開始の条件はwikiで説明し、必要な根拠を同じ版で各工程へ渡します。</strong> 要求・許可はIssue、根拠の版付き引き継ぎは報告参照、実行制御はホストが担います。共有モデルのJSON正本・ID選択・生成説明はIssue #265で終了します。</p>
 <h3>目的・概念・振る舞いを、根拠と結び付ける</h3>
 <p>このガイドでは、Teleologyを「何を望ましい状態とするか」、Ontologyを「何が存在し、どんな意味や関係を持つか」、Nomologyを「どんな規則があり、どう動くと考えているか」をそれぞれ問う観点として使います。目的・概念・振る舞いを考えることと、それを型やデータへ表すことは分けます。三つを順番に確定する工程にはせず、分かったことに応じて互いを見直します。</p>
@@ -268,13 +268,13 @@ bun run check
 <p>冗長性は、重複箇所・同じ対象や入力・観測時点・実行や保守の負担から確かめます。setup・モデル実行・書込み・公開を挟む再確認は、鮮度や失敗時の保証を区別します。具体的な無駄が確認でき、合意範囲の局所修正で保証を保てるものは、既存の指摘と修正ループで公開前に解消します。好みや行数だけで削除を求めず、共通化で増える引数・分岐・状態・説明も比較します。</p>
 <p>テストは、見逃したくない現実的な不具合、既存の検証に加わる保証と費用を基準に選びます。独立評価担当も要求とテストを確認し、削る場合は失う検出条件と残る確認を示します。判断は既存の評価とPR説明へ残します。</p>
 <p>改善案の採用に比較が必要な場合だけ、条件を揃え、<strong>要求充足 → 実質的な変更 → 失敗・再試行を含む総費用</strong>の順に判断します。行数を使うなら比較用コピーを同じ版・設定で整形し、コード・テスト・文書を分けます。呼出側へ移した判断や検査、同時修正する場所も保守負担に含めます。実行失敗・採点不能と要求違反を分け、分母と集計範囲を示し、取得できない費用を0にはしません。既存の根拠で判断できる変更に実験を追加しません。</p>
-<p>要求を変えず、判定方法だけを比較する場合は、対象版・入力・環境と必要な観測が揃う保存記録を使えます。元の記録と判定を保持し、新たな基準による再判定と区別します。実装・入力・環境が変わった場合や観測が足りない場合は必要な検証をやり直し、できなければ未確認とします。再判定だけの費用を検証全体と比較しません。指示の移動や後続変更の保守負担も、観測できた範囲で判断します。詳しくは<a data-source=".codex/DEVELOPMENT.md#改善効果の比較">比較方針の正本</a>を参照します。</p>
+<p>要求を変えず、判定方法だけを比較する場合は、対象版・入力・環境と必要な観測が揃う保存記録を使えます。元の記録と判定を保持し、新たな基準による再判定と区別します。実装・入力・環境が変わった場合や観測が足りない場合は必要な検証をやり直し、できなければ未確認とします。再判定だけの費用を検証全体と比較しません。指示の移動や後続変更の保守負担も、観測できた範囲で判断します。詳しくは<a data-source="docs/wiki/development-policy.md#改善効果の比較">比較方針の正本</a>を参照します。</p>
 <p>独立評価のAIは既存の各指摘を判断し、新しい指摘を加えます。ホストがIDと履歴を管理し、必須指摘の未解決を受入可能へ読み替えません。詳しい応答形式は<a data-source="scripts/README.md">CLIガイド</a>で確認できます。</p>
 <p>評価の対象と形式を確認し、記録できた結果だけを履歴へ加えます。応答不正や保存障害では修正・公開へ進まず、以前の評価と生応答を保全します。</p>
 <p>不備は修正し、変更文書も含めて必要な撮影、check、独立評価をやり直します。撮影の再利用は同じ実行内の許可条件に限ります。公開前には最新の要求・成果物と終端の成功結果を照合し、対象が変わっていれば停止します。</p>
 <p>旧runと記録は保全し、新形式へ変換・再開しません。新しい実行の応答形式は<a data-source="scripts/README.md">CLIガイド</a>を参照してください。</p>
 <p><strong>ここで残るもの：</strong> 検証対象の差分、ログ、独立評価の所見と、公開担当・人に残る作業。受入可能という結果は、PR公開と人のレビューへ渡せる状態を表します。</p>
-</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="scripts/implement/review.ts">scripts/implement/review.ts</a> · <a data-source="scripts/implement/input.ts">scripts/implement/input.ts</a> · <a data-source="scripts/implement/correction.ts">scripts/implement/correction.ts</a> · <a data-source=".codex/DEVELOPMENT.md">.codex/DEVELOPMENT.md</a></p></details></section>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="scripts/implement/review.ts">scripts/implement/review.ts</a> · <a data-source="scripts/implement/input.ts">scripts/implement/input.ts</a> · <a data-source="scripts/implement/correction.ts">scripts/implement/correction.ts</a> · <a data-source="docs/wiki/development-policy.md">docs/wiki/development-policy.md</a></p></details></section>
 <section id="writing" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">08</span><h2>文書の内容を、各担当が確かめる</h2></header><div class="chapter-body"><p>文書確認は執筆・既存の独立評価で行い、生成PR本文の意味確認はdraft公開後へ集約します。専用の校正工程を挟まず、担当ごとに次へ渡せる内容かを確かめます。</p>
 <ol>
 <li><strong>執筆担当：</strong> 事実、数量、否定、条件、範囲、権限、断定の強さ、未確認事項、参照を原資料と照合し、平易な日本語で書きます。事実不足は調査へ、要求や権限の変更は人との合意へ戻します。</li>
@@ -285,7 +285,7 @@ bun run check
 <h3>旧版から切り替えるとき</h3>
 <p>専用Gemini校正、保護対象の機械比較、別モデルによる校正前後の意味照合は廃止しました。文書やPR本文のためだけのモデル呼び出しは追加しません。従来と同じ独立検査を維持したという意味ではありません。</p>
 <p>旧<code>writing</code>設定は新しい入力では使えません。利用先ごとに文書方針を確認し、専用校正の要否が未解決なら旧版を保持します。保存済みの原文・候補・評価・失敗記録・runは削除、変換、再開せず、採用版からの新規実行に新しい契約を使います。Antigravity CLIの導入・認証はハーネスの前提ではなくなりますが、利用者のCLIや認証情報は削除しません。</p>
-</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source=".codex/DEVELOPMENT.md#pr本文人向け文書の日本語確認">日本語確認の方針</a></p></details></section>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="docs/wiki/development-policy.md#pr本文人向け文書の日本語確認">日本語確認の方針</a></p></details></section>
 <section id="capture" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">09</span><h2>画面の証拠を、レビューで使える形にする</h2></header><div class="chapter-body"><p>画像や動画の必要性は、Issueと対象repoの撮影設定で決めます。媒体不要なら設定で明示します。すべての変更に図や動画を必須とする運用ではありません。</p>
 <p>必要な場合は、実装・修正担当が撮影定義を用意し、ホストが対象repoの検証環境で撮影します。出力はcheckout外の新しい場所へ置き、空の出力、不正形式、symlinkを拒否し、対象の不変を確認して、repo内の生成媒体専用の保存先へ取り込みます。</p>
 <h3>撮り直す条件と、再利用する条件</h3>
@@ -295,7 +295,7 @@ bun run check
 <p>対象commitと、撮影ログ、配置した媒体、検証結果を対応づけます。公開担当は実際のPRで画像を読めるか、動画を再生できるか、比較対象や操作の説明が伝わるかを確認します。</p>
 <p>操作を説明する動画には、必要に応じて見出し、キー表示、字幕、音声を使います。音声を付ける場合はmacOS標準音声のKyokoを使い、合成音声であることを明示する方針です。表示や音声が実際の操作と合い、同期しているかも確認します。</p>
 <p>説明や撮影が不足する場合は、その作成担当へ戻します。配置の不備は公開担当が整えて再確認します。アップロード成功と、レビューに使える表示・説明の確認は別々に記録します。</p>
-</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="scripts/README.md">scripts/README.md</a> · <a data-source=".codex/DEVELOPMENT.md">.codex/DEVELOPMENT.md</a></p></details></section>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="scripts/README.md">scripts/README.md</a> · <a data-source="docs/wiki/development-policy.md">docs/wiki/development-policy.md</a></p></details></section>
 <section id="publish" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">10</span><h2>検証した変更をPRへ渡す</h2></header><div class="chapter-body"><p>独立評価のあと、ホストは対象と検証済みの成果物を再照合します。要求やファイル、必要媒体が変わっていれば、以前の成功をそのまま使って公開しません。</p>
 <p>通常の実行では、変更をコミットし、最新のaccepted評価から変更・理由・検証と限界・根拠・残作業を選んで本文を生成します。ホストがIssue・成果物・commit・参照・公開先・主体・権限を機械照合し、新規PRはdraftで作成します。完成本文の意味確認は、公開後の担当AIが行います。明示的な開発依頼は、検証・独立評価、draft公開・更新、公開後確認、readyへの切替と読戻しまでを含みます。</p>
 <p>評価担当は、変更と理由、要求への対応、検証と限界、文書の適用条件をそれぞれの区分で説明し、同じ事実・結論・但し書きを繰り返しません。条件・否定・権限・未確認事項・担当が異なる説明は残します。呼出順序・データ形状・責務を示すと理解しやすい場合だけ、変更と理由に短い構造説明を添えます。実差分と対象版に照合し、文章で十分なら省きます。図・構造欄・固定の文数は必須にしません。</p>
@@ -337,7 +337,7 @@ bun run check
 <p>確認後に差分が更新された場合は、最新commitの差分とCIを再確認します。エージェントは人の判断、承認、マージを代行しません。</p>
 <p><strong>指摘があれば、まず根拠と影響範囲を調べます。</strong> 人が対象PRと指摘を示して依頼し、担当AIが見直す範囲と戻り先を判断する方針です。必要ならIssue作成から見直します。次の章で、この往復と現行CLIとの接続を説明します。</p>
 
-</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source=".codex/DEVELOPMENT.md">.codex/DEVELOPMENT.md</a></p></details></section>
+</div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="docs/wiki/development-policy.md">docs/wiki/development-policy.md</a></p></details></section>
 <section id="post-review" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">12</span><h2>PRの差し戻しを、次の修正につなぐ</h2></header><div class="chapter-body"><p><strong>合意した既存PRの修正は、同じdevelopmentで進めます。</strong> 差し戻しは、人が対象PRと指摘を示して依頼するところから始まります。担当するAIは、指摘の根拠を調べ、何を見直す必要があるかを整理します。原因の名前だけで戻り先を固定せず、調査資料・Issue・設計・実装・検証・説明への影響を確かめます。</p>
 <h3>修正を始める前に、四つの問いを確かめる</h3>
 <ol>
@@ -475,7 +475,7 @@ bun run check
 <p>本文の編集元は<code>docs/html/workflow-guide.html</code>、図のデータと表示の編集元は<code>docs/html/workflow-map.html</code>です。変更前の保全・比較用コピーは必要な作業の間だけ作業領域に置き、継続して編集する全文コピーは増やしません。これらのHTMLはrepoで管理し、変更はIssueとPRで確認します。確認基点の版表示は<code>source-commit</code>から<code>data-commit</code>へ反映します。<code>data-source</code>の根拠リンクは同じcheckoutのファイルへ解決します。過去版を意図したリンクは通常の<code>href</code>で固定します。</p>
 <ul>
 <li><a data-source="README.md">全体の目的と現行入口</a></li>
-<li><a data-source=".codex/DEVELOPMENT.md">要求・文書・テスト・レビュー・マージの方針</a></li>
+<li><a data-source="docs/wiki/development-policy.md">要求・文書・テスト・レビュー・マージの方針</a></li>
 <li><a data-source="skills/scoping/SKILL.md">scopingの進め方</a></li>
 <li><a data-source="skills/scoping/references/sufficiency.md">十分性の判断と六つの問い</a></li>
 <li><a data-source="skills/scoping/references/session.md">根拠の保存・改訂・引き継ぎ</a></li>

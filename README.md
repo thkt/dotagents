@@ -1,11 +1,11 @@
 # dotagents
 
-合意した要求をGitHub Issueにまとめる`scoping`と、Issueを実装・検証して人のレビューへ渡す`implement`の共通ハーネスです。対象repoごとの技術構成、検証、必要媒体を設定します。
+合意した要求をGitHub Issueにまとめる`scoping`と、Issueを実装・検証して人のレビューへ渡す`implement`の共通ハーネスです。要求と完了条件は合意済みIssue、実行・検証・公開確認はホスト、承認とマージは人が担います。対象repoごとの技術構成、検証、必要媒体を設定します。
 
 ## 読む順序
 
 - このREADMEの[共有入口と利用条件](#共有入口と利用条件): メンバーが依存する入口、必要な版、結果の参照先。
-- [開発方針](.codex/DEVELOPMENT.md): 要求・公開範囲の合意、文書・テスト・独立評価、人のマージ判断とmain保護。
+- [開発方針](docs/wiki/development-policy.md): 要求・公開範囲の合意、文書・テスト・独立評価、人のマージ判断とmain保護。
 - [制御CLI](scripts/README.md): 対象設定、起動、上限、中断、公開。
 - [実装開始の条件](docs/wiki/implementation-start.md): 現行の開始条件と適用範囲。根拠の引き継ぎと旧選択の扱いは[制御CLI](scripts/README.md#調査報告を指定した実装開始)。
 - [調査成果](docs/research/README.md): 再利用する根拠、未採用の提案、Gitによる共有と引き継ぎ。
@@ -14,7 +14,7 @@
 
 ## 共有入口と利用条件
 
-メンバーが依存してよい入口は、次のスキル、対象設定、文書で案内するCLIと結果の参照方法です。変更時は[開発方針](.codex/DEVELOPMENT.md#変更に応じた確認)に従い、利用条件と観測できる結果を照合します。
+メンバーが依存してよい入口は、次のスキル、対象設定、文書で案内するCLIと結果の参照方法です。変更時は[開発方針](docs/wiki/development-policy.md#変更に応じた確認)に従い、利用条件と観測できる結果を照合します。
 
 | 入口 | 利用条件と参照先 |
 | --- | --- |
@@ -25,7 +25,7 @@
 | 指示変更のeval | 関連する改善作業で、版・ケース・モデル・有限上限を固定して比較します。[実行条件と報告](scripts/README.md#指示変更時の同条件eval)から手動で開始し、定期実行や全PRの必須ゲートにはしません |
 | 実行結果 | developmentのrun保存先で `result.json` から理由・次の対応・証拠を辿ります。`report.html`は保存結果の表示です。[結果と再実行](scripts/README.md#結果と再実行)で下位state・生ログと生成できない条件を確認します |
 
-共通登録されたスキルが信頼する同じハーネス実体を参照することが前提です。利用するハーネスのcommitと実体パスを確認し、その版の手順・lockfileを使います。ハーネスはBun 1.4.2、Git、gh、Codex CLIを使い、現在の対応環境はmacOSホストとgithub.comです。Git・gh・Codex CLIの共通の最低版は定めていません。必要な機能や既存認証は[CLI手順](scripts/README.md#issueからpr作成)で確認し、対象repoの言語・検証ツールは対象設定に従います。登録変更は[保全と登録変更の方針](.codex/DEVELOPMENT.md#旧資産の保全と登録変更)に従い、新しいタスクで実体・版・対象解決を確認します。
+共通登録されたスキルが信頼する同じハーネス実体を参照することが前提です。利用するハーネスのcommitと実体パスを確認し、その版の手順・lockfileを使います。ハーネスはBun 1.4.2、Git、gh、Codex CLIを使い、現在の対応環境はmacOSホストとgithub.comです。Git・gh・Codex CLIの共通の最低版は定めていません。必要な機能や既存認証は[CLI手順](scripts/README.md#issueからpr作成)で確認し、対象repoの言語・検証ツールは対象設定に従います。登録変更は[保全と登録変更の方針](docs/wiki/development-policy.md#旧資産の保全と登録変更)に従い、新しいタスクで実体・版・対象解決を確認します。
 
 内部のTypeScript export、参照されているだけのファイル、fallowの`entry`全体を公開契約にはしません。静的な未使用判定は、上記の入口やrepo外の利用の互換性を証明しません。メンバーごとの環境と、repo外から内部exportを使う実例は未確認です。利用実態が見つかった場合は対象と必要な保証を明示し、合意する範囲を見直します。
 
@@ -72,6 +72,6 @@ Bun 1.4.2を使います。checkはlint、書式、Biomeの認知的複雑度15�
 
 合意済みIssueは`implement`で実装します。CLIの絶対パスは信頼するスキル実体から解決し、実行対象repoのパスを渡します。操作は各[スキル](skills/scoping/SKILL.md)と[実装入口](skills/implement/SKILL.md)を参照してください。
 
-共通環境の登録切替と新しいタスクでの移行受入は、2026-09-14に[Issue #54](https://github.com/thkt/dotagents/issues/54)で完了しました。採用版・受入結果は同Issueを、今後の保全と登録変更は[開発方針](.codex/DEVELOPMENT.md#旧資産の保全と登録変更)を参照してください。日常作業では上記のスキルと制御CLIの手順を使います。scopingの切替と新しいタスクでの確認は[切替手順](scripts/README.md#scopingの切替と手順確認)を参照してください。
+共通環境の登録切替と新しいタスクでの移行受入は、2026-09-14に[Issue #54](https://github.com/thkt/dotagents/issues/54)で完了しました。採用版・受入結果・未計測範囲は同Issueを、今後の保全と登録変更は[開発方針](docs/wiki/development-policy.md#旧資産の保全と登録変更)を参照してください。日常作業では上記のスキルと制御CLIの手順を使い、移行手順を通常タスクの前提にはしません。scopingの切替と新しいタスクでの確認は[切替手順](scripts/README.md#scopingの切替と手順確認)を参照してください。
 
 新規起動の旧research・think・issue・build・code・cleanup入口と旧workflow hookは採用しません。旧資産や旧runは保全し、削除・変換・自動再開しません。

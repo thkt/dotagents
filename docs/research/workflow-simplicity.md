@@ -28,7 +28,7 @@ Issue作成とPR作成を基本の区切りとします。実行の区切りや�
 | 実装する | Issueと既存資産から、コード・必要なテスト・文書・撮影定義を作る | [development.ts の implement](../../scripts/development.ts)、[codex-actor.ts](../../scripts/codex-actor.ts) | 範囲内の実装を完了し、要求や権限の変更が必要なら人へ戻す |
 | 検証・評価・修正する | 文書、必要媒体、check結果、対象版付きの指摘と判断 | [correction.ts の cycle](../../scripts/correction.ts)、[review.ts](../../scripts/review.ts)、[writing-review.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/writing-review.ts)、[capture.ts](../../scripts/capture.ts) | ホストが検証と評価を進める。対象の変化、無効な応答、上限、人の判断が必要な場合などは停止する |
 | PRへ渡す | 検証済み成果物、PR本文、媒体、CI結果、残る確認 | [development.ts の ship](../../scripts/development.ts)、[publish.ts](../../scripts/publish.ts)、[ci.ts](../../scripts/ci.ts) | 公開前後に対象を照合し、同じPR headのCIを確認する。人のレビューや媒体の実表示確認は残る作業として扱う |
-| 人がレビュー・マージする | PRの差分、説明、検証結果 | [開発方針](../../.codex/DEVELOPMENT.md)と人の判断 | 対象repoの承認条件を満たし、人がマージを判断する |
+| 人がレビュー・マージする | PRの差分、説明、検証結果 | [開発方針](../wiki/development-policy.md)と人の判断 | 対象repoの承認条件を満たし、人がマージを判断する |
 | 既存PRを見直す | 対象PRと指摘から再調査し、戻り先を提案する | フロー整理で合意した設計方向。専用の再開入口は未実装 | 調査後に合意の有効性と影響を確認する。要求整理やIssue作成へ戻る場合もある |
 | 関係者へ説明し、運用へつなぐ | QA・デザイナー・企画向けの変更説明と確認ガイド | フロー整理で合意した設計方向。生成・共有の仕組みは未実装 | 資料作成、受け渡し、各担当の確認を区別する。リリース・運用の具体的な手順は対象アプリで定める |
 
@@ -97,7 +97,7 @@ Issue作成とPR作成を基本の区切りとします。実行の区切りや�
 
 既存PRの再調査と関係者への引き継ぎは、合意した方向を実現する追加機能として扱います。既存動作を維持する内部整理の完了条件へ混ぜません。何を自動化し、何を人が判断するかは、その実装範囲を具体化する際に確認します。
 
-参照した正本は[開発方針](../../.codex/DEVELOPMENT.md)、[CLI手順](../../scripts/README.md)、上記の実装です。指摘履歴を残す理由は[独立レビューの設計根拠](implement-review-foundation.md)を参照しました。後者の実装前の記述は過去の設計根拠として扱い、現状は本書冒頭のcommitで確認しました。
+参照した正本は[開発方針](../wiki/development-policy.md)、[CLI手順](../../scripts/README.md)、上記の実装です。指摘履歴を残す理由は[独立レビューの設計根拠](implement-review-foundation.md)を参照しました。後者の実装前の記述は過去の設計根拠として扱い、現状は本書冒頭のcommitで確認しました。
 
 ## 2026-09-23の参考メモ：大規模タスク管理
 
