@@ -1,6 +1,24 @@
 import { expect, test } from 'bun:test';
 import { commandInputs } from '../../implement/command-inputs.ts';
 
+test('tail legacy offsets are unknown while explicit plus-prefixed files remain operands', () => {
+  const cases: [string, string[], boolean][] = [
+    ['tail +2 /dev/null', [], true],
+    ['tail +2c /dev/null', [], true],
+    ['tail +2', [], true],
+    ['tail +2c', [], true],
+    ["/usr/bin/tail '+2c' /dev/null; cat real.md", ['real.md'], true],
+    ['tail -- +2 /dev/null', ['+2', '/dev/null'], false],
+    ['tail -- +2c', ['+2c'], false],
+    ['cat +2 +2c', ['+2', '+2c'], false],
+    ['tail -n +2 real.md', ['real.md'], false],
+    ['tail ./+2 +notes.md', ['./+2', '+notes.md'], false],
+  ];
+  for (const [command, paths, partial] of cases) {
+    expect(commandInputs(command), command).toEqual({ paths, partial });
+  }
+});
+
 test('line continuations preserve comment and quoted word boundaries', () => {
   const cases: [string, string[], boolean][] = [
     ['cat \\\n# comment.md', [], true],

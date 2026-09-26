@@ -122,7 +122,11 @@ function commandWords(tokens: Token[]): string[] | undefined {
   return words;
 }
 
-function operands(args: string[], option: (arg: string, next: string) => number | undefined) {
+function operands(
+  args: string[],
+  option: (arg: string, next: string) => number | undefined,
+  optionPrefix = /^-/,
+) {
   const paths: string[] = [];
   let options = true;
   for (let i = 0; i < args.length; i++) {
@@ -131,7 +135,7 @@ function operands(args: string[], option: (arg: string, next: string) => number 
       options = false;
       continue;
     }
-    if (options && arg.startsWith('-') && arg !== '-') {
+    if (options && optionPrefix.test(arg) && arg !== '-') {
       const consumed = option(arg, args[i + 1] ?? '');
       if (consumed === undefined) {
         return undefined;
@@ -153,12 +157,18 @@ function readOperands(words: string[]): string[] | undefined {
     return operands(args, (arg) => (/^-[AbeEnstTuv]+$/.test(arg) ? 0 : undefined));
   }
   if (executable === 'head' || executable === 'tail') {
-    return operands(args, (arg, next) => {
-      if (/^-[nc]$/.test(arg)) {
-        return /^[+-]?\d+[bcwkMG]?$/.test(next) ? 1 : undefined;
-      }
-      return /^-(?:[qv]+|\d+|[nc][+-]?\d+[bcwkMG]?)$/.test(arg) ? 0 : undefined;
-    });
+    return operands(
+      args,
+      (arg, next) => {
+        if (/^-[nc]$/.test(arg)) {
+          return /^[+-]?\d+[bcwkMG]?$/.test(next) ? 1 : undefined;
+        }
+        return /^-(?:[qv]+|\d+|[nc][+-]?\d+[bcwkMG]?)$/.test(arg) ? 0 : undefined;
+      },
+      // Legacy tail offsets such as +2c are unsupported options, not paths.
+      // operands still honors '--' and consumes modern '-n +2' as one option.
+      executable === 'tail' ? /^(?:-|\+\d)/ : /^-/,
+    );
   }
   if (executable === 'sed' && args[0] === '-n') {
     const scriptIndex = args[1] === '-e' ? 2 : 1;

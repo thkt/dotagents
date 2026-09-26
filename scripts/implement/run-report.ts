@@ -72,8 +72,17 @@ function detail(label: string, content: string) {
   return `<details><summary>${escape(label)}</summary><div class="detail-body">${content}</div></details>`;
 }
 
-function eventDetail(label: string, status: string, content: string, preview = '') {
-  return `<details class="event-disclosure"><summary><span class="event-heading">${escape(label)}${preview}</span><span class="event-status">${escape(status)}</span><span class="event-chevron" aria-hidden="true">›</span></summary><div class="event-body">${content}</div></details>`;
+function eventDetail(
+  label: string,
+  status: string,
+  content: string,
+  metadata: { preview?: string; line?: number } = {},
+) {
+  const source =
+    metadata.line === undefined
+      ? ''
+      : `<span class="event-source">原記録：${metadata.line}行目</span>`;
+  return `<details class="event-disclosure"><summary><span class="event-heading"><span class="event-title">${escape(label)}</span>${source}${metadata.preview ?? ''}</span><span class="event-status">${escape(status)}</span><span class="event-chevron" aria-hidden="true">›</span></summary><div class="event-body">${content}</div></details>`;
 }
 
 function inputFiles(command: string) {
@@ -82,7 +91,7 @@ function inputFiles(command: string) {
   const labels = paths.map((path, index) => {
     const name = names[index] ?? path;
     const duplicate = names.indexOf(name) !== names.lastIndexOf(name);
-    return `<span class="input-file">${quote(name)}${duplicate ? `<span class="input-directory">${escape(dirname(path))}/</span>` : ''}</span>`;
+    return `<span class="input-file" tabindex="0">${quote(name)}${duplicate ? `<span class="input-directory">${escape(dirname(path))}/</span>` : ''}</span>`;
   });
   const status = paths.length ? (partial ? '一部のみ抽出' : 'commandから抽出') : '抽出できず';
   return {
@@ -139,9 +148,10 @@ function genericEvent(
   const operation = item?.type === 'mcp_tool_call' ? 'MCPツール' : (text(item?.type) ?? kind);
   const status = eventStatuses.get(kind) ?? '記録されたイベント';
   return eventDetail(
-    `行 ${index + 1} · ${operation}`,
+    operation,
     status,
     `<p class="muted">入出力の区分は未確認です。保存された行の抜粋です。</p>${ioPanel('イベント原文 · 抜粋', `<pre>${excerpt(raw)}</pre>`, 'neutral')}`,
+    { line: index + 1 },
   );
 }
 
@@ -153,10 +163,10 @@ function actorAction(event: unknown, index: number, raw: string) {
     const exit =
       typeof item.exit_code === 'number' ? `終了コード ${item.exit_code}` : '終了コード未記録';
     return eventDetail(
-      `行 ${index + 1} · コマンド実行`,
+      'コマンド実行',
       event.type === 'item.completed' ? exit : (eventStatuses.get(text(event.type) ?? '') ?? exit),
       `${files.body}<div class="io-grid">${ioPanel('入力 · command', `<pre>${excerpt(command)}</pre>`, 'input')}${ioPanel('出力 · aggregated_output', `<pre>${excerpt(text(item.aggregated_output) ?? '未記録')}</pre>`, 'output')}</div>`,
-      files.preview,
+      { preview: files.preview, line: index + 1 },
     );
   }
   if (
@@ -166,9 +176,10 @@ function actorAction(event: unknown, index: number, raw: string) {
     typeof item.text === 'string'
   ) {
     return eventDetail(
-      `行 ${index + 1} · モデルの応答`,
+      'モデルの応答',
       '完了イベント',
       `<div class="io-grid">${ioPanel('入力', '<p class="muted">このイベントには入力の保存値がありません。</p>', 'input')}${ioPanel('出力 · text', `<pre>${excerpt(item.text)}</pre>`, 'output')}</div>`,
+      { line: index + 1 },
     );
   }
   return genericEvent(event, item, index, raw);
@@ -179,8 +190,11 @@ async function actorLogGroup(root: string, path: string, name: string, warnings:
   if (raw === undefined) {
     return undefined;
   }
-  const lines = raw.split('\n').filter(Boolean);
+  const lines = raw.split('\n');
   const actions = lines.flatMap((line, index) => {
+    if (!line) {
+      return [];
+    }
     try {
       return [actorAction(JSON.parse(line) as unknown, index, line)];
     } catch (error) {
@@ -188,7 +202,7 @@ async function actorLogGroup(root: string, path: string, name: string, warnings:
       return [];
     }
   });
-  return `<section class="actor-group"><header><h4>モデル側 · ${escape(name)}</h4><p>${actions.length}/${lines.length}行表示（このログ内の順序）。${localLink(root, path, 'イベント原記録を開く')}。画面の長文は抜粋です。</p></header><div class="activity-list">${actions.join('') || '<p>表示対象のイベントは未記録です。</p>'}</div></section>`;
+  return `<section class="actor-group"><header><h4>モデル側 · ${escape(name)}</h4><p>${actions.length}/${lines.filter(Boolean).length}行表示（空行を除く、このログ内の順序）。${localLink(root, path, 'イベント原記録を開く')}。「原記録」はこの保存イベントログの行位置です。画面の長文は抜粋です。</p></header><div class="activity-list">${actions.join('') || '<p>表示対象のイベントは未記録です。</p>'}</div></section>`;
 }
 
 type EntryCache = Map<string, Promise<Dirent<string>[]>>;
@@ -315,7 +329,7 @@ function reviewSection(review: Review | undefined) {
 }
 
 function publicationSection(result: RunResult) {
-  return `<dl>${field('公開状態', shown(result.publication))}${field('commit', result.commit ? quote(result.commit) : '未記録')}${field('PR', externalLink(result.url, result.url ?? ''))}${field('CI', shown(result.ci))}</dl>${result.ciDetails === undefined ? '' : detail('CIの保存結果', `<pre>${excerpt(JSON.stringify(result.ciDetails, null, 2), 3000)}</pre>`)}<p class="muted">GitHubの現在状態ではなく、run終了時の保存記録です。</p>`;
+  return `<dl class="summary-fields">${field('公開状態', shown(result.publication))}${field('commit', result.commit ? quote(result.commit) : '未記録')}${field('PR', externalLink(result.url, result.url ?? ''))}${field('CI', shown(result.ci))}</dl>${result.ciDetails === undefined ? '' : detail('CIの保存結果', `<pre>${excerpt(JSON.stringify(result.ciDetails, null, 2), 3000)}</pre>`)}<p class="muted">GitHubの現在状態ではなく、run終了時の保存記録です。</p>`;
 }
 
 function activitySection(
@@ -388,14 +402,14 @@ async function render(runDir: string) {
   const generatedAt = new Date().toISOString();
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><meta name="referrer" content="no-referrer"><title>実装runの記録 · ${escape(status)}</title><style>
 :root{font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;color:#23272e;background:#f6f7f9;line-height:1.6}*{box-sizing:border-box}body{margin:0}main{max-width:1080px;margin:auto;padding:36px 28px 90px}h1{font-size:30px;line-height:1.25;margin:12px 0}h2{font-size:21px;margin:0 0 14px}h3{font-size:17px;margin:0 0 10px}p{margin:8px 0 12px}.eyebrow{font-size:13px;color:#636e7d;font-weight:650;letter-spacing:.05em}.lead{font-size:16px;color:#566170}.pill{display:inline-block;background:#e8edf8;color:#263f75;border-radius:999px;padding:4px 12px;font-size:13px;font-weight:700}.pill.stopped{background:#fff0e5;color:#93480f}.section{margin-top:28px}.card{background:#fff;border:1px solid #dce1e7;border-radius:14px;padding:24px;box-shadow:0 1px 3px #1c26320d}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:0}dt{font-size:12px;color:#647080;font-weight:650}dd{margin:3px 0 0;overflow-wrap:anywhere;font-size:14px}code,pre{font-family:ui-monospace,SFMono-Regular,monospace;font-size:12px}code{overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f7fa;border:1px solid #e2e6ec;border-radius:8px;padding:12px;max-height:330px;overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:11px 12px;border-bottom:1px solid #e5e8ec;vertical-align:top;overflow-wrap:anywhere}th{color:#596474;font-weight:650}a{color:#2359a2}a:hover{text-decoration:underline}a:focus-visible,summary:focus-visible{outline:3px solid #5b78c5;outline-offset:3px}details{border:1px solid #dce1e7;border-radius:10px;background:#fff;margin-top:10px;overflow:hidden}summary{cursor:pointer;padding:14px 18px;font-weight:650}summary:hover{background:#f5f7fa}.detail-body{border-top:1px solid #dce1e7;padding:16px 18px}.detail-body details{margin:10px 0}.io-label{font-size:12px;font-weight:700;margin:12px 0 5px}.input{color:#305fa4}.output{color:#14735a}.muted{color:#687484}.table-wrap{overflow-x:auto}@media(max-width:700px){main{padding:22px 16px 60px}.grid,dl{grid-template-columns:1fr}.card{padding:18px}h1{font-size:25px}}
-.actor-group{margin-top:16px;border:1px solid #dce1e7;border-radius:10px;overflow:hidden;background:#fff}.actor-group>header{padding:18px 20px;border-bottom:1px solid #dce1e7}.actor-group>header h4{margin:0;font-size:15px}.actor-group>header p{margin:5px 0 0;font-size:13px;color:#687484}.activity-list>.event-disclosure{margin:0;border:0;border-radius:0}.activity-list>.event-disclosure+.event-disclosure{border-top:1px solid #dce1e7}.event-disclosure>summary{display:grid;grid-template-columns:minmax(0,1fr) auto 18px;align-items:center;gap:12px;padding:17px 20px;list-style:none;font-size:14px;text-decoration:none}.event-disclosure>summary::-webkit-details-marker{display:none}.event-disclosure>summary:hover{background:#f6f7f9;text-decoration:none}.event-disclosure>summary:hover .event-heading{text-decoration:underline;text-underline-offset:4px}.event-disclosure>summary:focus-visible{outline-offset:-4px}.event-disclosure[open]>summary{background:#f6f7f9}.event-status{border:1px solid #dce1e7;border-radius:5px;padding:2px 8px;background:#fff;color:#596474;font-size:12px;font-weight:500}.event-chevron{font-size:20px;line-height:1;justify-self:end;color:#687484}.event-disclosure[open] .event-chevron{transform:rotate(90deg)}.event-body{border-top:1px solid #dce1e7;background:#fafbfc;padding:20px}.event-body>.muted:first-child{margin-top:0}.io-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.io-panel{border:1px solid #dce1e7;border-radius:8px;background:#fff;overflow:hidden}.io-panel>h4{margin:0;padding:10px 14px;font-size:13px;border-bottom:1px solid}.io-panel>div{padding:14px;min-width:0}.io-panel pre{margin:0;background:#fff;border:0;padding:0}.input-panel{border-color:#c7d8f4}.input-panel>h4{background:#eef5ff;color:#215ba4;border-color:#c7d8f4}.output-panel{border-color:#dacdf0}.output-panel>h4{background:#f5effb;color:#6d43a0;border-color:#dacdf0}.neutral-panel>h4{background:#f6f7f9;color:#596474;border-color:#dce1e7}@media(max-width:700px){.io-grid{grid-template-columns:1fr}.event-disclosure>summary{grid-template-columns:minmax(0,1fr) 18px}.event-status{grid-column:1;grid-row:2;justify-self:start}.event-chevron{grid-column:2;grid-row:1}}
+.actor-group{margin-top:16px;border:1px solid #dce1e7;border-radius:10px;overflow:hidden;background:#fff}.actor-group>header{padding:18px 20px;border-bottom:1px solid #dce1e7}.actor-group>header h4{margin:0;font-size:15px}.actor-group>header p{margin:5px 0 0;font-size:13px;color:#687484}.activity-list>.event-disclosure{margin:0;border:0;border-radius:0}.activity-list>.event-disclosure+.event-disclosure{border-top:1px solid #dce1e7}.event-disclosure>summary{display:grid;grid-template-columns:minmax(0,1fr) auto 18px;align-items:center;gap:12px;padding:17px 20px;list-style:none;font-size:14px;text-decoration:none}.event-disclosure>summary::-webkit-details-marker{display:none}.event-disclosure>summary:hover{background:#f6f7f9;text-decoration:none}.event-disclosure>summary:hover .event-title{text-decoration:underline;text-underline-offset:4px}.event-disclosure>summary:focus-visible{outline-offset:-4px}.event-disclosure[open]>summary{background:#f6f7f9}.event-status{border:1px solid #dce1e7;border-radius:5px;padding:2px 8px;background:#fff;color:#596474;font-size:12px;font-weight:500}.event-chevron{font-size:20px;line-height:1;justify-self:end;color:#687484}.event-disclosure[open] .event-chevron{transform:rotate(90deg)}.event-body{border-top:1px solid #dce1e7;background:#fafbfc;padding:20px}.event-body>.muted:first-child{margin-top:0}.io-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.io-panel{border:1px solid #dce1e7;border-radius:8px;background:#fff;overflow:hidden}.io-panel>h4{margin:0;padding:10px 14px;font-size:13px;border-bottom:1px solid}.io-panel>div{padding:14px;min-width:0}.io-panel pre{margin:0;background:#fff;border:0;padding:0}.input-panel{border-color:#c7d8f4}.input-panel>h4{background:#eef5ff;color:#215ba4;border-color:#c7d8f4}.output-panel{border-color:#dacdf0}.output-panel>h4{background:#f5effb;color:#6d43a0;border-color:#dacdf0}.neutral-panel>h4{background:#f6f7f9;color:#596474;border-color:#dce1e7}@media(max-width:700px){.io-grid{grid-template-columns:1fr}.event-disclosure>summary{grid-template-columns:minmax(0,1fr) 18px}.event-status{grid-column:1;grid-row:2;justify-self:start}.event-chevron{grid-column:2;grid-row:1}}
 .empty-list{padding:16px 20px}.finding-fields{display:block}.finding-fields>div+div{border-top:1px solid #e2e6ec;padding-top:12px;margin-top:12px}.finding-fields dt{font-size:12px}.finding-fields dd{font-size:14px;white-space:pre-wrap}.record-list{list-style:none;margin:0;padding:0;border:1px solid #dce1e7;border-radius:10px;overflow:hidden}.record-list li{padding:11px 16px;overflow-wrap:anywhere}.record-list li+li{border-top:1px solid #e5e8ec}.record-list .muted{margin-left:12px;font-size:12px}
-.command-inputs{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;font-weight:400;min-width:0}.input-caption{flex-basis:100%;font-size:12px;color:#596474}.input-file{display:flex;flex-direction:column;max-width:100%;border:1px solid #c7d8f4;border-radius:5px;background:#eef5ff;padding:3px 8px;overflow-wrap:anywhere}.input-directory{font-size:11px;color:#596474;overflow-wrap:anywhere}.command-paths{margin-bottom:18px}.command-paths h4{margin:0}.command-paths p{font-size:13px}.command-paths ul{padding-left:22px}.command-paths code,.input-file code{white-space:pre-wrap}.event-heading{min-width:0;overflow-wrap:anywhere}
-.review-summary{white-space:pre-wrap}
+.command-inputs{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;font-weight:400;min-width:0}.input-caption{flex-basis:100%;font-size:12px;color:#596474}.input-file{display:inline-flex;align-items:baseline;gap:8px;min-width:0;max-width:100%;border:1px solid #c7d8f4;border-radius:5px;background:#eef5ff;padding:3px 8px;white-space:nowrap;overflow-x:auto}.input-file>*{flex-shrink:0}.input-file:focus-visible{outline:3px solid #5b78c5;outline-offset:-3px}.input-directory{font-size:11px;color:#596474}.command-paths{margin-bottom:18px}.command-paths h4{margin:0}.command-paths p{font-size:13px}.command-paths ul{padding-left:22px}.command-paths code{white-space:pre-wrap}.input-file code{white-space:inherit}.event-heading{min-width:0;overflow-wrap:anywhere}
+.event-source{display:block;margin-top:3px;font-size:12px;font-weight:400;color:#687484}.summary-fields{display:block}.summary-fields>div{padding:12px 0}.summary-fields>div:first-child{padding-top:0}.summary-fields>div:last-child{padding-bottom:0}.summary-fields>div+div,.result-note{border-top:1px solid #e2e6ec}.result-note{margin-top:18px;padding-top:18px}.review-summary{white-space:pre-wrap}
 </style></head><body><main><header><div class="eyebrow">IMPLEMENT / 1 RUN</div><h1>実装runの記録</h1><span class="pill ${escape(result.status)}">${escape(status)}</span><p class="lead">保存された事実と未確認事項を、この実行単位で示します。HTML生成は検証や公開を再実行しません。</p></header>
-<section class="section card"><h2>今回の結果</h2><dl>${field('Issue', externalLink(result.issue, result.issue))}${field('対象repo', shown(result.repository))}${field('開始commit', quote(result.startCommit))}${field('開始日時 · UTC', shown(result.startedAt))}${field('終了日時 · UTC', shown(result.finishedAt))}${field('HTML生成日時 · UTC', shown(generatedAt))}${field('終了状態', escape(status))}${field('最終工程', `${shown(result.phase)} / ${shown(result.operation)}`)}</dl><h3 style="margin-top:22px">停止理由・結果</h3><p>${shown(result.reason)}</p><h3 style="margin-top:18px">次の対応</h3><p>${shown(result.nextAction)}</p><p class="muted">残る作業: ${result.remaining.length ? result.remaining.map(escape).join('、') : '記録なし'}。人の承認・マージは、このrunの結果に含みません。</p></section>
+<section class="section card"><h2>今回の結果</h2><dl class="summary-fields">${field('Issue', externalLink(result.issue, result.issue))}${field('対象repo', shown(result.repository))}${field('開始commit', quote(result.startCommit))}${field('開始日時 · UTC', shown(result.startedAt))}${field('終了日時 · UTC', shown(result.finishedAt))}${field('HTML生成日時 · UTC', shown(generatedAt))}${field('終了状態', escape(status))}${field('最終工程', `${shown(result.phase)} / ${shown(result.operation)}`)}</dl><div class="result-note"><h3>停止理由・結果</h3><p>${shown(result.reason)}</p></div><div class="result-note"><h3>次の対応</h3><p>${shown(result.nextAction)}</p><p class="muted">残る作業: ${result.remaining.length ? result.remaining.map(escape).join('、') : '記録なし'}。人の承認・マージは、このrunの結果に含みません。</p></div></section>
 ${warnings.length ? `<section class="section card"><h2>関連記録の注意</h2><p>読めた結果は保持しました。次の記録は未確認です。原記録を確認してください。</p><ul>${warnings.map((warning) => `<li>${escape(warning)}</li>`).join('')}</ul></section>` : ''}
-<div class="grid section"><section class="card"><h2>検証と評価</h2><dl>${field('ホストcheck', state ? `${state.checks}回記録` : '未記録')}${field('独立評価', review ? shown(review.status) : '未記録')}${field('検証終端', state ? shown(state.result ?? undefined) : '未記録')}${field('評価指摘', review ? `${review.items.length}件` : '未記録')}</dl><p class="muted">acceptedは公開後確認や人の承認を意味しません。</p></section><section class="card"><h2>公開の記録</h2>${publicationSection(result)}</section></div>
+<div class="grid section"><section class="card"><h2>検証と評価</h2><dl class="summary-fields">${field('ホストcheck', state ? `${state.checks}回記録` : '未記録')}${field('独立評価', review ? shown(review.status) : '未記録')}${field('検証終端', state ? shown(state.result ?? undefined) : '未記録')}${field('評価指摘', review ? `${review.items.length}件` : '未記録')}</dl><p class="muted">acceptedは公開後確認や人の承認を意味しません。</p></section><section class="card"><h2>公開の記録</h2>${publicationSection(result)}</section></div>
 <section class="section card"><h2>行動ログ</h2>${activitySection(runDir, summary, hostEvents, actors)}</section>
 <section class="section card"><h2>独立評価の指摘</h2>${reviewSection(review)}</section>
 <section class="section card"><h2>原記録</h2><p class="muted">入力・出力の全文と証拠は保存ファイルで確認してください。画面の抜粋は全コンテキストではありません。</p><ul class="record-list">${recordLinks.join('')}</ul></section>

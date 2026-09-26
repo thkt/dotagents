@@ -115,6 +115,13 @@ test('run report distinguishes local verification from publication and links onl
     expect(html).toContain('2026-09-23T01:02:03.000Z');
     expect(html).toContain('2026-09-23T01:03:04.000Z');
     expect(html).toContain('2回記録');
+    for (const heading of ['今回の結果', '検証と評価', '公開の記録']) {
+      expect(html).toContain(`<h2>${heading}</h2><dl class="summary-fields">`);
+    }
+    expect(html).toMatch(/\.summary-fields>div\{[^}]*padding:12px 0/);
+    expect(html).toMatch(/\.summary-fields>div\+div,\.result-note\{[^}]*border-top:/);
+    expect(html).toContain('<div class="result-note"><h3>停止理由・結果</h3>');
+    expect(html).toContain('<div class="result-note"><h3>次の対応</h3>');
     expect(html).toContain('href="./verification/check-1.stdout"');
     expect(html).not.toContain('href="./verification/check-1.stderr"');
     expect(html).toContain('1 · ホスト · 検証');
@@ -155,6 +162,7 @@ test('stopped run keeps its reason as escaped text without implying an evaluatio
             exit_code: 0,
           },
         }),
+        '',
         '{unfinished',
         JSON.stringify({ type: 'turn.failed', error: 'Synthetic failure' }),
         '{"type":"item.completed","item":{"type":"mcp_tool_call","arguments":{"id":9007199254740993},"result":1e400}}',
@@ -172,8 +180,9 @@ test('stopped run keeps its reason as escaped text without implying an evaluatio
     expect(html).toContain('9007199254740993');
     expect(html).toContain('1e400');
     expect(html).toContain('5/6行表示');
-    expect(html).toContain('行 5 · constructor');
-    expect(html).toContain('行 6 · __proto__');
+    expect(html).toContain('constructor</span><span class="event-source">原記録：6行目</span>');
+    expect(html).toContain('__proto__</span><span class="event-source">原記録：7行目</span>');
+    expect(html).toContain('repair-codex-example/events.jsonl:3:');
     expect(html).toContain('href="./setup-1.stderr"');
     expect(html).toContain('href="./implementation.stderr"');
     expect(html).toContain('setup-1.stdout');
@@ -358,13 +367,28 @@ test('collapsed commands show escaped filenames while full paths and original ev
     const summaries = [...html.matchAll(/<summary>([\s\S]*?)<\/summary>/g)].map(
       (match) => match[1] ?? '',
     );
-    const summary = summaries.find((value) => value.includes('行 2 · コマンド実行')) ?? '';
+    const summary = summaries.find((value) => value.includes('原記録：2行目')) ?? '';
+    expect(summary).toContain('<span class="event-title">コマンド実行</span>');
+    expect(summary).toContain('<span class="event-source">原記録：2行目</span>');
+    expect(summary).not.toContain('行 2 ·');
     expect(summary).toContain('一部のみ抽出');
     expect(summary).toContain('<code>same.md</code>');
     expect(summary).toContain('one/');
     expect(summary).toContain('long-directory/'.repeat(90));
     expect(summary).toContain('&lt;img src=x onerror=alert(1)&gt;&amp;&quot;.md');
     expect(summary).toContain('終了コード 1');
+    expect(summary).toContain('<span class="input-file" tabindex="0">');
+    expect(html).toMatch(/\.command-inputs\{[^}]*display:flex;[^}]*flex-wrap:wrap/);
+    expect(html).toMatch(
+      /\.input-file\{[^}]*display:inline-flex;[^}]*max-width:100%;[^}]*white-space:nowrap;[^}]*overflow-x:auto/,
+    );
+    expect(html).toMatch(/\.input-file>\*\{[^}]*flex-shrink:0/);
+    expect(html).toMatch(/\.input-file code\{[^}]*white-space:inherit/);
+    expect(html).toMatch(
+      /\.event-disclosure>summary:hover \.event-title\{[^}]*text-decoration:underline/,
+    );
+    expect(html).not.toMatch(/\.event-disclosure>summary:hover \.event-heading\{/);
+    expect(html).toContain('「原記録」はこの保存イベントログの行位置です。');
     expect(html).not.toContain('<img');
     expect(html).not.toContain('<details class="event-disclosure" open');
     expect(html).toContain(`<li><code>${longPath}</code></li>`);
