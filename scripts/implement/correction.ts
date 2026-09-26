@@ -210,7 +210,10 @@ async function runModel(
   state.active = { role, prefix };
   await persist(); // Reserve before launching. An interrupted reservation is never reset.
   await writeFile(`${prefix}.prompt`, prompt, { flag: 'wx' });
-  const result = await command(config[role], config.cwd, prompt, remaining, prefix);
+  const result = await command(config[role], config.cwd, prompt, remaining, prefix, {
+    ...process.env,
+    DOTAGENTS_ACTOR_PREFIX: prefix,
+  });
   state.modelMs += result.ms;
   state.active = null;
   state.events.push({

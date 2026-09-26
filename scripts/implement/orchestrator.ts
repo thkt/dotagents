@@ -451,7 +451,10 @@ async function implement(context: Context, io: typeof runtime) {
   ].join('\n');
   await writeFile(join(dir, 'implementation.prompt'), prompt);
   const actor = [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'repair', dir];
-  const result = await io.command(actor, cwd, prompt, null, join(dir, 'implementation'));
+  const result = await io.command(actor, cwd, prompt, null, join(dir, 'implementation'), {
+    ...process.env,
+    DOTAGENTS_ACTOR_PREFIX: join(dir, 'implementation'),
+  });
   await writeFile(
     join(dir, 'implementation.json'),
     JSON.stringify({ code: result.code, timedOut: result.timedOut, ms: result.ms }),

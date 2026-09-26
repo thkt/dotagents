@@ -2,7 +2,8 @@ import { reviewSchema, reviewModel } from './review.ts';
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 
 // Logs stay outside the actor's worktree. The parent owns limits and process termination.
@@ -11,6 +12,23 @@ if ((role !== 'repair' && role !== 'review') || !evidenceDir) {
   throw Error('Usage: bun scripts/implement/codex-actor.ts repair|review EVIDENCE_DIR');
 }
 const dir = await mkdtemp(join(evidenceDir, `${role}-codex-`));
+const hostPrefix = process.env.DOTAGENTS_ACTOR_PREFIX;
+// Consume host context; tools or nested actors must not inherit this association.
+delete process.env.DOTAGENTS_ACTOR_PREFIX;
+await writeFile(
+  join(dir, 'actor.json'),
+  JSON.stringify({
+    recordFormat: 1,
+    invocationId: randomUUID(),
+    role,
+    hostPrefix: hostPrefix ? relative(evidenceDir, hostPrefix) : null,
+    model: reviewModel.model,
+    reasoningEffort: reviewModel.reasoningEffort,
+    sandbox: role === 'repair' ? 'workspace-write' : 'read-only',
+    ignoreUserConfig: true,
+  }),
+  { flag: 'wx' },
+);
 const final = join(dir, 'final.json');
 const schema = join(dir, 'schema.json');
 await writeFile(

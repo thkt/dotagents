@@ -206,10 +206,28 @@ test('published draft requires CI evidence, and invalid evidence or existing out
     expect(partial).toContain('関連記録の注意');
     expect(partial).toContain('Draft公開・CI確認済み');
     expect(partial).toContain('href="./verification/state.json"');
+    await writeFile(join(dir, 'verification/state.json'), JSON.stringify({ reviewFormat: 3 }));
+    await assert.rejects(
+      () => writeRunReport(dir, join(dir, 'report-old-state.html')),
+      /Unsupported verification state format/,
+    );
+    await writeFile(
+      join(dir, 'result.json'),
+      JSON.stringify({
+        ...result,
+        startedAt: undefined,
+        finishedAt: undefined,
+        terminal: undefined,
+      }),
+    );
+    await assert.rejects(
+      () => writeRunReport(dir, join(dir, 'report-old-result.html')),
+      /Invalid result.json/,
+    );
     await writeFile(join(dir, 'result.json'), JSON.stringify({ ...result, terminal: undefined }));
     await assert.rejects(
       () => writeRunReport(dir, join(dir, 'report-late.html')),
-      /Run result is not terminal/,
+      /Invalid result.json/,
     );
     expect(await readFile(join(dir, 'result.json'), 'utf8')).toContain('published_draft');
   } finally {

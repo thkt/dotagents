@@ -14,6 +14,7 @@ function sortedStrings(value: unknown) {
 
 async function expectInvocation(root: string, role: string) {
   const invocation = object(JSON.parse(await readFile(join(root, 'invocation.json'), 'utf8')));
+  expect(invocation.inheritedPrefix).toBeNull();
   const args = events(invocation.args);
   expect(args).toContain('--output-schema');
   expect(args[args.indexOf('--sandbox') + 1]).toBe(
@@ -85,7 +86,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 const schemaIndex = args.indexOf('--output-schema');
 const schema = schemaIndex < 0 ? null : JSON.parse(readFileSync(args[schemaIndex + 1], 'utf8'));
-writeFileSync(${JSON.stringify(join(root, 'invocation.json'))}, JSON.stringify({args, schema}));
+writeFileSync(${JSON.stringify(join(root, 'invocation.json'))}, JSON.stringify({args, schema, inheritedPrefix: process.env.DOTAGENTS_ACTOR_PREFIX ?? null}));
 writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({status:'accepted', findings:''}));
 process.stdout.write('x'.repeat(${bytes}) + 'stdout-end');
 process.stderr.write('y'.repeat(${bytes}) + 'stderr-end');
@@ -107,7 +108,11 @@ process.exitCode = ${mode === 'nonzero' ? 7 : 0};
           root,
         ],
         {
-          env: { ...process.env, PATH: root },
+          env: {
+            ...process.env,
+            PATH: root,
+            DOTAGENTS_ACTOR_PREFIX: join(root, 'verification/actor-1'),
+          },
           input: 'Review fixture',
           encoding: 'utf8',
           timeout: 10000,
@@ -123,6 +128,17 @@ process.exitCode = ${mode === 'nonzero' ? 7 : 0};
       const entries = await readdir(root);
       const dir = entries.find((entry) => entry.startsWith(`${role}-codex-`));
       expect(dir).toBeDefined();
+      if (dir) {
+        const metadata: unknown = JSON.parse(await readFile(join(root, dir, 'actor.json'), 'utf8'));
+        expect(metadata).toMatchObject({
+          recordFormat: 1,
+          role,
+          hostPrefix: 'verification/actor-1',
+          model: 'gpt-6-astra',
+          reasoningEffort: 'high',
+          ignoreUserConfig: true,
+        });
+      }
       if (dir && (succeeds || mode === 'nonzero')) {
         await expectInvocation(root, role);
         expect(await readFile(join(root, dir, 'events.jsonl'), 'utf8')).toBe(
