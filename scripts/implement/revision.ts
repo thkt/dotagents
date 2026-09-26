@@ -231,6 +231,7 @@ export function revisionContext(revision?: Revision) {
   return revision
     ? [
         `Human-adopted revision request (fixed input):\n${revision.request}`,
+        'For each adopted finding, check whether its cause can recur and whether the current artifacts reflect warranted updates to reusable guidance, important decision records, or tests and lint with additional detection value within the agreed scope. Do not turn every comment into a rule or make out-of-scope improvements completion conditions.',
         `Revision starts at published commit ${revision.head}. Assess both the entire PR against the agreed Issue and this revision against the adopted request; do not reuse previous acceptance or finding IDs.`,
         'The accepted review assessments and handoff become the new public PR body. Compare the previous body with current artifacts and explicitly retain all still-applicable change explanations, unresolved limitations and public attachment links in those fields. Do not copy obsolete success claims or historical generated sections. Missing necessary context is needs_changes; documents[] source links alone do not preserve uploaded attachments.',
         `Previous PR body (reference for the updated description):\n${revision.body}`,

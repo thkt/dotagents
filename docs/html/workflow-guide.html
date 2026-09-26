@@ -362,6 +362,7 @@ bun run check
 </tbody>
 </table>
 <p><strong>Issue作成からやり直すことも戻り先に含めます。</strong> 既存Issueの改訂で足りるか、新しいIssueへ分けるか、既存PRを継続できるかは、見直す範囲が分かってから判断します。前の指摘や判断の経緯は、引き続きたどれるようにします。</p>
+<p>採用した指摘の原因が再発し得るなら、今回の修正に加えて、次の作業でも使う手順・規則を既存wikiへ、重要な設計判断を判断記録へ反映するか確かめます。具体的な不具合の検出に役立つ場合だけテストやlintを見直します。すべての指摘を文書化せず、今回の合意範囲を超える改善は必要に応じて次のIssueで扱います。詳しくは<a data-source="docs/wiki/development-policy.md#ドキュメントの更新">開発方針</a>を参照してください。</p>
 <h3>対応後は、最新の変更を人のレビューへ渡す</h3>
 <p>指摘と対応方針を残し、必要な調査・合意・修正を行います。文書も含め、その変更に必要な撮影、check、独立評価を行い、合意したPRへ反映します。draftで最新本文・必要媒体と同じheadのCIを確認し、ready切替後の実状態を読み戻してから、対応内容と残る事項を人へ伝えます。</p>
 <p>同じPRで続ける場合も、Issueを見直して進め直す場合も、指摘・変更・再確認の結果を対応づけます。過去の検証結果や中断記録は保持し、現在の成果物に適用できるかを確かめます。</p>
@@ -470,7 +471,7 @@ bun run check
 <p>通常の開発と既存PR修正の上限・停止条件はCLIガイドに従います。中断記録を変換・再開せず、新しい明示的な修正依頼は新runとして扱います。</p>
 <p>合意した既存PRの修正はdevelopmentへ接続済みです。関係者向けの確認ガイドを自動で作成・共有する仕組みは、今後の実装で具体化します。アプリ固有の公開方式・担当・コマンド・確認値は、そのアプリで定める項目です。合意した方向性と実装済みの機能を区別し、不明な部分は確認先へ戻します。</p>
 </div></section>
-<section id="sources" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">18</span><h2>出典と、このページの位置づけ</h2></header><div class="chapter-body"><p>確認日：2026年9月25日。確認基点：dotagentsのcommit <code data-commit></code>とIssue #270の差分。本文・確認表・詳細図はこの差分を含む文書とコードを参照します。今回の同期は静的な照合であり、実モデルやGitHub公開、対象アプリの動作を新たに実行した記録ではありません。</p>
+<section id="sources" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">18</span><h2>出典と、このページの位置づけ</h2></header><div class="chapter-body"><p>全体の静的照合は2026年9月25日。確認基点はdotagentsのcommit <code data-commit></code>とIssue #270の差分です。差し戻し節はIssue #300の変更で更新し、同じcheckoutの現行方針と実装に照合しました。実モデルやGitHub公開、対象アプリの動作を新たに実行した記録ではありません。</p>
 <p>このページはフローを読み通すための解説です。要求や手順の正本を置き換えるものではありません。実行時は対象repoと利用する版の指示・設定を確認します。現在の保護設定や、個別Issue・PRの実行成功を、このページの作成によって検証したものではありません。</p>
 <p>本文の編集元は<code>docs/html/workflow-guide.html</code>、図のデータと表示の編集元は<code>docs/html/workflow-map.html</code>です。変更前の保全・比較用コピーは必要な作業の間だけ作業領域に置き、継続して編集する全文コピーは増やしません。これらのHTMLはrepoで管理し、変更はIssueとPRで確認します。確認基点の版表示は<code>source-commit</code>から<code>data-commit</code>へ反映します。<code>data-source</code>の根拠リンクは同じcheckoutのファイルへ解決します。過去版を意図したリンクは通常の<code>href</code>で固定します。</p>
 <ul>
@@ -494,7 +495,7 @@ bun run check
 <p>差し戻しの3分類を土台に、人が対象PRと指摘を示して依頼し、担当AIが根拠・影響範囲・戻り先を調べる方向性を合意しました。必要ならIssue作成から見直します。PRの動作説明をQA・デザイナー・企画向けの確認ガイドへつなぐ方向性も合意しています。既存PRの修正入口は導入済みです。関係者向けの自動引き継ぎやアプリの運用は別に具体化します。</p>
 <p>これらは記事で説明する設計方針であり、参照したcommitにすべて実装済みという意味ではありません。特定アプリの運用手順や、本番公開・関係者への送信の許可をこの記事で与えるものではありません。</p>
 </div></section></main></div>
-<footer><span>dotagents · Issue #270の変更を反映。根拠リンクは同じcheckoutのファイルです。確認基点 <span data-commit="short"></span> · 2026.09.25</span><a href="#top">ページ先頭へ ↑</a></footer>
+<footer><span>dotagents · 全体確認基点 <span data-commit="short"></span> · 2026.09.25／差し戻し節 Issue #300。根拠リンクは同じcheckoutのファイルです。</span><a href="#top">ページ先頭へ ↑</a></footer>
 </div>
 <script>
 const sourceCommit=document.querySelector('meta[name="source-commit"]').content;
