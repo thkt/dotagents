@@ -3,33 +3,12 @@ import { lstat, readFile, readdir, writeFile } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
-import { z } from 'zod';
+import { parseRunResult } from './run-result.ts';
+import type { RunResult } from './run-result.ts';
 import { assertState } from './input.ts';
 import type { State } from './input.ts';
 import { isRecord } from '../shared/values.ts';
 import type { Review } from './review.ts';
-
-const resultShape = z.object({
-  status: z.enum(['stopped', 'verified_local', 'published_draft']),
-  phase: z.string(),
-  operation: z.string(),
-  reason: z.string(),
-  nextAction: z.string(),
-  repository: z.string(),
-  issue: z.string(),
-  startCommit: z.string(),
-  details: z.string().optional(),
-  remaining: z.array(z.string()),
-  startedAt: z.iso.datetime().optional(),
-  finishedAt: z.iso.datetime().optional(),
-  terminal: z.literal(true).optional(),
-  publication: z.string().optional(),
-  commit: z.string().optional(),
-  url: z.string().optional(),
-  ci: z.string().optional(),
-  ciDetails: z.unknown().optional(),
-});
-type RunResult = z.infer<typeof resultShape>;
 
 const escape = (value: string) =>
   value.replace(/[&<>"']/g, (character) => {
@@ -49,22 +28,6 @@ const excerpt = (value: string, limit = 900) =>
   value.length > limit
     ? `${escape(value.slice(0, limit))}\n…画面上の抜粋（全${value.length}文字。原記録を参照）`
     : escape(value);
-
-function parseResult(value: unknown) {
-  const parsed = resultShape.safeParse(value);
-  assert(parsed.success, 'Invalid result.json');
-  assert(!parsed.data.startedAt || parsed.data.terminal === true, 'Run result is not terminal');
-  if (parsed.data.status === 'published_draft') {
-    assert(
-      parsed.data.publication === 'published' &&
-        parsed.data.commit &&
-        parsed.data.url &&
-        parsed.data.ci === 'passed',
-      'Incomplete published draft record',
-    );
-  }
-  return parsed.data;
-}
 
 async function file(path: string) {
   return (await availableFile(path)) ? readFile(path, 'utf8') : undefined;
@@ -349,24 +312,40 @@ function activitySection(
   return `<p class="muted">ホストの保存イベントを順に示します。モデル内の操作は各イベントログ内の順序のみを示し、別ログ間の全体順序は推定しません。</p><h3>ホスト工程</h3><div class="actor-group"><div class="activity-list">${hostEvents.join('') || '<p class="empty-list">検証イベントは未記録です。</p>'}</div></div><h3 style="margin-top:24px">実装担当の要約</h3>${workSummary}<h3 style="margin-top:24px">モデルのツール実行・イベント</h3>${actors.join('') || '<p>表示対象のモデルイベントは未記録です。</p>'}`;
 }
 
+function reportState(rawState: string | undefined, warnings: string[]) {
+  let state: State | undefined;
+  if (rawState !== undefined) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawState) as unknown;
+    } catch (error) {
+      warnings.push(`verification/state.json: ${errorMessage(error)}`);
+    }
+    if (parsed !== undefined) {
+      assert(
+        isRecord(parsed) && parsed.reviewFormat === 4 && parsed.issueFormat === 1,
+        'Unsupported verification state format',
+      );
+      try {
+        assertState(parsed);
+        state = parsed;
+      } catch (error) {
+        warnings.push(`verification/state.json: ${errorMessage(error)}`);
+      }
+    }
+  }
+  return state;
+}
+
 async function render(runDir: string) {
   const rawResult = await file(join(runDir, 'result.json'));
   assert(rawResult !== undefined, 'Missing result.json');
-  const result = parseResult(JSON.parse(rawResult) as unknown);
+  const result = parseRunResult(JSON.parse(rawResult) as unknown);
   const verification = join(runDir, 'verification');
   const warnings: string[] = [];
   const statePath = join(verification, 'state.json');
   const rawState = await optionalEvidence(runDir, statePath, warnings);
-  let state: State | undefined;
-  if (rawState !== undefined) {
-    try {
-      const parsed: unknown = JSON.parse(rawState);
-      assertState(parsed);
-      state = parsed;
-    } catch (error) {
-      warnings.push(`verification/state.json: ${errorMessage(error)}`);
-    }
-  }
+  const state = reportState(rawState, warnings);
   const summaryPath = join(runDir, 'implementation-summary.md');
   const summary = await optionalEvidence(runDir, summaryPath, warnings);
   const known = new Map([

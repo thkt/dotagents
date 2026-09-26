@@ -634,3 +634,71 @@ SIGINT/SIGTERM・失敗・期限で所有するコンテナーとnetworkを削�
 公開担当は、生成表からローカルの生ログへのリンクを外し、合意した公開先に置いた非機密の根拠へのリンクに置き換えます。私的ログ・個人パス・認証情報は公開しません。依頼者には改善・悪化・判定不能と理由、次の判断を伝えます。CLIは投稿・採用・マージを行いません。通常のimplement runがあれば[#177のreport.html](https://github.com/thkt/dotagents/issues/177)へローカルで辿れますが、選択evalを `result.json` に変換せず、[#149のケースHTML](https://github.com/thkt/dotagents/issues/149)も流用しません。
 
 同条件比較と少数例の限界には[#171](https://github.com/thkt/dotagents/issues/171)と[開発方針](../docs/wiki/development-policy.md#改善効果の比較)を適用します。#183の当時の選択成功、#171の候補採用保留、#177/#149の表示結果は、この入口の実モデル成功や安全確認の証拠にはしません。共通checkは模擬Docker・模擬providerで制御を確認します。実Dockerの隔離確認と実モデルの意味判断、GitHub公開は別の結果です。
+
+## 選択したimplement runの使用量集計
+
+[Issue #234](https://github.com/thkt/dotagents/issues/234)の集計は、保存済みrunを明示したローカルJSONから起動します。モデル・check・公開を再実行せず、元のrunやHTMLを書き換えません。次の入力例は模擬値です。実際の課題・開始commit・条件・独立した判定根拠に置き換えてください。`directory`は入力ファイルからの相対パス、または私的な保存先の絶対パスです。
+
+```json
+{
+  "format": 1,
+  "conditions": {
+    "id": "baseline",
+    "model": "gpt-6-astra",
+    "reasoningEffort": "high",
+    "environment": "固定したCLI・ハーネス・指示・ツール・入力の版と実行条件",
+    "evaluationCriteria": "要求・境界・失敗条件を成果物から確認する基準",
+    "evidence": "比較条件を固定した評価記録への参照"
+  },
+  "runs": [
+    {
+      "id": "attempt-1",
+      "directory": "runs/attempt-1",
+      "task": "task-1",
+      "targetCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retryOf": null,
+      "evaluation": {
+        "outcome": "unknown",
+        "evaluator": "評価担当",
+        "evidence": "独立した要求充足の確認が未実施"
+      }
+    },
+    {
+      "id": "attempt-2",
+      "directory": "runs/attempt-2",
+      "task": "task-1",
+      "targetCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "retryOf": "attempt-1",
+      "evaluation": {
+        "outcome": "satisfied",
+        "evaluator": "実装から独立した評価担当",
+        "evidence": "この試行の成果物と要求を照合した評価記録への参照"
+      }
+    }
+  ]
+}
+```
+
+```sh
+bun scripts/implement/usage.ts selection.json
+```
+
+標準出力は集計JSONです。保存する場合はrun原本の外へ、未使用の出力先を指定します。入力・出力は私的な評価資料として扱います。入力にはホストのパスを指定でき、評価根拠や保存済みの理由にも私的な情報が含まれ得ます。公開するときは必要な集計値と限界だけを抽出し、生ログ・認証情報・ホストの絶対パスを載せないでください。
+
+対象は`terminal: true`とUTCの`startedAt`・`finishedAt`を持つ上位`result.json`、存在する検証stateは`reviewFormat: 4`・`issueFormat: 1`の現行形式に限ります。日時のない旧結果、旧検証形式は拒否し、部分読取り・変換・補完をしません。HTMLの再生成も同じ上位結果の検証を使い、旧検証形式を拒否します。旧run原本や既存HTMLの削除・書換え・再開は行いません。主記録の不正・形式不一致、重複実行などは理由と終了1で拒否します。
+
+新しいactorは、起動前にイベントと同じディレクトリへ`actor.json`を保存します。実行UUID、ホスト工程のprefix、role、指定モデル・推論設定・sandbox・ユーザー設定を読み込まない指定を記録します。初回実装のroleもrepairです。集計器は上位`implementation.json`と検証stateのprefixに対応付け、ディレクトリ名から工程を決めません。付属actor以外のコマンドや記録追加前の現行runで対応が欠ける場合は`unassigned`と理由を示します。CLI・ツール・有効な全コンテキストの版をactor記録が保証するものではありません。
+
+`actors`は原イベントの相対パス、thread ID、turn順序、行番号とSHA-256を持ち、`references`は読んだ原記録の相対パスとSHA-256を持ちます。入力ファイルのSHA-256も出力します。選択した全runを読み終えた後、読んだ各原記録のSHA-256を再照合し、内容変更を検出したら拒否します。同じrunの別名指定、同じthread・実行UUIDの重複も拒否します。turnの対応は開始・終了イベントの順序で確認し、同値のusageを持つ別turnを捨てません。usageの欠損、不正なJSONやtoken値、重複した終了、未完了turnは理由を残します。不正や重複で対応が曖昧になった行以降は数えず、それまでに確認できたturnだけを観測値に残します。観測できない使用量は`null`で、ゼロとは区別します。
+
+`recorded`はrunの終了・CI・最後のレビューの記録です。`evaluation.outcome`は評価担当が根拠とともに与える`satisfied`・`unsatisfied`・`unknown`で、自動採点ではありません。`verified_local`、`published_draft`、CI成功、レビューaccepted、人の承認・マージを要求充足へ変換しません。課題とモデル・設定・評価条件を揃えた選択は評価担当の責任です。モデルと推論設定はactor記録と照合しますが、自由文の条件や評価根拠の妥当性を機械検証したとは扱いません。
+
+`counts`は全試行・再試行・一意な課題数、実行失敗・実行状態不明、要求充足の判定不能・不充足・充足を分けます。工程コマンドの非ゼロ終了・起動失敗・時間切れと、CIの`failed`を実行失敗に数えます。CI待機の`timed_out`、取得不能の`unavailable`、応答不正の`invalid_response`、保存失敗の`storage_failed`、対象変更の`target_changed`は、CIの合否を確認できない実行状態不明として数えます。CI工程に到達した後、割込みなどで`ci`が未保存のrunも実行状態不明に数えます。CIへ進んでいないローカルrunの`ci`省略だけでは、実行状態不明に数えません。工程の失敗とCIの未確認が同じrunに記録されていれば、両方の件数に含めます。停止状態だけで失敗と断定しません。`satisfactionRate`は充足試行数／全試行数です。`perSatisfiedTask`の分子には失敗・停止・再試行を含む全選択runを残し、分母には同条件で独立に充足を確認した一意な課題IDを置きます。同じ課題の再試行は入力の先行試行へ`retryOf`で対応付け、開始commitも揃えます。別の課題を同じ課題IDへ、同じ記録上の課題を複数IDへ割り当てる入力は拒否します。
+
+`observed`は記録済みの親turnの入力・キャッシュ入力・出力です。キャッシュ入力は入力の内数であり、3区分を足した値を総tokenにしません。`stages[].commandMs`は工程のコマンド時間の合計、`elapsedMs`は上位の開始から終了までの時間をrunごとに合計した値です。工程間の待機を含む全体時間と工程時間を区別し、並行runの合計を単一の壁時計時間とは扱いません。run外の試行準備・採点・人の作業は測定範囲外です。
+
+[CodexのJSONL仕様](https://learn.chatgpt.com/docs/non-interactive-mode)はthread・turnイベントとusageの例を示しますが、子モデル分が親のusageに含まれる保証は確認できません。この集計器は子モデル分やシステム文・ツール定義・履歴・ツール結果別の請求tokenを推定で補いません。`problems`に不足理由を出し、子モデルを含む`total`と`perSatisfiedTask.value`は`null`に保ちます。部分集計から完全な総費用や比較比率を確定しません。
+
+使用量は入力・キャッシュ入力・出力のトークン数で表示します。キャッシュ入力は入力の内数です。料金換算・単価入力・金額表示は提供しません。
+
+導入前後の比較は[比較評価の方針](../docs/wiki/development-policy.md#改善効果の比較)に従い、同じ課題・開始commit・モデル・設定・評価条件で要求充足と失敗条件を先に確認します。選択した試行と欠損範囲を明示し、集計器の実装や少数の集計例そのものを改善効果の証明にしません。

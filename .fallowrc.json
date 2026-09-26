@@ -11,7 +11,8 @@
     "scripts/scoping/target.ts",
     "scripts/tests/runner.ts",
     "scripts/capture/verify.ts",
-    "scripts/implement/review-probe.ts"
+    "scripts/implement/review-probe.ts",
+    "scripts/implement/usage.ts"
   ],
   "includeEntryExports": true,
   "ignoreDependencies": [
