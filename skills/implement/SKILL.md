@@ -31,4 +31,4 @@ bun /absolute/path/to/trusted/scripts/implement/development.ts 99 --repo /absolu
 
 採用した指摘の原因と再発性を確認し、[文書の更新方針](../../docs/wiki/development-policy.md#ドキュメントの更新)に従って、必要な場合だけ既存wiki・判断記録・テスト・lintへつなぐ。今回の合意範囲を超える改善を既存PRの完了条件に加えない。
 
-公開後は最新本文・必要媒体・同じheadのCIを確認し、ready直前と切替後も対象を読み戻す。PR URL、確認した版と検証結果、残る人の判断、または停止理由と記録の場所を返す。
+公開後は最新本文・必要媒体・同じheadのCIを確認し、ready直前と切替後も対象を読み戻す。PR URL、確認した版と検証結果、残る人の判断、または停止理由と記録の場所を返す。terminal runでは`report.html`の絶対パスと開き方も案内する。生成に失敗した場合は成功と扱わず、残る`result.json`と[再生成コマンド](../../scripts/README.md#結果と再実行)を示す。
