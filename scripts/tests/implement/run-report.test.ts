@@ -74,22 +74,20 @@ test('run report distinguishes local verification from publication and links onl
         documents: [],
         handoff: [],
         status: 'accepted',
-        items: [
-          {
-            id: 'R1-1',
-            introducedIn: 'fixture-target',
-            kind: 'defect',
-            area: 'code',
-            required: true,
-            location: { path: 'src/example.ts', line: 1 },
-            disposition: 'fixed',
-            condition: `<script>の表示条件。${'長い条件文。'.repeat(16)}全文の末尾`,
-            impact: '誤表示',
-            evidence: '保存ログ',
-            action: '修正する',
-            reason: '修正後に確認した',
-          },
-        ],
+        items: ['fixed', 'open', 'not_applicable'].map((disposition, index) => ({
+          id: `R1-${index + 1}`,
+          introducedIn: 'fixture-target',
+          kind: 'defect',
+          area: 'code',
+          required: false,
+          location: { path: 'src/example.ts', line: 1 },
+          disposition,
+          condition: `<script>の表示条件。${'長い条件文。'.repeat(16)}全文の末尾`,
+          impact: '誤表示',
+          evidence: '保存ログ',
+          action: '修正する',
+          reason: '保存された裁定理由',
+        })),
       },
     ];
     await writeFile(
@@ -105,6 +103,14 @@ test('run report distinguishes local verification from publication and links onl
             prefix: join(dir, 'verification/check-timeout'),
           },
           { role: 'check', code: 0, timedOut: false, prefix: join(dir, 'verification/check-1') },
+          {
+            role: 'capture',
+            code: null,
+            timedOut: false,
+            prefix: join(dir, 'verification/capture'),
+          },
+          { role: 'repair', code: 7, timedOut: false, prefix: join(dir, 'verification/repair') },
+          { role: 'review', code: 0, timedOut: true, prefix: join(dir, 'verification/review') },
         ],
         reviewHistory,
       }),
@@ -118,8 +124,14 @@ test('run report distinguishes local verification from publication and links onl
     for (const heading of ['今回の結果', '検証と評価', '公開の記録']) {
       expect(html).toContain(`<h2>${heading}</h2><dl class="summary-fields">`);
     }
-    expect(html).toMatch(/\.summary-fields>div\{[^}]*padding:12px 0/);
-    expect(html).toMatch(/\.summary-fields>div\+div,\.result-note\{[^}]*border-top:/);
+    expect(html).toMatch(
+      /\.summary-fields\{[^}]*display:grid;[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\);[^}]*gap:16px/,
+    );
+    expect(html).toMatch(
+      /\.summary-fields>div\{[^}]*padding:12px 14px;[^}]*border:1px solid #dce1e7;[^}]*border-radius:8px;[^}]*background:#fcfdff/,
+    );
+    expect(html).toMatch(/@media\(max-width:700px\)\{\.summary-fields\{grid-template-columns:1fr/);
+    expect(html).toMatch(/\.result-note\{[^}]*border-top:/);
     expect(html).toContain('<div class="result-note"><h3>停止理由・結果</h3>');
     expect(html).toContain('<div class="result-note"><h3>次の対応</h3>');
     for (const note of [
@@ -137,14 +149,39 @@ test('run report distinguishes local verification from publication and links onl
     expect(html.indexOf('<footer')).toBeGreaterThan(html.indexOf('<h2>原記録</h2>'));
     expect(html).toContain('href="./verification/check-1.stdout"');
     expect(html).not.toContain('href="./verification/check-1.stderr"');
-    expect(html).toContain('1 · ホスト · 検証');
+    expect(html).not.toContain('1 · ホスト · 検証');
+    expect(html).toContain(
+      'ホスト · 検証</span><span class="event-source"><span aria-hidden="true">L1</span><span class="visually-hidden">原記録 state.events の1番目（JSONの物理行ではありません）</span>',
+    );
+    expect(html).toContain('<span class="event-status tone-failure">時間切れ</span>');
+    expect(html).toContain('<span class="event-status tone-success">修正済み</span>');
+    expect(html).toContain('<span class="event-status tone-pending">要対応</span>');
+    expect(html).toContain('<span class="event-status tone-neutral">対象外</span>');
+    const hostSummaries = [...html.matchAll(/<summary>([\s\S]*?)<\/summary>/g)]
+      .map((match) => match[1] ?? '')
+      .filter((summary) => summary.includes('ホスト ·'));
+    const outcomes = [
+      ['failure', '時間切れ'],
+      ['success', '終了コード 0'],
+      ['pending', '終了コード 未記録'],
+      ['failure', '終了コード 7'],
+      ['failure', '時間切れ'],
+    ];
+    expect(hostSummaries).toHaveLength(outcomes.length);
+    outcomes.forEach(([tone, label], index) => {
+      expect(hostSummaries[index]).toContain(`state.events の${index + 1}番目`);
+      expect(hostSummaries[index]).not.toContain('events.jsonl');
+      expect(hostSummaries[index]).toContain(
+        `<span class="event-status tone-${tone}">${label}</span>`,
+      );
+    });
     expect(html).toContain('時間切れ</span>');
     expect(html).toContain('<dt>終了コード</dt><dd>124</dd>');
     expect(html).toContain('<dt>ログ保存先の接頭辞</dt>');
     expect(html).toContain('指摘 R1-1 · &lt;script&gt;の表示条件');
     expect(html).toContain('修正済み');
     expect(html).toContain('全文の末尾');
-    for (const detail of ['誤表示', '保存ログ', '修正する', '修正後に確認した']) {
+    for (const detail of ['誤表示', '保存ログ', '修正する', '保存された裁定理由']) {
       expect(html).toContain(detail);
     }
     expect(html).toContain('href="./verification/state.json">verification/state.json</a>');
@@ -215,10 +252,24 @@ test('stopped run keeps its reason as escaped text without implying an evaluatio
 test('published draft requires CI evidence, and invalid evidence or existing output is preserved', async () => {
   const { dir, result } = await fixture('published_draft');
   try {
+    await writeFile(
+      join(dir, 'result.json'),
+      JSON.stringify({ ...result, ciDetails: { status: 'passed' } }),
+    );
     const path = await writeRunReport(dir);
     const html = await readFile(path, 'utf8');
+    expect(html).toContain(
+      '<summary><span class="event-title">CIの保存結果</span><span class="event-chevron" aria-hidden="true">›</span></summary>',
+    );
+    expect(html).toMatch(
+      /summary\{[^}]*display:grid;[^}]*grid-template-columns:minmax\(0,1fr\) 18px;[^}]*list-style:none/,
+    );
+    expect(html).toMatch(/summary::-webkit-details-marker\{display:none/);
+    expect(html).toMatch(/details\[open\]>summary>\.event-chevron\{transform:rotate\(90deg\)/);
+    expect(html).toMatch(/summary:focus-visible\{[^}]*outline:3px/);
     expect(html).toContain('Draft公開・CI確認済み');
     expect(html).toContain('https://github.com/team/component/pull/100');
+    expect(html).toContain('<span class="status-badge tone-success">passed</span>');
     await assert.rejects(() => writeRunReport(dir), /EEXIST/);
     expect(await readFile(path, 'utf8')).toBe(html);
     await writeFile(join(dir, 'result.json'), JSON.stringify({ ...result, ci: undefined }));
@@ -397,16 +448,23 @@ test('command input candidates follow literal read operands, excluding patterns,
         .join('\n'),
     );
     const html = await readFile(await writeRunReport(dir), 'utf8');
+    const summaries = [...html.matchAll(/<summary>([\s\S]*?)<\/summary>/g)]
+      .map((match) => match[1] ?? '')
+      .filter((summary) => summary.includes('コマンド実行'));
     const bodies = [...html.matchAll(/<section class="command-paths">([\s\S]*?)<\/section>/g)];
     expect(bodies).toHaveLength(cases.length);
     cases.forEach(({ command, paths }, index) => {
       const body = bodies[index]?.[1] ?? '';
+      expect(summaries[index], command).not.toContain('抽出');
+      if (!paths.length) {
+        expect(summaries[index], command).not.toContain('command-inputs');
+      }
       const displayed = [...body.matchAll(/<li><code>([\s\S]*?)<\/code><\/li>/g)].map(
         (match) => match[1],
       );
       expect(displayed, command).toEqual(paths);
       if (!paths.length) {
-        expect(body, command).toContain('抽出できず');
+        expect(body, command).toContain('抽出状態: 抽出できず');
       }
     });
   } finally {
@@ -449,7 +507,10 @@ test('collapsed commands show escaped filenames while full paths and original ev
       '<span class="event-source"><span aria-hidden="true">L2</span><span class="visually-hidden">原記録 events.jsonl の2行目</span>',
     );
     expect(summary).not.toContain('行 2 ·');
-    expect(summary).toContain('一部のみ抽出');
+    expect(summary).not.toContain('抽出');
+    expect(summary).not.toContain('入力ファイル候補');
+    expect(html).toContain('<p>抽出状態: 一部のみ抽出</p>');
+    expect(html).toContain('<p>抽出状態: commandから抽出</p>');
     expect(summary).toContain('<code>same.md</code>');
     expect(summary).toContain('one/');
     expect(summary).toContain('long-directory/'.repeat(90));
@@ -462,9 +523,7 @@ test('collapsed commands show escaped filenames while full paths and original ev
     );
     expect(html).toMatch(/\.input-file>\*\{[^}]*flex-shrink:0/);
     expect(html).toMatch(/\.input-file code\{[^}]*white-space:inherit/);
-    expect(html).toMatch(
-      /\.event-disclosure>summary:hover \.event-title\{[^}]*text-decoration:underline/,
-    );
+    expect(html).toMatch(/summary:hover \.event-title\{[^}]*text-decoration:underline/);
     expect(html).not.toMatch(/\.event-disclosure>summary:hover \.event-heading\{/);
     expect(html).toMatch(
       /\.event-source\{[^}]*display:inline-block;[^}]*margin-left:8px;[^}]*white-space:nowrap/,
@@ -472,7 +531,9 @@ test('collapsed commands show escaped filenames while full paths and original ev
     expect(html).not.toMatch(/href="[^"]*events\.jsonl#/);
     const notes = html.match(/<aside class="report-notes"[^>]*>([\s\S]*?)<\/aside>/)?.[1] ?? '';
     for (const explanation of [
-      'L番号は各イベント原記録（events.jsonl）の物理行位置です。ソースコードの行番号ではありません。',
+      'モデル側のL番号は各events.jsonlの物理行位置です。空行や不正な行も数え、ソースコードの行番号とは区別します。',
+      'ホスト側のL番号はverification/state.jsonのstate.events内の1始まりの記録順で、JSONの物理行ではありません。',
+      'ホストの保存イベントを順に示します。モデル内の操作は各イベントログ内の順序のみを示し、別ログ間の全体順序は推定しません。',
       '保存commandから静的に抽出した候補です。',
       '実際の読み込み成功やモデルの理解は未確認です。',
       '未対応の構文や標準入力などは抽出できず、入力ファイルがないとは限りません。',
@@ -503,6 +564,91 @@ test('collapsed commands show escaped filenames while full paths and original ev
     expect(await readFile(join(dir, 'result.json'), 'utf8')).toBe(result);
     expect(await readFile(join(dir, 'verification/state.json'), 'utf8')).toBe(state);
     expect(await readFile(join(actor, 'events.jsonl'), 'utf8')).toBe(events);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('badge tones follow explicit outcomes, never successful-looking output or completion alone', async () => {
+  const { dir, result } = await fixture('stopped');
+  const cases: { event: unknown; tone: string; label: string }[] = [
+    {
+      event: { type: 'item.completed', item: { type: 'command_execution', exit_code: 0 } },
+      tone: 'success',
+      label: '終了コード 0',
+    },
+    {
+      event: {
+        type: 'item.completed',
+        item: { type: 'command_execution', exit_code: 2, aggregated_output: 'All checks passed' },
+      },
+      tone: 'failure',
+      label: '終了コード 2',
+    },
+    {
+      event: {
+        type: 'item.completed',
+        item: { type: 'command_execution', aggregated_output: 'success' },
+      },
+      tone: 'pending',
+      label: '終了コード未記録',
+    },
+    {
+      event: { type: 'item.started', item: { type: 'command_execution', exit_code: 0 } },
+      tone: 'pending',
+      label: '開始 · 結果未確認',
+    },
+    {
+      event: { type: 'item.updated', item: { type: 'command_execution', exit_code: 0 } },
+      tone: 'pending',
+      label: '更新 · 結果未確認',
+    },
+    { event: { type: 'turn.failed' }, tone: 'failure', label: '失敗の記録' },
+    { event: { type: 'error' }, tone: 'failure', label: '失敗の記録' },
+    {
+      event: { type: 'item.completed', item: { type: 'agent_message', text: 'success' } },
+      tone: 'info',
+      label: '完了イベント',
+    },
+    {
+      event: { type: 'item.completed', item: { type: 'mcp_tool_call' } },
+      tone: 'pending',
+      label: '完了イベント · 成否未確認',
+    },
+    { event: { type: 'thread.started' }, tone: 'info', label: '記録されたイベント' },
+    {
+      event: { type: 'constructor', item: { type: 'command_execution', exit_code: 0 } },
+      tone: 'neutral',
+      label: '種類不明 · 成否未確認',
+    },
+    { event: { type: '<unknown>' }, tone: 'neutral', label: '記録されたイベント' },
+  ];
+  try {
+    const actor = join(dir, 'repair-codex-tones');
+    await mkdir(actor);
+    await writeFile(
+      join(actor, 'events.jsonl'),
+      cases.map(({ event }) => JSON.stringify(event)).join('\n'),
+    );
+    await writeFile(
+      join(dir, 'result.json'),
+      JSON.stringify({ ...result, publication: 'constructor', ci: '<unknown>' }),
+    );
+    const html = await readFile(await writeRunReport(dir), 'utf8');
+    const summaries = [...html.matchAll(/<summary>([\s\S]*?)<\/summary>/g)].map(
+      (match) => match[1] ?? '',
+    );
+    cases.forEach(({ tone, label }, index) => {
+      expect(summaries[index]).toContain(`<span class="event-status tone-${tone}">${label}</span>`);
+    });
+    expect(html).toContain('<span class="status-badge tone-neutral">constructor</span>');
+    expect(html).toContain('<span class="status-badge tone-neutral">&lt;unknown&gt;</span>');
+    expect(html).toContain('class="pill tone-pending">停止</span>');
+    for (const tone of ['success', 'failure', 'pending', 'info', 'neutral']) {
+      expect(html).toMatch(
+        new RegExp(`\\.tone-${tone}\\{[^}]*background:#[a-f0-9]+;[^}]*color:#[a-f0-9]+`),
+      );
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
