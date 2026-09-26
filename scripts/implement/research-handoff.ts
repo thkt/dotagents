@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { realpath, lstat } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { isRecord } from '../shared/values.ts';
 import { assertReportReferences } from './input.ts';
 import type { ReportReference } from './input.ts';
 
@@ -33,7 +34,12 @@ export async function verifyReports(
   await verifyReportBase(base, reports, git);
   for (const { path, blob } of reports) {
     const local = resolve(repo, path);
-    const stat = await lstat(local).catch(() => undefined);
+    const stat = await lstat(local).catch((error: unknown) => {
+      if (isRecord(error) && error.code === 'ENOENT') {
+        return undefined;
+      }
+      throw error;
+    });
     assert(
       stat?.isFile() && (await realpath(local)) === local,
       `Required report is missing or not a regular checkout file: ${path}`,

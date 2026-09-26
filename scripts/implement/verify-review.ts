@@ -44,7 +44,7 @@ async function checked(argv: string[], cwd: string) {
   return result.stdout.trim();
 }
 
-async function usage(dir: string) {
+export async function readReviewerUsage(dir: string) {
   const totals = { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0 };
   let turns = 0;
   for (const entry of await readdir(dir)) {
@@ -62,7 +62,10 @@ async function usage(dir: string) {
       for (const key of ['input_tokens', 'cached_input_tokens', 'output_tokens'] as const) {
         const count: unknown = event.usage[key];
         assert(
-          typeof count === 'number' && Number.isFinite(count) && count >= 0,
+          typeof count === 'number' &&
+            Number.isSafeInteger(count) &&
+            count >= 0 &&
+            Number.isSafeInteger(totals[key] + count),
           'Incomplete model usage',
         );
         totals[key] += count;
@@ -147,7 +150,7 @@ async function probe(root: string, id: string, broken: boolean) {
     modelMs: state.modelMs,
     stop: state.result,
     review: review ?? null,
-    usage: await usage(dir),
+    usage: await readReviewerUsage(dir),
     reproduction: {
       input: { items: [10, 20, 30, 40], offset: 2, limit: 2 },
       expected: [30, 40],

@@ -51,6 +51,7 @@ const trial = z.object({
 
 export function readUsage(lines: string[]) {
   const totals = { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0 };
+  const keys = ['input_tokens', 'cached_input_tokens', 'output_tokens'] as const;
   let completedTurns = 0,
     incompleteLines = 0;
   for (const line of lines.filter(Boolean)) {
@@ -67,15 +68,18 @@ export function readUsage(lines: string[]) {
     const usage = value.usage;
     if (
       !isRecord(usage) ||
-      !Object.keys(totals).every(
+      !keys.every(
         (key) =>
-          typeof usage[key] === 'number' && Number.isSafeInteger(usage[key]) && usage[key] >= 0,
+          typeof usage[key] === 'number' &&
+          Number.isSafeInteger(usage[key]) &&
+          usage[key] >= 0 &&
+          Number.isSafeInteger(totals[key] + usage[key]),
       )
     ) {
       incompleteLines++;
       continue;
     }
-    for (const key of ['input_tokens', 'cached_input_tokens', 'output_tokens'] as const) {
+    for (const key of keys) {
       const count = usage[key];
       if (typeof count === 'number') {
         totals[key] += count;

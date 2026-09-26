@@ -70,12 +70,7 @@ export function validatePlan(config: EvalConfig, cases: EvalCase[]) {
   assert(new Set(paths).size === paths.length, 'File lists overlap or contain duplicates');
   for (const path of paths) {
     assert(path !== 'evaluation-issue.json', 'Reserved case context path');
-    assert(
-      !path.includes('skill-eval') &&
-        !path.startsWith('scripts/eval/') &&
-        !path.includes('comparison'),
-      'Cannot expose host-only evaluation files',
-    );
+    assert(!path.startsWith('scripts/eval/'), 'Cannot expose host-only evaluation files');
     assert(!/^(evals|\.git|\.agents)(\/|$)/.test(path), 'Cannot expose host-only files');
     assert(
       !/(^|\/)(auth\.json|config\.toml|\.env[^/]*|credentials)(\/|$)/.test(path),

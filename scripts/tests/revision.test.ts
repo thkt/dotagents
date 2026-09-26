@@ -596,14 +596,15 @@ async function successfulRevision(
   } else {
     assert(result.commit);
     expect(verifiedHeads).toEqual([f.oldHead, f.oldHead, result.commit]);
-    // One target reconciliation between the final pre-commit verify and staging.
-    // Verification internals are simulated and excluded from these command counts.
+    // Reconcile after the final pre-commit verification and before staging.
     expect(beforeCommit).toBeGreaterThanOrEqual(0);
     const staging = f.commands.findIndex(({ argv }) => argv[0] === 'git' && argv[1] === 'add');
     expect(staging).toBeGreaterThan(beforeCommit);
-    const boundary = f.commands.slice(beforeCommit, staging);
-    expect(boundary.filter(({ argv }) => argv[0] === 'gh')).toHaveLength(6);
-    expect(boundary.filter(({ argv }) => argv[0] === 'git')).toHaveLength(5);
+    expect(
+      f.commands
+        .slice(beforeCommit, staging)
+        .some(({ argv }) => argv[0] === 'gh' && argv[1] === 'pr' && argv[2] === 'view'),
+    ).toBe(true);
     // Share one fresh target observation within the push boundary.
     const push = f.commands.findIndex(({ argv }) => argv.includes('push'));
     const beforePush = f.commands

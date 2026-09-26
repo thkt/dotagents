@@ -5,10 +5,30 @@ import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { events, object, reviewReplySource } from './support/correction.ts';
+import { readReviewerUsage } from '../implement/verify-review.ts';
 
 async function json(path: string) {
   return object(JSON.parse(await readFile(path, 'utf8')));
 }
+
+test('reviewer usage rejects fractional and overflowing token totals', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'review-usage-'));
+  const dir = join(root, 'review-codex-trial');
+  const event = (input_tokens: number) =>
+    JSON.stringify({
+      type: 'turn.completed',
+      usage: { input_tokens, cached_input_tokens: 0, output_tokens: 0 },
+    });
+  try {
+    await mkdir(dir);
+    for (const lines of [[event(0.5)], [event(10), event(Number.MAX_SAFE_INTEGER)]]) {
+      await writeFile(join(dir, 'events.jsonl'), lines.join('\n'));
+      await assert.rejects(() => readReviewerUsage(root), /Incomplete model usage/);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 async function inspectCase(root: string, entry: Record<string, unknown>) {
   assert(typeof entry.id === 'string');

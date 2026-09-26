@@ -22,10 +22,13 @@ export function outside(parent: string, child: string) {
 }
 
 export function relativeDirectory(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    !isAbsolute(value) &&
-    value.split('/').every((part) => /^[a-zA-Z0-9_-][a-zA-Z0-9._-]*$/.test(part)) &&
-    !value.split('/').some((part) => part === '.git' || part === 'node_modules')
-  );
+  if (typeof value !== 'string' || isAbsolute(value)) {
+    return false;
+  }
+  return value
+    .split('/')
+    .every(
+      (part) =>
+        /^[a-zA-Z0-9_-][a-zA-Z0-9._-]*$/.test(part) && part !== '.git' && part !== 'node_modules',
+    );
 }
