@@ -405,7 +405,7 @@ function reviewSection(review: Review | undefined) {
     ),
   );
   const status = review.status === 'accepted' ? '修正必須の指摘なし' : '修正が必要';
-  return `<p class="review-summary">評価結果: <strong>${status}</strong>（${shown(review.status)}）。${shown(review.findings)}</p><div class="actor-group"><div class="activity-list">${items.join('') || '<p class="empty-list">指摘なし</p>'}</div></div>`;
+  return `<p class="review-summary"><strong>${status}</strong>（${shown(review.status)}）。${shown(review.findings)}</p><div class="actor-group"><div class="activity-list">${items.join('') || '<p class="empty-list">指摘なし</p>'}</div></div>`;
 }
 
 const ciTones = new Map<string, Tone>([
