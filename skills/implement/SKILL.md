@@ -29,4 +29,6 @@ bun /absolute/path/to/trusted/scripts/implement/development.ts 99 --repo /absolu
 
 人が採用した既存PRの修正は[既存PRの修正](../../scripts/README.md#既存prの修正)から同じCLIへ接続する。前回runと採用した指摘・期待する結果・許可範囲を渡し、PRコメントを自動採用せず、旧runを再開しない。停止した実行は[結果と再実行](../../scripts/README.md#結果と再実行)で理由と残る条件を確認し、停止条件や上限を緩めて続行しない。
 
+採用した指摘の原因と再発性を確認し、[文書の更新方針](../../docs/wiki/development-policy.md#ドキュメントの更新)に従って、必要な場合だけ既存wiki・判断記録・テスト・lintへつなぐ。今回の合意範囲を超える改善を既存PRの完了条件に加えない。
+
 公開後は最新本文・必要媒体・同じheadのCIを確認し、ready直前と切替後も対象を読み戻す。PR URL、確認した版と検証結果、残る人の判断、または停止理由と記録の場所を返す。
