@@ -363,7 +363,7 @@ async function hostEventRows(
       }
       const code = event.code === null ? '未記録' : String(event.code);
       const status = hostStatus(event.code, event.timedOut);
-      const logs = `<dl>${field('ログ保存先の接頭辞', quote(event.prefix))}${field('終了コード', escape(code))}${field('時間切れ', event.timedOut ? '記録あり' : 'なし')}${field('stdout', stdout ? localLink(root, `${prefix}.stdout`, '保存ログを開く') : '未記録')}${field('stderr', stderr ? localLink(root, `${prefix}.stderr`, '保存ログを開く') : '未記録')}</dl>`;
+      const logs = `<dl class="summary-fields">${field('ログ保存先の接頭辞', quote(event.prefix))}${field('終了コード', escape(code))}${field('時間切れ', event.timedOut ? '記録あり' : 'なし')}${field('stdout', stdout ? localLink(root, `${prefix}.stdout`, '保存ログを開く') : '未記録')}${field('stderr', stderr ? localLink(root, `${prefix}.stderr`, '保存ログを開く') : '未記録')}</dl>`;
       return eventDetail(
         hostRoles.get(event.role) ?? event.role,
         status.label,
