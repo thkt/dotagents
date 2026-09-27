@@ -189,6 +189,17 @@ const eventTones = new Map<string, Tone>([
   ['turn.completed', 'info'],
 ]);
 
+const eventTitles = new Map([
+  ['thread.started', '対話の開始'],
+  ['turn.started', '処理の開始'],
+  ['turn.completed', '処理の終了'],
+]);
+
+const itemTitles = new Map([
+  ['mcp_tool_call', 'MCPツール'],
+  ['file_change', 'ファイルの変更'],
+]);
+
 function commandStatus(kind: string, code: unknown) {
   if (kind === 'item.completed') {
     return {
@@ -209,7 +220,11 @@ function genericEvent(
   raw: string,
 ) {
   const kind = isRecord(event) && typeof event.type === 'string' ? event.type : '種類不明';
-  const operation = item?.type === 'mcp_tool_call' ? 'MCPツール' : (text(item?.type) ?? kind);
+  const itemKind = text(item?.type);
+  const operation =
+    itemKind === undefined
+      ? (eventTitles.get(kind) ?? kind)
+      : (itemTitles.get(itemKind) ?? itemKind);
   const status = eventStatuses.get(kind) ?? '記録されたイベント';
   return eventDetail(
     operation,
@@ -433,7 +448,7 @@ function activitySection(
     summary === undefined
       ? '<p>未記録</p>'
       : `<pre>${excerpt(summary, 3000)}</pre>${localLink(root, join(root, 'implementation-summary.md'), '要約の原記録を開く')}`;
-  return `<aside class="report-notes" aria-labelledby="report-notes-title"><h3 id="report-notes-title">行動ログの読み方</h3><p>ホストの保存イベントを順に示します。モデル内の操作は各イベントログ内の順序のみを示し、別ログ間の全体順序は推定しません。</p><p>モデル側のL番号は各events.jsonlの物理行位置です。空行や不正な行も数え、ソースコードの行番号とは区別します。各ログの「イベント原記録を開く」から確認できます。ホスト側のL番号はverification/state.jsonのstate.events内の1始まりの記録順で、JSONの物理行ではありません。原記録欄のverification/state.jsonと各工程の保存ログから確認できます。</p><p>入力ファイル候補は保存commandから静的に抽出した候補です。実際の読み込み成功やモデルの理解は未確認です。未対応の構文や標準入力などは抽出できず、入力ファイルがないとは限りません。相対パスは解決していません。閉じた見出しのタグは候補のファイル名で、抽出状態とパスは展開後に確認できます。tmpラベルは明示的な絶対パス /tmp/・/private/tmp/ 配下の候補を示す場所の印です。用途・不要・削除可・読了を示さず、変数・symlink・実在は確認していません。</p><p>バッジは状態文字列と色で区別します。緑は明示的な成功・修正済み、赤は失敗、黄系は開始・更新・要対応・結果未確認、青系は記録・応答完了、中立色は対象外・未知状態などです。コマンドの成功色は完了イベントの終了コード0、ホスト工程は時間切れでない終了コード0に基づきます。応答完了や候補の表示は内容の検証済みを意味しません。</p></aside><h3>ホスト工程</h3><div class="actor-group"><div class="activity-list">${hostEvents.join('') || '<p class="empty-list">検証イベントは未記録です。</p>'}</div></div><h3 style="margin-top:24px">実装担当の要約</h3>${workSummary}<h3 style="margin-top:24px">モデルのツール実行・イベント</h3>${actors.join('') || '<p>表示対象のモデルイベントは未記録です。</p>'}`;
+  return `<aside class="report-notes" aria-labelledby="report-notes-title"><h3 id="report-notes-title">読み方</h3><ul><li>順序・L番号：各ログ内の記録順。別ログ間の前後は未確認です。LはAI側がevents.jsonlの物理行、ホスト側がstate.eventsの1始まりの記録順です。</li><li>ファイル：タグは保存commandから静的に抽出した入力ファイル候補。読取り成功・モデルの理解は未確認です。抽出漏れがあり、パスと抽出状態は展開後に確認できます。相対パスは未解決です。</li><li>tmp：/tmp/・/private/tmp/で始まる保存パスの場所の印。用途・削除可否・読了は示さず、実在・リンク先は未確認です。</li><li>状態：色と状態文字列を併記。緑=成功/修正済み、赤=失敗、黄=未確認/要対応、青=記録/応答完了、灰=対象外/不明。完了は内容の検証済みを意味しません。</li></ul></aside><h3>ホスト工程</h3><div class="actor-group"><div class="activity-list">${hostEvents.join('') || '<p class="empty-list">検証イベントは未記録です。</p>'}</div></div><h3 style="margin-top:24px">実装担当の要約</h3>${workSummary}<h3 style="margin-top:24px">モデルのツール実行・イベント</h3>${actors.join('') || '<p>表示対象のモデルイベントは未記録です。</p>'}`;
 }
 
 function reportState(rawState: string | undefined, warnings: string[]) {

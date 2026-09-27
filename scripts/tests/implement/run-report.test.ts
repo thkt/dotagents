@@ -582,15 +582,16 @@ test('collapsed commands show escaped filenames while full paths and original ev
     );
     expect(html).not.toMatch(/href="[^"]*events\.jsonl#/);
     const notes = html.match(/<aside class="report-notes"[^>]*>([\s\S]*?)<\/aside>/)?.[1] ?? '';
+    expect(notes).toContain('<h3 id="report-notes-title">読み方</h3><ul>');
+    expect(notes.match(/<li>/g)).toHaveLength(4);
+    expect(notes).not.toContain('<details');
     for (const explanation of [
-      'モデル側のL番号は各events.jsonlの物理行位置です。空行や不正な行も数え、ソースコードの行番号とは区別します。',
-      'ホスト側のL番号はverification/state.jsonのstate.events内の1始まりの記録順で、JSONの物理行ではありません。',
-      'ホストの保存イベントを順に示します。モデル内の操作は各イベントログ内の順序のみを示し、別ログ間の全体順序は推定しません。',
-      '保存commandから静的に抽出した候補です。',
-      '実際の読み込み成功やモデルの理解は未確認です。',
-      '未対応の構文や標準入力などは抽出できず、入力ファイルがないとは限りません。',
-      '相対パスは解決していません。',
-      'tmpラベルは明示的な絶対パス /tmp/・/private/tmp/ 配下の候補を示す場所の印です。用途・不要・削除可・読了を示さず、変数・symlink・実在は確認していません。',
+      '各ログ内の記録順。別ログ間の前後は未確認です。',
+      'LはAI側がevents.jsonlの物理行、ホスト側がstate.eventsの1始まりの記録順です。',
+      'タグは保存commandから静的に抽出した入力ファイル候補。読取り成功・モデルの理解は未確認です。',
+      '抽出漏れがあり、パスと抽出状態は展開後に確認できます。相対パスは未解決です。',
+      '/tmp/・/private/tmp/で始まる保存パスの場所の印。用途・削除可否・読了は示さず、実在・リンク先は未確認です。',
+      '色と状態文字列を併記。緑=成功/修正済み、赤=失敗、黄=未確認/要対応、青=記録/応答完了、灰=対象外/不明。完了は内容の検証済みを意味しません。',
     ]) {
       expect(notes).toContain(explanation);
       expect(html.split(explanation)).toHaveLength(2);
@@ -608,7 +609,6 @@ test('collapsed commands show escaped filenames while full paths and original ev
     expect(html).toContain('permission denied');
     expect(html).toContain('開始 · 結果未確認');
     expect(html).toContain('<code>pending.md</code>');
-    expect(html).toContain('実際の読み込み成功やモデルの理解は未確認');
     expect(html).toContain('入力 · command');
     expect(html).toContain('画面上の抜粋');
     expect(html).toContain('href="./repair-codex-inputs/events.jsonl"');
@@ -622,11 +622,12 @@ test('collapsed commands show escaped filenames while full paths and original ev
   }
 });
 
-test('badge tones follow explicit outcomes, never successful-looking output or completion alone', async () => {
+test('event titles respect event and item kinds while badge tones follow explicit outcomes', async () => {
   const { dir, result } = await fixture('stopped');
-  const cases: { event: unknown; tone: string; label: string }[] = [
+  const cases: { event: unknown; title: string; tone: string; label: string }[] = [
     {
       event: { type: 'item.completed', item: { type: 'command_execution', exit_code: 0 } },
+      title: 'コマンド実行',
       tone: 'success',
       label: '終了コード 0',
     },
@@ -635,6 +636,7 @@ test('badge tones follow explicit outcomes, never successful-looking output or c
         type: 'item.completed',
         item: { type: 'command_execution', exit_code: 2, aggregated_output: 'All checks passed' },
       },
+      title: 'コマンド実行',
       tone: 'failure',
       label: '終了コード 2',
     },
@@ -643,38 +645,90 @@ test('badge tones follow explicit outcomes, never successful-looking output or c
         type: 'item.completed',
         item: { type: 'command_execution', aggregated_output: 'success' },
       },
+      title: 'コマンド実行',
       tone: 'pending',
       label: '終了コード未記録',
     },
     {
       event: { type: 'item.started', item: { type: 'command_execution', exit_code: 0 } },
+      title: 'コマンド実行',
       tone: 'pending',
       label: '開始 · 結果未確認',
     },
     {
       event: { type: 'item.updated', item: { type: 'command_execution', exit_code: 0 } },
+      title: 'コマンド実行',
       tone: 'pending',
       label: '更新 · 結果未確認',
     },
-    { event: { type: 'turn.failed' }, tone: 'failure', label: '失敗の記録' },
-    { event: { type: 'error' }, tone: 'failure', label: '失敗の記録' },
+    { event: { type: 'turn.failed' }, title: 'turn.failed', tone: 'failure', label: '失敗の記録' },
+    { event: { type: 'error' }, title: 'error', tone: 'failure', label: '失敗の記録' },
     {
       event: { type: 'item.completed', item: { type: 'agent_message', text: 'success' } },
+      title: 'モデルの応答',
       tone: 'info',
       label: '完了イベント',
     },
     {
       event: { type: 'item.completed', item: { type: 'mcp_tool_call' } },
+      title: 'MCPツール',
       tone: 'pending',
       label: '完了イベント · 成否未確認',
     },
-    { event: { type: 'thread.started' }, tone: 'info', label: '記録されたイベント' },
+    {
+      event: { type: 'thread.started' },
+      title: '対話の開始',
+      tone: 'info',
+      label: '記録されたイベント',
+    },
+    {
+      event: { type: 'turn.started' },
+      title: '処理の開始',
+      tone: 'pending',
+      label: '記録されたイベント',
+    },
+    {
+      event: { type: 'turn.completed' },
+      title: '処理の終了',
+      tone: 'info',
+      label: '記録されたイベント',
+    },
+    {
+      event: { type: 'item.completed', item: { type: 'file_change' } },
+      title: 'ファイルの変更',
+      tone: 'pending',
+      label: '完了イベント · 成否未確認',
+    },
+    {
+      event: { type: 'file_change' },
+      title: 'file_change',
+      tone: 'neutral',
+      label: '記録されたイベント',
+    },
+    {
+      event: { type: 'item.completed', item: { type: 'thread.started' } },
+      title: 'thread.started',
+      tone: 'pending',
+      label: '完了イベント · 成否未確認',
+    },
+    {
+      event: { type: 'item.completed', item: { type: '<unknown>' } },
+      title: '&lt;unknown&gt;',
+      tone: 'pending',
+      label: '完了イベント · 成否未確認',
+    },
     {
       event: { type: 'constructor', item: { type: 'command_execution', exit_code: 0 } },
+      title: 'コマンド実行',
       tone: 'neutral',
       label: '種類不明 · 成否未確認',
     },
-    { event: { type: '<unknown>' }, tone: 'neutral', label: '記録されたイベント' },
+    {
+      event: { type: '<unknown>' },
+      title: '&lt;unknown&gt;',
+      tone: 'neutral',
+      label: '記録されたイベント',
+    },
   ];
   try {
     const actor = join(dir, 'repair-codex-tones');
@@ -691,9 +745,14 @@ test('badge tones follow explicit outcomes, never successful-looking output or c
     const summaries = [...html.matchAll(/<summary>([\s\S]*?)<\/summary>/g)].map(
       (match) => match[1] ?? '',
     );
-    cases.forEach(({ tone, label }, index) => {
+    cases.forEach(({ title, tone, label }, index) => {
+      expect(summaries[index]).toContain(`<span class="event-title">${title}</span>`);
       expect(summaries[index]).toContain(`<span class="event-status tone-${tone}">${label}</span>`);
     });
+    for (const kind of ['thread.started', 'turn.started', 'turn.completed', 'file_change']) {
+      expect(html).toContain(`&quot;type&quot;:&quot;${kind}&quot;`);
+    }
+    expect(html).toContain('href="./repair-codex-tones/events.jsonl"');
     expect(html).toContain('<span class="status-badge tone-neutral">constructor</span>');
     expect(html).toContain('<span class="status-badge tone-neutral">&lt;unknown&gt;</span>');
     expect(html).toContain('class="pill tone-pending">停止</span>');
