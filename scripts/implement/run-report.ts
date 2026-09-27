@@ -10,6 +10,7 @@ import type { State } from './input.ts';
 import { isRecord } from '../shared/values.ts';
 import type { Review } from './review.ts';
 import { commandInputs } from './command-inputs.ts';
+import { outputSyntax } from './output-syntax.ts';
 
 const escape = (value: string) =>
   value.replace(/[&<>"']/g, (character) => {
@@ -29,6 +30,13 @@ const excerpt = (value: string, limit = 900) =>
   value.length > limit
     ? `${escape(value.slice(0, limit))}\n…画面上の抜粋（全${value.length}文字。原記録を参照）`
     : escape(value);
+
+function outputExcerpt(value: string) {
+  // Character references retain CRs through HTML parsing; code preserves an initial newline.
+  const content = outputSyntax(value.slice(0, 900)).replaceAll('\r', '&#13;');
+  const suffix = value.length > 900 ? `\n…画面上の抜粋（全${value.length}文字。原記録を参照）` : '';
+  return `<pre><code>${content}${suffix}</code></pre>`;
+}
 
 // Translate only these saved CI messages, never substrings or inferred states.
 // Unknown (including future) wording stays visible in the original language.
@@ -251,7 +259,7 @@ function actorAction(event: unknown, index: number, raw: string) {
     return eventDetail(
       'コマンド実行',
       status.label,
-      `${files.body}<div class="io-grid">${ioPanel('入力 · command', `<pre>${excerpt(command)}</pre>`, 'input')}${ioPanel('出力 · aggregated_output', `<pre>${excerpt(text(item.aggregated_output) ?? '未記録')}</pre>`, 'output')}</div>`,
+      `${files.body}<div class="io-grid">${ioPanel('入力 · command', `<pre>${excerpt(command)}</pre>`, 'input')}${ioPanel('出力 · aggregated_output', outputExcerpt(text(item.aggregated_output) ?? '未記録'), 'output')}</div>`,
       { preview: files.preview, line: index + 1, tone: status.tone },
     );
   }
@@ -264,7 +272,7 @@ function actorAction(event: unknown, index: number, raw: string) {
     return eventDetail(
       'モデルの応答',
       '完了イベント',
-      `<div class="io-grid">${ioPanel('入力', '<p class="muted">このイベントには入力の保存値がありません。</p>', 'input')}${ioPanel('出力 · text', `<pre>${excerpt(item.text)}</pre>`, 'output')}</div>`,
+      `<div class="io-grid">${ioPanel('入力', '<p class="muted">このイベントには入力の保存値がありません。</p>', 'input')}${ioPanel('出力 · text', outputExcerpt(item.text), 'output')}</div>`,
       { line: index + 1, tone: 'info' },
     );
   }
@@ -521,6 +529,8 @@ async function render(runDir: string) {
 .command-inputs{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;font-weight:400;min-width:0}.input-file{display:inline-flex;align-items:baseline;gap:8px;min-width:0;max-width:100%;border:1px solid #c7d8f4;border-radius:5px;background:#eef5ff;padding:3px 8px;white-space:nowrap;overflow-x:auto}.input-file-tmp{background:#f4f0e8;border-color:#d8cdbb}.input-location{font-size:11px;color:#65543a}.input-file>*{flex-shrink:0}.input-file:focus-visible{outline:3px solid #5b78c5;outline-offset:-3px}.input-directory{font-size:11px;color:#596474}.command-paths{margin-bottom:18px}.command-paths h4{margin:0}.command-paths p{font-size:13px}.command-paths ul{list-style:none;padding:0;margin:0}.input-path{padding:10px 0}.input-path+.input-path{border-top:1px solid #dce1e7}.input-path-value{display:block;color:#566170;white-space:pre-wrap;overflow-wrap:anywhere}.input-file code{white-space:inherit}.event-heading{min-width:0;overflow-wrap:anywhere}
 .event-source{display:inline-block;margin-left:8px;white-space:nowrap;font-size:12px;font-weight:400;color:#687484}.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}.report-notes{margin:16px 0;padding:14px 16px;border:1px solid #dce1e7;border-radius:8px;background:#f6f7f9;font-size:13px;color:#566170}.report-notes h3{font-size:14px}.report-notes ul{margin:0;padding-inline-start:1.2em;list-style-position:outside}.summary-source{text-align:right;font-size:13px}.summary-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.summary-fields>div{min-width:0;padding:12px 14px;border:1px solid #dce1e7;border-radius:8px;background:#fcfdff}.result-note{border-top:1px solid #e2e6ec;margin-top:18px;padding-top:18px}.review-summary{white-space:pre-wrap}@media(max-width:700px){.summary-fields{grid-template-columns:1fr}}
 .tone-success{background:#e8f5ec;color:#216138;border-color:#b7d9c1}.tone-failure{background:#fceced;color:#9d2833;border-color:#e9bfc4}.tone-pending{background:#fff6dc;color:#795508;border-color:#e5d49f}.tone-info{background:#edf3ff;color:#30558b;border-color:#c7d8f4}.tone-neutral{background:#f0f2f5;color:#566170;border-color:#dce1e7}
+.output-panel .hljs-attr,.output-panel .hljs-title,.output-panel .hljs-section{color:#0550ae}.output-panel .hljs-string,.output-panel .hljs-regexp{color:#0a3069}.output-panel .hljs-number,.output-panel .hljs-literal{color:#0550ae}.output-panel .hljs-keyword{color:#8250df}.output-panel .hljs-comment,.output-panel .hljs-quote{color:#57606a}.output-panel .hljs-section,.output-panel .hljs-strong{font-weight:650}.output-panel .hljs-emphasis{font-style:italic}
+
 </style></head><body><main><header><div class="eyebrow">IMPLEMENT / 1 RUN</div><h1>実装runの記録</h1><span class="pill tone-${result.status === 'stopped' ? 'pending' : 'success'}">${escape(status)}</span></header>
 <section class="section card"><h2>今回の結果</h2><dl class="summary-fields">${field('Issue', externalLink(result.issue, result.issue))}${field('対象リポジトリ', shown(result.repository))}${field('開始commit', quote(result.startCommit))}${field('開始日時（UTC）', shown(result.startedAt))}${field('終了日時（UTC）', shown(result.finishedAt))}${field('HTML生成日時（UTC）', shown(generatedAt))}${field('終了状態', badge(status, result.status === 'stopped' ? 'pending' : 'success'))}${field('最終工程', `${shown(result.phase)} / ${shown(result.operation)}`)}</dl><div class="result-note"><h3>実行結果</h3><p>${shown(resultReasons.get(result.reason) ?? result.reason)}</p></div><div class="result-note"><h3>ネクストアクション</h3><p>${shown(nextActions.get(result.nextAction) ?? result.nextAction)}</p><p class="report-note">残る作業: ${result.remaining.length ? result.remaining.map((task) => escape(remainingTasks.get(task) ?? task)).join('、') : '記録なし'}。人の承認・マージは、このrunの結果に含みません。</p></div></section>
 ${warnings.length ? `<section class="section card"><h2>関連記録の注意</h2><p>読めた結果は保持しました。次の記録は未確認です。原記録を確認してください。</p><ul>${warnings.map((warning) => `<li>${escape(warning)}</li>`).join('')}</ul></section>` : ''}

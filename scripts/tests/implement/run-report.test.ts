@@ -55,6 +55,109 @@ async function fixture(status: 'stopped' | 'verified_local' | 'published_draft')
   return { dir, result };
 }
 
+test('saved outputs highlight recognizable syntax without changing excerpts or trusting file extensions', async () => {
+  const { dir } = await fixture('stopped');
+  const json =
+    '\n{\r\n  "large": 900719925474099312345, "text": "<script>&amp;\\n\\\"",\r\n  "ok": true, "none": null\r\n}\n';
+  const mixed =
+    '{"name":[{"count":2}], "quoted":"brace }"}\ndiff --git a/a b/a\n-const old = "before";\n+const next = "after";\n';
+  const markdown =
+    '# Saved output\n[link](javascript:alert(1)) <img src=x onerror=alert(1)>\n```js\nconst text = "<b>not HTML</b>"; // note\n```\n~~~json\nnot JSON <b>\n~~~\n{"next": false}\n';
+  const javascript =
+    'export const text = "literal \\n & < >"; // comment\n/* multiline\nconst insideComment = "not code";\n*/\nfunction read() {\n  return true;\n}\n';
+  const plain = 'unknown <script>alert(1)</script> &quot;\n';
+  const incomplete = '{"text": "unfinished\n';
+  const unsupported = 'const pattern = /"not a string"/;\n';
+  const long = `# Large output\n${'x'.repeat(200_000)}\n{"outsideExcerpt":true}`;
+  const truncatedJson = `{"long":"${'x'.repeat(1000)}"}`;
+  const partialJson = `{\n  "large": 900719925474099312345,\n  "nested": {\n    "enabled": true,\n    "broken": bare,\n    "long": "${'x'.repeat(1000)}"}}`;
+  const outputs = [
+    json,
+    mixed,
+    markdown,
+    javascript,
+    plain,
+    incomplete,
+    unsupported,
+    long,
+    truncatedJson,
+    partialJson,
+    'const value = `hello ${name}`;\n',
+    'const text = "unfinished\n# not a heading\nconst insideString = true;\n',
+    '```js\nconst unfinished = true;\n',
+  ];
+  const actor = join(dir, 'repair-codex-output');
+  const command = 'cat data.json README.md source.js';
+  try {
+    await mkdir(actor);
+    const events = outputs
+      .map((output, index) =>
+        JSON.stringify({
+          type: 'item.completed',
+          item:
+            index === 2
+              ? { type: 'agent_message', text: output }
+              : { type: 'command_execution', command, aggregated_output: output, exit_code: 0 },
+        }),
+      )
+      .join('\n');
+    await writeFile(join(actor, 'events.jsonl'), events);
+    const html = await readFile(await writeRunReport(dir), 'utf8');
+    const panels = [
+      ...html.matchAll(/<section class="io-panel output-panel">([\s\S]*?)<\/section>/g),
+    ].map((match) => match[1] ?? '');
+    expect(panels).toHaveLength(outputs.length);
+    const entities: Record<string, string> = {
+      amp: '&',
+      lt: '<',
+      gt: '>',
+      quot: '"',
+      '#x27': "'",
+      '#39': "'",
+      '#13': '\r',
+    };
+    panels.forEach((panel, index) => {
+      const marked = panel.match(/<pre><code>([\s\S]*?)<\/code><\/pre>/)?.[1];
+      expect(marked).toBeDefined();
+      const escaped = (marked ?? '').replace(/<span class="hljs-[a-z0-9_ -]+">|<\/span>/g, '');
+      // Only fixed spans may be markup; decoding once also catches double escaping.
+      expect(escaped).not.toMatch(/[<>]/);
+      const restored = escaped.replace(
+        /&(amp|lt|gt|quot|#39|#x27|#13);/g,
+        (_, entity: string) => entities[entity] ?? '',
+      );
+      const original = outputs[index] ?? '';
+      const expected =
+        original.length > 900
+          ? `${original.slice(0, 900)}\n…画面上の抜粋（全${original.length}文字。原記録を参照）`
+          : original;
+      expect(restored).toBe(expected);
+      expect(panel).not.toMatch(/<(?:script|img|a)\b/);
+    });
+    expect(panels[0]).toContain('class="hljs-attr"');
+    expect(panels[0]).toContain('class="hljs-number"');
+    expect(panels[2]).toContain('class="hljs-section"');
+    expect(panels[3]).toContain('class="hljs-keyword"');
+    expect(panels[3]).toContain('class="hljs-string"');
+    expect(panels[3]).toContain('class="hljs-comment"');
+    expect(panels[7]).not.toContain('outsideExcerpt');
+    expect(html).not.toContain('色分けの候補');
+    expect(html).not.toContain('output-format');
+    const inputPanels = [
+      ...html.matchAll(/<section class="io-panel input-panel">([\s\S]*?)<\/section>/g),
+    ];
+    expect(inputPanels.some((match) => match[1]?.includes(`<pre>${command}</pre>`))).toBe(true);
+    expect(inputPanels.every((match) => !match[1]?.includes('hljs-'))).toBe(true);
+    expect(html).toContain(
+      "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+    );
+    expect(html).toContain('href="./repair-codex-output/events.jsonl"');
+    expect(await readFile(join(actor, 'events.jsonl'), 'utf8')).toBe(events);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('run report distinguishes local verification from publication and links only recorded evidence', async () => {
   const { dir } = await fixture('verified_local');
   try {
