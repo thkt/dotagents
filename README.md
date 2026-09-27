@@ -36,7 +36,7 @@ bun install --frozen-lockfile --ignore-scripts
 bun run check
 ```
 
-Bun 1.4.2を使います。checkはlint、書式、Biomeの認知的複雑度15、型、fallowの未使用コード・循環依存検査、ハーネスの制御テストの順に実行します。fallow 3.27.0も版固定の開発依存として上記setupで導入します。Playwrightや商品アプリの依存は導入しません。対象repoではそのrepoの検証を指定してください。商品・既存媒体・旧App版コードと実測履歴は[trial repo](https://github.com/thkt/dotagents-workflow-trial/blob/d0134086ad9bdddb5ed2693327cb1ffb0859c4a2/README.md)に残っています。
+Bun 1.4.2を使います。checkはlint、書式、Biomeの認知的複雑度15、型、fallowの未使用コード・循環依存検査、ハーネスの制御テストの順に実行します。fallow 3.28.0も版固定の開発依存として上記setupで導入します。Playwrightや商品アプリの依存は導入しません。対象repoではそのrepoの検証を指定してください。商品・既存媒体・旧App版コードと実測履歴は[trial repo](https://github.com/thkt/dotagents-workflow-trial/blob/d0134086ad9bdddb5ed2693327cb1ffb0859c4a2/README.md)に残っています。
 
 [biome.json](biome.json)は、版固定したBiome 2.5.14の既定値（linterの有効化と認知的複雑度の上限15）を使い、`noExcessiveCognitiveComplexity`を`error`に指定しています。Biomeの版更新時は、この既定値と上限超過時のerrorによる拒否を再確認してください。
 
@@ -46,7 +46,7 @@ Bun 1.4.2を使います。checkはlint、書式、Biomeの認知的複雑度15�
 
 [Issue #147](https://github.com/thkt/dotagents/issues/147)で合意した循環検出は、同じfallow実行の`--circular-deps`で行います。保証範囲はfallowが解析できる実行時importの循環に限ります。型のみの参照は循環として拒否せず、非循環の逆向き依存や全ての責務境界を検査するものではありません。これらは調査・レビューで判断し、実行時の権限・鮮度・停止・データ保全は既存の制御テストと独立評価で確認します。循環検査のための追加の適用除外は設けません。
 
-[.fallowrc.json](.fallowrc.json)の`entry`には、外部から起動するCLIを自動発見への追加入口として指定します。固定版fallow 3.27.0では、`scripts/tests/**/*.test.ts`をBunプラグインが、Oxlintが読み込む[ローカルプラグイン](scripts/lint/local/index.ts)をOxlintプラグインが自動検出します。`includeEntryExports`で入口のexportも検査し、カスタム`framework`の`usedExports`と`enablers`では、Oxlint有効時の`default` exportの利用を宣言します。このexportの利用は通常lintの実行テストでも確認します。未使用ファイル・export・型・通常依存は既定の`error`を使い、既定が`warn`のdev・optional依存は明示的に`error`とします。他のexportやファイル・依存の未使用検査は維持します。fallowの版を更新する際は、既定重大度と自動入口検出を再確認してください。使用判定を調べる場合は`bunx --no-install fallow list`で入口を、`bunx --no-install fallow dead-code --trace scripts/shared/values.ts:isRecord`でexportの参照を確認してください。
+[.fallowrc.json](.fallowrc.json)の`entry`には、外部から起動するCLIを自動発見への追加入口として指定します。固定版fallow 3.28.0では、`scripts/tests/**/*.test.ts`をBunプラグインが、Oxlintが読み込む[ローカルプラグイン](scripts/lint/local/index.ts)をOxlintプラグインが自動検出します。`includeEntryExports`で入口のexportも検査し、カスタム`framework`の`usedExports`と`enablers`では、Oxlint有効時の`default` exportの利用を宣言します。このexportの利用は通常lintの実行テストでも確認します。未使用ファイル・export・型・通常依存は既定の`error`を使い、既定が`warn`のdev・optional依存は明示的に`error`とします。他のexportやファイル・依存の未使用検査は維持します。fallowの版を更新する際は、既定重大度と自動入口検出を再確認してください。使用判定を調べる場合は`bunx --no-install fallow list`で入口を、`bunx --no-install fallow dead-code --trace scripts/shared/values.ts:isRecord`でexportの参照を確認してください。
 
 整形は`bun run format`、書式確認は`bun run format:check`を使います。Oxfmtには`scripts`を渡し、[.oxfmtrc.json](.oxfmtrc.json)のignore指定で従来どおり`scripts/**/*.ts`だけを対象にします。package scriptにTSのglobを渡すと、fallowが整形対象を入口として追加し、未参照ファイルを見逃すためです。CLI・テストやformat設定を変えた際は、入口と検出条件も確認してください。
 
@@ -60,7 +60,7 @@ Bun 1.4.2を使います。checkはlint、書式、Biomeの認知的複雑度15�
 
 静的解析の参照や推定coverageは実行時の利用・テスト網羅を証明しません。CRAPの推定値や類似コードだけで自動削除・強制分割せず、呼出元、実際の利用条件、既存テストと照合して判断します。追加調査の指摘なしも、除外対象を含む全コードの健全性を保証しません。fallowの認知的複雑度とBiomeの判定が常に一致するとは扱いません。
 
-採用範囲と条件付きの比較結果は[Issue #174](https://github.com/thkt/dotagents/issues/174)を参照してください。常に他ツールより速いことは保証しません。ツールの詳細は[公式設定](https://fallow.tools/docs/configuration/overview/)と[重複検査](https://docs.fallow.tools/analysis/duplication)を参照し、このrepoで使うオプションは導入済み3.27.0の`--help`でも確認してください。
+採用範囲と条件付きの比較結果は[Issue #174](https://github.com/thkt/dotagents/issues/174)を参照してください。常に他ツールより速いことは保証しません。ツールの詳細は[公式設定](https://fallow.tools/docs/configuration/overview/)と[重複検査](https://docs.fallow.tools/analysis/duplication)を参照し、このrepoで使うオプションは導入済み3.28.0の`--help`でも確認してください。
 
 [Issue #58の過去の検証報告](docs/research/harness-review-2026-09-14.md)は固定資料です。通常checkでは、この報告の形式検査やJSONとMarkdownの一致確認を行いません。runtimeの正常系・異常系の制御テスト、および共通checkとは別に行う[撮影の実検証](scripts/README.md#検証)は維持します。
 
