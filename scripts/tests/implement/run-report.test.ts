@@ -120,6 +120,10 @@ test('run report distinguishes local verification from publication and links onl
     expect(html).toContain('ローカル検証済み');
     expect(html).toContain('2026-09-23T01:02:03.000Z');
     expect(html).toContain('2026-09-23T01:03:04.000Z');
+    for (const label of ['開始日時', '終了日時', 'HTML生成日時']) {
+      expect(html).toContain(`<dt>${label}（UTC）</dt>`);
+    }
+    expect(html).toContain('<dt>対象リポジトリ</dt><dd>team/component</dd>');
     expect(html).toContain('2回記録');
     expect(html).toContain('<h2>今回の結果</h2><dl class="summary-fields">');
     for (const [heading, note] of [
@@ -139,8 +143,8 @@ test('run report distinguishes local verification from publication and links onl
     );
     expect(html).toMatch(/@media\(max-width:700px\)\{\.summary-fields\{grid-template-columns:1fr/);
     expect(html).toMatch(/\.result-note\{[^}]*border-top:/);
-    expect(html).toContain('<div class="result-note"><h3>停止理由・結果</h3>');
-    expect(html).toContain('<div class="result-note"><h3>次の対応</h3>');
+    expect(html).toContain('<div class="result-note"><h3>実行結果</h3>');
+    expect(html).toContain('<div class="result-note"><h3>ネクストアクション</h3>');
     expect(html).toContain(
       '<p class="report-note">残る作業: 人によるレビュー。人の承認・マージは、このrunの結果に含みません。</p>',
     );
@@ -190,6 +194,25 @@ test('run report distinguishes local verification from publication and links onl
     expect(html).not.toContain('<th>verification/state.json</th>');
     expect(html).not.toContain('Draft公開・CI確認済み');
     expect(html).not.toContain('https://github.com/team/component/pull/100');
+
+    await writeFile(
+      statePath,
+      JSON.stringify({
+        ...state,
+        reviewHistory: reviewHistory.map((review) => ({ ...review, items: [] })),
+      }),
+    );
+    const empty = await readFile(
+      await writeRunReport(dir, join(dir, 'report-no-findings.html')),
+      'utf8',
+    );
+    const reviewSection = empty.match(/<h2>独立評価の指摘<\/h2>(.*?)<\/section>/)?.[1] ?? '';
+    expect(reviewSection).toContain(
+      '<p class="review-summary"><strong>修正必須の指摘なし</strong>（accepted）。保存済みの指摘を確認した。</p>',
+    );
+    expect(reviewSection).not.toContain('actor-group');
+    expect(reviewSection).not.toContain('activity-list');
+    expect(reviewSection).not.toContain('empty-list');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -258,6 +281,10 @@ test('stopped run keeps its reason as escaped text without implying an evaluatio
     expect(html).not.toContain('<script>');
     expect(html).toContain('独立評価');
     expect(html).toContain('未記録');
+    expect(html).toContain('<h2>独立評価の指摘</h2><p>未記録</p>');
+    expect(html).toContain(
+      '<p class="report-note">入出力の区分は未確認です。保存された行の抜粋です。</p>',
+    );
     expect(html).toContain("default-src 'none'");
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -475,12 +502,15 @@ test('command input candidates follow literal read operands, excluding patterns,
       if (!paths.length) {
         expect(summaries[index], command).not.toContain('command-inputs');
       }
-      const displayed = [...body.matchAll(/<li><code>([\s\S]*?)<\/code><\/li>/g)].map(
-        (match) => match[1],
-      );
+      const displayed = [
+        ...body.matchAll(/<code class="input-path-value">([\s\S]*?)<\/code>/g),
+      ].map((match) => match[1]);
       expect(displayed, command).toEqual(paths);
       if (!paths.length) {
-        expect(body, command).toContain('抽出状態: 抽出できず');
+        expect(body, command).toContain(
+          '<p>ファイル候補を抽出できませんでした。元のcommandと原記録を確認してください。</p>',
+        );
+        expect(body.match(/<p>/g), command).toHaveLength(1);
       }
     });
   } finally {
@@ -530,6 +560,7 @@ test('collapsed commands show escaped filenames while full paths and original ev
     await writeFile(join(actor, 'events.jsonl'), events);
     const result = await readFile(join(dir, 'result.json'), 'utf8');
     const state = await readFile(join(dir, 'verification/state.json'), 'utf8');
+    await writeFile(join(dir, 'implementation-summary.md'), 'Saved summary <unchanged>');
     const html = await readFile(await writeRunReport(dir, join(dir, 'report-inputs.html')), 'utf8');
     const summaries = [...html.matchAll(/<summary>([\s\S]*?)<\/summary>/g)].map(
       (match) => match[1] ?? '',
@@ -542,8 +573,12 @@ test('collapsed commands show escaped filenames while full paths and original ev
     expect(summary).not.toContain('行 2 ·');
     expect(summary).not.toContain('抽出');
     expect(summary).not.toContain('入力ファイル候補');
-    expect(html).toContain('<p>抽出状態: 一部のみ抽出</p>');
-    expect(html).toContain('<p>抽出状態: commandから抽出</p>');
+    expect(html).toContain('<p>ファイル候補はcommandから一部のみ抽出。</p>');
+    expect(html).toContain('<p>ファイル候補はcommandから抽出。</p>');
+    expect(html).toContain(
+      '<pre>Saved summary &lt;unchanged&gt;</pre><p class="summary-source"><a href="./implementation-summary.md">要約の原記録を開く</a></p>',
+    );
+    expect(html).toMatch(/\.summary-source\{[^}]*text-align:right;[^}]*font-size:13px/);
     expect(summary).toContain('<code>same.md</code>');
     expect(summary).toContain('one/');
     expect(summary).toContain('long-directory/'.repeat(90));
@@ -559,7 +594,9 @@ test('collapsed commands show escaped filenames while full paths and original ev
       expect(tmpSummary).toContain(
         `<span class="input-file${temporary ? ' input-file-tmp' : ''}" tabindex="0"><code>${name}</code><span class="input-directory">${parent}</span>${temporary ? '<span class="input-location">tmp</span>' : ''}</span>`,
       );
-      expect(html).toContain(`<li><code>${path}</code></li>`);
+      expect(html).toContain(
+        `<li class="input-path"><div class="input-path-name"><code>${name}</code>${temporary ? '<span class="input-location">tmp</span>' : ''}</div><code class="input-path-value">${path}</code></li>`,
+      );
     }
     expect(tmpSummary).toContain(
       '<span class="input-file input-file-tmp" tabindex="0"><code>&lt;img src=x&gt;&amp;&quot;.md</code><span class="input-location">tmp</span></span>',
@@ -568,6 +605,14 @@ test('collapsed commands show escaped filenames while full paths and original ev
     expect(tmpSummary).not.toContain('入力ファイル候補');
     expect(html).toMatch(/\.input-file-tmp\{[^}]*background:#f4f0e8/);
     expect(html).toMatch(/\.input-location\{[^}]*font-size:11px/);
+    expect(html).toContain(
+      '<li class="input-path"><div class="input-path-name"><code>&lt;img src=x&gt;&amp;&quot;.md</code><span class="input-location">tmp</span></div><code class="input-path-value">/tmp/&lt;img src=x&gt;&amp;&quot;.md</code></li>',
+    );
+    expect(html).toMatch(/\.command-paths ul\{[^}]*list-style:none;[^}]*padding:0/);
+    expect(html).toMatch(/\.input-path\+\.input-path\{[^}]*border-top:/);
+    expect(html).toMatch(
+      /\.input-path-value\{[^}]*display:block;[^}]*color:#566170;[^}]*white-space:pre-wrap;[^}]*overflow-wrap:anywhere/,
+    );
     expect(html).toMatch(/\.command-inputs\{[^}]*display:flex;[^}]*flex-wrap:wrap/);
     expect(html).toMatch(
       /\.input-file\{[^}]*display:inline-flex;[^}]*max-width:100%;[^}]*white-space:nowrap;[^}]*overflow-x:auto/,
@@ -583,7 +628,7 @@ test('collapsed commands show escaped filenames while full paths and original ev
     const notes = html.match(/<aside class="report-notes"[^>]*>([\s\S]*?)<\/aside>/)?.[1] ?? '';
     expect(notes).toContain('<h3 id="report-notes-title">読み方</h3><ul>');
     expect(html).toMatch(
-      /\.report-notes ul\{margin:0;padding-inline-start:0;list-style-position:inside\}/,
+      /\.report-notes ul\{margin:0;padding-inline-start:1.2em;list-style-position:outside\}/,
     );
     expect(notes.match(/<li>/g)).toHaveLength(4);
     expect(notes).not.toContain('<details');
@@ -599,15 +644,16 @@ test('collapsed commands show escaped filenames while full paths and original ev
       expect(html.split(explanation)).toHaveLength(2);
     }
     expect(html.indexOf('<aside class="report-notes"')).toBeLessThan(
-      html.indexOf('<h3>ホスト工程</h3>'),
+      html.indexOf('<h3>ホストの実行ログ</h3>'),
     );
     for (const body of html.matchAll(/<section class="command-paths">([\s\S]*?)<\/section>/g)) {
       expect(body[1]).not.toContain('静的に抽出');
       expect(body[1]).not.toContain('理解は未確認');
+      expect(body[1]).not.toContain('<a ');
     }
     expect(html).not.toContain('<img');
     expect(html).not.toContain('<details class="event-disclosure" open');
-    expect(html).toContain(`<li><code>${longPath}</code></li>`);
+    expect(html).toContain(`<code class="input-path-value">${longPath}</code>`);
     expect(html).toContain('permission denied');
     expect(html).toContain('開始 · 結果未確認');
     expect(html).toContain('<code>pending.md</code>');
