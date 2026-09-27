@@ -201,6 +201,10 @@ test('stopped run keeps its reason as escaped text without implying an evaluatio
   try {
     await writeFile(join(dir, 'setup-1.stderr'), 'setup failed');
     await writeFile(join(dir, 'implementation.stderr'), 'diagnostic');
+    for (const name of ['review-codex-first', 'review-codex-second']) {
+      await mkdir(join(dir, name));
+      await writeFile(join(dir, name, 'events.jsonl'), '{"type":"turn.completed"}\n');
+    }
     const actor = join(dir, 'repair-codex-example');
     await mkdir(actor);
     await writeFile(
@@ -224,6 +228,15 @@ test('stopped run keeps its reason as escaped text without implying an evaluatio
       ].join('\n') + '\n',
     );
     const html = await readFile(await writeRunReport(dir), 'utf8');
+    const actorHeaders = [...html.matchAll(/<section class="actor-group"><header>(.*?)<\/header>/g)]
+      .map((match) => match[1])
+      .join('\n');
+    expect(actorHeaders).toContain('<h4>実装・修正担当AI</h4><p>repair-codex-example</p>');
+    expect(actorHeaders).toContain('href="./repair-codex-example/events.jsonl"');
+    for (const name of ['review-codex-first', 'review-codex-second']) {
+      expect(actorHeaders).toContain(`<h4>レビュー担当AI</h4><p>${name}</p>`);
+      expect(actorHeaders).toContain(`href="./${name}/events.jsonl"`);
+    }
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
     expect(html).toContain('入力 · command');

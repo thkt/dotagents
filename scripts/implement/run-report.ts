@@ -265,7 +265,8 @@ async function actorLogGroup(root: string, path: string, name: string, warnings:
       return [];
     }
   });
-  return `<section class="actor-group"><header><h4>モデル側 · ${escape(name)}</h4><p>${actions.length}/${lines.filter(Boolean).length}行表示（空行を除く、このログ内の順序）。${localLink(root, path, 'イベント原記録を開く')}。画面の長文は抜粋です。</p></header><div class="activity-list">${actions.join('') || '<p>表示対象のイベントは未記録です。</p>'}</div></section>`;
+  const role = name.startsWith('review-codex-') ? 'レビュー担当AI' : '実装・修正担当AI';
+  return `<section class="actor-group"><header><h4>${role}</h4><p>${escape(name)}</p><p>${actions.length}/${lines.filter(Boolean).length}行表示（空行を除く、このログ内の順序）。${localLink(root, path, 'イベント原記録を開く')}。画面の長文は抜粋です。</p></header><div class="activity-list">${actions.join('') || '<p>表示対象のイベントは未記録です。</p>'}</div></section>`;
 }
 
 type EntryCache = Map<string, Promise<Dirent<string>[]>>;
