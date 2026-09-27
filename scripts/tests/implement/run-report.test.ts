@@ -502,10 +502,12 @@ test('command input candidates follow literal read operands, excluding patterns,
       if (!paths.length) {
         expect(summaries[index], command).not.toContain('command-inputs');
       }
-      const displayed = [
-        ...body.matchAll(/<code class="input-path-value">([\s\S]*?)<\/code>/g),
-      ].map((match) => match[1]);
-      expect(displayed, command).toEqual(paths);
+      const displayed = [...body.matchAll(/<li class="input-path">([\s\S]*?)<\/li>/g)].map(
+        (match) => match[1],
+      );
+      expect(displayed, command).toEqual(
+        paths.map((path) => `<code class="input-path-value">${path}</code>`),
+      );
       if (!paths.length) {
         expect(body, command).toContain(
           '<p>ファイル候補を抽出できませんでした。元のcommandと原記録を確認してください。</p>',
@@ -595,7 +597,7 @@ test('collapsed commands show escaped filenames while full paths and original ev
         `<span class="input-file${temporary ? ' input-file-tmp' : ''}" tabindex="0"><code>${name}</code><span class="input-directory">${parent}</span>${temporary ? '<span class="input-location">tmp</span>' : ''}</span>`,
       );
       expect(html).toContain(
-        `<li class="input-path"><div class="input-path-name"><code>${name}</code>${temporary ? '<span class="input-location">tmp</span>' : ''}</div><code class="input-path-value">${path}</code></li>`,
+        `<li class="input-path"><code class="input-path-value">${path}</code></li>`,
       );
     }
     expect(tmpSummary).toContain(
@@ -606,7 +608,7 @@ test('collapsed commands show escaped filenames while full paths and original ev
     expect(html).toMatch(/\.input-file-tmp\{[^}]*background:#f4f0e8/);
     expect(html).toMatch(/\.input-location\{[^}]*font-size:11px/);
     expect(html).toContain(
-      '<li class="input-path"><div class="input-path-name"><code>&lt;img src=x&gt;&amp;&quot;.md</code><span class="input-location">tmp</span></div><code class="input-path-value">/tmp/&lt;img src=x&gt;&amp;&quot;.md</code></li>',
+      '<li class="input-path"><code class="input-path-value">/tmp/&lt;img src=x&gt;&amp;&quot;.md</code></li>',
     );
     expect(html).toMatch(/\.command-paths ul\{[^}]*list-style:none;[^}]*padding:0/);
     expect(html).toMatch(/\.input-path\+\.input-path\{[^}]*border-top:/);
