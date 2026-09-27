@@ -30,7 +30,7 @@ const runtime: {
   verify: (config: Config) => Promise<State>;
   publish: typeof publish;
 } = { command, verify: run, publish };
-// Applied separately to each local verification command and the CI wait.
+// Applied separately to each local verification command.
 const checkTimeMs = 540000;
 // General commands and post-publication target checks retain their 11-minute limit.
 const hostCommandTimeMs = 660000;
@@ -769,7 +769,7 @@ async function ship(
     ciChecks: context.target.config.ciChecks,
     issue: number,
   };
-  const ci = await waitForCi(ciTarget, io.command, hostCommandTimeMs, checkTimeMs);
+  const ci = await waitForCi(ciTarget, io.command, hostCommandTimeMs);
   result.ci = ci.status;
   result.ciDetails = ci;
   result.reasonCode = ci.status;

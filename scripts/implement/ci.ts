@@ -193,9 +193,8 @@ function parseTarget(stdout: string, target: Target, publicationIssue?: string) 
 export async function waitForCi(
   target: Target & { issue: string },
   execute: typeof command,
-  publicationTimeout: number,
-  budgetMs: number,
-  clock = { now: () => performance.now(), sleep: (ms: number) => setTimeout(ms) },
+  commandTimeout: number,
+  sleep = (ms: number) => setTimeout(ms),
 ): Promise<CiResult> {
   assert(target.ciChecks.length > 0, 'Expected CI checks required');
   const log = join(target.dir, 'pr-publication');
@@ -207,7 +206,7 @@ export async function waitForCi(
   const initial = await readTarget(
     target,
     execute,
-    publicationTimeout,
+    commandTimeout,
     log,
     'url,headRefOid,baseRefName,state,isDraft,body,statusCheckRollup',
     target.issue,
@@ -215,13 +214,12 @@ export async function waitForCi(
   if (initial.status !== 'observed') {
     return finish(result, initial.status, initial.reason);
   }
-  const deadline = clock.now() + budgetMs;
   const observed = await pollCi();
   const finalLog = join(target.dir, 'ci-final-target');
   const latest = await readTarget(
     target,
     execute,
-    publicationTimeout,
+    commandTimeout,
     finalLog,
     'headRefOid,baseRefName,state,isDraft',
   );
@@ -242,7 +240,6 @@ export async function waitForCi(
     let view = initial;
     while (true) {
       assertRunning();
-      result.timedOut = clock.now() >= deadline;
       if (view.status !== 'observed') {
         return finish(result, view.status, view.reason);
       }
@@ -250,32 +247,18 @@ export async function waitForCi(
       if (classified) {
         return classified;
       }
-      const remaining = deadline - clock.now();
-      if (remaining <= 0) {
-        break;
-      }
-      await clock.sleep(Math.min(5000, remaining));
+      await sleep(5000);
       assertRunning();
-      if (clock.now() >= deadline) {
-        break;
-      }
       const log = join(target.dir, `ci-registration-${result.logs.length}`);
       result.logs.push(log);
       view = await readTarget(
         target,
         execute,
-        Math.max(1, deadline - clock.now()),
+        commandTimeout,
         log,
         'headRefOid,baseRefName,state,isDraft,statusCheckRollup',
       );
     }
-    assertRunning();
-    result.timedOut = true;
-    return finish(
-      result,
-      'timed_out',
-      `CI wait budget exhausted; last observed state: ${result.lastObservation?.status ?? 'unobserved'}.`,
-    );
   }
 
   function classifyCi(pr: Record<string, unknown>): CiResult | null {
@@ -289,8 +272,6 @@ export async function waitForCi(
         error instanceof Error ? error.message : String(error),
       );
     }
-    result.timedOut = clock.now() >= deadline;
-    // A failure observed at the deadline must not become a waiting result.
     if (result.lastObservation.status === 'failed') {
       return finish(
         result,
@@ -298,7 +279,7 @@ export async function waitForCi(
         'Registered checks failed or required checks did not conclude SUCCESS.',
       );
     }
-    if (!result.timedOut && result.lastObservation.status === 'passed') {
+    if (result.lastObservation.status === 'passed') {
       return finish(
         result,
         'passed',

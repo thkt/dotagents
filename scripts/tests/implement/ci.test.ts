@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test, expect } from 'bun:test';
+import { test, expect, spyOn } from 'bun:test';
 import { waitForCi } from '../../implement/ci.ts';
 import type { CiResult } from '../../implement/ci.ts';
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
@@ -40,10 +40,10 @@ const scenarios: {
   starts?: number[];
   sleeps?: number[];
   unavailable?: boolean;
+  retrievalTimeout?: boolean;
   invalidJson?: boolean;
   error?: RegExp;
   interrupt?: 'read' | 'sleep';
-  budget?: number;
   finalFailure?: 'timeout' | 'throws';
   finalDraft?: boolean;
   reason?: string;
@@ -61,27 +61,21 @@ const scenarios: {
     status: 'passed',
   },
   {
-    name: 'publication retrieval does not spend the CI waiting budget',
-    frames: [frame([]), frame(required)],
-    elapsed: [650000, 100],
-    budget: 7000,
-    starts: [0, 655000],
-    sleeps: [5000],
+    name: 'waits beyond nine minutes for missing and running required checks',
+    frames: [
+      ...Array.from({ length: 55 }, () => frame([check('labels')])),
+      ...Array.from({ length: 55 }, () =>
+        frame([check('checks'), { name: 'verify', status: 'IN_PROGRESS' }]),
+      ),
+      frame(required),
+    ],
+    starts: Array.from({ length: 111 }, (_, index) => index * 5000),
+    sleeps: Array.from({ length: 110 }, () => 5000),
     status: 'passed',
-  },
-  {
-    name: 'unrelated success never replaces missing required checks',
-    frames: [frame([check('labels')])],
-    budget: 12000,
-    starts: [0, 5000, 10000],
-    sleeps: [5000, 5000, 2000],
-    status: 'timed_out',
-    observed: 'missing',
   },
   {
     name: 'head changes while waiting',
     frames: [frame([]), frame(required, 'different')],
-    budget: 7000,
     elapsed: [0, 2000],
     status: 'target_changed',
     observed: 'missing',
@@ -141,12 +135,12 @@ const scenarios: {
     status: 'passed',
   },
   {
-    name: 'running at deadline retains duplicate pending and missing registrations',
-    frames: [frame([check('checks'), { name: 'checks', status: 'IN_PROGRESS' }])],
-    budget: 20,
-    elapsed: [20],
-    status: 'timed_out',
+    name: 'retrieval timeout preserves duplicate pending and missing registrations',
+    frames: [frame([check('checks'), { name: 'checks', status: 'IN_PROGRESS' }]), frame(required)],
+    retrievalTimeout: true,
+    status: 'unavailable',
     observed: 'missing',
+    reason: 'timedOut true',
     expectedObservation: {
       checks: [
         { name: 'checks', state: 'SUCCESS' },
@@ -158,40 +152,15 @@ const scenarios: {
     },
   },
   {
-    name: 'registered checks still running at deadline',
-    frames: [frame([check('checks'), { name: 'verify', status: 'IN_PROGRESS' }])],
-    budget: 20,
-    status: 'timed_out',
-    observed: 'running',
-  },
-  {
-    name: 'failure returned at deadline remains failure',
+    name: 'failure after prolonged waiting remains failure',
     frames: [frame([]), frame([check('checks'), check('verify', 'FAILURE')])],
-    budget: 7000,
-    elapsed: [0, 2000],
+    elapsed: [0, 540000],
     status: 'failed',
     observed: 'failed',
   },
   {
-    name: 'success just before deadline',
-    frames: [frame([]), frame(required)],
-    budget: 7000,
-    elapsed: [0, 1999],
-    status: 'passed',
-    observed: 'passed',
-  },
-  {
-    name: 'success at deadline does not extend wait budget',
-    frames: [frame([]), frame(required)],
-    budget: 7000,
-    elapsed: [0, 2000],
-    status: 'timed_out',
-    observed: 'passed',
-  },
-  {
     name: 'API unavailable preserves last observation',
     frames: [frame([check('checks')]), frame(required)],
-    budget: 7000,
     elapsed: [0, 2000],
     unavailable: true,
     status: 'unavailable',
@@ -280,6 +249,16 @@ function checkObservation(scenario: (typeof scenarios)[number], result: CiResult
   }
 }
 
+function retrievalResponse(scenario: (typeof scenarios)[number], current: unknown, views: number) {
+  if (scenario.retrievalTimeout && views > 1) {
+    return { ...ok(JSON.stringify(frame(required))), timedOut: true };
+  }
+  if (scenario.unavailable && views > 1) {
+    return { ...ok('API error'), code: 1, stderr: 'offline' };
+  }
+  return ok(scenario.invalidJson ? '{' : JSON.stringify(current));
+}
+
 function finalResponse(failure?: 'timeout' | 'throws', isDraft = true) {
   if (failure === 'throws') {
     throw Error('spawn failed');
@@ -295,11 +274,12 @@ for (const scenario of scenarios) {
     const dir = await mkdtemp(join(tmpdir(), 'ci-test-'));
     let views = 0;
     let finalReads = 0;
-    const budget = scenario.budget ?? 15000;
     let now = 0;
     const starts: number[] = [];
     const sleeps: number[] = [];
     const timeouts: (number | null)[] = [];
+    // Advance the runtime clock too, so a reintroduced total CI deadline is observable.
+    const clock = spyOn(performance, 'now').mockImplementation(() => now);
     try {
       const action = () =>
         waitForCi(
@@ -311,29 +291,23 @@ for (const scenario of scenarios) {
               return finalResponse(scenario.finalFailure, scenario.finalDraft);
             }
             expect(argv[2]).toBe('view');
-            starts.push(now);
+            starts.push(performance.now());
             timeouts.push(timeout);
-            const current = scenario.frames[Math.min(views++, scenario.frames.length - 1)];
+            assert(views < scenario.frames.length, 'Unexpected extra CI poll');
+            const current = scenario.frames[views++];
             if (scenario.interrupt === 'read') {
               process.emit('SIGINT');
             }
             now += scenario.elapsed?.[views - 1] ?? 0;
-            if (scenario.unavailable && views > 1) {
-              return { ...ok('API error'), code: 1, stderr: 'offline' };
-            }
-            return ok(scenario.invalidJson ? '{' : JSON.stringify(current));
+            return retrievalResponse(scenario, current, views);
           },
           660000,
-          budget,
-          {
-            now: () => now,
-            sleep: async (ms) => {
-              sleeps.push(ms);
-              now += ms;
-              if (scenario.interrupt === 'sleep') {
-                process.emit('SIGINT');
-              }
-            },
+          async (ms) => {
+            sleeps.push(ms);
+            now += ms;
+            if (scenario.interrupt === 'sleep') {
+              process.emit('SIGINT');
+            }
           },
         );
       if (scenario.error) {
@@ -342,7 +316,7 @@ for (const scenario of scenarios) {
       } else {
         const result = await withInterrupts(action);
         expect(String(result.status)).toBe(scenario.status ?? '');
-        expect(result.timedOut).toBe(now >= budget + (scenario.elapsed?.[0] ?? 0));
+        expect(result.timedOut).toBe(false);
         expect(result.logs).toHaveLength(views + finalReads);
         expect(result.logs[0]).toBe(join(dir, 'pr-publication'));
         if (finalReads) {
@@ -359,10 +333,7 @@ for (const scenario of scenarios) {
         }
       }
       expect(starts[0]).toBe(0);
-      expect(timeouts).toEqual([
-        660000,
-        ...starts.slice(1).map((start) => budget + (scenario.elapsed?.[0] ?? 0) - start),
-      ]);
+      expect(timeouts).toEqual(starts.map(() => 660000));
       if (scenario.starts) {
         expect(starts).toEqual(scenario.starts);
       }
@@ -370,6 +341,7 @@ for (const scenario of scenarios) {
         expect(sleeps).toEqual(scenario.sleeps);
       }
     } finally {
+      clock.mockRestore();
       await withInterrupts(async () => {});
       await rm(dir, { recursive: true, force: true });
     }
@@ -396,7 +368,6 @@ for (const collision of ['directory', 'complete record']) {
           await writeFile(`${log}.stderr`, '');
           return ok(raw);
         },
-        1000,
         1000,
       );
       expect(result.status).toBe('storage_failed');
@@ -453,7 +424,6 @@ for (const { phase, streams } of [
           );
         },
         1000,
-        1000,
       );
       expect(result.status).toBe('storage_failed');
       for (const stream of streams) {
@@ -493,7 +463,6 @@ for (const finalStatus of ['unavailable', 'target_changed', 'storage_failed'] as
     const finalLog = join(dir, 'ci-final-target');
     const raw = JSON.stringify(frame(required));
     let reads = 0;
-    let now = 0;
     try {
       const result = await waitForCi(
         { ...target, dir },
@@ -513,13 +482,7 @@ for (const finalStatus of ['unavailable', 'target_changed', 'storage_failed'] as
           return ok(JSON.stringify(frame([])));
         },
         1000,
-        10000,
-        {
-          now: () => now,
-          sleep: async (ms) => {
-            now += ms;
-          },
-        },
+        async () => {},
       );
       expect(result.status).toBe('storage_failed');
       expect(result.reason).toContain(`${pollLog}.stdout`);
