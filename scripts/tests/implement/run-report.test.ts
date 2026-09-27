@@ -147,9 +147,8 @@ test('run report distinguishes local verification from publication and links onl
     expect(html).toMatch(/\.report-note\{[^}]*font-size:13px;[^}]*color:#566170/);
     const scopeNote =
       '保存された事実と未確認事項を、この実行単位で示します。HTML生成は検証や公開を再実行しません。';
-    expect(html.split(scopeNote)).toHaveLength(2);
-    expect(html).toContain(`<footer class="section report-note"><p>${scopeNote}</p></footer>`);
-    expect(html.indexOf('<footer')).toBeGreaterThan(html.indexOf('<h2>原記録</h2>'));
+    expect(html).not.toContain(scopeNote);
+    expect(html).not.toContain('<footer');
     expect(html).toContain('href="./verification/check-1.stdout"');
     expect(html).not.toContain('href="./verification/check-1.stderr"');
     expect(html).not.toContain('ホスト ·');
@@ -583,6 +582,9 @@ test('collapsed commands show escaped filenames while full paths and original ev
     expect(html).not.toMatch(/href="[^"]*events\.jsonl#/);
     const notes = html.match(/<aside class="report-notes"[^>]*>([\s\S]*?)<\/aside>/)?.[1] ?? '';
     expect(notes).toContain('<h3 id="report-notes-title">読み方</h3><ul>');
+    expect(html).toMatch(
+      /\.report-notes ul\{margin:0;padding-inline-start:0;list-style-position:inside\}/,
+    );
     expect(notes.match(/<li>/g)).toHaveLength(4);
     expect(notes).not.toContain('<details');
     for (const explanation of [
