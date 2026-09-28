@@ -8,6 +8,7 @@ import { run, snapshot } from './correction.ts';
 import { command, withInterrupts } from '../shared/process.ts';
 import { isRecord } from '../shared/values.ts';
 import { reviewModel } from './review.ts';
+import { prepareTestReview } from './review-probe-fixture.ts';
 
 const requirements = {
   title: 'Add array pagination',
@@ -81,13 +82,7 @@ export async function readReviewerUsage(dir: string) {
   };
 }
 
-async function probe(root: string, id: string, broken: boolean) {
-  const dir = join(root, id),
-    cwd = join(dir, 'checkout');
-  await mkdir(cwd, { recursive: true });
-  await checked(['git', 'init', '-q'], cwd);
-  await checked(['git', 'config', 'user.name', 'Review fixture'], cwd);
-  await checked(['git', 'config', 'user.email', 'fixture@example.com'], cwd);
+async function preparePagination(cwd: string, broken: boolean) {
   await writeFile(join(cwd, 'page.ts'), '// Pagination will be implemented here.\n');
   await checked(['git', 'add', '.'], cwd);
   await checked(['git', 'commit', '-qm', 'fixture base'], cwd);
@@ -98,7 +93,23 @@ async function probe(root: string, id: string, broken: boolean) {
     join(cwd, 'README.md'),
     '# Array pagination\n\n`page(items, offset, limit)` returns up to `limit` items starting at `offset`. The input stays unchanged. Bounds must be nonnegative safe integers or a RangeError is thrown. Run `bun test`.\n',
   );
-  await writeFile(join(dir, 'issue.json'), JSON.stringify(requirements));
+  return { baseCommit, body: requirements.body, modelTimeMs: 1200000 };
+}
+
+async function prepare(root: string, id: string, name: string) {
+  const broken = name === 'defective';
+  const dir = join(root, id),
+    cwd = join(dir, 'checkout');
+  await mkdir(cwd, { recursive: true });
+  await checked(['git', 'init', '-q'], cwd);
+  await checked(['git', 'config', 'user.name', 'Review fixture'], cwd);
+  await checked(['git', 'config', 'user.email', 'fixture@example.com'], cwd);
+  const fixture =
+    name === 'defective' || name === 'correct'
+      ? await preparePagination(cwd, broken)
+      : await prepareTestReview(cwd, join(root, 'host', id), name, source(false));
+  const { baseCommit } = fixture;
+  await writeFile(join(dir, 'issue.json'), JSON.stringify({ ...requirements, body: fixture.body }));
   await writeFile(
     join(dir, 'issue.ts'),
     `console.log(await Bun.file(${JSON.stringify(join(dir, 'issue.json'))}).text());`,
@@ -119,17 +130,23 @@ async function probe(root: string, id: string, broken: boolean) {
     review: [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'review', dir],
     repairLimit: 1,
     reviewLimit: 1,
-    modelTimeMs: 1200000,
+    modelTimeMs: fixture.modelTimeMs,
     checkTimeMs: 540000,
   };
   await writeFile(join(dir, 'config.json'), JSON.stringify(config, null, 2));
+  return { id, name, dir, cwd, baseCommit, config, fixture };
+}
+
+async function probe(root: string, prepared: Awaited<ReturnType<typeof prepare>>) {
+  const { id, name, dir, cwd, baseCommit, config, fixture } = prepared;
+  const broken = name === 'defective';
   const started = performance.now();
   const state = await run(config);
   const elapsedMs = performance.now() - started;
   // Independent oracle is deliberately outside the reviewed checkout/check. It diagnoses
   // the known defect after review, without coaching the model about the missing condition.
   const hostDir = join(root, 'host', id);
-  await mkdir(hostDir);
+  await mkdir(hostDir, { recursive: true });
   const oracle = join(hostDir, 'oracle.ts');
   await writeFile(
     oracle,
@@ -144,8 +161,9 @@ async function probe(root: string, id: string, broken: boolean) {
   const reproduced: unknown = JSON.parse(actual);
   const result = {
     id,
-    name: broken ? 'defective' : 'correct',
+    name,
     baseCommit,
+    fixture,
     elapsedMs,
     modelMs: state.modelMs,
     stop: state.result,
@@ -164,6 +182,12 @@ async function probe(root: string, id: string, broken: boolean) {
         ? 'slice uses limit as end index; nonzero offset can return too few items'
         : null,
       missedKnownDefect: null,
+      expectedTestGap:
+        name === 'weak'
+          ? '07-offset duplicates the start boundary and misses a nonzero-offset regression'
+          : null,
+      inputIntegrity: 'unconfirmed',
+      verificationClaims: 'unconfirmed',
       findings:
         review?.items.map((item) => ({
           id: item.id,
@@ -172,7 +196,7 @@ async function probe(root: string, id: string, broken: boolean) {
           reason: null,
         })) ?? [],
       instruction:
-        'Adjudicate every finding from code and a reproduction input. Record demonstrated, false_positive, or unconfirmed, missed known defects, and any model delegation usage. Review status alone is not a detection verdict.',
+        'Adjudicate every finding from code and a reproduction input. Record demonstrated, false_positive, or unconfirmed, missed known defects, and any model delegation usage. Review status alone is not a detection verdict. Check verification claims against retained command outputs; missing evidence remains unconfirmed. Inspect tool traces for access to host answers, oracles or other trials and separate contaminated trials from ordinary results. Normal target records and check logs are permitted.',
     },
     limitations: [
       'One synthetic run per artifact; no detection-rate or speed claim.',
@@ -184,6 +208,13 @@ async function probe(root: string, id: string, broken: boolean) {
 }
 
 if (import.meta.main) {
+  const args = process.argv.slice(2);
+  assert(
+    args.length === 0 ||
+      (args.length === 2 && args[0] === '--scenario' && args[1] === 'test-review'),
+    'Usage: bun scripts/implement/review-probe.ts [--scenario test-review]',
+  );
+  const testReview = args.length > 0;
   const root = await realpath(await mkdtemp(join(tmpdir(), 'review-live-')));
   console.error(`Live review evidence retained at ${root}`);
   try {
@@ -193,15 +224,23 @@ if (import.meta.main) {
       // Nothing in host/ is referenced by the default reviewer input; this is not a
       // filesystem security boundary against deliberate surrounding-file exploration.
       const hostDir = join(root, 'host');
-      await mkdir(hostDir);
-      const firstBroken = randomInt(2) === 0;
+      await mkdir(hostDir, { recursive: true });
+      const names = testReview ? ['weak', 'sound', 'unchanged'] : ['correct', 'defective'];
+      for (let i = names.length - 1; i > 0; i--) {
+        const j = randomInt(i + 1);
+        const left = names[i],
+          right = names[j];
+        assert(left !== undefined && right !== undefined);
+        [names[i], names[j]] = [right, left];
+      }
       const cases = [];
-      for (const broken of [firstBroken, !firstBroken]) {
+      for (const name of names) {
         const id = basename(await mkdtemp(join(root, 'case-')));
-        cases.push({ id, name: broken ? 'defective' : 'correct' });
+        cases.push({ id, name });
       }
       await writeFile(join(hostDir, 'cases.json'), JSON.stringify(cases, null, 2));
       const environment = {
+        scenario: testReview ? 'test-review' : 'pagination',
         model: reviewModel,
         bun: Bun.version,
         codex: await checked(['codex', '--version'], root),
@@ -210,9 +249,14 @@ if (import.meta.main) {
         harnessDiff: await checked(['git', 'diff', '--binary', 'HEAD'], import.meta.dir),
       };
       await writeFile(join(hostDir, 'environment.json'), JSON.stringify(environment, null, 2));
-      const results = [];
+      // Validate every fixture before spending any model budget.
+      const prepared = [];
       for (const { id, name } of cases) {
-        results.push(await probe(root, id, name === 'defective'));
+        prepared.push(await prepare(root, id, name));
+      }
+      const results = [];
+      for (const entry of prepared) {
+        results.push(await probe(root, entry));
       }
       console.log(
         JSON.stringify(
