@@ -2,7 +2,7 @@
 export function parseRepairReply(
   stdout: string,
 ):
-  | { status: 'repaired' | 'needs_human'; findings: string }
+  | { status: 'repaired' | 'needs_human' | 'needs_host'; findings: string }
   | { status: 'invalid'; findings?: string } {
   let value: unknown;
   try {
@@ -21,7 +21,8 @@ export function parseRepairReply(
   }
   const status =
     value.status === 'repaired' ||
-    (value.status === 'needs_human' && value.findings.trim().length > 0)
+    ((value.status === 'needs_human' || value.status === 'needs_host') &&
+      value.findings.trim().length > 0)
       ? value.status
       : 'invalid';
   return { status, findings: value.findings };
@@ -41,7 +42,7 @@ export function repairInstructions(capture: { destination: string } | null) {
       : [
           'This target declares no capture. If the agreed Issue needs media, return needs_human to configure required capture before execution.',
         ]),
-    'Return repaired when implementation and test/capture definitions are ready; pending host execution alone is not needs_human. If requirements, scope, permissions or execution limits must change, return needs_human without changing them and stop work that depends on the answer.',
-    'Return JSON with status repaired or needs_human, and findings explaining your changes or the necessary human decision. For needs_human, findings must not be empty or whitespace-only: explain the question, the choice the human must make and its impact. If an instruction file caused the stop, link the file actually read, quote the relevant instruction and distinguish its explicit requirement from your interpretation.',
+    'Return repaired when implementation and test/capture definitions are ready and only configured check/capture execution remains. Inspect the actual contract: do not return needs_host merely for scheduled checks. Return needs_host when required acceptance verification will not run through that contract and must be executed by the assigned AI on the authorized host. Its nonblank findings must identify the required verification, why configured check/capture is insufficient, the target version and expected evidence. This is neither acceptance nor a human decision. If requirements, scope, permissions or execution limits must change, return needs_human without changing them and stop work that depends on the answer.',
+    'Return JSON with status repaired, needs_host or needs_human, and findings explaining your changes or the necessary human decision. For needs_human, findings must not be empty or whitespace-only: explain the question, the choice the human must make and its impact. If an instruction file caused the stop, link the file actually read, quote the relevant instruction and distinguish its explicit requirement from your interpretation.',
   ].join('\n');
 }

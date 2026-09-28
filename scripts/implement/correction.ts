@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { hostReturnContext, verifyHostReturn } from './host-records.ts';
 import { checkRevision, revisionContext } from './revision.ts';
 import { issueText } from './issue.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
@@ -125,6 +126,32 @@ function captureFiles(
 
 export async function snapshot(cwd: string) {
   return digest(JSON.stringify(await sourceFiles(cwd)));
+}
+
+export async function recordArtifacts(cwd: string, baseCommit: string) {
+  const additions: Addition[] = [];
+  const files = await sourceFiles(cwd, additions);
+  const diff = await command(
+    [
+      'git',
+      '-c',
+      'core.filemode=true',
+      'diff',
+      '--binary',
+      '--full-index',
+      '--no-ext-diff',
+      '--no-textconv',
+      '--no-renames',
+      baseCommit,
+    ],
+    cwd,
+    '',
+    10000,
+  );
+  assert(diff.code === 0 && !diff.timedOut, 'Cannot preserve deliverable diff');
+  const source = digest(JSON.stringify(files));
+  assert(source === (await snapshot(cwd)), 'Source changed while preserving deliverables');
+  return { source, files, additions, diff: diff.stdout };
 }
 
 async function validate(config: Config) {
@@ -545,6 +572,7 @@ async function reviewTarget(
     baseCommit: state.baseCommit,
     reports: config.reports ?? [],
     revision: config.revision,
+    hostReturn: config.hostReturn,
     source: state.source,
     latestRepair: repairsSinceReview.at(-1) ?? null,
     repairsSinceReview,
@@ -617,6 +645,7 @@ async function evaluate(
   const prompt = [
     reviewInstructions,
     revisionContext(config.revision),
+    hostReturnContext(config.hostReturn),
     `Host context: ${JSON.stringify({ targetId: target.targetId, attempt: state.review + 1, targetRecord: `${target.prefix}.target.json`, diff: `${target.prefix}.diff`, additions: `${target.prefix}.additions.json`, previous: history.at(-1) ?? null })}`,
     `Requirements:\n${issue}`,
     researchContext(state.baseCommit, config.reports),
@@ -701,6 +730,7 @@ async function cycle(
     'Repair only within these agreed requirements. Read the current files and fix the root cause.',
     'When findings recur, compare the existing review records and prior repair results with the current artifacts, reassess the cause and repair approach, and continue required corrections within the agreed scope. Do not make out-of-scope improvements or preferences completion conditions.',
     revisionContext(config.revision),
+    hostReturnContext(config.hostReturn),
     'Return document content defects to repair and renew affected checks and independent review.',
     'Preserve agreed acceptance criteria and verification of required behavior; never hide realistic regressions to make checks pass.',
     'Run only targeted checks needed to diagnose or validate your repair.',
@@ -709,6 +739,7 @@ async function cycle(
         ? { destination: config.captureDestination }
         : null,
     ),
+    `Target check/capture contract (do not weaken or replace): ${JSON.stringify({ check: config.check, capture: config.capture ? { command: config.capture, destination: config.captureDestination, required: config.captureRequired } : null })}`,
     `Requirements:\n${issue}\nFailure evidence:\n${findings}`,
     researchContext(state.baseCommit, config.reports),
   ].join('\n');
@@ -725,6 +756,10 @@ async function cycle(
   state.findings = value.findings;
   if (value.status === 'invalid') {
     return 'invalid_repair';
+  }
+  if (value.status === 'needs_host') {
+    state.source = await snapshot(config.cwd);
+    return 'host_verification_required';
   }
   if (value.status === 'needs_human') {
     return 'human_decision_required';
@@ -750,6 +785,14 @@ async function targetChange(config: Config, state: State): Promise<StopReason | 
   }
   if ((await snapshot(config.cwd)) !== state.source) {
     return 'source_changed';
+  }
+  if (config.hostReturn) {
+    try {
+      await verifyHostReturn(config.hostReturn, config.cwd);
+    } catch (error) {
+      state.findings = error instanceof Error ? error.message : String(error);
+      return 'host_evidence_changed';
+    }
   }
   return null;
 }
@@ -801,6 +844,13 @@ async function execute(config: Config): Promise<State> {
     return result.stdout.trim();
   };
   await verifyReportBase(base, config.reports ?? [], git);
+  if (config.hostReturn) {
+    const evidence = await verifyHostReturn(config.hostReturn, config.cwd);
+    assert(
+      state || evidence.source === (await snapshot(config.cwd)),
+      'Host evidence does not match current deliverables',
+    );
+  }
   if (state?.result) {
     const unchanged =
       state.issueHash === digest(issue) && state.source === (await snapshot(config.cwd));

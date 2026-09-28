@@ -240,7 +240,10 @@ export function revisionContext(revision?: Revision) {
 }
 
 // Existing result.json is the execution entry point; no separate retry ledger.
-async function reconcileExecutions(revision: Revision, cwd: string) {
+export async function reconcileExecutions(
+  revision: Pick<Revision, 'previousRun' | 'runDirectory'>,
+  cwd: string,
+) {
   const parent = dirname(revision.previousRun);
   assert(
     dirname(revision.runDirectory) === parent,

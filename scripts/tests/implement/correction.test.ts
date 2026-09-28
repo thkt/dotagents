@@ -557,11 +557,13 @@ test('repair reply contract rejects malformed values and preserves diagnostic fi
     status: 'invalid',
     findings: 'detail',
   });
-  for (const findings of ['', ' \t\r\n\u3000']) {
-    expect(parseRepairReply(JSON.stringify({ status: 'needs_human', findings }))).toEqual({
-      status: 'invalid',
-      findings,
-    });
+  for (const status of ['needs_host', 'needs_human']) {
+    for (const findings of ['', ' \t\r\n\u3000']) {
+      expect(parseRepairReply(JSON.stringify({ status, findings }))).toEqual({
+        status: 'invalid',
+        findings,
+      });
+    }
   }
   for (const findings of ['', ' \t\n', 'Implemented agreed change']) {
     expect(parseRepairReply(JSON.stringify({ status: 'repaired', findings, extra: true }))).toEqual(

@@ -7,7 +7,9 @@ import { resolve, join } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { parseArgs } from 'node:util';
-import { run, snapshot } from './correction.ts';
+import { previousHostRun, saveHostStop } from './host-handoff.ts';
+import { hostLocalRoots } from './host-records.ts';
+import { run, snapshot, recordArtifacts } from './correction.ts';
 import { previousRun, checkRevision, revisionContext } from './revision.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
 import { command, assertRunning } from '../shared/process.ts';
@@ -176,7 +178,7 @@ async function prepareRevision(
   return revision;
 }
 
-async function selectStart(args: string[], io: typeof runtime) {
+function parseStart(args: string[]) {
   const parsed = parseArgs({
     args,
     allowPositionals: true,
@@ -188,12 +190,39 @@ async function selectStart(args: string[], io: typeof runtime) {
       report: { type: 'string', multiple: true },
       'previous-run': { type: 'string' },
       'request-file': { type: 'string' },
+      'host-run': { type: 'string' },
+      'host-evidence': { type: 'string' },
     },
   });
   assert(
     parsed.positionals.length === 1,
-    'Usage: bun scripts/implement/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report docs/research/NAME.md=BLOB] [--previous-run DIRECTORY --request-file PATH]',
+    'Usage: bun scripts/implement/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report docs/research/NAME.md=BLOB] [--previous-run DIRECTORY --request-file PATH] [--host-run DIRECTORY --host-evidence PATH]',
   );
+  assert(
+    Boolean(parsed.values['previous-run']) === Boolean(parsed.values['request-file']),
+    'Revision requires --previous-run and --request-file',
+  );
+  assert(
+    !parsed.values['previous-run'] || (!parsed.values['start-commit'] && !parsed.values.report),
+    'Revision inherits references from previous run',
+  );
+  assert(
+    Boolean(parsed.values['host-run']) === Boolean(parsed.values['host-evidence']),
+    'Host return requires --host-run and --host-evidence',
+  );
+  assert(
+    !parsed.values['host-run'] ||
+      (parsed.values['run-dir'] &&
+        !parsed.values['previous-run'] &&
+        !parsed.values['start-commit'] &&
+        !parsed.values.report),
+    'Host return requires a new --run-dir and inherits its original references',
+  );
+  return parsed;
+}
+
+async function selectStart(args: string[], io: typeof runtime) {
+  const parsed = parseStart(args);
   const repo = await realpath(parsed.values.repo ?? process.cwd());
   const git = (...argv: string[]) => checked(io, ['git', ...argv], repo);
   const base = await git('rev-parse', 'HEAD');
@@ -204,18 +233,10 @@ async function selectStart(args: string[], io: typeof runtime) {
   const input = parsed.positionals[0];
   assert(input);
   const number = issueNumber(input, repository);
-  assert(
-    Boolean(parsed.values['previous-run']) === Boolean(parsed.values['request-file']),
-    'Revision requires --previous-run and --request-file',
-  );
-  assert(
-    !parsed.values['previous-run'] || (!parsed.values['start-commit'] && !parsed.values.report),
-    'Revision inherits references from previous run',
-  );
   const prior = parsed.values['previous-run']
     ? await previousRun(parsed.values['previous-run'], repo, number, target)
     : undefined;
-  const reports =
+  let reports =
     prior?.config.reports ??
     researchHandoff(base, parsed.values['start-commit'], parsed.values.report ?? []);
   const issue = [
@@ -231,7 +252,25 @@ async function selectStart(args: string[], io: typeof runtime) {
   const rawIssue = await checkedOutput(io, issue, repo);
   const original = issueText(rawIssue);
   const requirements = issueValue(original);
-  const revision = await prepareRevision(
+  const hostPrior = await previousHostRun({
+    directory: parsed.values['host-run'],
+    evidenceFile: parsed.values['host-evidence'],
+    runDirectory: parsed.values['run-dir'],
+    cwd: repo,
+    issue: number,
+    original,
+    head: base,
+    target,
+    localOnly,
+  });
+  if (hostPrior) {
+    reports = hostPrior.config.reports ?? [];
+    assert(
+      (await git('branch', '--show-current')) === hostPrior.branch,
+      'Host handoff branch changed',
+    );
+  }
+  let revision = await prepareRevision(
     prior,
     parsed.values['request-file'],
     parsed.values['run-dir'],
@@ -243,11 +282,19 @@ async function selectStart(args: string[], io: typeof runtime) {
     localOnly,
     io,
   );
-  if (prior) {
-    // Match correction's PR-wide base, not the published head where evidence may be revised.
-    await verifyReportBase(prior.state.baseCommit, reports, git);
+  if (hostPrior?.config.revision) {
+    revision = {
+      ...hostPrior.config.revision,
+      runDirectory: resolve(parsed.values['run-dir'] ?? ''),
+      localOnly,
+    };
   }
-  const inputs = prior ? [] : reports;
+  const inheritedBase = hostPrior?.baseCommit ?? prior?.state.baseCommit;
+  if (inheritedBase) {
+    // Keep the original PR-wide base when handing off already implemented work.
+    await verifyReportBase(inheritedBase, reports, git);
+  }
+  const inputs = prior || hostPrior ? [] : reports;
   await verifyStartInputs(repo, base, target.text, inputs, io);
   return {
     parsed,
@@ -258,6 +305,7 @@ async function selectStart(args: string[], io: typeof runtime) {
     repository,
     number,
     prior,
+    hostPrior,
     reports,
     revision,
     issue,
@@ -266,6 +314,25 @@ async function selectStart(args: string[], io: typeof runtime) {
     requirements,
     inputs,
   };
+}
+
+async function allocateDirectory(repo: string, common: string, dir: string, previous?: string) {
+  assert(
+    outside(repo, dir) && outside(common, dir),
+    'Run directory must be outside checkout and Git storage',
+  );
+  await mkdir(resolve(dir, '..'), { recursive: true });
+  await mkdir(dir); // Never reset an existing execution, budget, or uncertain publication.
+  const canonical = await realpath(dir);
+  assert(
+    outside(repo, canonical) && outside(common, canonical),
+    'Run directory resolves inside repository storage',
+  );
+  assert(
+    !previous || outside(previous, canonical),
+    'New revision evidence must be outside previous run',
+  );
+  return canonical;
 }
 
 async function prepare(
@@ -283,6 +350,7 @@ async function prepare(
     repository,
     number,
     prior,
+    hostPrior,
     reports,
     revision,
     issue,
@@ -299,23 +367,9 @@ async function prepare(
   const dir = resolve(
     parsed.values['run-dir'] ?? join(homedir(), '.local/share/dotagents/development', key, number),
   );
-  assert(
-    outside(repo, dir) && outside(common, dir),
-    'Run directory must be outside checkout and Git storage',
-  );
-  await mkdir(resolve(dir, '..'), { recursive: true });
-  await mkdir(dir); // Never reset an existing execution, budget, or uncertain publication.
-  const canonical = await realpath(dir);
-  assert(
-    outside(repo, canonical) && outside(common, canonical),
-    'Run directory resolves inside repository storage',
-  );
-  assert(
-    !prior || outside(prior.dir, canonical),
-    'New revision evidence must be outside previous run',
-  );
-  const cwd = prior ? repo : join(canonical, 'checkout');
-  const branch = prior?.branch ?? `codex/development-${number}`;
+  const canonical = await allocateDirectory(repo, common, dir, hostPrior?.dir ?? prior?.dir);
+  const cwd = prior || hostPrior ? repo : join(canonical, 'checkout');
+  const branch = hostPrior?.branch ?? prior?.branch ?? `codex/development-${number}`;
   const result: DevelopmentResult = {
     startedAt,
     status: 'stopped',
@@ -346,6 +400,8 @@ async function prepare(
   allocated(result); // Only a newly created, canonical, safe directory can own a result.
   if (revision) {
     revision.runDirectory = canonical;
+  }
+  if (revision || hostPrior) {
     await saveResult(result, undefined);
   }
   const remote = await git('remote', 'get-url', target.config.remote);
@@ -355,7 +411,7 @@ async function prepare(
   assert((await git('rev-parse', 'HEAD')) === base, 'Start HEAD changed during preparation');
   if (revision) {
     await writeFile(join(dir, 'revision-request.md'), revision.request);
-  } else {
+  } else if (!hostPrior) {
     await git('worktree', 'add', '-b', branch, cwd, base);
   }
   return {
@@ -375,7 +431,8 @@ async function prepare(
     reports,
     inputs,
     revision,
-    reviewBase: prior?.state.baseCommit ?? base,
+    hostReturn: hostPrior?.hostReturn,
+    reviewBase: hostPrior?.baseCommit ?? prior?.state.baseCommit ?? base,
   };
 }
 type Context = Awaited<ReturnType<typeof prepare>>;
@@ -408,6 +465,72 @@ async function revisionUnchanged(context: Context, io: typeof runtime, target?: 
   }
 }
 
+function verificationConfig(context: Context): Config {
+  const { cwd, dir } = context;
+  return {
+    baseCommit: context.reviewBase,
+    ...(context.revision ? { revision: context.revision } : {}),
+    reports: context.reports,
+    ...(context.hostReturn ? { hostReturn: context.hostReturn } : {}),
+    reviewModel,
+    cwd,
+    runDir: join(dir, 'verification'),
+    issue: context.issue,
+    check: targetCommand(context.target.config.check),
+    ...(context.target.config.capture
+      ? {
+          capture: targetCommand(context.target.config.capture.command),
+          captureDestination: context.target.config.capture.destination,
+          captureRequired: context.target.config.capture.required,
+        }
+      : {}),
+    repair: [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'repair', dir],
+    review: [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'review', dir],
+    repairLimit: null,
+    reviewLimit: null,
+    modelTimeMs: null,
+    checkTimeMs,
+  };
+}
+
+async function stopForHost(
+  context: Context,
+  config: Config,
+  findings: string,
+  io: typeof runtime,
+): Promise<never> {
+  await unchangedTarget(context, io);
+  assert(
+    issueText(await checkedOutput(io, context.issue, context.cwd)) === context.original,
+    'Requirements changed during host handoff',
+  );
+  await saveHostStop({
+    dir: context.dir,
+    config,
+    head: context.base,
+    branch: context.branch,
+    localOnly: context.localOnly,
+    findings,
+  });
+  const argv = [
+    process.execPath,
+    resolve(import.meta.dir, 'development.ts'),
+    context.number,
+    '--repo',
+    context.cwd,
+    '--host-run',
+    context.dir,
+    '--host-evidence',
+    'PATH',
+    '--run-dir',
+    'NEW_SIBLING',
+    ...(context.localOnly ? ['--no-publish'] : []),
+  ];
+  context.result.reasonCode = 'host_verification_required';
+  context.result.nextAction = `Assigned AI: read ${join(context.dir, 'host-stop.json')} and its referenced response, artifacts and findings. Execute the required verification within the agreed scope and existing host authority; keep raw logs outside checkout and this run. Update required summaries before checks. Then invoke this argument array after replacing PATH and NEW_SIBLING: ${JSON.stringify(argv)}. Never execute response commands automatically. Failure requires defect repair or environment resolution; only changed requirements or authority require a human decision. This handoff is not completion or acceptance.`;
+  throw Error(`Host verification required: ${findings}`);
+}
+
 async function implement(context: Context, io: typeof runtime) {
   const { cwd, dir, original, result: outcome } = context;
   outcome.phase = 'implementation';
@@ -425,7 +548,7 @@ async function implement(context: Context, io: typeof runtime) {
     await verifyStartInputs(checkout, context.base, context.target.text, context.inputs, io);
   }
   await revisionUnchanged(context, io, target);
-  if (context.revision) {
+  if (context.revision && !context.hostReturn) {
     assert(
       !(await checked(
         io,
@@ -434,6 +557,20 @@ async function implement(context: Context, io: typeof runtime) {
       )),
       'Setup left work in revision checkout; preserve it',
     );
+  }
+  if (context.hostReturn) {
+    outcome.operation = 'host verification return';
+    outcome.details = join(dir, 'host-return.json');
+    await writeFile(outcome.details, JSON.stringify(context.hostReturn, null, 2), { flag: 'wx' });
+    await writeFile(
+      join(dir, 'host-current-artifacts.json'),
+      JSON.stringify(await recordArtifacts(cwd, context.reviewBase), null, 2),
+      { flag: 'wx' },
+    );
+    const config = verificationConfig(context);
+    await writeFile(join(dir, 'verification-config.json'), JSON.stringify(config, null, 2));
+    await verify(context, config, io);
+    return config;
   }
   outcome.operation = 'initial implementation';
   outcome.details = join(dir, 'implementation');
@@ -476,39 +613,24 @@ async function implement(context: Context, io: typeof runtime) {
       'Obtain the human decision described in the implementation findings; do not automatically retry.';
     throw Error(`Human decision required: ${reply.findings}`);
   }
+  const config = verificationConfig(context);
+  await writeFile(join(dir, 'verification-config.json'), JSON.stringify(config, null, 2));
+  if (reply.status === 'needs_host') {
+    await stopForHost(context, config, reply.findings, io);
+  }
   assert(
     issueText(await checkedOutput(io, context.issue, cwd)) === original,
     'Requirements changed during implementation',
   );
-  const config = {
-    baseCommit: context.reviewBase,
-    ...(context.revision ? { revision: context.revision } : {}),
-    reports: context.reports,
-    reviewModel,
-    cwd,
-    runDir: join(dir, 'verification'),
-    issue: context.issue,
-    check: targetCommand(context.target.config.check),
-    ...(context.target.config.capture
-      ? {
-          capture: targetCommand(context.target.config.capture.command),
-          captureDestination: context.target.config.capture.destination,
-          captureRequired: context.target.config.capture.required,
-        }
-      : {}),
-    repair: actor,
-    review: [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'review', dir],
-    repairLimit: null,
-    reviewLimit: null,
-    modelTimeMs: null,
-    checkTimeMs,
-  };
-  await writeFile(join(dir, 'verification-config.json'), JSON.stringify(config, null, 2));
   await verify(context, config, io);
   return config;
 }
 
 const verificationActions: Record<Exclude<StopReason, 'ready_for_human_review'>, string> = {
+  host_evidence_changed:
+    'Assigned AI: preserve the failed evidence and findings, reconcile changed or unavailable evidence, and obtain fresh verification evidence. Return from the original --host-run handoff using a new evidence file and run directory; never overwrite old records.',
+  host_verification_required:
+    'Assigned AI: execute the requested host verification within existing authority, preserve evidence and return via --host-run with a new record.',
   execution_limit:
     'Assigned AI: inspect consumed attempts, model time and unresolved findings; a human must decide any new scope or budget. Existing limits cannot be extended.',
   repair_failed:
@@ -546,6 +668,9 @@ async function verify(context: Context, config: Config, io: typeof runtime) {
     'Inspect verification/state.json and its referenced findings and logs; reconcile the stop without changing active reservations or limits, and obtain any required human decision.';
   const state: State = await io.verify(config);
   await revisionUnchanged(context, io);
+  if (state.result === 'host_verification_required') {
+    await stopForHost(context, config, state.findings ?? '', io);
+  }
   if (state.result !== 'ready_for_human_review') {
     result.reasonCode = state.result ?? undefined;
     if (state.result) {
@@ -642,6 +767,12 @@ async function ship(
     result.remaining.push('attachments', 'rendered_media_check');
   }
   const body = join(dir, 'pr.md');
+  const localRoots = [
+    cwd,
+    dir,
+    ...(context.revision ? [context.revision.previousRun] : []),
+    ...(await hostLocalRoots(context.hostReturn)),
+  ];
   await writeFile(
     body,
     prBody({
@@ -652,7 +783,7 @@ async function ship(
       check: context.target.config.check,
       ciChecks: context.target.config.ciChecks,
       media,
-      localRoots: [cwd, dir, ...(context.revision ? [context.revision.previousRun] : [])],
+      localRoots,
     }),
   );
   const bodyText = await readFile(body, 'utf8');
