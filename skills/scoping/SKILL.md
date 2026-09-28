@@ -3,7 +3,7 @@ name: scoping
 description: 要求・完了条件・検証方法の整理や、合意した範囲をGitHub Issueにする依頼に使う。合意済みIssueの実装には使わない。
 ---
 
-# Scoping
+# 要求整理
 
 要求・完了条件・検証方法と合意範囲を整理し、実装へ引き継ぐ。
 
