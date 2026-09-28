@@ -33,6 +33,63 @@ const reportPath = 'docs/research/result-behavior.md';
 const reportContent = 'Reviewed finding: keep the result visible until reset.\n';
 const secondReport = 'docs/wiki/result-validation.md';
 
+for (const advanceBranch of [false, true]) {
+  testDevelopment(`検証済みSHAを送信して公開へ渡す: ブランチ更新=${advanceBranch}`, async (f) => {
+    const remote = join(f.dir, 'receiver.git');
+    let verified = '';
+    let publishedCommit = '';
+    const execute = f.io.command;
+    f.io.command = async (argv, cwd, ...rest) => {
+      if (argv[0] !== 'git' || !argv.includes('push')) {
+        return execute(argv, cwd, ...rest);
+      }
+      verified = await git(cwd, 'rev-parse', 'HEAD');
+      await git(cwd, 'init', '--bare', remote);
+      // 最後の対象照合を通過した後、pushのIO境界でブランチを更新する。
+      if (advanceBranch) {
+        await writeFile(join(cwd, 'result.txt'), 'unverified');
+        await git(cwd, 'add', 'result.txt');
+        await git(cwd, 'commit', '-m', '未検証の並行更新');
+      }
+      await execute(argv, cwd, ...rest);
+      // 生成された送信元は保ち、転送先と許可protocolだけを一時bare repoへ変更する。
+      const local = argv.map((arg) =>
+        arg.replace(`https://github.com/${f.settings.repository}.git`, remote),
+      );
+      local.splice(local.indexOf('push'), 0, '-c', 'protocol.file.allow=always');
+      return command(local, cwd, ...rest);
+    };
+    const publication = f.publish;
+    f.publish = async (input) => {
+      publishedCommit = input.commit;
+      return publication(input);
+    };
+    const prView = f.prView;
+    f.prView = async (...args) => {
+      const response = await prView(...args);
+      const pr: unknown = JSON.parse(response.stdout);
+      assert(isRecord(pr));
+      return ok(
+        JSON.stringify({
+          ...pr,
+          headRefOid: await git(remote, 'rev-parse', 'refs/heads/codex/development-99'),
+        }),
+      );
+    };
+    const outcome = await develop(f.args, f.io).catch((error: unknown) => error);
+    // 後続処理の停止だけでは送信内容を保証できないため、受信した実体を先に照合する。
+    expect(await git(remote, 'rev-parse', 'refs/heads/codex/development-99')).toBe(verified);
+    expect(await git(remote, 'show', 'refs/heads/codex/development-99:result.txt')).toBe(
+      'implemented',
+    );
+    const current = await git(join(f.dir, 'checkout'), 'rev-parse', 'HEAD');
+    expect(current === verified).toBe(!advanceBranch);
+    expect(publishedCommit).toBe(verified);
+    assert(isRecord(outcome), String(outcome));
+    expect(outcome).toMatchObject({ status: 'published_draft', commit: verified, ci: 'passed' });
+  });
+}
+
 test('development CLI rejects a missing Issue before reading a target', () => {
   const result = spawnSync(
     process.execPath,

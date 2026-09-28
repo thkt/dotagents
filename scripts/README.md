@@ -556,10 +556,16 @@ gh pr view 123 --json body --jq .body | bun run lint:docs -- --stdin --stdin-fil
 
 ```sh
 bun /absolute/path/to/trusted/scripts/scoping/target.ts /absolute/path/target-checkout --write
-bun /absolute/path/to/trusted/scripts/implement/publish.ts --repo /absolute/path/target-checkout --actor USER_LOGIN --head codex/example --title '変更の概要' --body-file /absolute/path/pr.md
+bun /absolute/path/to/trusted/scripts/implement/publish.ts --repo /absolute/path/target-checkout --actor USER_LOGIN --head codex/example --commit VERIFIED_COMMIT_SHA --title '変更の概要' --body-file /absolute/path/pr.md
 ```
 
 `target.ts CHECKOUT --write`は対象repo、base branch、remoteとghのpush権限、実効ユーザーを照合し、PRを作らず確認結果を返します。`--actor` は事前に確認したloginを指定します。developmentは開始時のloginを公開時にも渡し、不一致で停止します。PR書き込みの細かなtoken権限や組織ポリシーは読み取り確認だけで保証せず、公開失敗時は停止理由とGitHub上の実状態を確認します。
+
+developmentは、そのrunで検証したcommitの完全なSHAを送信元に使い、`SHA:refs/heads/BRANCH`をpushします。最後の対象照合後にローカルブランチが更新されても、その更新commitを送信元へ読み替えません。同じSHAをPR公開処理、公開後の対象照合、CI確認まで引き継ぎます。送信内容の固定と公開成功の判定は別で、PRのheadが不一致の場合や取得できない場合は成功にしません。
+
+単独publishは`--commit`が必須です。旧コマンドを使っている場合は、事前の検証・pushで使った完全なSHAを追加してください。`HEAD`・ブランチ名・省略SHAは受け付けません。期待commitを現在のHEADから補うことも、指定SHAが検証済みかを単独publishで検証することもありません。`--revision-file`を使う既存PR修正でも、修正後の検証・pushに使ったSHAを指定します。developmentからの呼出しではrunが保持したSHAを自動で渡します。
+
+この固定が保証するのはpushの送信元です。外部からのremote更新、PR作成・本文更新・draft切替と読戻しの間の競合をすべて防ぐものではなく、公開処理全体の原子性は保証しません。公開後に不一致・取得不能で停止しても、送信やPR変更を取り消したことにはなりません。自動再試行せず、保存されたcommitとGitHub上の実状態を照合します。合意した範囲とローカル試行の条件は[Issue #323](https://github.com/thkt/dotagents/issues/323)を参照してください。
 
 同じhead・baseのopen PRがあれば作者・公開先・head commit・生成本文の一致とdraft状態を照合してURLを返します。readyのPRをこの経路でそのまま再利用しません。不一致なら本文を保持して停止し、担当者が内容を照合して対応します。新規作成は同じgh認証で[`gh pr create --draft`](https://cli.github.com/manual/gh_pr_create)を使い、実際の対象・作者・本文・draft状態を読み戻します。旧Appや別ユーザーのPRを現在のユーザーの公開成功とは扱いません。developmentは公開に必要な値を型付き入力で渡します。既存PRの修正情報も保持済みの値を渡し、検証設定ファイルを読み直さず、同じ公開処理で最新の対象・draft照合、本文更新と読戻しを行います。単独publishの`--revision-file`は引き続き設定ファイル全体を検査し、checkoutと公開branchの一致を確認します。利用者は[既存PRの修正](#既存prの修正)から開始し、個別の公開スクリプトや検証設定を組み立てません。単独publishはdraft確認済みの対象を扱い、push、ready切替、承認、マージを行いません。正常終了時もコマンドの所有するprocess groupの残存子を終了させます。SIGINT・SIGTERMでは実行中のコマンドと子プロセスを停止し、後続の公開操作へ進みません。通信断や強制終了時は、再試行前にPRの実状態を確認します。制御テストの模擬応答は実際のGitHubアクセスの証拠ではありません。
 
