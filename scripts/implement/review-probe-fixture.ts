@@ -35,18 +35,25 @@ async function testFile(cwd: string, name: string, title: string, body: string) 
 }
 
 async function preflight(cwd: string, host: string, name: string, source: string) {
+  const path = join(host, 'preflight.json');
+  const evidence: Record<string, Awaited<ReturnType<typeof command>>> = {};
+  async function check(stage: string, argv: string[], directory: string) {
+    // Retain streams even when command throws on interruption, and completed
+    // results before a later command or filesystem operation can fail.
+    const result = await command(argv, directory, '', 30000, join(host, `preflight-${stage}`));
+    evidence[stage] = result;
+    await writeFile(path, JSON.stringify(evidence, null, 2));
+    return result;
+  }
   const oracle =
     "import {page} from './page.ts'; console.log(JSON.stringify(page([10,20,30,40],2,2)));";
-  const normal = await command([process.execPath, 'test'], cwd, '', 30000);
-  const original = await command([process.execPath, '-e', oracle], cwd, '', 30000);
+  const normal = await check('normal', [process.execPath, 'test'], cwd);
+  const original = await check('original', [process.execPath, '-e', oracle], cwd);
   const copy = join(host, 'mutation-copy');
   await cp(cwd, copy, { recursive: true, filter: (path) => !path.endsWith('/.git') });
   await writeFile(join(copy, 'page.ts'), source.replace('offset + limit', 'limit'));
-  const mutated = await command([process.execPath, 'test'], copy, '', 30000);
-  const reproduction = await command([process.execPath, '-e', oracle], copy, '', 30000);
-  const evidence = { normal, original, mutated, reproduction };
-  const path = join(host, 'preflight.json');
-  await writeFile(path, JSON.stringify(evidence, null, 2));
+  const mutated = await check('mutated', [process.execPath, 'test'], copy);
+  const reproduction = await check('reproduction', [process.execPath, '-e', oracle], copy);
   assert(
     Object.values(evidence).every((result) => !result.timedOut),
     `Preflight timed out: ${path}`,
