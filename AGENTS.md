@@ -1,15 +1,17 @@
-# Project guidance
+# プロジェクトの作業方針
 
-This harness provides shared `scoping` and `implement` workflows. Agreed Issues own requirements; the host owns execution, verification and publication checks; humans own approval and merge.
+このハーネスは、共通の `scoping` と `implement` のワークフローを提供します。要求の正本は合意済みIssueとし、ホストは実行・検証・公開時の確認を、人は承認とマージを担います。
 
-Use the references that apply to the change:
+説明文・指示文・見出しは日本語で書きます。ファイル名、コマンド、設定キー、スキル名などの識別子と、過去の検証資料・外部引用の原文は維持します。
 
-- [Project overview](README.md): workflow responsibilities, supported scope and adoption status.
-- [Development policy](docs/wiki/development-policy.md): the relevant requirements, documentation, test or review policy. For Markdown changes, include its Japanese review requirements before adoption or publication.
-- [CLI guide](scripts/README.md): target configuration, execution, publication or recovery operations.
+変更に関係する参照先を使ってください。
 
-Complete authorized edits and affected checks without asking again for routine implementation choices. Follow explicit user instructions over general skill guidance within the agreed requirements and authorization. Investigate available facts; ask early for facts only the user can provide or unresolved intent and requirements. Before requesting approval, prepare a concrete proposal or result and explain its impact using work already authorized and independent of that decision. Wait for decisions that affect requirements or authorization, and continue independent work while awaiting them.
+- [プロジェクト概要](README.md)：ワークフローの責任分担、対応範囲、採用状況。
+- [開発方針](docs/wiki/development-policy.md)：今回に関係する要求、文書、テスト、レビューの方針。Markdownを変更するときは、採用・公開前に、この方針で定める日本語確認も行います。
+- [CLIガイド](scripts/README.md)：対象の設定、実行、公開、復旧の操作。
 
-If an instruction file causes a confirmation request or a pause, link the file actually read, quote the relevant instruction, and distinguish its explicit requirement from your interpretation.
+通常の実装上の選択を繰り返し確認せず、許可された編集と、その変更に必要な確認を完了してください。合意済みの要求と許可の範囲内では、一般的なスキルの指針よりユーザーの明示的な指示を優先します。調べられる事実は調べ、ユーザーしか提供できない事実や、未確定の意図・要求は早めに確認してください。承認を求める前に、その判断に依存せず、すでに許可されている作業を進め、具体的な案や成果物を用意して影響を説明します。要求や許可に関わる判断は回答を待ち、その間も判断に依存しない作業を続けてください。
 
-Use `bun run check` before submitting harness changes. Its control tests use simulated commands; live models, GitHub publication and product tests are separate operations. After required checks pass, repeat or broaden them only for changed inputs, failures or unresolved concerns.
+指示ファイルを理由に確認を求めたり作業を止めたりする場合は、実際に読んだファイルへのリンクと該当する指示の引用を示し、明示された要件と自分の解釈を区別してください。
+
+ハーネスの変更を提出する前に `bun run check` を実行してください。この制御テストは模擬コマンドを使います。実モデルの実行、GitHubへの公開、プロダクトのテストは別の操作です。必要な確認が通った後は、入力の変更、失敗、未解決の懸念がある場合に限り、確認を繰り返したり範囲を広げたりしてください。

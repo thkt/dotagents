@@ -3,7 +3,7 @@ name: implement
 description: 合意済みGitHub Issueの実装依頼で、文書変更を含め検証・独立評価からPR作成・既存PRの修正まで進める。要求整理やレビューのみの依頼には使わない。
 ---
 
-# Implement
+# 実装と検証
 
 合意済みIssueの要求を実装・検証し、独立評価とPR公開後の確認まで進める。
 
