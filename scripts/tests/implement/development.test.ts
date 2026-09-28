@@ -380,17 +380,25 @@ for (const [name, change, reason] of [
   });
 }
 
-testDevelopment('requirements_changed', async (f) => {
-  const github = f.github;
-  f.github = async (argv, ...rest) =>
-    argv[1] === 'issue' && f.calls.implementations > 0
-      ? ok(issue.replace('visible', 'different'))
-      : github(argv, ...rest);
-  await stopped(f, /Requirements changed during implementation/);
-  expect(f.calls.implementations).toBe(1);
-  expect(f.calls.reviews).toBe(0);
-  noPublication(f);
-});
+for (const status of ['repaired', 'needs_host'] as const) {
+  testDevelopment(`requirements_changed after ${status}`, async (f) => {
+    const implement = f.implement;
+    f.implement = async (...args) => {
+      const result = await implement(...args);
+      return { ...result, stdout: JSON.stringify({ status, findings: 'Verification pending' }) };
+    };
+    const github = f.github;
+    f.github = async (argv, ...rest) =>
+      argv[1] === 'issue' && f.calls.implementations > 0
+        ? ok(issue.replace('visible', 'different'))
+        : github(argv, ...rest);
+    await stopped(f, /Requirements changed during (implementation|host handoff)/);
+    expect(f.calls.implementations).toBe(1);
+    expect(f.calls.reviews).toBe(0);
+    expect(await Bun.file(join(f.dir, 'host-stop.json')).exists()).toBe(false);
+    noPublication(f);
+  });
+}
 
 async function initialStop(f: DevelopmentFixture, reason: RegExp) {
   const saved = await stopped(f, reason);
@@ -446,6 +454,11 @@ for (const [name, reply, reason] of [
   [
     'invalid_reply',
     { status: 'accepted', findings: 'Unexpected status' },
+    /Invalid implementation reply/,
+  ],
+  [
+    'blank_host',
+    { status: 'needs_host', findings: ' \t\r\n\u3000' },
     /Invalid implementation reply/,
   ],
   [

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { hostReturnShape } from './host-records.ts';
+import type { HostReturn } from './host-records.ts';
 import { isReview } from './review.ts';
 import type { Review } from './review.ts';
 import { isArray, isCommandArray, isRecord, relativeDirectory } from '../shared/values.ts';
@@ -89,12 +91,15 @@ const stopReasons = [
   'review_storage_failed',
   'invalid_repair',
   'human_decision_required',
+  'host_verification_required',
+  'host_evidence_changed',
   'ready_for_human_review',
   'target_changed_after_stop',
 ] as const;
 export type StopReason = (typeof stopReasons)[number];
 export interface Config {
   baseCommit?: string;
+  hostReturn?: HostReturn;
   revision?: Revision;
   reports?: ReportReference[];
   reviewModel?: { model: string; reasoningEffort: string };
@@ -162,6 +167,7 @@ export function assertConfig(value: unknown): asserts value is Config {
     Object.keys(value).every((key) =>
       [
         'baseCommit',
+        'hostReturn',
         'revision',
         'reports',
         'reviewModel',
@@ -184,6 +190,9 @@ export function assertConfig(value: unknown): asserts value is Config {
   );
   assert(optionalString(value.baseCommit), 'Invalid base commit');
   assertRevision(value.revision);
+  if (value.hostReturn !== undefined) {
+    hostReturnShape.parse(value.hostReturn);
+  }
   if (value.reports !== undefined) {
     assertReportReferences(value.reports);
     assert(value.reports.length === 0 || value.baseCommit, 'Required reports need baseCommit');

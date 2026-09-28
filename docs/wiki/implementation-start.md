@@ -1,5 +1,5 @@
 ---
-globs: ["scripts/implement/orchestrator.ts", "scripts/implement/research-handoff.ts", "scripts/implement/correction.ts", "scripts/implement/issue.ts"]
+globs: ["scripts/implement/orchestrator.ts", "scripts/implement/research-handoff.ts", "scripts/implement/correction.ts", "scripts/implement/issue.ts", "scripts/implement/host-handoff.ts"]
 scenes: ["plan", "implement"]
 ---
 
@@ -20,6 +20,8 @@ scenes: ["plan", "implement"]
 
 [既存PRの修正](../../scripts/README.md#既存prの修正)では、前回の検証済み公開headと同じcheckout、追跡・未追跡差分のない状態、採用した修正依頼、新しい保存先を確認します。新規実装の隔離条件を流用せず、前回の開始commitと報告参照を維持します。報告を実装中に改訂した場合は、固定した開始版との差分として評価します。
 
+[ホスト検証後の再評価](../../scripts/README.md#ホスト検証後の再評価)では、`host_verification_required`で停止したdevelopment runを明示します。担当AIが既存権限で追加検証を実行し、必要な要約・文書を更新してから、新しい保存先で通常checkと独立評価を行います。停止時のHEAD・branchと元の差分基準を維持し、同じcheckoutの未コミット成果物を引き継ぎます。初回実装の新規worktree作成や、公開済みPR修正のclean条件を流用しません。要求・主体・権限・設定・必要報告・停止記録と追加証拠を再照合し、過去の受入や証拠の成功申告を現在の成功と扱いません。旧runの再開・上書きはしません。
+
 ## 過去の観測と未検証事項
 
 [当時の検証定義](https://github.com/thkt/dotagents/blob/765adbb29c51747b2d4ada473ca03a3e40ed7651/scripts/tests/development.test.ts)には、設定や必要報告のindexを変更した後、本文だけを元に戻しても停止する条件がありました。本文一致だけで開始可能とする説明ではこの条件を表せません。これは模擬コマンドと一時Git repoによる確認例であり、新しい実障害の報告ではありません。
@@ -33,6 +35,8 @@ scenes: ["plan", "implement"]
 - [revision.ts](../../scripts/implement/revision.ts) の `previousRun`、[correction.ts](../../scripts/implement/correction.ts) の `execute`：現行形式の保存記録と実行中の同一性を照合。
 - [development.test.ts](../../scripts/tests/implement/development.test.ts)：必要入力・無関係な作業・setup後の変化の制御テスト。実モデルの効果測定ではありません。
 
+- [host-handoff.ts](../../scripts/implement/host-handoff.ts)・[host-records.ts](../../scripts/implement/host-records.ts)：停止成果物と追加証拠の参照、復帰時の再照合。
+
 ## 由来
 
 - [DR-0004](../decisions/0004-use-current-document-inputs-only.md)：現行形式だけを受け付ける判断。
@@ -40,6 +44,8 @@ scenes: ["plan", "implement"]
 
 ## 根拠
 
-- [Issue #265](https://github.com/thkt/dotagents/issues/265)：2026-09-24T17:36:37Z版の合意。今回の開始commitは`104082c8b586681f8142a2097730df654ec743a0`です。
+- [Issue #315](https://github.com/thkt/dotagents/issues/315)：2026-09-28T06:46:20Z版の合意。通常経路に含まれないホスト検証の担当AIへの引き継ぎと、新しい記録での再評価。基点は`8d452eade4824e300b80b7b0b874595330976b53`。
+
+- [Issue #265](https://github.com/thkt/dotagents/issues/265)：2026-09-24T17:36:37Z版の合意。Issue #265の開始commitは`104082c8b586681f8142a2097730df654ec743a0`です。
 - [Issue #85](https://github.com/thkt/dotagents/issues/85)・[PR #89の採用commit](https://github.com/thkt/dotagents/commit/7c869f80bd95ea01b47e1ffd35f89e2899657bf2)：初回実装の開始条件の由来。過去の整理は#90の引用と採用コードに基づき、当時のPR本文・CIの再検証ではありません。
 - [開始時点の旧原本](https://github.com/thkt/dotagents/blob/104082c8b586681f8142a2097730df654ec743a0/docs/knowledge/implementation-start.json)・[DR-0001](../decisions/0001-separate-requirements-from-evidence.md)：旧モデルの範囲・合意・仮説・観測と採用理由を辿るための履歴です。現在の開始条件は上記コードと今回の合意へ照合します。

@@ -138,7 +138,7 @@ bun /absolute/path/to/trusted/scripts/scoping/target.ts /absolute/path/to/target
 
 ## ホストによるブラウザー検証と撮影
 
-実装担当と修正担当はsandbox内でコード、テスト、文書、撮影定義を準備します。ブラウザーやサーバーの起動はホストCLIが担当します。ホストの実行を残しているだけなら`repaired`を返し、要求や許可の判断が必要な場合は`needs_human`で具体的な理由を返します。
+実装担当と修正担当はsandbox内でコード、テスト、文書、撮影定義を準備します。設定済みcheck・captureでのブラウザーやサーバーの起動はホストCLIが担当します。設定済みcheck・captureの実行待ちだけなら`repaired`を返します。通常経路では実行しない受入検証が必要なら`needs_host`、要求や許可の判断が必要なら`needs_human`で具体的な理由を返します。初回実装と追加修正の両方へ、実際のcheck・capture契約を渡します。
 
 必要な媒体は対象設定のcapture commandで撮影します。コマンドにはcheckout外の新しい絶対出力ディレクトリを最後の引数として渡します。PNG、JPEG、WebP、MP4、WebMだけを直下に保存し、動画contextを閉じて確定してください。撮影中はcheckoutに媒体、コード、文書、レポートを書き込みません。ホストは空の出力、不正な形式、symlinkを拒否し、対象が変わっていないことを確認したうえで `destination` へ取り込みます。生成媒体専用領域は内容を置き換えるため、手書きの記録を置かないでください。
 
@@ -220,7 +220,7 @@ bun scripts/implement/correction.ts /absolute/path/config.json
 
 初回実装と修正は[repair.ts](implement/repair.ts)の共通指示と応答検査を使います。文書・テスト・撮影・公開禁止の指示を共有し、初回はIssue全体の実装とホスト検証の準備、修正は失敗の根拠に沿う原因診断・修正確認を担当します。初回のsetup後照合と結果保存はdevelopment、修正の起動前予約・回数・中断状態の保持はcorrectionが担当します。初回実装は追加修正のカウンタに数えず、修正後のcheckと独立評価はホストが実行します。
 
-`repair`と`review`は、要求と失敗の根拠を標準入力で受け取り、結果のJSONだけを標準出力へ返します。`repair`は`status: repaired | needs_human`と文字列`findings`を返します。`review`は[review.ts](implement/review.ts)の専用schemaに従います。独自のreviewコマンドにも同じ形式が必要です。
+`repair`と`review`は、要求と失敗の根拠を標準入力で受け取り、結果のJSONだけを標準出力へ返します。`repair`は`status: repaired | needs_host | needs_human`と文字列`findings`を返します。`review`は[review.ts](implement/review.ts)の専用schemaに従います。独自のreviewコマンドにも同じ形式が必要です。
 
 レビュー応答の項目・型・許可値と余分な項目の拒否は、`review.ts`のZod定義を正本とします。受信時の構造検証とCodexの`--output-schema`へ渡すJSON Schemaをここから作り、保存用の完全なレビューも応答定義を組み合わせて検証・型推論します。応答項目を変更するときは該当するZod定義を変更し、関連テスト・指示文・利用側への影響を確認します。JSON SchemaやTypeScript型を別途手書きで同期する必要はありません。Zodは[package.json](../package.json)とlockfileで固定した直接依存です。actorの修正応答や一般のJSON読込みには適用しません。
 
@@ -230,9 +230,9 @@ bun scripts/implement/correction.ts /absolute/path/config.json
 
 同じ指摘が反復したら、修正担当は既存の評価記録・過去の修正結果と現在の成果物を照合し、原因と修正方針を見直します。合意範囲内の必須修正を続け、対象外の改善や好みの変更まで完了条件にしません。check失敗も既存の修正経路へ戻します。成果物が変われば必要なcheckと独立評価を更新します。停滞専用のAI、追加レビュー工程、別の台帳は設けません。
 
-次の独立評価には、同じ実行で前回の独立評価以降（初回評価では実行開始以降）に正常終了し、`repaired`と返した追加修正すべてへの参照を、修正した順に渡します。評価担当は`review-N.target.json`の`repairsSinceReview`から既存の`repair-M.stdout`を読み、`findings`にある反証・変更内容・変更しない理由と根拠を、現在のIssue・成果物・check結果へ照合します。`latestRepair`は従来どおり最後の追加修正を指します。check失敗後に別の修正が入っても、前回の評価への反証を含む参照は次の評価まで保持します。評価が完了したら、その後の修正から新しい参照一覧を作ります。修正前後の成果物の識別値も渡すため、無変更の説明や、その後のホスト撮影による差分を区別して確認できます。説明本文は複製せず、修正回数・ログの接頭辞・修正前後の識別値・応答hashを対象記録へ結び付けます。追加修正がない初回評価では`repairsSinceReview`は空配列、`latestRepair`は`null`で、修正記録を要求しません。過去runや別runから理由を補いません。
+次の独立評価には、同じ実行で前回の独立評価以降（初回評価では実行開始以降）に正常終了し、`repaired`と返した追加修正すべてへの参照を、修正した順に渡します。評価担当は`review-N.target.json`の`repairsSinceReview`から既存の`repair-M.stdout`を読み、`findings`にある反証・変更内容・変更しない理由と根拠を、現在のIssue・成果物・check結果へ照合します。`latestRepair`は従来どおり最後の追加修正を指します。check失敗後に別の修正が入っても、前回の評価への反証を含む参照は次の評価まで保持します。評価が完了したら、その後の修正から新しい参照一覧を作ります。修正前後の成果物の識別値も渡すため、無変更の説明や、その後のホスト撮影による差分を区別して確認できます。説明本文は複製せず、修正回数・ログの接頭辞・修正前後の識別値・応答hashを対象記録へ結び付けます。追加修正がない初回評価では`repairsSinceReview`は空配列、`latestRepair`は`null`で、修正記録を要求しません。通常の修正履歴に過去runや別runの理由を補いません。[ホスト検証後の再評価](#ホスト検証後の再評価)では、明示した停止runの記録を別の`hostReturn`参照で渡します。
 
-修正理由の受け渡しによってcheckや全指摘の再判断を省略せず、修正担当の自己申告を`fixed`や`accepted`へ自動変換しません。不正応答・`needs_human`・修正失敗では従来どおり停止します。参照する正常応答の保存ログのどれかが次の評価前に変わった場合や読めない場合も、`invalid_repair`で停止して既存記録を保持します。参照とhashの照合は入力の取り違えを防ぐためのもので、修正理由の正しさや実モデルによる指摘解消率・費用の改善を保証しません。
+修正理由の受け渡しによってcheckや全指摘の再判断を省略せず、修正担当の自己申告を`fixed`や`accepted`へ自動変換しません。不正応答・`needs_host`・`needs_human`・修正失敗では従来どおり停止します。参照する正常応答の保存ログのどれかが次の評価前に変わった場合や読めない場合も、`invalid_repair`で停止して既存記録を保持します。参照とhashの照合は入力の取り違えを防ぐためのもので、修正理由の正しさや実モデルによる指摘解消率・費用の改善を保証しません。
 
 評価担当は、概要の`findings`、ホストが指定した`targetId`、4観点の`assessments`、過去指摘への判断の`updates`、新規指摘の`newItems`、参照文書の`documents`、後続担当の作業を示す`handoff`を返します。総合`status`と完全な`items`はホストが組み立てるため、応答には含めません。各観点には判断理由と未確認範囲を記し、適用しない観点についてもその理由を説明します。
 
@@ -286,7 +286,48 @@ CLIは検証済み成果物と公開commitの同一性を照合し、Issue参照
 
 PR本文のdraft公開・CI・公開後確認・ready切替は本文作成時点の未完了事項として記します。公開後のCLI結果は`result.json`で確認し、CI成功を本文・媒体確認やready切替、人の承認へ読み替えません。`remaining`の`ci`は同じheadのCI確認、`published_body_check`は担当AIの最新本文照合、`rendered_media_check`は必要な媒体の実画面確認、`mark_ready`は担当AIの再照合・ready切替・読戻し、`human_review`は人のレビューと承認・マージ判断です。`--no-publish`の`verified_local`でもこれらの担当作業は完了せず、`publication`と設定済みの`ci`も残します。公開する際は必要な添付と実画面確認を引き継ぎます。
 
-この応答契約は`state.json`の`reviewFormat: 4`で識別する新規実行に適用します。`reviewFormat: 1`・`2`・`3`や識別のない旧形式の保存状態は変換・再開・削除せず、その版の記録として保全します。保存済みの完全なReviewの項目構成は変更せず、引き続き`id`・`introducedIn`・`disposition`を必須とし、空のID・導入対象や不正な状態を拒否します。独自のreviewコマンドは新規実行前に`newItems[].id`の出力を外してください。`updates[].id`にはホストから渡された過去指摘のIDをそのまま返します。旧応答のIDは取り込まず、不正応答として停止します。新規指摘が空の応答は旧契約と同じ形ですが、runの形式識別は4です。repairの応答形式は変更しません。停止理由とログを保持し、回数や時間枠をリセットしません。対象変更、不正応答、評価失敗時に以前のacceptedへ戻す処理はありません。
+この応答契約は`state.json`の`reviewFormat: 4`で識別する新規実行に適用します。`reviewFormat: 1`・`2`・`3`や識別のない旧形式の保存状態は変換・再開・削除せず、その版の記録として保全します。保存済みの完全なReviewの項目構成は変更せず、引き続き`id`・`introducedIn`・`disposition`を必須とし、空のID・導入対象や不正な状態を拒否します。独自のreviewコマンドは新規実行前に`newItems[].id`の出力を外してください。`updates[].id`にはホストから渡された過去指摘のIDをそのまま返します。旧応答のIDは取り込まず、不正応答として停止します。新規指摘が空の応答は旧契約と同じ形ですが、runの形式識別は4です。repairは[修正・独立評価の担当](#修正独立評価の担当)で示す応答契約を使います。停止理由とログを保持し、回数や時間枠をリセットしません。対象変更、不正応答、評価失敗時に以前のacceptedへ戻す処理はありません。
+
+## ホスト検証後の再評価
+
+[Issue #315](https://github.com/thkt/dotagents/issues/315)で合意した、担当AIへの引き継ぎと新しい記録での再評価です。通常check・captureに含まれない受入検証が残る場合、初回実装・追加修正は`needs_host`を返します。`findings`には必要な検証、設定済み経路では不足する理由、対象版、期待する証拠を説明します。空文字・空白だけの説明は不正応答です。CLIは`host_verification_required`で停止し、同じ未解決条件のcheck・レビュー・修正を続けず、公開へも進みません。通常検証待ちの`repaired`や、有効な反証を伴う無変更応答は従来どおり評価できます。
+
+developmentの停止runには`host-stop.json`を保存します。元の差分基準commit、停止時HEAD・branch、成果物の識別値、応答と指摘履歴などの参照・SHA-256を保持します。`host-artifacts.json`には追跡差分、未追跡ファイルの内容・モード・symlink情報と対象ファイル一覧が残ります。元の`issue.json`、`target.json`、`verification-config.json`、実施済みなら`verification/state.json`から要求・設定・主体・報告と指摘へ辿れます。この形式のdevelopment停止runだけが復帰対象で、単独correctionや旧run、公開結果が不明なrunを転用しません。
+
+担当AIは停止理由と参照記録を読み、要求・対象版・実行主体と既存権限を照合して検証します。応答や証拠に書かれたコマンドをそのまま自動実行する機構はありません。生ログと検証結果JSONはcheckoutと旧runの外へ、新しいファイルとして保存します。検証に失敗したら通常の不具合修正へ、実行不能なら既存権限内で環境の解消へ戻します。要求・権限・許容範囲の変更が必要な場合だけ、人に具体的な選択と影響を示します。引き継ぎだけで作業を完了としません。
+
+成果物に必要な検証要約と文書の待機表記を、通常checkの前に更新します。測定対象から変更した内容と証拠の適用条件を説明し、動作に影響する修正なら必要な測定も更新してください。検証結果JSONは次の形式です。`source`は説明更新後の成果物の識別値、`logs`は生ログの絶対パスとSHA-256です。担当AIが測定対象・方法・条件・実行結果、更新内容と証拠の適用理由・未確認事項を`findings`に記します。実行失敗は`failed`、実行不能は`unavailable`とし、成功へ読み替えません。
+
+```json
+{
+  "status": "passed",
+  "source": "説明更新後のsnapshotが返した64桁のSHA-256",
+  "findings": "検証の対象版・条件・結果、停止後の変更と証拠の適用理由、未確認事項",
+  "logs": [{"path": "/absolute/path/outside-checkout/measurement.stdout", "sha256": "生ログの64桁のSHA-256"}]
+}
+```
+
+同じハーネス版の`correction.ts`が提供する`snapshot`で識別値を取得します。例のハーネスとcheckoutは実際の絶対パスへ置き換えます。この読取りで検証コマンドは実行しません。
+
+```sh
+bun -e 'import { snapshot } from "/absolute/path/to/trusted/scripts/implement/correction.ts"; console.log(await snapshot("/absolute/path/to/stopped-checkout"));'
+```
+
+担当AIが次の入口を実行します。`--repo`は停止runのcheckout、`--run-dir`は旧runの隣に作る未使用ディレクトリです。`--host-run`と`--host-evidence`は対で指定し、`--previous-run`・`--request-file`・`--start-commit`・`--report`とは併用しません。Issueと報告・元の差分基準は停止runから引き継ぎます。`--no-publish`で停止したrunは復帰時にも同指定が必要です。
+
+```sh
+bun /absolute/path/to/trusted/scripts/implement/development.ts 99 \
+  --repo /absolute/path/to/stopped-checkout \
+  --host-run /absolute/path/to/previous-run \
+  --host-evidence /absolute/path/outside-checkout/host-evidence.json \
+  --run-dir /absolute/path/to/new-sibling-run --no-publish
+```
+
+復帰時にrepo・要求・元の基準・HEAD・branch・実行主体・権限・設定・必要報告・保存記録と追加証拠を再照合します。未コミット成果物を同じcheckoutに保ち、初回実装をやり直さず、新しいrunでsetup、必要なcapture・check、独立評価へ進みます。説明更新後の識別値と実際の成果物が異なる場合やsetupが成果物を変えた場合は停止します。通常check中の変更拒否も維持します。旧runは再開・上書きせず、元の基準からの全差分を評価します。既存PR修正中の停止なら、採用した修正要求とPRの照合も引き継ぎます。
+
+新しいrunの`host-return.json`とレビュー対象の`hostReturn`は、停止run・追加証拠の参照を保持します。`host-current-artifacts.json`で復帰時の成果物を確認できます。過去の成功や`passed`の申告を現在の受入にせず、評価担当が元の必須指摘、追加証拠の十分性・適用条件、文書更新と現在の要求充足を判断します。証拠の欠落・変更、失敗・実行不能、要求・対象・権限の不一致では受入・公開へ進みません。失敗記録と旧runを保ち、原因を解消して新しい証拠と保存先で再評価します。
+
+識別値と参照の一致は、ログ内容の真実性、測定方法の妥当性、AIの意味判断の品質を保証しません。模擬コマンドによる制御試験と実モデルによる引き継ぎ選択・実ホストの測定を区別し、時間・費用の改善は別に確認します。
 
 ## 結果と再実行
 
@@ -340,6 +381,8 @@ bun scripts/implement/run-report.ts /absolute/path/to/run --output /absolute/pat
 | `check_unavailable`・`capture_unavailable`・`capture_timeout` | 担当AIが起動失敗や時間切れ、撮影環境をログで調べる。ホストが必要な依存・ブラウザー・表示環境などを解消し、必要な検証・撮影を行う。上限の変更は人が判断する。 |
 | `requirements_changed` | 担当AIが保存した要求と現在のIssueを比較し、要求・範囲の変更は人の合意へ戻す。 |
 | `source_changed`・`target_changed_after_stop` | 担当AIが対象差分と同時更新の有無を照合し、意図した成果物への検証を確認する。古い成功で変更後の対象を受け入れない。 |
+| `host_evidence_changed` | 復帰後のcheck・評価中に参照証拠が変化・欠落した。担当AIが原因を照合し、新しい証拠と保存先を使って元の`--host-run`から再評価する。失敗runも終端記録として保全する。 |
+| `host_verification_required` | 担当AIが通常経路に含まれない検証を実行し、[ホスト検証後の再評価](#ホスト検証後の再評価)へ進む。停止run・未コミット成果物と元の差分基準を保つ。 |
 | `human_decision_required` | findingsを確認し、要求・範囲・許可など必要な選択を人へ戻す。 |
 | `execution_limit` | 単独試行で明示した有限の回数・モデル時間上限に到達した。指摘と消費量を確認し、新しい実行予算など必要な選択を人へ戻す。通常入口の新規runは回数・モデル時間を理由にここへ停止しない。旧runの停止理由と上限は書き換えない。 |
 

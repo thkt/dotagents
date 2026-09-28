@@ -43,7 +43,7 @@ await writeFile(
           properties: {
             status: {
               type: 'string',
-              enum: ['repaired', 'needs_human'],
+              enum: ['repaired', 'needs_host', 'needs_human'],
             },
             findings: { type: 'string' },
           },

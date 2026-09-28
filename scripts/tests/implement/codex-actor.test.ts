@@ -29,7 +29,11 @@ async function expectInvocation(root: string, role: string) {
   );
   const properties = object(schema.properties);
   if (role === 'repair') {
-    expect(sortedStrings(object(properties.status).enum)).toEqual(['needs_human', 'repaired']);
+    expect(sortedStrings(object(properties.status).enum)).toEqual([
+      'needs_host',
+      'needs_human',
+      'repaired',
+    ]);
   } else {
     expect(properties).not.toHaveProperty('status');
     const newItem = object(object(properties.newItems).items);
