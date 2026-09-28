@@ -81,12 +81,21 @@ test('push uses the verified HTTPS target despite pushInsteadOf and rejects inst
     expect(git(cwd, 'remote', 'get-url', '--push', 'upstream')).toBe(
       'git@github.com:team/component.git',
     );
-    const args = await pushArguments('team/component', 'codex/test', cwd, read);
+    const args = await pushArguments(
+      'team/component',
+      'codex/test',
+      git(cwd, 'rev-parse', 'HEAD'),
+      cwd,
+      read,
+    );
     const options = args.slice(1, args.indexOf('push'));
     expect(git(cwd, ...options, 'ls-remote', '--get-url', 'dotagents-publish')).toBe(
       'https://github.com/team/component.git',
     );
-    expect(args.slice(-2)).toEqual(['dotagents-publish', 'codex/test:refs/heads/codex/test']);
+    expect(args.slice(-2)).toEqual([
+      'dotagents-publish',
+      `${git(cwd, 'rev-parse', 'HEAD')}:refs/heads/codex/test`,
+    ]);
     // Resolve the actual push transport, but forbid it before any network access.
     const probe = spawnSync(
       'git',
@@ -106,7 +115,7 @@ test('push uses the verified HTTPS target despite pushInsteadOf and rejects inst
 
     git(cwd, 'config', 'url.git@github.com:other/.insteadOf', 'https://github.com/team/');
     await assert.rejects(
-      () => pushArguments('team/component', 'codex/test', cwd, read),
+      () => pushArguments('team/component', 'codex/test', git(cwd, 'rev-parse', 'HEAD'), cwd, read),
       /Effective push URL/,
     );
   } finally {
@@ -269,8 +278,12 @@ test('branch publication does not publish reachable annotated tags from user pus
     git(cwd, 'switch', '-c', 'codex/test');
     git(cwd, 'tag', '-a', 'unpublished-release', '-m', 'Keep this tag local');
     git(cwd, 'config', 'push.followTags', 'true');
-    const args = await pushArguments('team/component', 'codex/test', cwd, async (argv) =>
-      git(cwd, ...argv.slice(1)),
+    const args = await pushArguments(
+      'team/component',
+      'codex/test',
+      git(cwd, 'rev-parse', 'HEAD'),
+      cwd,
+      async (argv) => git(cwd, ...argv.slice(1)),
     );
     // Substitute only the transport destination so real ref publication stays local.
     const local = args

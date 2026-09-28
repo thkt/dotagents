@@ -108,7 +108,9 @@ async function fixture(root: string, media = false, setup: string[][] = [], repo
         expect(pr.isDraft).toBe(true);
       }
       hooks.pushes++;
-      remoteHead = git(cwd, 'rev-parse', 'HEAD');
+      const source = argv.at(-1)?.split(':')[0];
+      assert(source);
+      remoteHead = git(cwd, 'rev-parse', source);
       pr.headRefOid = remoteHead;
       return ok();
     }
@@ -505,6 +507,8 @@ test('standalone revision validates external configuration and binds it to the p
         'operator',
         '--head',
         input.head,
+        '--commit',
+        input.commit,
         '--title',
         input.title,
         '--body-file',
@@ -631,6 +635,28 @@ async function successfulRevision(
   }
 }
 type RevisionFixture = Awaited<ReturnType<typeof fixture>>;
+
+testRevision('push直前のHEAD更新後も検証済みSHAで本文更新と読戻しを行う', async (f) => {
+  const execute = f.io.command;
+  let verified = '';
+  f.io.command = async (argv, cwd, ...rest) => {
+    if (argv[0] === 'git' && argv.includes('push')) {
+      verified = git(cwd, 'rev-parse', 'HEAD');
+      await writeFile(join(cwd, 'result.txt'), 'unverified');
+      git(cwd, 'add', 'result.txt');
+      git(cwd, 'commit', '-m', '未検証の並行更新');
+    }
+    return execute(argv, cwd, ...rest);
+  };
+  const result = await runRevision(f);
+  expect(result).toMatchObject({ status: 'published_draft', commit: verified, ci: 'passed' });
+  expect(git(f.cwd, 'rev-parse', 'HEAD')).not.toBe(verified);
+  expect(f.pr.headRefOid).toBe(verified);
+  expect(f.pr.isDraft).toBe(true);
+  expect(f.hooks.edits).toBe(1);
+  expect(f.pr.body).toContain(verified);
+  expect(f.pr.body).not.toContain(git(f.cwd, 'rev-parse', 'HEAD'));
+});
 
 function testRevision(name: string, check: (f: RevisionFixture) => Promise<void>) {
   test(`existing PR revision: ${name}`, async () => {

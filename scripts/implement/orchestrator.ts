@@ -796,7 +796,7 @@ async function ship(
   result.nextAction =
     'Inspect the publication evidence and GitHub branch state before any further write; PR creation has not been attempted.';
   const target = await unchangedTarget(context, io, commit);
-  const push = await pushArguments(repository, branch, cwd, (argv, path) =>
+  const push = await pushArguments(repository, branch, commit, cwd, (argv, path) =>
     checked(io, argv, path),
   );
   await checkBranchPulls(context, io);
@@ -829,6 +829,7 @@ async function ship(
       cwd,
       actor: context.target.actor,
       head: branch,
+      commit,
       title: requirements.title,
       bodyFile: body,
       revision: context.revision,

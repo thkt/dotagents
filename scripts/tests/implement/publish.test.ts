@@ -44,6 +44,7 @@ async function fixture(dir: string) {
       cwd: repo,
       actor: 'operator',
       head: 'codex/test',
+      commit,
       title: 'Title with spaces',
       bodyFile: body,
     },
@@ -54,6 +55,8 @@ async function fixture(dir: string) {
       'operator',
       '--head',
       'codex/test',
+      '--commit',
+      commit,
       '--title',
       'Title with spaces',
       '--body-file',
@@ -133,6 +136,51 @@ testPublisher('existing', async (f, io) => {
   f.existing = 'https://github.com/team/component/pull/1';
   expect(await withInterrupts(() => publishCli(f.args, io))).toBe(f.existing);
   expect(f.publications).toEqual(['list']);
+});
+
+for (const remoteChanged of [false, true]) {
+  testPublisher(
+    `HEAD更新後も指定SHAで公開を照合する: remote更新=${remoteChanged}`,
+    async (f, io) => {
+      await writeFile(join(f.repo, 'result.txt'), 'unverified');
+      git(f.repo, 'add', 'result.txt');
+      git(f.repo, 'commit', '-m', '未検証の並行更新');
+      const current = git(f.repo, 'rev-parse', 'HEAD');
+      expect(current).not.toBe(f.input.commit);
+      if (remoteChanged) {
+        f.pr.head.sha = current;
+        await assert.rejects(
+          () => withInterrupts(() => publishCli(f.args, io)),
+          /Published PR target differs/,
+        );
+      } else {
+        expect(await withInterrupts(() => publishCli(f.args, io))).toBe(
+          'https://github.com/team/component/pull/2',
+        );
+      }
+      expect(f.publications).toEqual(['list', 'create']);
+    },
+  );
+}
+
+testPublisher('公開後にPRを取得できなければ成功にしない', async (f, io) => {
+  const github = f.github;
+  f.github = async (args) => {
+    if (args[1] === 'api' && args[2]?.includes('/pulls/')) {
+      throw Error('PR取得不能');
+    }
+    return github(args);
+  };
+  await assert.rejects(
+    () => withInterrupts(() => publishCli(f.args, io)),
+    (error: unknown) => {
+      assert(error instanceof PublicationError);
+      expect(error.url).toBe('https://github.com/team/component/pull/2');
+      expect(error.message).toContain('PR取得不能');
+      return true;
+    },
+  );
+  expect(f.publications).toEqual(['list', 'create']);
 });
 
 testPublisher('stale_body', async (f, io) => {
@@ -238,29 +286,14 @@ testPublisher('existing_ready', async (f, io) => {
   expect(f.publications).toEqual(['list']);
 });
 
-for (const [name, change] of [
-  [
-    'wrong_head',
-    (pr: Awaited<ReturnType<typeof fixture>>['f']['pr']) => {
-      pr.head.sha = 'changed';
-    },
-  ],
-  [
-    'wrong_base',
-    (pr: Awaited<ReturnType<typeof fixture>>['f']['pr']) => {
-      pr.base.ref = 'main';
-    },
-  ],
-] as const) {
-  testPublisher(name, async (f, io) => {
-    change(f.pr);
-    await assert.rejects(
-      () => withInterrupts(() => publishCli(f.args, io)),
-      /Published PR target differs/,
-    );
-    expect(f.publications).toEqual(['list', 'create']);
-  });
-}
+testPublisher('wrong_base', async (f, io) => {
+  f.pr.base.ref = 'main';
+  await assert.rejects(
+    () => withInterrupts(() => publishCli(f.args, io)),
+    /Published PR target differs/,
+  );
+  expect(f.publications).toEqual(['list', 'create']);
+});
 
 testPublisher('malformed_rest_identity', async (f) => {
   const input = {
@@ -334,6 +367,8 @@ test('publisher CLI rejects invalid arguments before invoking commands', async (
     '/unused',
     '--head',
     'topic',
+    '--commit',
+    'a'.repeat(40),
     '--title',
     'Title',
     '--body-file',
@@ -350,6 +385,12 @@ test('publisher CLI rejects invalid arguments before invoking commands', async (
     [[...args, '--unknown'], /Unknown option/],
     [[...args, '--title', '   '], /Required:/],
     [[...args, '--head'], /argument missing/],
+    [
+      args.filter((arg, index) => arg !== '--commit' && args[index - 1] !== '--commit'),
+      /Required:/,
+    ],
+    [[...args, '--commit', 'HEAD'], /full verified commit SHA/],
+    [[...args, '--commit', 'a'.repeat(39)], /full verified commit SHA/],
   ] as const) {
     await assert.rejects(() => publishCli([...input], io), reason);
   }

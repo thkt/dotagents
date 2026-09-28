@@ -140,7 +140,17 @@ export async function readTarget(checkout: string, read: Reader, writable = fals
   return { cwd, config, text, repositoryId: identity.id, actor: actor.login };
 }
 // A command-scoped pushurl bypasses pushInsteadOf. Check insteadOf expansion too.
-export async function pushArguments(repository: string, branch: string, cwd: string, read: Reader) {
+export async function pushArguments(
+  repository: string,
+  branch: string,
+  commit: string,
+  cwd: string,
+  read: Reader,
+) {
+  assert(
+    /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(commit),
+    'Push requires a full verified commit SHA',
+  );
   const url = `https://github.com/${repository}.git`;
   const remote = 'dotagents-publish';
   const options = [
@@ -164,7 +174,7 @@ export async function pushArguments(repository: string, branch: string, cwd: str
   assert(pushUrls === url, 'Effective push URL differs from verified HTTPS target');
   const effective = await read(['git', ...options, 'ls-remote', '--get-url', remote], cwd);
   assert(effective === url, 'Effective push URL differs from verified HTTPS target');
-  return ['git', ...options, 'push', '--no-follow-tags', remote, `${branch}:refs/heads/${branch}`];
+  return ['git', ...options, 'push', '--no-follow-tags', remote, `${commit}:refs/heads/${branch}`];
 }
 
 export function targetCommand(command: string[]) {

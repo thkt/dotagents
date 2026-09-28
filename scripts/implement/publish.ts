@@ -77,6 +77,7 @@ export interface PublishInput {
   cwd: string;
   actor?: string;
   head: string;
+  commit: string;
   title: string;
   bodyFile: string;
   revision?: Revision;
@@ -89,16 +90,17 @@ export async function publishCli(args: string[], io = runtime) {
       repo: { type: 'string' },
       actor: { type: 'string' },
       head: { type: 'string' },
+      commit: { type: 'string' },
       title: { type: 'string' },
       'body-file': { type: 'string' },
       'revision-file': { type: 'string' },
     },
     strict: true,
   });
-  const { head, title, 'body-file': bodyPath } = values;
+  const { head, commit, title, 'body-file': bodyPath } = values;
   assert(
-    values.repo && head && title && title.trim() && bodyPath,
-    'Required: --repo CHECKOUT --head BRANCH --title TITLE --body-file PATH',
+    values.repo && head && commit && title && title.trim() && bodyPath,
+    'Required: --repo CHECKOUT --head BRANCH --commit SHA --title TITLE --body-file PATH',
   );
   let cwd = values.repo;
   let revision: Revision | undefined;
@@ -112,11 +114,18 @@ export async function publishCli(args: string[], io = runtime) {
     cwd = config.cwd;
     revision = config.revision;
   }
-  return publish({ cwd, actor: values.actor, head, title, bodyFile: bodyPath, revision }, io);
+  return publish(
+    { cwd, actor: values.actor, head, commit, title, bodyFile: bodyPath, revision },
+    io,
+  );
 }
 
 export async function publish(input: PublishInput, io = runtime) {
-  const { head, title, revision } = input;
+  const { head, commit, title, revision } = input;
+  assert(
+    /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(commit),
+    'Publish requires a full verified commit SHA',
+  );
   const bodyFile = resolve(input.bodyFile);
   const body = await readFile(bodyFile, 'utf8');
   assert(body.trim(), 'PR body must not be empty');
@@ -128,7 +137,6 @@ export async function publish(input: PublishInput, io = runtime) {
   const { repository: repo, baseBranch: base } = target.config;
   assert(head !== base, 'Head must differ from base');
   assert(!input.actor || target.actor === input.actor, 'GitHub actor changed');
-  const commit = (await io.command(['git', 'rev-parse', 'HEAD'], target.cwd)).trim();
   assertRunning();
   if (revision) {
     assert(revision.branch === head, 'Revision publication target differs');
