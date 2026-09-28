@@ -9,16 +9,23 @@
 ホストの書込み可能な一時領域で取得する。Gitとuvを使い、取得済みの同じ版を再利用する場合もHEADと作業ツリーに変更がないことを確認する。
 
 ```sh
-nj_checkout=$(mktemp -d "${TMPDIR:-/tmp}/dotagents-natural-japanese.XXXXXX")
+nj_checkout=$(mktemp -d "${TMPDIR:-/tmp}/dotagents-natural-japanese.XXXXXX") &&
 git clone https://github.com/coji/natural-japanese.git "$nj_checkout" &&
-git -C "$nj_checkout" checkout --detach 9a78a42964096da509b8f3e011f0085a5f080151 &&
-test "$(git -C "$nj_checkout" rev-parse HEAD)" = 9a78a42964096da509b8f3e011f0085a5f080151 &&
-test -z "$(git -C "$nj_checkout" status --porcelain)"
+git -C "$nj_checkout" checkout --detach 9a78a42964096da509b8f3e011f0085a5f080151
 ```
 
-すべて成功してから `nj_skill="$nj_checkout/skills/natural-japanese"` として、この版の `SKILL.md` を読む。調査報告は `references/doctypes/report.md` も読み、PRは専用の文書型がないため共通観点を使う。スキルは共通登録せず、この用途から明示的に参照する。
+取得成功後、または取得済みのディレクトリを `nj_checkout` に指定した後に、次を実行する。終了0を確認できた場合だけ、その版を読む・実行する。
 
-取得や版の確認に失敗した場合は固定版の適用を未完了と記す。uvや依存取得が使えない場合は、同じ版の `references/manual-checklist.md` で確認できる範囲を確認し、lintは未実行と記す。既存の意味確認を続け、実行失敗を指摘0件やクイック手順の完了に読み替えない。利用できない操作のために独立評価のread-only権限を変更しない。
+```sh
+test "$(git -C "$nj_checkout" rev-parse HEAD)" = 9a78a42964096da509b8f3e011f0085a5f080151 &&
+nj_status=$(git -C "$nj_checkout" status --porcelain) &&
+test -z "$nj_status" &&
+nj_skill="$nj_checkout/skills/natural-japanese"
+```
+
+この版の `SKILL.md` を読む。調査報告は `references/doctypes/report.md` も読み、PRは専用の文書型がないため共通観点を使う。スキルは共通登録せず、この用途から明示的に参照する。
+
+取得や版の確認に失敗した場合は固定版の適用を未完了と記す。uvや依存取得が使えない場合は、同じ版の `references/manual-checklist.md` で確認できる範囲を確認し、lintは未実行と記す。入力の読取り不能などでlintが非ゼロ終了した場合も、理由と未完了であることを残す。既存の意味確認を続け、実行失敗を指摘0件やクイック手順の完了に読み替えない。利用できない操作のために独立評価のread-only権限を変更しない。
 
 ## クイック手順を既存の作業内で使う
 

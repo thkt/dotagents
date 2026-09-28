@@ -1,14 +1,16 @@
 # 調査報告とPR本文でnatural-japaneseを試した
 
-調査報告1件とPR本文1件を推敲した。今回の自己確認では、結論を先に示すことと、長い文を分けることに用途があった。一方、通常lintは原文・推敲後とも指摘0件で、今回の改善候補は通読で見つけた。既存レビューに推敲観点を加える案はあるが、常設スキルや必須検査としての採用は未決定である。
+調査報告1件とPR本文1件を推敲した。今回の自己確認では、結論を先に示すことと、長い文を分けることに用途があった。一方、通常lintは原文・推敲後とも指摘0件で、今回の改善候補は通読で見つけた。初回比較の時点では、既存レビューに推敲観点を加える案にとどまり、採用は未決定だった。
+
+その後の限定適用の合意と実装範囲は[Issue #313](https://github.com/thkt/dotagents/issues/313)を参照する。本報告は初回比較と後続の別CLIセッションの記録であり、以下のlint・独立評価・`bun run check`の成功は各試行時点の結果である。今回の文書変更に対する最新の検証結果とは区別する。
 
 ## 同じ原文からクイック手順で推敲した
 
-確認日: 2026-09-28。対象repoの基準commitは `8d452ea`。使用したスキルは [coji/natural-japanese のcommit 9a78a42964096da509b8f3e011f0085a5f080151](https://github.com/coji/natural-japanese/tree/9a78a42964096da509b8f3e011f0085a5f080151)。一時cloneから実行し、共通スキル登録やCI設定は変更していない。
+確認日: 2026-09-28。対象repoの基準commitは `8d452eade4824e300b80b7b0b874595330976b53`。使用したスキルは [coji/natural-japanese のcommit 9a78a42964096da509b8f3e011f0085a5f080151](https://github.com/coji/natural-japanese/tree/9a78a42964096da509b8f3e011f0085a5f080151)。一時cloneから実行し、共通スキル登録やCI設定は変更していない。
 
 | 対象 | 原文 | 推敲案 |
 | --- | --- | --- |
-| 調査報告 | [Portless試行の固定版](https://github.com/thkt/dotagents/blob/8d452ea/docs/research/portless-worktree-trial-20260923.md) | [調査報告の推敲案](natural-japanese-trial/report-after.md) |
+| 調査報告 | [Portless試行の固定版](https://github.com/thkt/dotagents/blob/8d452eade4824e300b80b7b0b874595330976b53/docs/research/portless-worktree-trial-20260923.md) | [調査報告の推敲案](natural-japanese-trial/report-after.md) |
 | PR本文 | [PR #312](https://github.com/thkt/dotagents/pull/312)の取得時本文を[保存したもの](natural-japanese-trial/pr-before.md) | [PR本文の推敲案](natural-japanese-trial/pr-after.md) |
 
 PRの対象headは `754becb392b618c1d8befa28e135077bcfeef542`。PR本文にあるreadyへの切替予定は当時の記述として保持し、現在のPR状態の説明へは変更していない。原本とGitHub上の本文は変更していない。
