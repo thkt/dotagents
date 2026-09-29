@@ -486,9 +486,6 @@ function verificationConfig(context: Context): Config {
       : {}),
     repair: [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'repair', dir],
     review: [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'review', dir],
-    repairLimit: null,
-    reviewLimit: null,
-    modelTimeMs: null,
     checkTimeMs,
   };
 }
@@ -622,6 +619,7 @@ async function implement(context: Context, io: typeof runtime) {
     issueText(await checkedOutput(io, context.issue, cwd)) === original,
     'Requirements changed during implementation',
   );
+
   await verify(context, config, io);
   return config;
 }
@@ -631,6 +629,11 @@ const verificationActions: Record<Exclude<StopReason, 'ready_for_human_review'>,
     'Assigned AI: preserve the failed evidence and findings, reconcile changed or unavailable evidence, and obtain fresh verification evidence. Return from the original --host-run handoff using a new evidence file and run directory; never overwrite old records.',
   host_verification_required:
     'Assigned AI: execute the requested host verification within existing authority, preserve evidence and return via --host-run with a new record.',
+  review_completed:
+    '評価試行の観測結果は開発の完了を意味しません。通常開発の検証記録を照合してください。',
+  review_timeout: '評価試行の時間制限に到達しました。保存したログと対象を確認してください。',
+  check_failed:
+    '評価試行のcheckが失敗しました。指摘の有無を判断する前に検証ログを確認してください。',
   execution_limit:
     'Assigned AI: inspect consumed attempts, model time and unresolved findings; a human must decide any new scope or budget. Existing limits cannot be extended.',
   repair_failed:

@@ -7,13 +7,17 @@ import { spawnSync } from 'node:child_process';
 import {
   correctionConfig,
   correctionFixture,
-  controller,
   object,
   events,
   reviewReplySource,
 } from '../support/correction.ts';
 import { parseRepairReply } from '../../implement/repair.ts';
-import { assertConfig, assertState } from '../../implement/input.ts';
+import {
+  assertConfig,
+  assertProbeConfig,
+  assertPreviousConfig,
+  assertState,
+} from '../../implement/input.ts';
 import { snapshot } from '../../implement/correction.ts';
 import { git } from '../support/target.ts';
 
@@ -72,10 +76,9 @@ for (const [mode, result, repairs, reviews] of [
   ['review_failed', 'review_failed', 1, 1],
   ['malformed', 'invalid_review', 1, 1],
   ['changed', 'source_changed', 1, 1],
-  ['exhaust', 'execution_limit', 2, 0],
 ] as const) {
   test(mode, async () => {
-    const t = await trial(mode, { modelTimeMs: null });
+    const t = await trial(mode);
     expect(t.execute().status).toBe(result === 'ready_for_human_review' ? 0 : 1);
     const state = await t.state();
     expect(state.result).toBe(result);
@@ -106,10 +109,10 @@ for (const [mode, result, repairs, reviews] of [
       }
       expect(state.modelMs).toBe(total);
     }
-    if (mode === 'normal' || mode === 'exhaust') {
+    if (mode === 'normal') {
       const before = await t.state();
       const repeated = t.execute();
-      expect(repeated.status).toBe(mode === 'normal' ? 0 : 1);
+      expect(repeated.status).toBe(0);
       expect(object(JSON.parse(repeated.stdout))).toEqual(before);
       expect(await t.state()).toEqual(before);
     }
@@ -117,7 +120,7 @@ for (const [mode, result, repairs, reviews] of [
 }
 
 test('unlimited attempts check and accept the latest repair after recurring findings', async () => {
-  const t = await trial('docs', { repairLimit: null, reviewLimit: null, modelTimeMs: null });
+  const t = await trial('docs');
   await writeFile(join(t.config.cwd, 'source.txt'), 'correct-0');
   await writeFile(
     join(t.root, 'helper.js'),
@@ -271,13 +274,12 @@ test('Issue retrieval failure after repair preserves reservation and refuses ree
   expect(await Promise.all(paths.map((path) => readFile(path, 'utf8')))).toEqual(before);
 });
 
-test('changed limits cannot reset an existing finite trial', async () => {
-  const t = await trial('exhaust');
-  expect(t.execute().status).toBe(1);
+test('changed commands cannot reuse a completed run', async () => {
+  const t = await trial('normal');
+  expect(t.execute().status).toBe(0);
   const stateFile = join(t.config.runDir, 'state.json');
   const before = await readFile(stateFile, 'utf8');
-  expect(await t.state()).toMatchObject({ repair: 2, result: 'execution_limit' });
-  await writeFile(t.configFile, JSON.stringify({ ...t.config, repairLimit: null }));
+  await writeFile(t.configFile, JSON.stringify({ ...t.config, check: ['true'] }));
   const result = t.execute();
   expect(result.status).toBe(1);
   expect(result.stderr).toContain('configuration changed');
@@ -308,18 +310,6 @@ test('terminal success still refuses an active reservation or an existing lock',
   expect(locked.stderr).toContain('EEXIST');
   expect(await readFile(join(lock, 'owner'), 'utf8')).toBe('existing execution');
   expect(await readFile(stateFile, 'utf8')).toBe(saved);
-});
-
-test('review limit prevents a third-party evaluator from being called again', async () => {
-  const t = await trial('docs', { repairLimit: null, reviewLimit: 1, modelTimeMs: null });
-  t.execute();
-  const state = await t.state();
-  expect(state.result).toBe('execution_limit');
-  expect(state.review).toBe(1);
-  expect(state.repair).toBe(2);
-  expect(state.checks).toBe(3);
-  expect(await Bun.file(join(t.config.runDir, 'review-2.target.json')).exists()).toBe(false);
-  expect(await Bun.file(join(t.config.runDir, 'review-2.prompt')).exists()).toBe(false);
 });
 
 for (const [target, path, content] of [
@@ -398,7 +388,7 @@ test('correction capture remains optional unless required and needs explicit met
   );
 });
 
-test('CLI rejects invalid config before commands or evidence writes', async () => {
+test('normal execution rejects invalid config before commands or evidence writes', async () => {
   const t = await trial('normal');
   const executed = join(t.root, 'unexpected-execution');
   await writeFile(
@@ -414,30 +404,27 @@ test('CLI rejects invalid config before commands or evidence writes', async () =
   expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
 });
 
-test('attempt limits require explicit null or positive integers', () => {
+test('normal execution rejects retired budgets and requires finite check time', () => {
   const config = correctionConfig('/correction-config');
-  for (const key of ['repairLimit', 'reviewLimit']) {
-    for (const limit of [null, 1, 3]) {
-      expect(() => assertConfig({ ...config, [key]: limit })).not.toThrow();
-    }
-    for (const limit of [undefined, 0, -1, 1.5, NaN, Infinity, '2', 'unlimited', false, {}, []]) {
-      expect(() => assertConfig({ ...config, [key]: limit })).toThrow(`Invalid ${key}`);
-    }
+  for (const key of ['repairLimit', 'reviewLimit', 'modelTimeMs', 'unexpected']) {
+    expect(() => assertConfig({ ...config, [key]: null })).toThrow('Unknown configuration field');
   }
-  expect(() => assertConfig({ ...config, unexpected: true })).toThrow(
-    'Unknown configuration field',
-  );
-});
-
-test('model time requires explicit null or a positive finite number; check time stays finite', () => {
-  const config = correctionConfig('/correction-config');
-  for (const modelTimeMs of [undefined, 0, -1, NaN, Infinity, 'unlimited', '1200000', false]) {
-    expect(() => assertConfig({ ...config, modelTimeMs })).toThrow('Invalid modelTimeMs');
-  }
-  expect(() => assertConfig({ ...config, modelTimeMs: null })).not.toThrow();
-  expect(() => assertConfig({ ...config, modelTimeMs: 1200000 })).not.toThrow();
   for (const checkTimeMs of [null, undefined, 0, -1, NaN, Infinity]) {
     expect(() => assertConfig({ ...config, checkTimeMs })).toThrow('Invalid checkTimeMs');
+  }
+  const { repair: _repair, ...review } = config;
+  for (const reviewTimeMs of [null, undefined, 0, -1, NaN, Infinity, '100']) {
+    expect(() => assertProbeConfig({ ...review, reviewTimeMs })).toThrow('Invalid reviewTimeMs');
+  }
+  expect(() => assertProbeConfig({ ...config, reviewTimeMs: 100 })).toThrow(
+    'Unknown configuration field',
+  );
+  const saved = { ...config, repairLimit: 2, reviewLimit: null, modelTimeMs: 1000 };
+  const original = structuredClone(saved);
+  expect(() => assertPreviousConfig(saved)).not.toThrow();
+  expect(saved).toEqual(original);
+  for (const change of [{ repairLimit: undefined }, { reviewLimit: 0 }, { modelTimeMs: '1000' }]) {
+    expect(() => assertPreviousConfig({ ...saved, ...change })).toThrow('Invalid saved');
   }
 });
 test('invalid saved state is retained and rejected before execution', async () => {
@@ -453,22 +440,22 @@ test('invalid saved state is retained and rejected before execution', async () =
   expect(() => assertState({ ...saved, reviewHistory: [] })).not.toThrow();
   for (const [change, reason] of [
     ...[null, 0, 5, '4'].map(
-      (reviewFormat) => [{ reviewFormat }, 'Invalid review format'] as const,
+      (reviewFormat) => [{ reviewFormat }, 'Invalid saved state: reviewFormat'] as const,
     ),
     ...[undefined, '', 42].map(
-      (baseCommit) => [{ baseCommit }, 'Invalid saved base commit'] as const,
+      (baseCommit) => [{ baseCommit }, 'Invalid saved state: baseCommit'] as const,
     ),
     ...[undefined, null].map(
-      (reviewHistory) => [{ reviewHistory }, 'Invalid saved review history'] as const,
+      (reviewHistory) => [{ reviewHistory }, 'Invalid saved state: reviewHistory'] as const,
     ),
-    [{ repair: -1 }, 'Invalid saved usage'],
-    [{ active: { role: 'repair' } }, 'Invalid active reservation'],
-    [{ events: [{}] }, 'Invalid saved events'],
-    [{ result: 'unrecognized_success' }, 'Invalid saved result'],
-    [{ captureSource: 42 }, 'Invalid saved capture source'],
+    [{ repair: -1 }, 'Invalid saved state: repair'],
+    [{ active: { role: 'repair' } }, 'Invalid saved state: active'],
+    [{ events: [{}] }, 'Invalid saved state: events'],
+    [{ result: 'unrecognized_success' }, 'Invalid saved state: result'],
+    [{ captureSource: 42 }, 'Invalid saved state: captureSource'],
     [
       { reviewHistory: [{ ...review, status: 'unrecognized_success' }] },
-      'Invalid saved review history',
+      'Invalid saved state: reviewHistory',
     ],
     ...[
       { id: undefined },
@@ -484,7 +471,7 @@ test('invalid saved state is retained and rejected before execution', async () =
       (change) =>
         [
           { reviewHistory: [{ ...review, items: [{ ...item, ...change }] }] },
-          'Invalid saved review history',
+          'Invalid saved state: reviewHistory',
         ] as const,
     ),
   ] as const) {
@@ -499,14 +486,20 @@ test('invalid saved state is retained and rejected before execution', async () =
   await writeFile(stateFile, invalid);
   const result = t.execute();
   expect(result.status).toBe(1);
-  expect(result.stderr).toContain('Invalid saved base commit');
+  expect(result.stderr).toContain('Invalid saved state: baseCommit');
   expect(await readFile(stateFile, 'utf8')).toBe(invalid);
   expect(await Bun.file(executed).exists()).toBe(false);
 });
-test('missing CLI configuration argument fails with usage', () => {
-  const result = spawnSync(process.execPath, [controller], { encoding: 'utf8' });
+test('retired standalone correction CLI refuses execution and explains migration', async () => {
+  const t = await trial('normal');
+  const result = spawnSync(
+    process.execPath,
+    [resolve('scripts/implement/correction.ts'), t.configFile],
+    { encoding: 'utf8' },
+  );
   expect(result.status).toBe(1);
-  expect(result.stderr).toContain('Usage:');
+  expect(result.stderr).toContain('development.ts');
+  expect(existsSync(t.config.runDir)).toBe(false);
 });
 
 for (const path of ['.', 'evidence', '..evidence', '../..external']) {
@@ -673,7 +666,7 @@ for (const json of [true, false]) {
     await writeFile(join(t.config.runDir, 'state.json'), invalid);
     const stopped = t.execute();
     expect(stopped.status).toBe(1);
-    expect(stopped.stderr).toContain('Invalid Issue format');
+    expect(stopped.stderr).toContain('Invalid saved state: issueFormat');
     expect(await readFile(join(t.config.runDir, 'state.json'), 'utf8')).toBe(invalid);
     expect(await readFile(join(t.config.runDir, 'issue.stdout'), 'utf8')).toBe(raw);
   });

@@ -490,7 +490,7 @@ for (const file of ['result.json', 'verification/state.json']) {
   });
 }
 
-test('standalone revision validates external configuration and binds it to the publication target', async () => {
+test('revision verification validates external configuration and binds it to the publication target', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-cli-')));
   try {
     const f = await fixture(root);
@@ -577,9 +577,6 @@ async function successfulRevision(
   const config = await readObject(join(f.dir, 'verification-config.json'));
   expect(config.baseCommit).toBe(f.initialBase);
   expect(config).toMatchObject({
-    repairLimit: null,
-    reviewLimit: null,
-    modelTimeMs: null,
     revision: { head: f.oldHead },
   });
   expect(result.url).toBe(pr.url);
@@ -710,9 +707,24 @@ testRevision('success', async (f) => {
   await successfulRevision(f);
 });
 
-testRevision('already_draft', async (f) => {
+testRevision('already_draft_with_legacy_config', async (f) => {
+  const configFile = join(f.prior, 'verification-config.json');
+  const stateFile = join(f.prior, 'verification/state.json');
+  const config = {
+    ...(await readObject(configFile)),
+    repairLimit: 2,
+    reviewLimit: 2,
+    modelTimeMs: 1200000,
+  };
+  const saved = JSON.stringify(config);
+  await writeFile(configFile, saved);
+  await writeFile(
+    stateFile,
+    JSON.stringify({ ...(await readObject(stateFile)), configHash: hash(saved) }),
+  );
   f.pr.isDraft = true;
   await successfulRevision(f, { alreadyDraft: true });
+  expect(await readFile(configFile, 'utf8')).toBe(saved);
 });
 
 testRevision('local', async (f) => {

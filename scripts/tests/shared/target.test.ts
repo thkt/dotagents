@@ -207,12 +207,19 @@ test('target rejects invalid commands before further target access', async () =>
   try {
     for (const [change, reason] of [
       [{ setup: undefined }, /Explicit setup commands required/],
+      [{ setup: '' }, /Explicit setup commands required/],
+      [{ setup: ' \t\n' }, /Explicit setup commands required/],
+      [{ setup: ['tool'] }, /Explicit setup commands required/],
+      [{ setup: ['tool', 'other'] }, /Explicit setup commands required/],
       [{ setup: [['']] }, /Explicit setup commands required/],
       [{ setup: [['tool', 1]] }, /Explicit setup commands required/],
       [{ check: undefined }, /Verification command is required/],
       [{ check: ' \t\n' }, /Verification command is required/],
       [{ check: [] }, /Verification command is required/],
       [{ check: false }, /Verification command is required/],
+      [{ ciChecks: undefined }, /Explicit unique CI check names/],
+      [{ ciChecks: [''] }, /Explicit unique CI check names/],
+      [{ ciChecks: ['checks', 'checks'] }, /Explicit unique CI check names/],
       [{ capture: undefined }, /Explicit capture configuration or null required/],
       [
         { capture: { command: false, destination: 'media', required: false } },
@@ -229,22 +236,6 @@ test('target rejects invalid commands before further target access', async () =>
     ] as const) {
       await writeFile(join(cwd, '.dotagents.json'), JSON.stringify({ ...targetConfig, ...change }));
       await assert.rejects(() => readTarget(cwd, read), reason);
-    }
-  } finally {
-    await rm(cwd, { recursive: true, force: true });
-  }
-});
-
-test('target rejects invalid top-level setup values', async () => {
-  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'target-invalid-setup-')));
-  try {
-    await initializeTarget(cwd);
-    for (const setup of ['', ' \t\n', ['tool'], ['tool', 'other']]) {
-      await writeFile(join(cwd, '.dotagents.json'), JSON.stringify({ ...targetConfig, setup }));
-      await assert.rejects(
-        () => readTarget(cwd, async (argv) => git(cwd, ...argv.slice(1))),
-        /Explicit setup commands required/,
-      );
     }
   } finally {
     await rm(cwd, { recursive: true, force: true });
@@ -294,25 +285,6 @@ test('branch publication does not publish reachable annotated tags from user pus
     expect(git(remote, 'for-each-ref', '--format=%(refname)')).toBe('refs/heads/codex/test');
   } finally {
     await rm(root, { recursive: true, force: true });
-  }
-});
-
-test('CI check policy must be explicit with unique nonempty names', async () => {
-  const cwd = await mkdtemp(join(tmpdir(), 'ci-policy-'));
-  try {
-    await initializeTarget(cwd);
-    const read = async (argv: string[]) => githubTarget(argv) ?? git(cwd, ...argv.slice(1));
-    for (const ciChecks of [undefined, [''], ['checks', 'checks']]) {
-      await writeFile(join(cwd, '.dotagents.json'), JSON.stringify({ ...targetConfig, ciChecks }));
-      await assert.rejects(() => readTarget(cwd, read), /Explicit unique CI check names/);
-    }
-    await writeFile(
-      join(cwd, '.dotagents.json'),
-      JSON.stringify({ ...targetConfig, ciChecks: [] }),
-    );
-    expect((await readTarget(cwd, read)).config.ciChecks).toEqual([]);
-  } finally {
-    await rm(cwd, { recursive: true, force: true });
   }
 });
 

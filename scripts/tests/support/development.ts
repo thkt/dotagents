@@ -301,7 +301,6 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
       return fixture.implement(argv, cwd, input, timeout, prefix);
     },
     verify: async (config: Config) => {
-      expect(config.modelTimeMs).toBeNull();
       expect(config.checkTimeMs).toBe(540000);
       calls.reviews++;
       const state = await fixture.verify(config);

@@ -42,16 +42,13 @@ export const reviewSchema = z.toJSONSchema(reviewResponse);
 // Stored records keep the complete host-owned identity and status. Reuse the
 // response fields so reading a saved review validates the same item details.
 const reviewItem = newItem.extend({ id: text, introducedIn: text, disposition });
-const reviewRecord = reviewResponse.omit({ updates: true, newItems: true }).extend({
+export const reviewRecord = reviewResponse.omit({ updates: true, newItems: true }).extend({
   status: z.enum(['accepted', 'needs_changes']),
   items: z.array(reviewItem),
 });
 export type ReviewItem = z.infer<typeof reviewItem>;
 export type Review = z.infer<typeof reviewRecord>;
 
-export function isReview(value: unknown): value is Review {
-  return reviewRecord.safeParse(value).success;
-}
 export function parseReview(
   stdout: string,
   targetId: string,

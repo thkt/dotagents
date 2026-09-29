@@ -4,7 +4,7 @@ import { randomInt } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
-import { run, snapshot } from './correction.ts';
+import { reviewOnce, snapshot } from './correction.ts';
 import { command, withInterrupts } from '../shared/process.ts';
 import { isRecord } from '../shared/values.ts';
 import { reviewModel } from './review.ts';
@@ -93,7 +93,7 @@ async function preparePagination(cwd: string, broken: boolean) {
     join(cwd, 'README.md'),
     '# Array pagination\n\n`page(items, offset, limit)` returns up to `limit` items starting at `offset`. The input stays unchanged. Bounds must be nonnegative safe integers or a RangeError is thrown. Run `bun test`.\n',
   );
-  return { baseCommit, body: requirements.body, modelTimeMs: 1200000 };
+  return { baseCommit, body: requirements.body, reviewTimeMs: 1200000 };
 }
 
 async function prepare(root: string, id: string, name: string) {
@@ -114,11 +114,6 @@ async function prepare(root: string, id: string, name: string) {
     join(dir, 'issue.ts'),
     `console.log(await Bun.file(${JSON.stringify(join(dir, 'issue.json'))}).text());`,
   );
-  // Prevent this detection probe from repairing away the subject being measured.
-  await writeFile(
-    join(dir, 'handoff.ts'),
-    "console.log(JSON.stringify({status:'needs_human',findings:'Live probe retains the reviewed artifact for adjudication; no repair is scheduled.'}));",
-  );
   const config = {
     cwd,
     runDir: join(dir, 'verification'),
@@ -126,11 +121,8 @@ async function prepare(root: string, id: string, name: string) {
     reviewModel,
     issue: [process.execPath, join(dir, 'issue.ts')],
     check: [process.execPath, 'test'],
-    repair: [process.execPath, join(dir, 'handoff.ts')],
     review: [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'review', dir],
-    repairLimit: 1,
-    reviewLimit: 1,
-    modelTimeMs: fixture.modelTimeMs,
+    reviewTimeMs: fixture.reviewTimeMs,
     checkTimeMs: 540000,
   };
   await writeFile(join(dir, 'config.json'), JSON.stringify(config, null, 2));
@@ -141,7 +133,7 @@ async function probe(root: string, prepared: Awaited<ReturnType<typeof prepare>>
   const { id, name, dir, cwd, baseCommit, config, fixture } = prepared;
   const broken = name === 'defective';
   const started = performance.now();
-  const state = await run(config);
+  const state = await reviewOnce(config);
   const elapsedMs = performance.now() - started;
   // Independent oracle is deliberately outside the reviewed checkout/check. It diagnoses
   // the known defect after review, without coaching the model about the missing condition.

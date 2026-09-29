@@ -14,20 +14,78 @@ import {
 const { trial, cleanup } = correctionFixture();
 afterEach(cleanup);
 
-test('time limit terminates actor and keeps consumed reservation', async () => {
-  const t = await trial('timeout', { repairLimit: null, reviewLimit: null, modelTimeMs: 100 });
-  t.execute();
-  const state = await t.state();
-  expect(state.result).toBe('execution_limit');
-  expect(state.repair).toBe(1);
-  expect(state.active).toBeNull();
-  expect(object(events(state.events).at(-1)).timedOut).toBe(true);
-  t.execute();
-  expect((await t.state()).repair).toBe(1);
-});
+async function childWriter(root: string) {
+  const pidFile = join(root, 'actor.pid');
+  const heartbeat = join(root, 'heartbeat');
+  const worker = join(root, 'worker.js');
+  await writeFile(
+    worker,
+    `
+import {spawn} from 'node:child_process';
+import {writeFileSync} from 'node:fs';
+const [heartbeat, pidFile] = process.argv.slice(2);
+if (pidFile) {
+  console.log('actor started');
+  console.error('actor diagnostic');
+  spawn(process.execPath, [process.argv[1], heartbeat], {stdio:'inherit'});
+  writeFileSync(pidFile, String(process.pid));
+} else {
+  setInterval(() => writeFileSync(heartbeat, String(Date.now())), 20);
+}
+`,
+  );
+  return { argv: [process.execPath, worker, heartbeat, pidFile], heartbeat, pidFile };
+}
+
+for (const failure of ['check', 'timeout'] as const) {
+  test(`one-shot review preserves ${failure} evidence without repair or reexecution`, async () => {
+    const t = await trial('normal');
+    const { repair: _repair, ...config } = t.config;
+    const { argv, heartbeat } = await childWriter(t.root);
+    if (failure === 'timeout') {
+      await writeFile(join(config.cwd, 'source.txt'), 'correct');
+    }
+    await writeFile(
+      t.configFile,
+      JSON.stringify({
+        ...config,
+        reviewTimeMs: 300,
+        review: argv,
+      }),
+    );
+    expect(t.execute('review').status).toBe(1);
+    const state = await t.state();
+    expect(state).toMatchObject({
+      result: failure === 'check' ? 'check_failed' : 'review_timeout',
+      review: failure === 'check' ? 0 : 1,
+      repair: 0,
+      checks: 1,
+      active: null,
+      reviewHistory: [],
+    });
+    const paths = ['state.json', 'check-1.stdout', 'check-1.stderr'];
+    if (failure === 'timeout') {
+      paths.push('review-1.stdout', 'review-1.stderr');
+      expect(object(events(state.events).at(-1)).timedOut).toBe(true);
+      const stopped = await readFile(heartbeat, 'utf8');
+      await Bun.sleep(100);
+      expect(await readFile(heartbeat, 'utf8')).toBe(stopped);
+      expect(await readFile(join(config.runDir, 'review-1.stdout'), 'utf8')).toContain(
+        'actor started',
+      );
+    }
+    const evidence = () =>
+      Promise.all(paths.map((path) => readFile(join(config.runDir, path), 'utf8')));
+    const before = await evidence();
+    expect(t.execute('review').status).toBe(1);
+    expect(await evidence()).toEqual(before);
+    expect(await Bun.file(join(config.runDir, 'repair-1.prompt')).exists()).toBe(false);
+    expect(await Bun.file(join(config.runDir, 'review-2.target.json')).exists()).toBe(false);
+  });
+}
 
 test('check timeout is unavailable evidence and does not start a model', async () => {
-  const t = await trial('check_timeout', { checkTimeMs: 100, modelTimeMs: null });
+  const t = await trial('check_timeout', { checkTimeMs: 100 });
   t.execute();
   const state = await t.state();
   expect(state.result).toBe('check_unavailable');
@@ -73,37 +131,13 @@ for (const role of ['check', 'repair', 'review', 'capture'] as const) {
     : (['SIGTERM'] as const)) {
     test(`${signal} during ${role} preserves reservation and blocks duplicate execution`, async () => {
       const t = await trial('normal', {
-        repairLimit: null,
-        reviewLimit: null,
         checkTimeMs: 15000,
-        modelTimeMs: null,
       });
       if (role === 'review') {
         await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
       }
-      const pidFile = join(t.root, 'actor.pid');
-      const heartbeat = join(t.config.cwd, 'heartbeat');
-      const worker = join(t.root, 'worker.js');
-      await writeFile(
-        worker,
-        `
-import {spawn} from 'node:child_process';
-import {writeFileSync} from 'node:fs';
-const [heartbeat, pidFile] = process.argv.slice(2);
-if (pidFile) {
-  console.log('actor started');
-  console.error('actor diagnostic');
-  spawn(process.execPath, [process.argv[1], heartbeat], {stdio:'inherit'});
-  writeFileSync(pidFile, String(process.pid));
-} else {
-  setInterval(() => writeFileSync(heartbeat, String(Date.now())), 20);
-}
-`,
-      );
-      await writeFile(
-        t.configFile,
-        JSON.stringify({ ...t.config, [role]: [process.execPath, worker, heartbeat, pidFile] }),
-      );
+      const { argv, heartbeat, pidFile } = await childWriter(t.root);
+      await writeFile(t.configFile, JSON.stringify({ ...t.config, [role]: argv }));
       const child = spawn(process.execPath, [controller, t.configFile], { stdio: 'ignore' });
       const stateFile = join(t.config.runDir, 'state.json');
       const closed = new Promise<number | null>((resolve) => child.on('close', resolve));

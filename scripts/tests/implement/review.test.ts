@@ -697,7 +697,7 @@ writeFile: async (path,...args)=>{
 }
 
 test('unchanged rebuttals reach the next reviewer without resolving findings automatically', async () => {
-  const t = await trial('docs', { reviewLimit: 3 });
+  const t = await trial('docs');
   await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
   await mkdir(t.config.runDir);
   // Unrelated successful-looking records must not be selected by directory search.
@@ -1134,7 +1134,7 @@ reply.documents=[
   expect(object(JSON.parse(stale.stdout)).result).toBe('target_changed_after_stop');
 });
 
-test('standalone correction rejects a stale report pin before executing verification', async () => {
+test('correction rejects a stale report pin before executing verification', async () => {
   const t = await trial('normal');
   const path = 'docs/research/reset.md';
   await mkdir(join(t.config.cwd, 'docs/research'), { recursive: true });

@@ -391,7 +391,7 @@ test('input boundaries reject duplicate records, old formats, unmatched tasks an
       join(root, 'verification/state.json'),
       JSON.stringify({ ...state, reviewFormat: 3 }),
     );
-    await assert.rejects(aggregateUsage(input, base), /Invalid review format/);
+    await assert.rejects(aggregateUsage(input, base), /Invalid saved state: reviewFormat/);
     await writeFile(join(root, 'verification/state.json'), JSON.stringify(state));
     await assert.rejects(
       aggregateUsage(

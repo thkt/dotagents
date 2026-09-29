@@ -556,7 +556,6 @@ for (const [result, nextAction] of [
   ['check_unavailable', 'check startup or timeout'],
   ['capture_unavailable', 'capture logs and configured runtime'],
   ['human_decision_required', 'human decision described in the repair findings'],
-  ['execution_limit', 'human must decide any new scope or budget'],
 ] as const) {
   testDevelopment(result, async (f) => {
     const verify = f.verify;
@@ -1090,9 +1089,6 @@ testDevelopment(
     });
     expect(JSON.parse(await readFile(join(dir, 'verification-config.json'), 'utf8'))).toMatchObject(
       {
-        modelTimeMs: null,
-        repairLimit: null,
-        reviewLimit: null,
         checkTimeMs: 540000,
       },
     );

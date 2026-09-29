@@ -1,50 +1,37 @@
 import assert from 'node:assert/strict';
+import { z } from 'zod';
 import { hostReturnShape } from './host-records.ts';
 import type { HostReturn } from './host-records.ts';
-import { isReview } from './review.ts';
-import type { Review } from './review.ts';
+import { reviewRecord } from './review.ts';
 import { isArray, isCommandArray, isRecord, relativeDirectory } from '../shared/values.ts';
 
-export interface Revision {
-  previousRun: string;
-  requestFile: string;
-  request: string;
-  url: string;
-  body: string;
-  head: string;
-  branch: string;
-  baseBranch: string;
-  repository: string;
-  issue: string;
-  issueText: string;
-  runDirectory: string;
-  actor: string;
+const revisionTextFields = [
+  'previousRun',
+  'requestFile',
+  'request',
+  'url',
+  'body',
+  'head',
+  'branch',
+  'baseBranch',
+  'repository',
+  'issue',
+  'issueText',
+  'runDirectory',
+  'actor',
+  'targetText',
+] as const;
+export type Revision = Record<(typeof revisionTextFields)[number], string> & {
   repositoryId: number;
-  targetText: string;
   localOnly: boolean;
-}
+};
 
 function assertRevision(value: unknown): asserts value is Revision | undefined {
   if (value === undefined) {
     return;
   }
   assert(isRecord(value), 'Invalid revision input');
-  for (const key of [
-    'previousRun',
-    'requestFile',
-    'request',
-    'url',
-    'body',
-    'head',
-    'branch',
-    'baseBranch',
-    'repository',
-    'issue',
-    'issueText',
-    'runDirectory',
-    'actor',
-    'targetText',
-  ]) {
+  for (const key of revisionTextFields) {
     assert(typeof value[key] === 'string' && value[key].trim(), `Invalid revision ${key}`);
   }
   assert(
@@ -80,6 +67,9 @@ export function assertReportReferences(value: unknown): asserts value is ReportR
 }
 const stopReasons = [
   'execution_limit',
+  'review_completed',
+  'review_timeout',
+  'check_failed',
   'repair_failed',
   'review_failed',
   'requirements_changed',
@@ -97,7 +87,7 @@ const stopReasons = [
   'target_changed_after_stop',
 ] as const;
 export type StopReason = (typeof stopReasons)[number];
-export interface Config {
+export interface ReviewConfig {
   baseCommit?: string;
   hostReturn?: HostReturn;
   revision?: Revision;
@@ -110,58 +100,46 @@ export interface Config {
   capture?: string[];
   captureDestination?: string;
   captureRequired?: boolean;
-  repair: string[];
   review: string[];
-  repairLimit: number | null;
-  reviewLimit: number | null;
-  // null explicitly disables only the model elapsed-time limit.
-  modelTimeMs: number | null;
   checkTimeMs: number;
 }
-export interface CaptureDecision {
-  outcome: 'execute' | 'reused' | 'not_required';
-  reason: string;
-  source?: string;
-  previousSource?: string;
+export interface Config extends ReviewConfig {
+  repair: string[];
 }
-interface Event {
-  captureDecision?: CaptureDecision;
-  role: ActorRole | 'check' | 'capture';
-  source?: string;
-  code: number | null;
-  timedOut: boolean;
-  ms?: number;
-  prefix: string;
+export interface ProbeConfig extends ReviewConfig {
+  reviewTimeMs: number;
 }
-export interface State {
-  reviewFormat: 4;
-  baseCommit: string;
-  reviewHistory: Review[];
-  configHash: string;
-  issueHash: string;
-  issueFormat: 1;
-  repair: number;
-  review: number;
-  checks: number;
-  modelMs: number;
-  active: { role: ActorRole | 'check' | 'capture'; prefix: string } | null;
-  events: Event[];
-  source?: string;
-  captureSource?: string;
-  result?: StopReason | null;
-  findings?: string;
-}
-
 const nonnegative = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0;
 const count = (value: unknown): value is number => nonnegative(value) && Number.isInteger(value);
-const attemptLimit = (value: unknown) => value === null || (count(value) && value > 0);
+const positive = (value: unknown) => nonnegative(value) && value > 0;
 const optionalString = (value: unknown) => value === undefined || typeof value === 'string';
-const role = (value: unknown) =>
-  value === 'check' || value === 'repair' || value === 'review' || value === 'capture';
 const command = (value: unknown) => isCommandArray(value) && value[0].length > 0;
 
 export function assertConfig(value: unknown): asserts value is Config {
+  assertReviewConfig(value, ['repair']);
+  assert('repair' in value && command(value.repair), 'Invalid repair command');
+}
+
+export function assertProbeConfig(value: unknown): asserts value is ProbeConfig {
+  assertReviewConfig(value, ['reviewTimeMs']);
+  assert('reviewTimeMs' in value && positive(value.reviewTimeMs), 'Invalid reviewTimeMs');
+}
+
+// 旧設定は過去の公開記録の照合にだけ使う。元のオブジェクトとhashを変えない。
+export function assertPreviousConfig(value: unknown): asserts value is Config {
+  assert(isRecord(value), 'Invalid configuration object');
+  const { repairLimit, reviewLimit, modelTimeMs, ...current } = value;
+  assertConfig(current);
+  if (['repairLimit', 'reviewLimit', 'modelTimeMs'].some((key) => key in value)) {
+    for (const limit of [repairLimit, reviewLimit]) {
+      assert(limit === null || (count(limit) && limit > 0), 'Invalid saved attempt limit');
+    }
+    assert(modelTimeMs === null || positive(modelTimeMs), 'Invalid saved model time');
+  }
+}
+
+function assertReviewConfig(value: unknown, fields: string[]): asserts value is ReviewConfig {
   assert(isRecord(value), 'Invalid configuration object');
   assert(
     Object.keys(value).every((key) =>
@@ -178,12 +156,9 @@ export function assertConfig(value: unknown): asserts value is Config {
         'capture',
         'captureDestination',
         'captureRequired',
-        'repair',
         'review',
-        'repairLimit',
-        'reviewLimit',
-        'modelTimeMs',
         'checkTimeMs',
+        ...fields,
       ].includes(key),
     ),
     'Unknown configuration field',
@@ -207,7 +182,7 @@ export function assertConfig(value: unknown): asserts value is Config {
   for (const key of ['cwd', 'runDir']) {
     assert(typeof value[key] === 'string' && value[key].length > 0, `Invalid ${key}`);
   }
-  for (const key of ['issue', 'check', 'repair', 'review']) {
+  for (const key of ['issue', 'check', 'review']) {
     assert(command(value[key]), `Invalid ${key} command`);
   }
   assert(value.capture === undefined || command(value.capture), 'Invalid capture command');
@@ -219,71 +194,52 @@ export function assertConfig(value: unknown): asserts value is Config {
     assert(relativeDirectory(value.captureDestination), 'Invalid capture destination');
     assert(typeof value.captureRequired === 'boolean', 'Explicit capture requirement required');
   }
-  for (const key of ['repairLimit', 'reviewLimit']) {
-    assert(attemptLimit(value[key]), `Invalid ${key}`);
-  }
-  assert(
-    value.modelTimeMs === null || (nonnegative(value.modelTimeMs) && value.modelTimeMs > 0),
-    'Invalid modelTimeMs',
-  );
-  assert(nonnegative(value.checkTimeMs) && value.checkTimeMs > 0, 'Invalid checkTimeMs');
+  assert(positive(value.checkTimeMs), 'Invalid checkTimeMs');
 }
-function isCaptureDecision(value: unknown): value is CaptureDecision {
-  return (
-    isRecord(value) &&
-    typeof value.outcome === 'string' &&
-    ['execute', 'reused', 'not_required'].includes(value.outcome) &&
-    typeof value.reason === 'string' &&
-    optionalString(value.source) &&
-    optionalString(value.previousSource)
-  );
-}
-function isEvent(value: unknown): value is Event {
-  if (!isRecord(value)) {
-    return false;
-  }
-  return (
-    role(value.role) &&
-    (value.captureDecision === undefined || isCaptureDecision(value.captureDecision)) &&
-    optionalString(value.source) &&
-    (value.code === null || count(value.code)) &&
-    typeof value.timedOut === 'boolean' &&
-    (value.ms === undefined || nonnegative(value.ms)) &&
-    typeof value.prefix === 'string'
-  );
-}
-function validResult(value: unknown) {
-  return value === undefined || value === null || stopReasons.some((reason) => reason === value);
-}
+const savedCount = z.number().nonnegative().refine(Number.isInteger);
+const savedRole = z.enum(['repair', 'review', 'check', 'capture']);
+const captureDecision = z.object({
+  outcome: z.enum(['execute', 'reused', 'not_required']),
+  reason: z.string(),
+  source: z.string().optional(),
+  previousSource: z.string().optional(),
+});
+const savedState = z.object({
+  reviewFormat: z.literal(4),
+  issueFormat: z.literal(1),
+  configHash: z.string(),
+  issueHash: z.string(),
+  repair: savedCount,
+  review: savedCount,
+  checks: savedCount,
+  modelMs: z.number().nonnegative(),
+  active: z.object({ role: savedRole, prefix: z.string() }).nullable(),
+  events: z.array(
+    z.object({
+      captureDecision: captureDecision.optional(),
+      role: savedRole,
+      source: z.string().optional(),
+      code: savedCount.nullable(),
+      timedOut: z.boolean(),
+      ms: z.number().nonnegative().optional(),
+      prefix: z.string(),
+    }),
+  ),
+  baseCommit: z.string().min(1),
+  reviewHistory: z.array(reviewRecord),
+  findings: z.string().optional(),
+  captureSource: z.string().optional(),
+  source: z.string().optional(),
+  result: z.enum(stopReasons).nullish(),
+});
+export type CaptureDecision = z.infer<typeof captureDecision>;
+export type State = z.infer<typeof savedState>;
+
 export function assertState(value: unknown): asserts value is State {
-  assert(isRecord(value), 'Invalid saved state');
-  assert(value.reviewFormat === 4, 'Invalid review format');
-  assert(value.issueFormat === 1, 'Invalid Issue format');
+  const parsed = savedState.safeParse(value);
+  // 読取り検査だけを行い、schemaが返すコピーで元の記録を置き換えない。
   assert(
-    typeof value.configHash === 'string' && typeof value.issueHash === 'string',
-    'Invalid saved hashes',
+    parsed.success,
+    `Invalid saved state: ${parsed.error?.issues[0]?.path.join('.') || 'object'}`,
   );
-  assert(
-    ['repair', 'review', 'checks'].every((key) => count(value[key])) && nonnegative(value.modelMs),
-    'Invalid saved usage',
-  );
-  assert(
-    value.active === null ||
-      (isRecord(value.active) &&
-        role(value.active.role) &&
-        typeof value.active.prefix === 'string'),
-    'Invalid active reservation',
-  );
-  assert(isArray(value.events) && value.events.every(isEvent), 'Invalid saved events');
-  assert(
-    typeof value.baseCommit === 'string' && value.baseCommit.length > 0,
-    'Invalid saved base commit',
-  );
-  assert(
-    isArray(value.reviewHistory) && value.reviewHistory.every(isReview),
-    'Invalid saved review history',
-  );
-  assert(optionalString(value.findings), 'Invalid saved findings');
-  assert(optionalString(value.captureSource), 'Invalid saved capture source');
-  assert(optionalString(value.source) && validResult(value.result), 'Invalid saved result');
 }

@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { Config } from '../../implement/input.ts';
+import { run, reviewOnce } from '../../implement/correction.ts';
+import { withInterrupts, assertRunning } from '../../shared/process.ts';
 import { isRecord, isArray } from '../../shared/values.ts';
 
 export function object(value: unknown) {
@@ -29,7 +31,7 @@ function reviewReply(status,findings) {
 }
 `;
 
-export const controller = resolve(import.meta.dir, '../../implement/correction.ts');
+export const controller = resolve(import.meta.dir, 'correction.ts');
 
 export function correctionConfig(root: string, mode = 'normal'): Config {
   const helper = join(root, 'helper.js');
@@ -43,9 +45,6 @@ export function correctionConfig(root: string, mode = 'normal'): Config {
     captureRequired: false,
     repair: [process.execPath, helper, 'repair'],
     review: [process.execPath, helper, 'review'],
-    repairLimit: 2,
-    reviewLimit: 2,
-    modelTimeMs: 15000,
     checkTimeMs: 1000,
   };
 }
@@ -101,9 +100,8 @@ if(role==='repair') {
   if(prompt.includes(expected)||prompt.includes(failure)) process.exit(5);
  }
  if(mode==='invalid_repair') {console.log(JSON.stringify({status:'accepted',findings:'Unrecognized outcome'}));process.exit(0);}
- if(mode==='timeout') await new Promise(r=>setTimeout(r,10000));
  if(mode==='human') {console.log(JSON.stringify({status:'needs_human',findings:'Need changed requirements'}));process.exit(0);}
- if(mode!=='exhaust') writeFileSync('source.txt','correct');
+ writeFileSync('source.txt','correct');
  if(existsSync(${JSON.stringify(join(root, 'reviewed'))})) writeFileSync('README.md','current');
  if(mode==='blank_human' && existsSync('README.md')) {console.log(JSON.stringify({status:'needs_human',findings:''}));process.exit(0);}
  console.log(JSON.stringify({status:'repaired',findings:'fixed'}));
@@ -125,8 +123,11 @@ if(role==='review') {
     const config = { ...correctionConfig(root, mode), ...overrides };
     const configFile = join(root, 'config.json');
     await writeFile(configFile, JSON.stringify(config));
-    const execute = () =>
-      spawnSync(process.execPath, [controller, configFile], { encoding: 'utf8', timeout: 20000 });
+    const execute = (entry: 'run' | 'review' = 'run') =>
+      spawnSync(process.execPath, [controller, configFile, entry], {
+        encoding: 'utf8',
+        timeout: 20000,
+      });
     return {
       root,
       config,
@@ -143,4 +144,27 @@ if(role==='review') {
       await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
     },
   };
+}
+
+// プロセス終了・中断を含む制御テスト用の入口。公開CLIではない。
+if (import.meta.main) {
+  try {
+    await withInterrupts(async () => {
+      const configFile = process.argv[2];
+      assert(configFile);
+      const result = await (process.argv[3] === 'review' ? reviewOnce : run)(
+        await Bun.file(configFile).json(),
+      );
+      assertRunning();
+      console.log(JSON.stringify(result));
+      process.exitCode = ['ready_for_human_review', 'review_completed'].includes(
+        result.result ?? '',
+      )
+        ? 0
+        : 1;
+    });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }

@@ -34,6 +34,9 @@ async function inspectCase(root: string, entry: Record<string, unknown>) {
   assert(typeof entry.id === 'string');
   expect(entry.id).toMatch(/^case-[A-Za-z0-9]+$/);
   const dir = join(root, entry.id);
+  const state = await json(join(dir, 'verification/state.json'));
+  expect(state).toMatchObject({ result: 'review_completed', review: 1, repair: 0, checks: 1 });
+  expect(await Bun.file(join(dir, 'handoff.ts')).exists()).toBe(false);
   const actors = (await readdir(dir)).filter((name) => name.startsWith('review-codex-'));
   expect(actors).toHaveLength(1);
   assert(actors[0]);
@@ -83,9 +86,7 @@ async function inspectCase(root: string, entry: Record<string, unknown>) {
   expect(source['page.test.ts']).toContain("from 'bun:test'");
   const config = object(input.config);
   expect(config).toMatchObject({
-    repairLimit: 1,
-    reviewLimit: 1,
-    modelTimeMs: 1200000,
+    reviewTimeMs: 1200000,
     checkTimeMs: 540000,
   });
   expect(object(target.model).command).toEqual(config.review);
@@ -238,9 +239,7 @@ async function inspectTestCase(root: string, entry: Record<string, unknown>) {
   expect(object(target.issue).content).toContain(String(target.baseCommit));
   expect(object(target.issue).content).toContain('tests/06-invalid.test.ts');
   expect(object(input.config)).toMatchObject({
-    reviewLimit: 1,
-    repairLimit: 1,
-    modelTimeMs: 180000,
+    reviewTimeMs: 180000,
   });
   expect(input.base).toContain('offset + limit');
   expect(events(input.args)).toContain('--output-schema');

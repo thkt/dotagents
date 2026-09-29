@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile, realpath, access, readdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
-import { assertConfig, assertState } from './input.ts';
+import { assertPreviousConfig, assertState } from './input.ts';
 import type { Revision } from './input.ts';
 import { isRecord } from '../shared/values.ts';
 import { issueText } from './issue.ts';
@@ -27,7 +27,7 @@ export async function previousRun(
   const config = await json(join(dir, 'verification-config.json'));
   const state = await json(join(dir, 'verification/state.json'));
   const savedTarget = await json(join(dir, 'target.json'));
-  assertConfig(config);
+  assertPreviousConfig(config);
   assertState(state);
   assert(isRecord(result) && isRecord(savedTarget), 'Missing previous development records');
   assert(
