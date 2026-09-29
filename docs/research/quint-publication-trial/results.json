@@ -1,0 +1,46 @@
+{
+  "modelSha256": "c7c4896efded47bdbd15fd705056164e48a8b2778451588799a01a5655a6638b",
+  "quintVersion": "0.32.0",
+  "results": [
+    {
+      "step": "atomicStep",
+      "exitCode": 0,
+      "expectedOutcome": true,
+      "violation": false,
+      "wallSeconds": 4.23,
+      "generated": 10,
+      "distinct": 5,
+      "remaining": 0
+    },
+    {
+      "step": "uncheckedStep",
+      "exitCode": 1,
+      "expectedOutcome": true,
+      "violation": true,
+      "wallSeconds": 3.907,
+      "generated": 7,
+      "distinct": 5,
+      "remaining": 1
+    },
+    {
+      "step": "splitStep",
+      "exitCode": 1,
+      "expectedOutcome": true,
+      "violation": true,
+      "wallSeconds": 3.951,
+      "generated": 13,
+      "distinct": 8,
+      "remaining": 1
+    },
+    {
+      "step": "pinnedStep",
+      "exitCode": 0,
+      "expectedOutcome": true,
+      "violation": false,
+      "wallSeconds": 3.92,
+      "generated": 16,
+      "distinct": 8,
+      "remaining": 0
+    }
+  ]
+}
