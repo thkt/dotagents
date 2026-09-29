@@ -17,7 +17,7 @@ export const issue = JSON.stringify({
   updatedAt: '1',
 });
 export const ok = (stdout = '') => ({ code: 0, stdout, stderr: '', timedOut: false, ms: 1 });
-export async function git(cwd: string, ...args: string[]) {
+export async function gitOutput(cwd: string, ...args: string[]) {
   const result = await command(['git', ...args], cwd, '', 10000);
   expect(result.code).toBe(0);
   return result.stdout.trim();
@@ -164,7 +164,7 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
       return ok(
         JSON.stringify({
           url: `https://github.com/${settings.repository}/pull/100`,
-          headRefOid: await git(cwd, 'rev-parse', 'HEAD'),
+          headRefOid: await gitOutput(cwd, 'rev-parse', 'HEAD'),
           baseRefName: settings.baseBranch,
           state: 'OPEN',
           isDraft: true,
@@ -183,8 +183,8 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
               draft: true,
               user: { login: 'operator' },
               head: {
-                ref: await git(cwd, 'branch', '--show-current'),
-                sha: await git(cwd, 'rev-parse', 'HEAD'),
+                ref: await gitOutput(cwd, 'branch', '--show-current'),
+                sha: await gitOutput(cwd, 'rev-parse', 'HEAD'),
                 repo: { full_name: settings.repository },
               },
               base: { ref: settings.baseBranch, repo: { full_name: settings.repository } },
@@ -226,7 +226,7 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
       return {
         reviewFormat: 4,
         issueFormat: 1,
-        baseCommit: await git(config.cwd, 'rev-parse', 'HEAD'),
+        baseCommit: await gitOutput(config.cwd, 'rev-parse', 'HEAD'),
         reviewHistory: history,
         configHash: '',
         issueHash: '',

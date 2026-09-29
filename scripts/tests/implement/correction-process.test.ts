@@ -257,7 +257,9 @@ test('successful check leaves no child writer after acceptance', async () => {
     if (group) {
       try {
         process.kill(-group, 'SIGKILL');
-      } catch {}
+      } catch (error) {
+        expect(error).toMatchObject({ code: 'ESRCH' });
+      }
     }
   }
 });

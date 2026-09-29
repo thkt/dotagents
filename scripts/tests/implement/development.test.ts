@@ -26,7 +26,7 @@ import type { Config, State } from '../../implement/input.ts';
 import { isRecord } from '../../shared/values.ts';
 import { initializeTarget, githubTarget, targetConfig } from '../support/target.ts';
 
-import { git, issue, ok, mediaCapture, testDevelopment } from '../support/development.ts';
+import { gitOutput, issue, ok, mediaCapture, testDevelopment } from '../support/development.ts';
 import type { DevelopmentFixture } from '../support/development.ts';
 
 const reportPath = 'docs/research/result-behavior.md';
@@ -43,13 +43,13 @@ for (const advanceBranch of [false, true]) {
       if (argv[0] !== 'git' || !argv.includes('push')) {
         return execute(argv, cwd, ...rest);
       }
-      verified = await git(cwd, 'rev-parse', 'HEAD');
-      await git(cwd, 'init', '--bare', remote);
+      verified = await gitOutput(cwd, 'rev-parse', 'HEAD');
+      await gitOutput(cwd, 'init', '--bare', remote);
       // 最後の対象照合を通過した後、pushのIO境界でブランチを更新する。
       if (advanceBranch) {
         await writeFile(join(cwd, 'result.txt'), 'unverified');
-        await git(cwd, 'add', 'result.txt');
-        await git(cwd, 'commit', '-m', '未検証の並行更新');
+        await gitOutput(cwd, 'add', 'result.txt');
+        await gitOutput(cwd, 'commit', '-m', '未検証の並行更新');
       }
       await execute(argv, cwd, ...rest);
       // 生成された送信元は保ち、転送先と許可protocolだけを一時bare repoへ変更する。
@@ -72,17 +72,17 @@ for (const advanceBranch of [false, true]) {
       return ok(
         JSON.stringify({
           ...pr,
-          headRefOid: await git(remote, 'rev-parse', 'refs/heads/codex/development-99'),
+          headRefOid: await gitOutput(remote, 'rev-parse', 'refs/heads/codex/development-99'),
         }),
       );
     };
     const outcome = await develop(f.args, f.io).catch((error: unknown) => error);
     // 後続処理の停止だけでは送信内容を保証できないため、受信した実体を先に照合する。
-    expect(await git(remote, 'rev-parse', 'refs/heads/codex/development-99')).toBe(verified);
-    expect(await git(remote, 'show', 'refs/heads/codex/development-99:result.txt')).toBe(
+    expect(await gitOutput(remote, 'rev-parse', 'refs/heads/codex/development-99')).toBe(verified);
+    expect(await gitOutput(remote, 'show', 'refs/heads/codex/development-99:result.txt')).toBe(
       'implemented',
     );
-    const current = await git(join(f.dir, 'checkout'), 'rev-parse', 'HEAD');
+    const current = await gitOutput(join(f.dir, 'checkout'), 'rev-parse', 'HEAD');
     expect(current === verified).toBe(!advanceBranch);
     expect(publishedCommit).toBe(verified);
     assert(isRecord(outcome), String(outcome));
@@ -110,9 +110,9 @@ async function commitReport(repo: string) {
   await mkdir(join(repo, 'docs/wiki'), { recursive: true });
   await writeFile(join(repo, reportPath), reportContent);
   await writeFile(join(repo, secondReport), 'Existing result tests cover reset and empty input.\n');
-  await git(repo, 'add', '--', reportPath, secondReport);
-  await git(repo, 'commit', '-m', 'required research');
-  return git(repo, 'rev-parse', `HEAD:${reportPath}`);
+  await gitOutput(repo, 'add', '--', reportPath, secondReport);
+  await gitOutput(repo, 'commit', '-m', 'required research');
+  return gitOutput(repo, 'rev-parse', `HEAD:${reportPath}`);
 }
 async function savedResult(dir: string) {
   const saved: unknown = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'));
@@ -125,9 +125,9 @@ async function pendingWork(repo: string) {
     return undefined;
   }
   return {
-    status: await git(repo, 'status', '--porcelain'),
-    staged: await git(repo, 'diff', '--cached', '--binary'),
-    working: await git(repo, 'diff', '--binary'),
+    status: await gitOutput(repo, 'status', '--porcelain'),
+    staged: await gitOutput(repo, 'diff', '--cached', '--binary'),
+    working: await gitOutput(repo, 'diff', '--binary'),
     notes: await readFile(join(repo, 'notes.txt'), 'utf8'),
     notesMode: (await stat(join(repo, 'notes.txt'))).mode,
     untracked: await readFile(join(repo, 'unrelated.txt'), 'utf8'),
@@ -137,13 +137,13 @@ async function pendingWork(repo: string) {
 
 // Only fixed observations are shared. Each test supplies its own mutation and stop reason.
 async function runDevelopment(f: DevelopmentFixture) {
-  const original = await git(f.repo, 'rev-parse', 'HEAD');
+  const original = await gitOutput(f.repo, 'rev-parse', 'HEAD');
   const pending = await pendingWork(f.repo);
   try {
     return await withInterrupts(() => develop(f.args, f.io));
   } finally {
     await withInterrupts(async () => {});
-    expect(await git(f.repo, 'rev-parse', 'HEAD')).toBe(original);
+    expect(await gitOutput(f.repo, 'rev-parse', 'HEAD')).toBe(original);
     expect(await readFile(join(f.repo, 'result.txt'), 'utf8')).toBe('old');
     if (pending) {
       expect(await pendingWork(f.repo)).toEqual(pending);
@@ -211,15 +211,15 @@ async function verifiedLocal(f: DevelopmentFixture) {
 async function publishedEvidence(f: DevelopmentFixture, saved: Record<string, unknown>) {
   expect(f.calls.pushes).toBe(1);
   expect(f.calls.publications).toBe(1);
-  expect(saved.commit).toBe(await git(join(f.dir, 'checkout'), 'rev-parse', 'HEAD'));
+  expect(saved.commit).toBe(await gitOutput(join(f.dir, 'checkout'), 'rev-parse', 'HEAD'));
   expect(saved.branch).toBe('codex/development-99');
   expect(saved.nextAction).toContain('GitHub');
 }
 
 async function commitSettings(f: DevelopmentFixture, settings: unknown) {
   await writeFile(join(f.repo, '.dotagents.json'), JSON.stringify(settings));
-  await git(f.repo, 'add', '.dotagents.json');
-  await git(f.repo, 'commit', '-m', 'fixture configuration');
+  await gitOutput(f.repo, 'add', '.dotagents.json');
+  await gitOutput(f.repo, 'commit', '-m', 'fixture configuration');
 }
 
 function failSetup(f: DevelopmentFixture) {
@@ -360,7 +360,7 @@ testDevelopment('wrong_issue', async (f) => {
 });
 
 testDevelopment('wrong_push', async (f) => {
-  await git(
+  await gitOutput(
     f.repo,
     'remote',
     'set-url',
@@ -412,15 +412,15 @@ for (const [name, change, reason] of [
   [
     'branch_changed',
     async (config: Config) => {
-      await git(config.cwd, 'switch', '-c', 'unexpected');
+      await gitOutput(config.cwd, 'switch', '-c', 'unexpected');
     },
     /Actor changed branch or HEAD/,
   ],
   [
     'head_changed',
     async (config: Config) => {
-      await git(config.cwd, 'add', '.');
-      await git(config.cwd, 'commit', '-m', 'unexpected actor commit');
+      await gitOutput(config.cwd, 'add', '.');
+      await gitOutput(config.cwd, 'commit', '-m', 'unexpected actor commit');
     },
     /Actor changed branch or HEAD/,
   ],
@@ -675,7 +675,7 @@ async function interruptedRecord(f: DevelopmentFixture) {
 async function retainedPublication(f: DevelopmentFixture, saved: Record<string, unknown>) {
   expect(saved.publication).toBe('published');
   expect(saved.url).toBe(await readFile(join(f.dir, 'pr-url.txt'), 'utf8'));
-  expect(saved.commit).toBe(await git(join(f.dir, 'checkout'), 'rev-parse', 'HEAD'));
+  expect(saved.commit).toBe(await gitOutput(join(f.dir, 'checkout'), 'rev-parse', 'HEAD'));
   expect(saved.ci).toBe('passed');
   expect(saved.ciDetails).toMatchObject({ status: 'passed' });
   expect(saved.remaining).toEqual(['published_body_check', 'mark_ready', 'human_review']);
@@ -910,7 +910,7 @@ async function ciStop(f: DevelopmentFixture, status: string, action: string) {
     ci: status,
     remaining: ['ci', 'published_body_check', 'mark_ready', 'human_review'],
   });
-  expect(saved.commit).toBe(await git(join(f.dir, 'checkout'), 'rev-parse', 'HEAD'));
+  expect(saved.commit).toBe(await gitOutput(join(f.dir, 'checkout'), 'rev-parse', 'HEAD'));
   expect(saved.nextAction).toContain(action);
   expect(f.calls.pushes).toBe(1);
   expect(f.calls.publications).toBe(1);
@@ -1158,28 +1158,28 @@ testDevelopment(
 testDevelopment('other_repo', async (f) => {
   const { repo, settings } = f;
   await writeFile(join(repo, 'notes.txt'), 'committed notes');
-  await git(repo, 'add', '--', 'notes.txt');
+  await gitOutput(repo, 'add', '--', 'notes.txt');
   await commitReport(repo);
   await writeFile(join(repo, 'notes.txt'), 'staged notes');
-  await git(repo, 'add', '--', 'notes.txt');
+  await gitOutput(repo, 'add', '--', 'notes.txt');
   await writeFile(join(repo, 'notes.txt'), 'working notes');
   await chmod(join(repo, 'notes.txt'), 0o755);
   await writeFile(join(repo, 'unrelated.txt'), 'retain');
   await chmod(join(repo, 'unrelated.txt'), 0o751);
 
-  const original = await git(repo, 'rev-parse', 'HEAD');
+  const original = await gitOutput(repo, 'rev-parse', 'HEAD');
   f.args.push(
     '--no-publish',
     '--start-commit',
     original,
     '--report',
-    `${reportPath}=${await git(repo, 'rev-parse', `HEAD:${reportPath}`)}`,
+    `${reportPath}=${await gitOutput(repo, 'rev-parse', `HEAD:${reportPath}`)}`,
     '--report',
-    `${secondReport}=${await git(repo, 'rev-parse', `HEAD:${secondReport}`)}`,
+    `${secondReport}=${await gitOutput(repo, 'rev-parse', `HEAD:${secondReport}`)}`,
   );
   const implement = f.implement;
   f.implement = async (argv, cwd, input, timeout, prefix) => {
-    expect(await git(cwd, 'rev-parse', 'HEAD')).toBe(original);
+    expect(await gitOutput(cwd, 'rev-parse', 'HEAD')).toBe(original);
     expect(await readFile(join(cwd, 'notes.txt'), 'utf8')).toBe('committed notes');
     expect((await stat(join(cwd, 'notes.txt'))).mode & 0o111).toBe(0);
     expect(existsSync(join(cwd, 'unrelated.txt'))).toBe(false);
@@ -1201,8 +1201,8 @@ testDevelopment('other_repo', async (f) => {
   f.verify = async (config) => {
     expect(config.baseCommit).toBe(original);
     expect(config.reports).toEqual([
-      { path: reportPath, blob: await git(repo, 'rev-parse', `HEAD:${reportPath}`) },
-      { path: secondReport, blob: await git(repo, 'rev-parse', `HEAD:${secondReport}`) },
+      { path: reportPath, blob: await gitOutput(repo, 'rev-parse', `HEAD:${reportPath}`) },
+      { path: secondReport, blob: await gitOutput(repo, 'rev-parse', `HEAD:${secondReport}`) },
     ]);
     expect(config.check).toEqual(settings.check);
     expect(config.capture).toBeUndefined();
@@ -1219,9 +1219,9 @@ async function startInputFixture(root: string) {
   const settings = { ...targetConfig, setup: [['fixture-setup']] };
   await mkdir(repo);
   await initializeTarget(repo, settings);
-  const beforeReport = await git(repo, 'rev-parse', 'HEAD');
+  const beforeReport = await gitOutput(repo, 'rev-parse', 'HEAD');
   const blob = await commitReport(repo);
-  const base = await git(repo, 'rev-parse', 'HEAD');
+  const base = await gitOutput(repo, 'rev-parse', 'HEAD');
   const args = [
     '99',
     '--repo',
@@ -1299,7 +1299,7 @@ for (const [mode, reason] of Object.entries(handoffFailures)) {
   testStartInput(`development stops incomplete research handoff: ${mode}`, async (fixture) => {
     const { repo, dir, beforeReport, base, args, hooks, io } = fixture;
     if (mode === 'missing' || mode === 'uncommitted') {
-      await git(repo, 'reset', '--hard', beforeReport);
+      await gitOutput(repo, 'reset', '--hard', beforeReport);
       if (mode === 'uncommitted') {
         await mkdir(join(repo, 'docs/research'), { recursive: true });
         await writeFile(join(repo, reportPath), reportContent);
@@ -1310,18 +1310,18 @@ for (const [mode, reason] of Object.entries(handoffFailures)) {
     }
     if (mode === 'different_blob') {
       await writeFile(join(repo, reportPath), 'A different committed report.\n');
-      await git(repo, 'add', '--', reportPath);
-      await git(repo, 'commit', '-m', 'changed report');
+      await gitOutput(repo, 'add', '--', reportPath);
+      await gitOutput(repo, 'commit', '-m', 'changed report');
       args.unshift(
         '--report',
-        `${secondReport}=${await git(repo, 'rev-parse', `HEAD:${secondReport}`)}`,
+        `${secondReport}=${await gitOutput(repo, 'rev-parse', `HEAD:${secondReport}`)}`,
       );
     }
     if (mode !== 'setup_modified') {
       await writeFile(join(repo, 'unrelated.txt'), 'Preserve other work');
     }
-    const head = await git(repo, 'rev-parse', 'HEAD');
-    const status = await git(repo, 'status', '--porcelain');
+    const head = await gitOutput(repo, 'rev-parse', 'HEAD');
+    const status = await gitOutput(repo, 'status', '--porcelain');
     hooks.changeDuring = async (event, cwd) => {
       if (event === 'setup') {
         await writeFile(join(cwd, reportPath), 'Setup replaced the reviewed content.\n');
@@ -1333,8 +1333,8 @@ for (const [mode, reason] of Object.entries(handoffFailures)) {
     await assert.rejects(() => develop(args, io), reason);
     expect(hooks.setups).toBe(mode === 'setup_modified' ? 1 : 0);
     expect(existsSync(join(dir, 'checkout'))).toBe(mode === 'setup_modified');
-    expect(await git(repo, 'rev-parse', 'HEAD')).toBe(head);
-    expect(await git(repo, 'status', '--porcelain')).toBe(status);
+    expect(await gitOutput(repo, 'rev-parse', 'HEAD')).toBe(head);
+    expect(await gitOutput(repo, 'status', '--porcelain')).toBe(status);
     if (mode !== 'setup_modified') {
       expect(await readFile(join(repo, 'unrelated.txt'), 'utf8')).toBe('Preserve other work');
     } else {
@@ -1353,7 +1353,7 @@ const startChanges = {
     const path = join(repo, '.dotagents.json');
     const original = await readFile(path, 'utf8');
     await writeFile(path, original + '\n');
-    await git(repo, 'add', '--', '.dotagents.json');
+    await gitOutput(repo, 'add', '--', '.dotagents.json');
     await writeFile(path, original);
   },
   report: async (repo: string) => {
@@ -1361,21 +1361,21 @@ const startChanges = {
   },
   report_index: async (repo: string) => {
     await writeFile(join(repo, reportPath), 'Unreviewed report.\n');
-    await git(repo, 'add', '--', reportPath);
+    await gitOutput(repo, 'add', '--', reportPath);
     await writeFile(join(repo, reportPath), reportContent);
   },
   report_mode: async (repo: string) => {
-    await git(repo, 'config', 'core.filemode', 'false');
+    await gitOutput(repo, 'config', 'core.filemode', 'false');
     await chmod(join(repo, reportPath), 0o755);
   },
   report_missing: async (repo: string) => {
     await rm(join(repo, reportPath));
   },
   head: async (repo: string) => {
-    await git(repo, 'commit', '--allow-empty', '-m', 'concurrent HEAD change');
+    await gitOutput(repo, 'commit', '--allow-empty', '-m', 'concurrent HEAD change');
   },
   push: async (repo: string) => {
-    await git(
+    await gitOutput(
       repo,
       'remote',
       'set-url',
@@ -1432,7 +1432,7 @@ for (const location of ['checkout', 'git', 'symlink'] as const) {
       if (location === 'git') {
         // With a linked checkout, common Git storage lies outside the checkout guard.
         const checkout = join(repo, '..', 'linked-checkout');
-        await git(repo, 'worktree', 'add', '-b', 'fixture-linked', checkout, base);
+        await gitOutput(repo, 'worktree', 'add', '-b', 'fixture-linked', checkout, base);
         args[args.indexOf('--repo') + 1] = checkout;
       }
       let requested = dir;
