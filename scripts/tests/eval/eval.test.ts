@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { expect, test } from 'bun:test';
 import { providerGateway, providerBody } from '../../eval/container.ts';
 import { evalConfig, validatePlan } from '../../eval/data.ts';
@@ -89,6 +89,51 @@ test('evaluation targets accept only this repository on the exact GitHub host', 
   ]) {
     expect(evalConfig.shape.issue.safeParse(issue).success).toBe(false);
   }
+});
+
+test('共通指示の許可は文書に限定し、課題・評価情報・秘密情報を混ぜない', () => {
+  const instructions = (path: string) => ({
+    ...config,
+    workspaceFiles: ['result.txt'],
+    instructionFiles: [...config.instructionFiles, path],
+  });
+  for (const path of [
+    'skills/references/documents.md',
+    'skills/references/natural-japanese.md',
+    'docs/wiki/development-policy.md',
+    'README.md',
+    'scripts/README.md',
+  ]) {
+    expect(validatePlan(instructions(path), cases)).toEqual(cases);
+  }
+  for (const path of [
+    'scripts/eval/eval.ts',
+    'scripts/eval/corpus/cases.json',
+    'evals/answers.md',
+    '.agents/AGENTS.md',
+  ]) {
+    expect(() => validatePlan(instructions(path), cases)).toThrow('host-only');
+  }
+  for (const path of [
+    'skills/references/.env',
+    'skills/references/auth.json',
+    'skills/references/credentials/guide.md',
+    'skills/references/config.toml',
+  ]) {
+    expect(() => validatePlan(instructions(path), cases)).toThrow('credentials');
+  }
+  for (const path of [
+    'scripts/implement/review.ts',
+    'scripts/tests/eval/eval.test.ts',
+    'skills/references/helper.ts',
+    'docs/research/expected.md',
+    'docs/wiki/arbitrary.md',
+  ]) {
+    expect(() => validatePlan(instructions(path), cases)).toThrow('Unsupported instruction');
+  }
+  expect(() =>
+    validatePlan({ ...instructions('README.md'), workspaceFiles: ['README.md'] }, cases),
+  ).toThrow('overlap');
 });
 
 const limits = {
@@ -304,7 +349,12 @@ test('usage leaves fractional and overflowing token counts unaccounted', () => {
   });
 });
 
-async function fixture(root: string) {
+async function fixture(
+  root: string,
+  instructionVersions: Record<string, [string, string]> = {
+    'AGENTS.md': ['Before instructions', 'After instructions'],
+  },
+) {
   const repo = join(root, 'repo');
   await mkdir(repo);
   await initializeTarget(repo, { ...targetConfig, repository: 'thkt/dotagents', remote: 'origin' });
@@ -315,6 +365,10 @@ async function fixture(root: string) {
   await writeFile(join(repo, 'AGENTS.md'), 'Before instructions');
   await writeFile(join(repo, 'skills/scoping/SKILL.md'), 'Public scoping body');
   await writeFile(join(repo, 'skills/implement/SKILL.md'), 'Public implement body');
+  for (const [path, [before]] of Object.entries(instructionVersions)) {
+    await mkdir(dirname(join(repo, path)), { recursive: true });
+    await writeFile(join(repo, path), before);
+  }
   await writeFile(
     join(repo, 'scripts/eval/corpus/cases.json'),
     JSON.stringify([
@@ -324,7 +378,9 @@ async function fixture(root: string) {
   git(repo, 'add', '.');
   git(repo, 'commit', '-qm', 'public inputs');
   const before = git(repo, 'rev-parse', 'HEAD');
-  await writeFile(join(repo, 'AGENTS.md'), 'After instructions');
+  for (const [path, [, after]] of Object.entries(instructionVersions)) {
+    await writeFile(join(repo, path), after);
+  }
   git(repo, 'add', '.');
   git(repo, 'commit', '-qm', 'instruction candidate');
   const after = git(repo, 'rev-parse', 'HEAD');
@@ -339,6 +395,93 @@ async function fixture(root: string) {
   };
   return { root, repo, plan };
 }
+
+test('共通参照だけの変更を両版の内容・hash・変更一覧へ反映し、課題と参照不足を区別する', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'skill-eval-plan-'));
+  try {
+    const common = 'skills/references/documents.md';
+    const policy = 'docs/wiki/development-policy.md';
+    const guide = '[文書](skills/references/documents.md) [方針](docs/wiki/development-policy.md)';
+    const oldBody = '[課題](../../README.md) [旧参照](old.md#読む)';
+    const newBody =
+      '[課題](../../README.md) [新参照](new.md) [節](#読む) [外部](https://example.com)';
+    const { repo, plan } = await fixture(root, {
+      'AGENTS.md': [guide, guide],
+      [common]: [oldBody, newBody],
+      [policy]: ['変更前の方針', '変更後の方針'],
+      'README.md': ['固定した課題', '比較へ混ぜない課題変更'],
+    });
+    const input = { ...plan, instructionFiles: [...plan.instructionFiles, common, policy] };
+    const prepared = await preparePlan(repo, input);
+    expect(prepared.changedInstructions).toEqual([common, policy]);
+    for (const [index, body, missing] of [
+      [0, oldBody, 'old.md'],
+      [1, newBody, 'new.md'],
+    ] as const) {
+      const variant = prepared.variants[index];
+      assert(variant);
+      expect(variant.files[common]).toBe(body);
+      expect(variant.versions[common]).toBe(createHash('sha256').update(body).digest('hex'));
+      expect(variant.files[policy]).toBe(index === 0 ? '変更前の方針' : '変更後の方針');
+      expect(variant.files['README.md']).toBe('固定した課題');
+      expect(variant.versions['README.md']).toBe(
+        createHash('sha256').update('固定した課題').digest('hex'),
+      );
+      expect(variant.missingReferences).toEqual([
+        { source: common, target: `skills/references/${missing}` },
+      ]);
+      expect(Object.keys(variant.files).sort()).toEqual(
+        [...input.workspaceFiles, ...input.instructionFiles].sort(),
+      );
+    }
+    expect(prepared.variants[0]?.versions[policy]).not.toBe(prepared.variants[1]?.versions[policy]);
+    await assert.rejects(() => preparePlan(repo, plan), /No relevant instruction changes/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('共通参照も通常の追跡済みUTF-8 blobだけを使い、作業差分・symlink・未追跡入力を読まない', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'skill-eval-plan-'));
+  try {
+    const path = 'skills/references/documents.md';
+    const link = 'skills/references/link.md';
+    const { repo, plan } = await fixture(root, {
+      [path]: ['変更前', '変更後'],
+      [link]: ['通常の参照文書', '通常の参照文書'],
+    });
+    await writeFile(join(repo, path), 'PRIVATE_LOCAL_CANARY');
+    // 比較先にも同じパスを残し、欠落による拒否でsymlink検査の回帰を隠さない。
+    await rm(join(repo, link));
+    await symlink('documents.md', join(repo, link));
+    await writeFile(join(repo, 'skills/references/binary.md'), Buffer.from([0, 255]));
+    git(repo, 'add', 'skills/references/link.md', 'skills/references/binary.md');
+    git(repo, 'commit', '-qm', 'invalid input fixtures');
+    const after = git(repo, 'rev-parse', 'HEAD');
+    await writeFile(join(repo, 'skills/references/untracked.md'), 'PRIVATE_UNTRACKED_CANARY');
+    const input = { ...plan, after, instructionFiles: [...plan.instructionFiles, path] };
+    const prepared = await preparePlan(repo, input);
+    expect(prepared.variants.map((variant) => variant.files[path])).toEqual(['変更前', '変更後']);
+    for (const [name, reason] of [
+      ['link.md', /Expected regular committed file/],
+      ['untracked.md', /Expected regular committed file/],
+      ['binary.md', /Evaluation input must be UTF-8 text/],
+    ] as const) {
+      await assert.rejects(
+        () =>
+          preparePlan(repo, {
+            ...input,
+            before: after,
+            after: plan.before,
+            instructionFiles: [...input.instructionFiles, `skills/references/${name}`],
+          }),
+        reason,
+      );
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 const fakeDocker = `#!${process.execPath}
 import {appendFileSync,readFileSync,writeFileSync} from 'node:fs';

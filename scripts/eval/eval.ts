@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, posix, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import { command, withInterrupts, assertRunning } from '../shared/process.ts';
 import { evalCase, evalConfig, validatePlan } from './data.ts';
@@ -35,6 +35,28 @@ async function blob(repo: string, commit: string, path: string) {
     `Evaluation input must be UTF-8 text: ${path}`,
   );
   return text;
+}
+
+function missingReferences(instructions: string[], files: Record<string, string>) {
+  const missing: { source: string; target: string }[] = [];
+  for (const source of instructions) {
+    // 選択済み指示の通常のインラインリンクだけを確認し、参照先の自動取得はしない。
+    const links = files[source]?.matchAll(/\[[^\]\n]*\]\(([^\s()]+)(?:\s+"[^"]*")?\)/g) ?? [];
+    const targets = new Set<string>();
+    for (const link of links) {
+      const path = link[1]?.split(/[?#]/)[0];
+      if (!path || /^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(path)) {
+        continue;
+      }
+      targets.add(posix.join(posix.dirname(source), path));
+    }
+    for (const target of targets) {
+      if (!Object.hasOwn(files, target)) {
+        missing.push({ source, target });
+      }
+    }
+  }
+  return missing;
 }
 
 export async function preparePlan(repo: string, config: EvalConfig) {
@@ -78,7 +100,13 @@ export async function preparePlan(repo: string, config: EvalConfig) {
       files[path] = await blob(repo, config[side], path);
       versions[path] = createHash('sha256').update(files[path]).digest('hex');
     }
-    variants.push({ side, commit: config[side], files, versions });
+    variants.push({
+      side,
+      commit: config[side],
+      files,
+      versions,
+      missingReferences: missingReferences(config.instructionFiles, files),
+    });
   }
   const [before, after] = variants;
   assert(before && after, 'Both variants required');
