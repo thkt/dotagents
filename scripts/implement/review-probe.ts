@@ -7,6 +7,7 @@ import { basename, join, resolve } from 'node:path';
 import { reviewOnce, snapshot } from './correction.ts';
 import { command, withInterrupts } from '../shared/process.ts';
 import { isRecord } from '../shared/values.ts';
+import { addTokenUsage, parseTokenUsage } from '../shared/token-usage.ts';
 import { reviewModel } from './review.ts';
 import { prepareTestReview } from './review-probe-fixture.ts';
 
@@ -46,7 +47,7 @@ async function checked(argv: string[], cwd: string) {
 }
 
 export async function readReviewerUsage(dir: string) {
-  const totals = { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0 };
+  let totals = { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0 };
   let turns = 0;
   for (const entry of await readdir(dir)) {
     if (!entry.startsWith('review-codex-')) {
@@ -60,17 +61,10 @@ export async function readReviewerUsage(dir: string) {
       if (!isRecord(event) || event.type !== 'turn.completed' || !isRecord(event.usage)) {
         continue;
       }
-      for (const key of ['input_tokens', 'cached_input_tokens', 'output_tokens'] as const) {
-        const count: unknown = event.usage[key];
-        assert(
-          typeof count === 'number' &&
-            Number.isSafeInteger(count) &&
-            count >= 0 &&
-            Number.isSafeInteger(totals[key] + count),
-          'Incomplete model usage',
-        );
-        totals[key] += count;
-      }
+      const usage = parseTokenUsage(event.usage);
+      const next = usage && addTokenUsage(totals, usage);
+      assert(next, 'Incomplete model usage');
+      totals = next;
       turns++;
     }
   }

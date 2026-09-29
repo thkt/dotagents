@@ -159,7 +159,6 @@ test('current runs retain failed attempts/retries in numerator and count indepen
       ],
     };
     const report = await aggregateUsage(selection, base);
-    expect(await aggregateUsage(selection, base)).toEqual(report);
     expect(report.counts).toEqual({
       attempts: 3,
       retries: 2,

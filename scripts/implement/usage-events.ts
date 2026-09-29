@@ -1,29 +1,21 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { z } from 'zod';
 import { isRecord } from '../shared/values.ts';
+import { addTokenUsage, parseTokenUsage } from '../shared/token-usage.ts';
+import type { TokenUsage } from '../shared/token-usage.ts';
 
-const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-const usageShape = z
-  .object({
-    input_tokens: count,
-    cached_input_tokens: count,
-    output_tokens: count,
-  })
-  .refine((usage) => usage.cached_input_tokens <= usage.input_tokens);
-export type Usage = z.infer<typeof usageShape>;
+export type Usage = TokenUsage;
 export const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
 export function sumUsage(values: Usage[]): Usage | null {
   if (!values.length) {
     return null;
   }
-  const total = { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0 };
+  let total = { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0 };
   for (const value of values) {
-    for (const key of ['input_tokens', 'cached_input_tokens', 'output_tokens'] as const) {
-      total[key] += value[key];
-      assert(Number.isSafeInteger(total[key]), 'Token sum exceeds safe integer range');
-    }
+    const next = addTokenUsage(total, value);
+    assert(next, 'Token sum exceeds safe integer range');
+    total = next;
   }
   return total;
 }
@@ -59,9 +51,12 @@ function consume(stream: Stream, event: Record<string, unknown>, line: number, r
     case 'turn.completed': {
       assert(stream.active, 'Duplicate or unmatched turn completion');
       stream.active = false;
-      const parsed = usageShape.safeParse(event.usage);
-      assert(parsed.success, 'Missing or invalid turn usage');
-      stream.turns.push({ ordinal: stream.ordinal, line, sha256: hash(raw), usage: parsed.data });
+      const usage = parseTokenUsage(event.usage);
+      assert(
+        usage && usage.cached_input_tokens <= usage.input_tokens,
+        'Missing or invalid turn usage',
+      );
+      stream.turns.push({ ordinal: stream.ordinal, line, sha256: hash(raw), usage });
       break;
     }
     case 'turn.failed':
