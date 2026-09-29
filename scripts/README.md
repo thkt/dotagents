@@ -196,7 +196,7 @@ developmentは対象設定のcapture command、保存先、撮影方針を内部
 
 成果物のIssueには、目的、変更範囲、完了条件、適用する合意済み方針を記載します。成果物に必要な検証と説明も含めます。文書整理なら、読む順序、正本の配置、リンクの整合性などを要求にし、その実験の計測や公開作業を成果物へ書き込む指示にはしません。
 
-実験する場合は、実験管理のIssueから成果物のIssueを参照し、比較条件、実行上限、計測項目、結果の保管と公開を管理します。通常の変更に実験管理Issueを追加する必要はありません。実行担当はそこで合意した上限と権限を設定・実行に反映します。
+実験する場合は、実験管理のIssueから成果物のIssueを参照し、比較条件、選んだ入口で扱う実行時間・試行数の上限、計測項目、結果の保管と公開を管理します。通常の変更に実験管理Issueを追加する必要はありません。実行担当は合意した上限と権限をその入口に反映します。通常開発の修正・評価回数と累計モデル時間は設定しません。
 
 `config.issue`には成果物のIssueを指定します。完了条件の理解に必要な別Issueの本文は取得対象に含めますが、実験管理の本文を一括で連結しません。要求と実験手順が混在している場合は、実行前にIssueを分けて合意し、見出し抽出で要求を省略する運用は避けます。過去の実測を再利用する場合は元のIssueや証拠を保持し、分離した要求を新しいIssueに記録します。
 
@@ -420,7 +420,7 @@ CLIは保存に成功した`verified_local`または`published_draft`だけをst
 
 SIGKILLやOS停止は捕捉できません。CLIだけが強制終了すると、子プロセスが残る場合があります。この場合もlockまたはactive予約が再実行を拒否しますが、書き込み停止の保証とは別です。プロセスグループから離脱した子も停止保証の対象外です。
 
-中断後は、設定したコマンド、作業ディレクトリ、開始時刻をプロセス一覧と照合し、実行が残っていれば対象を確認して停止します。その後、stateのactiveや消費回数、保存ログ、現在のIssueと作業差分を照合します。保存済み時間は中断した実行の全時間を含むとは限らないため、回数だけで再開可能とは判断しません。このCLIには自動復旧やlock解除の入口はありません。再開の範囲や残り実行上限を判断するまで既存の証拠を保持します。
+中断後は、設定したコマンド、作業ディレクトリ、開始時刻をプロセス一覧と照合し、実行が残っていれば対象を確認して停止します。その後、stateのactiveや消費回数、保存ログ、現在のIssueと作業差分を照合します。保存済み時間は中断した実行の全時間を含むとは限らないため、回数だけで再開可能とは判断しません。このCLIには自動復旧やlock解除の入口はありません。停止原因と新しい実行の範囲・許可を判断するまで既存の証拠を保持します。
 
 対象はGitの追跡ファイルとignoreされていない未追跡ファイルのパス、内容、モード、および取得した要求本文です。削除はそのパスが存在しない成果物として比較するため、検証済みの削除やrenameをstage・commitしても同じ検証結果を再利用できます。受入後にファイルを復元したり、内容、モード、必要媒体、要求を変えたりすると古い成功を拒否します。既存の停止状態や消費予算は書き換えません。ignoredな依存関係や生成物まで同一性を保証するものではありません。信頼する単一実行で使い、別作業による同じcheckoutの同時更新を避けてください。
 
@@ -440,7 +440,7 @@ SIGKILLやOS停止は捕捉できません。CLIだけが強制終了すると�
 | --- | --- |
 | スキルの役割・参照解決・合意の引き継ぎ | スキルと原資料の意味は既存の独立評価で照合し、選択・登録は[新しいタスクでの手順確認](#scopingの切替と手順確認)で観測します。文字列一致のテストでは代替しません |
 | 対象設定・CLI引数と対象照合 | [target.test.ts](tests/shared/target.test.ts)はIssue形式、argvの保持、CI指定・未知キーや不正値の拒否、実CLIからの対象解決と`--write`の効果を確認します。[development.test.ts](tests/implement/development.test.ts)は対象不一致、開始入力やsetup後の変更、別技術構成、`--no-publish`の公開抑止を確認します。GitHub応答は模擬のため実際の認証・権限は別途照合します |
-| 通常開発・既存PR修正・単独試行と公開 | [development.test.ts](tests/implement/development.test.ts)、[revision.test.ts](tests/implement/revision.test.ts)、[correction.test.ts](tests/implement/correction.test.ts)、[correction-process.test.ts](tests/implement/correction-process.test.ts)、[publish.test.ts](tests/implement/publish.test.ts)が停止・保全・draft・公開対象を確認します。実モデルの判断品質や実際の公開の成功は別の証拠です |
+| 通常開発・既存PR修正・1回レビュー試行と公開 | [development.test.ts](tests/implement/development.test.ts)、[revision.test.ts](tests/implement/revision.test.ts)、[correction.test.ts](tests/implement/correction.test.ts)、[correction-process.test.ts](tests/implement/correction-process.test.ts)、[review-probe.test.ts](tests/implement/review-probe.test.ts)、[publish.test.ts](tests/implement/publish.test.ts)が停止・保全・評価試行のレビュー1回・draft・公開対象を確認します。実モデルの判断品質や実際の公開の成功は別の証拠です |
 | 結果の状態・理由・証拠への導線 | developmentの成功・停止・ローカル完了の記録と、[run-report.test.ts](tests/implement/run-report.test.ts)の状態の区別・証拠リンク・不正記録・既存出力の保持を使います。HTMLの生成確認はブラウザーでの実表示確認ではありません |
 
 文書・設定・CLIの変更前後で、今回影響する呼出し方の成功と想定する失敗を同じ条件で確認し、対象版・入力・結果・未実施範囲を既存のfindingsと独立評価へ残します。未使用検査の成功は、この確認の代わりにはなりません。
@@ -471,7 +471,7 @@ bun scripts/implement/review-probe.ts
 
 レビュー応答のSchemaを変更した場合も、この入口から実際のCodexによる受理と応答を確認します。`review-codex-*/schema.json`が`--output-schema`へ渡した生成物です。同じディレクトリの`final.json`と、検証済みの`verification/review-1.json`を照合し、CLIのSchema受理とホストによる応答検証を分けて確認してください。生成差分では必須項目・型・enum・余分な項目の拒否・値の制約を確認します。`$schema`やnullableの`anyOf`などの表現差だけで互換性を判断せず、模擬Codexの制御テストとSchema生成の成功だけでは実CLI確認の代わりにしません。
 
-OSの一時ディレクトリに公開可能な小さなページ分割関数のfixtureを作り、不具合入りと正しい変更をAstra/highで各1回評価します。既存のcorrection・actorを使い、自動修正はせず、対象と指摘を保持します。各試行はレビュー1回で終了し、レビューの実行時間を20分に制限します。修正や人への判断依頼の応答でループを止める処理はありません。これはレビュー品質の観測であり、見落としや誤指摘がないことを成功条件にはしません。
+OSの一時ディレクトリに公開可能な小さなページ分割関数のfixtureを作り、不具合入りと正しい変更をAstra/highで各1回評価します。`correction.ts`の`reviewOnce`とactorを使い、自動修正はせず、対象と指摘を保持します。各試行はレビュー1回で終了し、レビューの実行時間を20分に制限します。修正応答を終了条件には使いません。これはレビュー品質の観測であり、見落としや誤指摘がないことを成功条件にはしません。
 
 [Issue #138](https://github.com/thkt/dotagents/issues/138)に従い、checkoutとレビュー記録は正誤と無関係なランダム名の`case-*`配下に置き、両ケースの実行順もランダムに決めます。開始時に表示する保存先の`host/cases.json`が、実行順のケースIDと正誤の対応表です。最初のレビュー前に保存するため、中断時も対象を照合できます。実行環境とハーネスの版・差分は`host/environment.json`に保持します。停止したrunの上限や記録を変更して続行しません。
 
