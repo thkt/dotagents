@@ -8,11 +8,13 @@ Claudeを使う場合もCodexを使う場合も、関連する知識と判断理
 
 このファイルはローカルのIssue下書きであり、公開・実装・検証完了の記録ではない。上記の目的・対象・既存資料の移行は依頼者の合意、以下の実装構成の候補は担当者の設計提案として区別する。
 
+参照の補足（2026-09-30）：以下の「現在」は下書き作成当時を指す。`scripts/input.ts`・`scripts/knowledge.ts`の調査対象commitは本文に記録されておらず、今回も特定できていない。両参照は対象版未確認として残し、現在のコードやこの下書きの保存commitを当時の根拠に代用しない。現在の操作は[CLI手順](../../scripts/README.md)で確認する。
+
 ## 現在の不足
 
 - 現行手順、調査根拠、判断理由がREADME、research、docs/evidence、docs/knowledgeなどへ分かれ、読む入口と更新先がwiki・decisionsの共通運用として定まっていない。
-- [報告の入力検査](../../scripts/input.ts)は`research/*.md`だけを受け付け、wiki・decisionsを同じ版照合付きの必須資料として指定できない。
-- [共有知識の処理](../../scripts/knowledge.ts)はJSONを正本とし、Issueのpath・blob・node IDから選択して各工程へ渡す。人向けの現行知識をwikiへ移す際も、既存Issue・runの参照を失わせない対応が必要である。
+- 報告の入力検査（当時の `scripts/input.ts`）は`research/*.md`だけを受け付け、wiki・decisionsを同じ版照合付きの必須資料として指定できない。
+- 共有知識の処理（当時の `scripts/knowledge.ts`）はJSONを正本とし、Issueのpath・blob・node IDから選択して各工程へ渡す。人向けの現行知識をwikiへ移す際も、既存Issue・runの参照を失わせない対応が必要である。
 - 過去の草案には採用、未採用、保留、後続判断による置換が混在する。保存場所や見出しだけでは現在の採用状態を決められず、未追跡資料と公開済み資料の区別も必要である。
 
 ## 今回の要求

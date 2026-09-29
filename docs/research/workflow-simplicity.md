@@ -4,6 +4,8 @@
 
 この文書は、フローと現行実装を照合した調査結果と整理案です。個別の改修案は未採用であり、新しいIssue作成・実装・公開は未実施です。現行の入口、設定、結果形式を変更するものではありません。
 
+参照の補足（2026-09-30）：コード・テストの参照は上記の対象版へ固定した。本文中の「現在」「現行」と改修案は調査当時の記録であり、現在の操作は[CLI手順](../../scripts/README.md)で確認する。
+
 ## 目的と判断基準
 
 大きなフローと、素材となる文書・JSON・YAMLを簡潔に保ちます。それらを利用する機械的な検査、工程の進行、LLMへの依頼も、必要な作業を直接表す内容にします。
@@ -23,11 +25,11 @@ Issue作成とPR作成を基本の区切りとします。実行の区切りや�
 | 工程 | 入力と残すもの | 現在の担当 | 次へ進む判断 |
 | --- | --- | --- | --- |
 | 依頼を整理する | 依頼、必要な根拠、合意、未解決事項 | [scoping](../../skills/scoping/SKILL.md)、[discovery.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/discovery.ts) | 担当者が内容を評価し、CLIが評価の版・全項目・不足の有無を確認する。gateの成功は人の合意を代替しない |
-| Issueへ引き継ぐ | 合意した要求・完了条件・検証方法、調査報告への参照 | [Issue反映手順](../../skills/scoping/references/issue.md)、[writing-review.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/writing-review.ts)、[target.ts](../../scripts/target.ts) | 担当者が公開範囲と対象を確認し、日本語確認を経てIssueを作成・照合する。discovery CLI自体は公開しない |
-| 実装を準備する | Issue、対象repo設定、作業用checkout、開始時の対象記録 | [development.ts の prepare](../../scripts/development.ts)、[target.ts](../../scripts/target.ts) | 対象repo・主体・設定・作業開始条件を照合する |
-| 実装する | Issueと既存資産から、コード・必要なテスト・文書・撮影定義を作る | [development.ts の implement](../../scripts/development.ts)、[codex-actor.ts](../../scripts/codex-actor.ts) | 範囲内の実装を完了し、要求や権限の変更が必要なら人へ戻す |
-| 検証・評価・修正する | 文書、必要媒体、check結果、対象版付きの指摘と判断 | [correction.ts の cycle](../../scripts/correction.ts)、[review.ts](../../scripts/review.ts)、[writing-review.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/writing-review.ts)、[capture.ts](../../scripts/capture.ts) | ホストが検証と評価を進める。対象の変化、無効な応答、上限、人の判断が必要な場合などは停止する |
-| PRへ渡す | 検証済み成果物、PR本文、媒体、CI結果、残る確認 | [development.ts の ship](../../scripts/development.ts)、[publish.ts](../../scripts/publish.ts)、[ci.ts](../../scripts/ci.ts) | 公開前後に対象を照合し、同じPR headのCIを確認する。人のレビューや媒体の実表示確認は残る作業として扱う |
+| Issueへ引き継ぐ | 合意した要求・完了条件・検証方法、調査報告への参照 | [Issue反映手順](../../skills/scoping/references/issue.md)、[writing-review.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/writing-review.ts)、[target.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/target.ts) | 担当者が公開範囲と対象を確認し、日本語確認を経てIssueを作成・照合する。discovery CLI自体は公開しない |
+| 実装を準備する | Issue、対象repo設定、作業用checkout、開始時の対象記録 | [development.ts の prepare](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/development.ts)、[target.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/target.ts) | 対象repo・主体・設定・作業開始条件を照合する |
+| 実装する | Issueと既存資産から、コード・必要なテスト・文書・撮影定義を作る | [development.ts の implement](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/development.ts)、[codex-actor.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/codex-actor.ts) | 範囲内の実装を完了し、要求や権限の変更が必要なら人へ戻す |
+| 検証・評価・修正する | 文書、必要媒体、check結果、対象版付きの指摘と判断 | [correction.ts の cycle](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/correction.ts)、[review.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/review.ts)、[writing-review.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/writing-review.ts)、[capture.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/capture.ts) | ホストが検証と評価を進める。対象の変化、無効な応答、上限、人の判断が必要な場合などは停止する |
+| PRへ渡す | 検証済み成果物、PR本文、媒体、CI結果、残る確認 | [development.ts の ship](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/development.ts)、[publish.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/publish.ts)、[ci.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/ci.ts) | 公開前後に対象を照合し、同じPR headのCIを確認する。人のレビューや媒体の実表示確認は残る作業として扱う |
 | 人がレビュー・マージする | PRの差分、説明、検証結果 | [開発方針](../wiki/development-policy.md)と人の判断 | 対象repoの承認条件を満たし、人がマージを判断する |
 | 既存PRを見直す | 対象PRと指摘から再調査し、戻り先を提案する | フロー整理で合意した設計方向。専用の再開入口は未実装 | 調査後に合意の有効性と影響を確認する。要求整理やIssue作成へ戻る場合もある |
 | 関係者へ説明し、運用へつなぐ | QA・デザイナー・企画向けの変更説明と確認ガイド | フロー整理で合意した設計方向。生成・共有の仕組みは未実装 | 資料作成、受け渡し、各担当の確認を区別する。リリース・運用の具体的な手順は対象アプリで定める |
@@ -89,7 +91,7 @@ Issue作成とPR作成を基本の区切りとします。実行の区切りや�
 - 既存の中断・タイムアウト・子プロセス停止・証拠保持・公開抑止の振る舞いを維持する。
 - 新しい必須入力、工程、LLM呼出し、外部依存を追加しない。
 
-[correction-process.test.ts](../../scripts/tests/correction-process.test.ts)には、中断時の予約保持、二重実行の拒否、タイムアウト、子プロセスの残留を確認するケースがあります。[writing-process.test.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/tests/writing-process.test.ts)、[development.test.ts](../../scripts/tests/development.test.ts)、[publish.test.ts](../../scripts/tests/publish.test.ts)、[ci.test.ts](../../scripts/tests/ci.test.ts)も影響に応じて使います。必要な観測が足りない場合だけ追加し、提出前に共通の`bun run check`を実行します。
+[correction-process.test.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/tests/correction-process.test.ts)には、中断時の予約保持、二重実行の拒否、タイムアウト、子プロセスの残留を確認するケースがあります。[writing-process.test.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/tests/writing-process.test.ts)、[development.test.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/tests/development.test.ts)、[publish.test.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/tests/publish.test.ts)、[ci.test.ts](https://github.com/thkt/dotagents/blob/674f1a773eb26773a53b789c3d84c47b414504f2/scripts/tests/ci.test.ts)も影響に応じて使います。必要な観測が足りない場合だけ追加し、提出前に共通の`bun run check`を実行します。
 
 ## 適用範囲と残る確認
 
