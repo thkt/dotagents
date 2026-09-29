@@ -6,7 +6,7 @@ import { develop } from '../../implement/orchestrator.ts';
 import { run, snapshot } from '../../implement/correction.ts';
 import { hash, hostReturnShape } from '../../implement/host-records.ts';
 import { command } from '../../shared/process.ts';
-import { testDevelopment, git, issue, ok } from '../support/development.ts';
+import { testDevelopment, gitOutput, issue, ok } from '../support/development.ts';
 import type { DevelopmentFixture } from '../support/development.ts';
 import { object, reviewReplySource } from '../support/correction.ts';
 
@@ -137,15 +137,15 @@ for (const stage of ['initial', 'repair'] as const) {
   testDevelopment(
     `host ${stage} handoff returns current work to fresh check and review`,
     async (f) => {
-      const base = await git(f.repo, 'rev-parse', 'HEAD');
+      const base = await gitOutput(f.repo, 'rev-parse', 'HEAD');
       const cwd = await prepareStop(f, stage);
       const original = await runRecords(f.dir);
       const m = await measurement(f, cwd);
       const result = await develop(m.args, f.io);
       expect(result.status).toBe('verified_local');
       expect(f.calls.implementations).toBe(1);
-      expect(await git(cwd, 'rev-parse', 'HEAD')).toBe(base);
-      expect(await git(cwd, 'status', '--porcelain')).toContain('verification.md');
+      expect(await gitOutput(cwd, 'rev-parse', 'HEAD')).toBe(base);
+      expect(await gitOutput(cwd, 'status', '--porcelain')).toContain('verification.md');
       expect(await readFile(join(cwd, 'result.txt'), 'utf8')).toBe('implemented');
       const state = object(
         JSON.parse(await readFile(join(m.dir, 'verification/state.json'), 'utf8')),
@@ -255,7 +255,7 @@ for (const boundary of ['return', 'publication'] as const) {
       `repeated host return rejects ancestor ${damaged} at ${boundary}`,
       async (f) => {
         const cwd = await prepareStop(f, 'repair', false);
-        const head = await git(cwd, 'rev-parse', 'HEAD');
+        const head = await gitOutput(cwd, 'rev-parse', 'HEAD');
         await writeFile(join(cwd, 'host-pending.txt'), 'Additional host measurement required');
         const first = await measurement(f, cwd);
         first.args.pop();
@@ -309,8 +309,8 @@ for (const boundary of ['return', 'publication'] as const) {
           );
           expect(state).toMatchObject({ checks: 1, review: 1, repair: 0 });
         }
-        expect(await git(cwd, 'rev-parse', 'HEAD')).toBe(head);
-        expect(await git(cwd, 'status', '--porcelain')).toContain('verification.md');
+        expect(await gitOutput(cwd, 'rev-parse', 'HEAD')).toBe(head);
+        expect(await gitOutput(cwd, 'status', '--porcelain')).toContain('verification.md');
         expect(await runRecords(f.dir)).toEqual(ancestorRecords);
         expect(await runRecords(first.dir)).toEqual(previousRecords);
         expect(f.calls.implementations).toBe(1);
@@ -369,7 +369,7 @@ for (const mode of [
       };
       reason = mode === 'setup_source' ? /Host evidence does not match/ : /evidence changed/;
     } else if (mode === 'head') {
-      await git(cwd, 'commit', '--allow-empty', '-m', 'different HEAD');
+      await gitOutput(cwd, 'commit', '--allow-empty', '-m', 'different HEAD');
       reason = /Host handoff HEAD changed/;
     } else if (mode === 'tampered_stop') {
       await writeFile(join(f.dir, 'implementation.stdout'), 'changed response');
