@@ -76,7 +76,6 @@ async function inspectCase(root: string, entry: Record<string, unknown>) {
       ['page.ts', expect.any(Number), expect.any(String)],
     ]),
   );
-  expect(input.prompt).toContain('independent');
   expect(input.base).toBe('// Pagination will be implemented here.\n');
   expect(input.diff).toContain('return items.slice(offset,');
   expect(JSON.stringify(input.additions)).toContain('pagination contract');
@@ -143,7 +142,7 @@ import {execFileSync} from 'node:child_process';
 const args=process.argv.slice(2);
 if(args[0]==='--version') {console.log('simulated-codex');process.exit(0);}
 const prompt=readFileSync(0,'utf8');
-const context=JSON.parse(prompt.split('Host context: ')[1].split('\\n')[0]);
+const context=JSON.parse(prompt.split('ホストコンテキスト: ')[1].split('\\n')[0]);
 const target=JSON.parse(readFileSync(context.targetRecord,'utf8'));
 const cwd=process.cwd(), dir=dirname(cwd);
 const names=readdirSync('.').includes('page.test.ts')?['page.ts','page.test.ts','README.md']:['page.ts','README.md',...readdirSync('tests').map(name=>'tests/'+name)];

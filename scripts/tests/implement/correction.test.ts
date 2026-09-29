@@ -160,7 +160,9 @@ if(role==='review') console.log(JSON.stringify(reviewReply(stage===3?'accepted':
   expect(new Set(history.map((review) => review.targetId)).size).toBe(4);
   for (let attempt = 1; attempt <= 4; attempt++) {
     const prompt = await readFile(join(t.config.runDir, `review-${attempt}.prompt`), 'utf8');
-    const context = object(JSON.parse(prompt.split('Host context: ')[1]?.split('\n')[0] ?? ''));
+    const context = object(
+      JSON.parse(prompt.split('ホストコンテキスト: ')[1]?.split('\n')[0] ?? ''),
+    );
     const target = object(JSON.parse(await readFile(String(context.targetRecord), 'utf8')));
     expect(context.targetId).toBe(target.targetId);
     if (attempt === 1) {

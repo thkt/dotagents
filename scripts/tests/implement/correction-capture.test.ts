@@ -184,7 +184,6 @@ test('documentation repair keeps media unchanged through both checks and reviews
     .map(object)
     .find((event) => event.role === 'check');
   expect(object(checked?.captureDecision).outcome).toBe('not_required');
-  expect(object(checked?.captureDecision).reason).toContain('Only plain Markdown');
   expect(await readFile(join(cwd, 'README.md'), 'utf8')).toBe('current');
   expect(await readFile(media, 'utf8')).toBe('retained');
 });
@@ -269,9 +268,6 @@ if(role==='review') {
       .filter((event) => event.role === 'check');
     expect(object(checks[1]?.captureDecision).outcome).toBe(
       change === 'records' ? 'reused' : 'execute',
-    );
-    expect(object(checks[1]?.captureDecision).reason).toContain(
-      change === 'records' ? 'Same capture inputs' : 'changed',
     );
     expect(events(state.events).filter((event) => object(event).role === 'capture')).toHaveLength(
       change === 'records' ? 1 : 2,

@@ -341,7 +341,9 @@ if(reviewContext.previous) {
     expect(state.findings).toContain('review-1.json');
     expect(state.findings).toContain('review-2.json');
     const prompt = await readFile(join(t.config.runDir, 'review-2.prompt'), 'utf8');
-    const context = object(JSON.parse(prompt.split('Host context: ')[1]?.split('\n')[0] ?? 'null'));
+    const context = object(
+      JSON.parse(prompt.split('ホストコンテキスト: ')[1]?.split('\n')[0] ?? 'null'),
+    );
     expect(context.previous).toEqual(history[0]);
     expect(await readFile(join(t.config.runDir, 'repair-1.prompt'), 'utf8')).toContain(
       String(first.id),
@@ -1109,7 +1111,7 @@ reply.documents=[
   for (const role of ['repair', 'review']) {
     const prompt = await readFile(join(t.config.runDir, `${role}-1.prompt`), 'utf8');
     const references: unknown = JSON.parse(
-      prompt.split('Implementation references: ')[1]?.split('\n')[0] ?? 'null',
+      prompt.split('実装の参照資料: ')[1]?.split('\n')[0] ?? 'null',
     );
     expect(references).toEqual({ startCommit: base, reports });
     expect(prompt).not.toContain(original.trim());

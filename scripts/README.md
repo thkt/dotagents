@@ -204,6 +204,8 @@ developmentは対象設定のcapture command、保存先、撮影方針を内部
 
 初回実装と修正は[repair.ts](implement/repair.ts)の共通指示と応答検査を使います。文書・テスト・撮影・公開禁止の指示を共有し、初回はIssue全体の実装とホスト検証の準備、修正は失敗の根拠に沿う原因診断・修正確認を担当します。初回のsetup後照合と結果保存はdevelopment、修正の起動前予約・回数・中断状態の保持はcorrectionが担当します。初回実装は追加修正のカウンタに数えず、修正後のcheckと独立評価はホストが実行します。
 
+初回実装・追加修正・独立評価へ渡す固定の説明文・指示文・見出しは日本語です。報告参照、既存PRの修正要求、ホスト検証からの復帰に添える固定説明も含みます。JSONキー・status・CLI引数・設定値・schema・ファイル名・モデルIDは変更せず、Issue本文、修正要求、過去の評価やログなどの入力は原文のまま渡します。指示の言語から、実モデルの品質や費用の改善を保証するものではありません。
+
 `repair`と`review`は、要求と失敗の根拠を標準入力で受け取り、結果のJSONだけを標準出力へ返します。`repair`は`status: repaired | needs_host | needs_human`と文字列`findings`を返します。`review`は[review.ts](implement/review.ts)の専用schemaに従います。独自のreviewコマンドにも同じ形式が必要です。
 
 レビュー応答の項目・型・許可値と余分な項目の拒否は、`review.ts`のZod定義を正本とします。受信時の構造検証とCodexの`--output-schema`へ渡すJSON Schemaをここから作り、保存用の完全なレビューも応答定義を組み合わせて検証・型推論します。応答項目を変更するときは該当するZod定義を変更し、関連テスト・指示文・利用側への影響を確認します。JSON SchemaやTypeScript型を別途手書きで同期する必要はありません。Zodは[package.json](../package.json)とlockfileで固定した直接依存です。保存状態は`input.ts`の定義から型と検査を導き、保存済みレビューの定義も共用します。検査は元の記録を変換せず、不正時は`Invalid saved state: 項目パス`で拒否した場所を示します。actorの修正応答や、その他のJSON読込みには適用しません。
