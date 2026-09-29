@@ -1,0 +1,38 @@
+[
+  {
+    "mode": "unchanged",
+    "verified": "599247907435b6490372fd26cf24b9460d7cbe3a",
+    "current": "599247907435b6490372fd26cf24b9460d7cbe3a",
+    "received": "599247907435b6490372fd26cf24b9460d7cbe3a",
+    "refspec": "codex/development-99:refs/heads/codex/development-99",
+    "status": "published_draft",
+    "reason": "passed",
+    "pushes": 1,
+    "publications": 1,
+    "postPublicationEvidence": "模擬応答。pinnedCandidateの停止は比較案の評価対象外"
+  },
+  {
+    "mode": "branchRace",
+    "verified": "4f32308e19a26b06dd361b89072673a1aa3d5f81",
+    "current": "2471d9bdd62b4f503f58d7365d40f017eb0cc972",
+    "received": "2471d9bdd62b4f503f58d7365d40f017eb0cc972",
+    "refspec": "codex/development-99:refs/heads/codex/development-99",
+    "status": "stopped",
+    "reason": "target_changed",
+    "pushes": 1,
+    "publications": 1,
+    "postPublicationEvidence": "模擬応答。pinnedCandidateの停止は比較案の評価対象外"
+  },
+  {
+    "mode": "pinnedCandidate",
+    "verified": "01114e79b7b15a0041fb2451a29b9edea2d67e28",
+    "current": "24dc9ed933f33231faad8aacc0bbbf10daf3c794",
+    "received": "01114e79b7b15a0041fb2451a29b9edea2d67e28",
+    "refspec": "codex/development-99:refs/heads/codex/development-99",
+    "status": "stopped",
+    "reason": "target_changed",
+    "pushes": 1,
+    "publications": 1,
+    "postPublicationEvidence": "模擬応答。pinnedCandidateの停止は比較案の評価対象外"
+  }
+]
