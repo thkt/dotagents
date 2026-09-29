@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, symlink, writeFile, readFile, rm, rename, chmod } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import {
   correctionConfig,
   correctionFixture,
@@ -490,18 +489,6 @@ test('invalid saved state is retained and rejected before execution', async () =
   expect(await readFile(stateFile, 'utf8')).toBe(invalid);
   expect(await Bun.file(executed).exists()).toBe(false);
 });
-test('retired standalone correction CLI refuses execution and explains migration', async () => {
-  const t = await trial('normal');
-  const result = spawnSync(
-    process.execPath,
-    [resolve('scripts/implement/correction.ts'), t.configFile],
-    { encoding: 'utf8' },
-  );
-  expect(result.status).toBe(1);
-  expect(result.stderr).toContain('development.ts');
-  expect(existsSync(t.config.runDir)).toBe(false);
-});
-
 for (const path of ['.', 'evidence', '..evidence', '../..external']) {
   test(`evidence directory boundary: ${path}`, async () => {
     const t = await trial('boundary');

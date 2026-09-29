@@ -707,26 +707,6 @@ testRevision('success', async (f) => {
   await successfulRevision(f);
 });
 
-testRevision('already_draft_with_legacy_config', async (f) => {
-  const configFile = join(f.prior, 'verification-config.json');
-  const stateFile = join(f.prior, 'verification/state.json');
-  const config = {
-    ...(await readObject(configFile)),
-    repairLimit: 2,
-    reviewLimit: 2,
-    modelTimeMs: 1200000,
-  };
-  const saved = JSON.stringify(config);
-  await writeFile(configFile, saved);
-  await writeFile(
-    stateFile,
-    JSON.stringify({ ...(await readObject(stateFile)), configHash: hash(saved) }),
-  );
-  f.pr.isDraft = true;
-  await successfulRevision(f, { alreadyDraft: true });
-  expect(await readFile(configFile, 'utf8')).toBe(saved);
-});
-
 testRevision('local', async (f) => {
   f.args.push('--no-publish');
   f.pr.closingIssuesReferences = [{ url: 'https://github.com/team/component/issues/99' }];

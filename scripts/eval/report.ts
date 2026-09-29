@@ -5,6 +5,7 @@ import { resolve, relative } from 'node:path';
 import { z } from 'zod';
 import { evalConfig } from './data.ts';
 import { isRecord } from '../shared/values.ts';
+import { addTokenUsage, parseTokenUsage } from '../shared/token-usage.ts';
 
 const reference = z.strictObject({
   file: z.string().regex(/^[a-zA-Z0-9_.-]+$/),
@@ -50,8 +51,7 @@ const trial = z.object({
 });
 
 export function readUsage(lines: string[]) {
-  const totals = { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0 };
-  const keys = ['input_tokens', 'cached_input_tokens', 'output_tokens'] as const;
+  let totals = { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0 };
   let completedTurns = 0,
     incompleteLines = 0;
   for (const line of lines.filter(Boolean)) {
@@ -65,26 +65,13 @@ export function readUsage(lines: string[]) {
     if (!isRecord(value) || value.type !== 'turn.completed') {
       continue;
     }
-    const usage = value.usage;
-    if (
-      !isRecord(usage) ||
-      !keys.every(
-        (key) =>
-          typeof usage[key] === 'number' &&
-          Number.isSafeInteger(usage[key]) &&
-          usage[key] >= 0 &&
-          Number.isSafeInteger(totals[key] + usage[key]),
-      )
-    ) {
+    const usage = parseTokenUsage(value.usage);
+    const next = usage && addTokenUsage(totals, usage);
+    if (!next) {
       incompleteLines++;
       continue;
     }
-    for (const key of keys) {
-      const count = usage[key];
-      if (typeof count === 'number') {
-        totals[key] += count;
-      }
-    }
+    totals = next;
     completedTurns++;
   }
   return {
