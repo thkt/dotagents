@@ -429,7 +429,7 @@ SIGKILLやOS停止は捕捉できません。CLIだけが強制終了すると�
 ## 検証
 
 現在の共通checkの順序やハーネスの検証範囲は[README](../README.md#セットアップと検証)を、書式や型情報を用いるlintおよびテスト完了の方針は[開発方針](../docs/wiki/development-policy.md#typescriptの書き方)を参照してください。
-未使用コード・循環依存の検査対象、fallowの解析失敗の扱い、重複・複雑度・循環依存の調査コマンドは[READMEのコードベース調査](../README.md#未使用コード検査とコードベース調査)を参照してください。循環検出は共通checkの`check:unused`にも含めます。重複・複雑度の追加調査は共通checkの失敗条件に含めません。
+未使用コード・循環依存の検査の設定は[未使用コード検査とコードベース調査](#未使用コード検査とコードベース調査)を、重複・複雑度・循環依存の調査コマンドは[READMEのコードベース調査](../README.md#未使用コード検査とコードベース調査)を参照してください。循環検出は共通checkの`check:unused`にも含めます。重複・複雑度の追加調査は共通checkの失敗条件に含めません。
 制御テストは `scripts/tests/` に配置し、対象の責務に合わせて分割しています。
 
 `bun run test:control`は成功時に件数を要約し、失敗時は診断を表示します。Bunが成功してもJUnit集計を拒否した場合は`JUnit report retained:`に実際の一時ファイルのパスを表示します。skipしたテストの特定にはそのXMLを開いてください。調査後は利用者が削除します。Bun自体の失敗やレポート未生成・読取り失敗では一時レポートを削除し、自動再実行はしません。
@@ -460,6 +460,22 @@ Playwright runnerを起動する契約テストは[trial repoのtrial/control/](
 SIGKILLのテストでは残存プロセスをテスト側で後片付けしており、CLIの自動停止保証ではありません。
 
 制御テストの成功は実モデルの判断品質の証拠には数えません。実測結果とその対象、未検証範囲は[検証記録](https://github.com/thkt/dotagents-workflow-trial/blob/93b38f0bc690373b4b1f68e37a42f721929d6386/trial/evidence/README.md)を参照してください。
+
+### 未使用コード検査とコードベース調査
+
+`bun run check:unused`は、未使用のファイル・export・型・依存（dev・optional を含む）と、実行時 import の循環が指摘されると失敗します。[実行入口](scripts/lint/fallow.ts)は、fallow の終了時の失敗を引き継ぎます。終了コードが 0 でも、JSON の`workspace_diagnostics`に`degrades_analysis: true`があれば不合格にします。構文解析の中断や読み取り不能などで不完全になった解析を、指摘なしの成功として扱わないためです。結果の JSON には、指摘の位置と診断が残ります。設定の不正や起動の失敗も、成功に変換しません。CI の`checks`も同じ`bun run check`を使います。
+
+循環の検出は、同じ fallow 実行の`--circular-deps`で行います。保証するのは、fallow が解析できる実行時 import の循環に限ります。型のみの参照は循環として拒否しません。循環していない逆向きの依存や、責務境界のすべては検査しません。これらは調査とレビューで判断します。実行時の権限・鮮度・停止・データ保全は、既存の制御テストと独立評価で確認します。循環検査のために追加する適用除外は設けません。
+
+[.fallowrc.json](.fallowrc.json)の`entry`には、外部から起動する CLI を、自動発見への追加の入口として指定します。バージョンを固定した fallow 3.28.0 では、`scripts/tests/**/*.test.ts`を Bun プラグインが、Oxlint が読み込む[ローカルプラグイン](scripts/lint/local/index.ts)を Oxlint プラグインが自動で検出します。`includeEntryExports`で入口の export も検査します。カスタム`framework`の`usedExports`と`enablers`では、Oxlint が有効なときの`default` export の利用を宣言します。この export の利用は、通常の lint の実行テストでも確認します。未使用のファイル・export・型と通常の依存には既定の`error`を使い、既定が`warn`の dev・optional 依存は明示的に`error`にします。他の export と、ファイル・依存の未使用検査も維持します。fallow のバージョンを更新するときは、既定の重大度と入口の自動検出を再確認してください。使用判定を調べるには、入口を`bunx --no-install fallow list`で、export の参照を`bunx --no-install fallow dead-code --trace scripts/shared/values.ts:isRecord`で確認してください。
+
+整形は`bun run format`、書式の確認は`bun run format:check`を使います。Oxfmt には`scripts`を渡し、[.oxfmtrc.json](.oxfmtrc.json)の ignore 指定で、従来どおり`scripts/**/*.ts`だけを対象にします。package script に TS の glob を渡すと、fallow が整形対象を入口として追加し、未参照のファイルを見逃すためです。CLI・テストや format 設定を変えたときは、入口と検出条件も確認してください。
+
+静的解析の参照と推定 coverage は、実行時の利用やテストの網羅を証明しません。CRAP の推定値や類似コードだけで、自動削除や強制分割はしません。呼び出し元、実際の利用条件、既存のテストと突き合わせて判断します。追加調査で指摘がなくても、除外対象を含む全コードの健全性は保証されません。fallow の認知的複雑度と Biome の判定が常に一致するとは扱いません。
+
+ツールの詳細は[公式設定](https://fallow.tools/docs/configuration/overview/)と[重複検査](https://docs.fallow.tools/analysis/duplication)を参照してください。この repo で使うオプションは、導入済みの 3.28.0 の`--help`でも確認してください。
+
+runtime の正常系・異常系は制御テストで確認します。撮影は、共通 check とは別に[撮影の実検証](scripts/README.md#検証)で確認します。
 
 ### 実モデルによるレビューの確認
 
