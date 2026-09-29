@@ -613,7 +613,7 @@ gh pr edit PR_NUMBER --repo OWNER/REPO \
 
 ## 指示変更時の同条件eval
 
-`scoping`・`implement`や、それらに適用する`AGENTS.md`を改善するとき、[Issue #191](https://github.com/thkt/dotagents/issues/191)の合意に従って、変更前後の行動・成果・負担を比べます。入口は `bun scripts/eval/eval.ts plan|run CONFIG` と `report RUN_DIRECTORY [JUDGMENTS_JSON]` です。通常のdevelopment、定期監査、全PRのCIには接続しません。既存の証拠で判断できる変更には実モデル呼出しを追加しません。
+`scoping`・`implement`や、それらに適用する`AGENTS.md`を改善するとき、[Issue #191](https://github.com/thkt/dotagents/issues/191)の合意に従って、変更前後の行動・成果・負担を比べます。[Issue #335](https://github.com/thkt/dotagents/issues/335)により、下記の共通参照文書も明示して比較できます。入口は `bun scripts/eval/eval.ts plan|run CONFIG` と `report RUN_DIRECTORY [JUDGMENTS_JSON]` です。通常のdevelopment、定期監査、全PRのCIには接続しません。既存の証拠で判断できる変更には実モデル呼出しを追加しません。
 
 [ケース](eval/corpus/cases.json)は、[#183の公開コメント](https://github.com/thkt/dotagents/issues/183#issuecomment-5793406460)にある依頼文5件を再利用しています。実際の失敗の再現ではなく、公開済みの適用条件から作った正例2件・負例2件・採点外の境界1件です。ケースの依頼文の出典・期待ラベル・採点基準はホストだけが読みます。実装ケースの`context`には対象Issue本文の固定コピーだけを含め、選択時には文脈だけを`evaluation-issue.json`として渡し、その場所だけを依頼文に追記します。過去の中断runや他条件の回答は渡しません。この1ファイルは版管理する評価入力で、雛形や実行結果ではありません。実行結果は`outputDirectory`で指定したリポジトリ外へ保存します。統合後の評価では、新しい配置と内容を含むcommitを`corpusCommit`に指定します。ケースを追加・変更する場合は、実際の見落としの根拠と適用範囲をIssueへ残し、新旧集合を同条件の改善率にしません。
 
@@ -633,8 +633,16 @@ gh pr edit PR_NUMBER --repo OWNER/REPO \
   "after": "変更後の完全なcommit ID",
   "corpusCommit": "ケースを保存した完全なcommit ID",
   "workspaceCommit": "両条件で共通に使う課題の完全なcommit ID",
-  "workspaceFiles": ["README.md", "docs/wiki/development-policy.md", "scripts/README.md"],
-  "instructionFiles": ["AGENTS.md", "skills/scoping/SKILL.md", "skills/implement/SKILL.md"],
+  "workspaceFiles": ["package.json"],
+  "instructionFiles": [
+    "AGENTS.md",
+    "skills/scoping/SKILL.md",
+    "skills/implement/SKILL.md",
+    "skills/references/documents.md",
+    "docs/wiki/development-policy.md",
+    "README.md",
+    "scripts/README.md"
+  ],
   "cases": ["requirements", "implementation", "question", "review", "ambiguous"],
   "image": "確認済みimage名@sha256:完全なdigest",
   "imageReview": "確認した作成元・版と、資格情報や追加の登録がないことの確認記録",
@@ -657,7 +665,15 @@ gh pr edit PR_NUMBER --repo OWNER/REPO \
 }
 ```
 
-ファイルリストは例です。対象課題に必要な公開コード・検証・参照文書を `workspaceFiles` に、今回有効にする両スキルの参照ファイルと適用する全 `AGENTS.md` を `instructionFiles` に列挙します。UTF-8の通常Git blobだけを使い、symlink、作業差分、未追跡資料、評価の期待値は入力にしません。両リストの重複、未知のケース、有限上限や公開範囲の欠落を拒否します。課題側は共通commit、指示側だけはbefore/afterから取得します。対象commitに他のコード差分があっても、その差分を課題側へ混ぜません。指定した指示に差がなければモデルを起動しません。
+ファイルリストは例であり、このままで各課題の参照が揃うことは保証しません。対象課題に必要な公開コード・検証・固定する参考資料を `workspaceFiles` に、判断へ適用する指示を `instructionFiles` に列挙します。指示側の許可範囲は次のとおりです。許可される場所でも、公開可能な指示であることを担当者が確認します。
+
+- 各階層の `AGENTS.md` と `skills/scoping/`・`skills/implement/` 配下。
+- `skills/references/` 配下の `.md` 文書。
+- `README.md`、`scripts/README.md`、`docs/wiki/development-policy.md` の3文書。`docs/` 全体や任意のwikiは許可しません。
+
+ルートの `AGENTS.md` と両スキルの `SKILL.md` は必須です。そのほかも、今回適用する `AGENTS.md`、スキル内の参照、共通指示を明示します。課題の実装コードやホスト用の期待値を指示側へ移さないでください。許可範囲外の文書を比較する必要があれば、入力制限の変更を別途レビューし、`workspaceFiles` への移動で代用しません。
+
+UTF-8の通常Git blobだけを使い、symlink、作業差分、未追跡資料、評価の期待値は入力にしません。`scripts/eval/`、ルートの `evals/`・`.git/`・`.agents/`、認証・ローカル設定の拒否は両リストへ適用します。パス検査は内容の秘密情報や採点情報を判別しないため、公開範囲の内容確認も必要です。両リストの重複、未知のケース、有限上限や公開範囲の欠落を拒否します。課題側は共通commit、指示側だけはbefore/afterから取得します。共通参照だけの変更でも、その内容・SHA-256・`changedInstructions` に差が現れます。対象commitに他のコード差分があっても、その差分を課題側へ混ぜません。指定した指示に差がなければモデルを起動しません。
 
 ```sh
 bun scripts/eval/eval.ts plan /absolute/path/eval-config.json
@@ -665,7 +681,15 @@ bun scripts/eval/eval.ts run /absolute/path/eval-config.json
 bun scripts/eval/eval.ts report /absolute/path/outside-checkout/new-eval
 ```
 
-`plan` はモデルを呼ばず、入力内容、各ファイルと固定した実行コードのSHA-256、変えた指示、ケース・判定基準を表示します。ホスト担当者が公開済み資料だけであること、必要な参照が揃うこと、意図した変更だけが有効になることを確認します。`run` は同じ計画を保存し、ケース・時間・モデル要求数・公開範囲を表示してから、beforeの全ケース、afterの全ケースを各1回実行します。ケースの順序と集合は両条件で同じです。モデルには現在のケースの依頼文と入力ファイルだけが見えます。スキルは新しいコンテナーのホームから、その条件の実体へ登録します。既存の登録や進行中タスクは変更しません。
+`plan` はモデルを呼ばず、入力内容、各ファイルと固定した実行コードのSHA-256、変えた指示、ケース・判定基準を表示します。各版の `missingReferences` は、選択済みの指示にある相対インラインMarkdownリンクのうち、その版の入力にない参照先を `source`・`target` で示します。参照先の取得や全repoの走査はせず、任意の参考リンクも含むため自動停止条件にはしません。空白・括弧を含むリンク先、参照形式のリンク、コード表記のパス、外部URLやアンカーの有効性は検査しません。リストが空でも必要な参照が揃う保証にはなりません。
+
+担当者は `run` の前に `plan` の両版を読み、次を確認します。
+
+1. 入力の本文が公開可能で、秘密情報・ホスト用の期待値・過去runを含まないこと。
+2. 指示本文から今回必要な参照を辿り、`missingReferences` と検査対象外の表記も確認すること。不足を必要性に応じてリストへ追加し、再度 `plan` を確認すること。リンク先が存在しても、適用条件や内容が十分とは限りません。
+3. 変更する共通指示が `instructionFiles` にあり、両版の本文・hashと `changedInstructions` が意図した比較を表すこと。固定する課題側は両版で同じ本文・hashであること。
+
+`run` は同じ計画を保存し、ケース・時間・モデル要求数・公開範囲を表示してから、beforeの全ケース、afterの全ケースを各1回実行します。ケースの順序と集合は両条件で同じです。モデルには現在のケースの依頼文と入力ファイルだけが見えます。スキルは新しいコンテナーのホームから、その条件の実体へ登録します。既存の登録や進行中タスクは変更しません。
 
 ### 隔離・上限・停止
 

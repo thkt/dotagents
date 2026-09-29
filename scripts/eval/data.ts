@@ -79,7 +79,10 @@ export function validatePlan(config: EvalConfig, cases: EvalCase[]) {
   }
   for (const path of config.instructionFiles) {
     assert(
-      /(^|\/)AGENTS\.md$/.test(path) || /^skills\/(scoping|implement)\//.test(path),
+      /(^|\/)AGENTS\.md$/.test(path) ||
+        /^skills\/(scoping|implement)\//.test(path) ||
+        /^skills\/references\/.+\.md$/.test(path) ||
+        ['README.md', 'scripts/README.md', 'docs/wiki/development-policy.md'].includes(path),
       'Unsupported instruction file',
     );
   }
