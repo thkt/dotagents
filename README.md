@@ -4,10 +4,10 @@
 
 ## 読む順序
 
-qww
+- このREADMEの[共有入口と利用条件](#共有入口と利用条件)には、メンバーが依存する入口、必要なバージョン、結果の参照先があります。
 - [開発方針](docs/wiki/development-policy.md)には、要求と公開範囲の合意、文書・テスト・独立評価、人によるマージ判断と main の保護があります。
 - [制御CLI](scripts/README.md)には、対象の設定、起動、上限、中断、公開があります。
-- [実装開始の条件](docs/wiki/implementation-start.md)には、現在の開始条件と適用範囲があります。根拠の引き継ぎと旧選択の扱いは、[制御CLI](scripts/README.md#調査報告を指定した実装開始)にあります。
+- [実装開始の条件](docs/wiki/implementation-start.md)には、現在の開始条件と適用範囲があります。根拠の引き継ぎは、[制御CLI](scripts/README.md#調査報告を指定した実装開始)にあります。
 - [調査成果](docs/research/README.md)には、再利用する根拠、未採用の提案、Git での共有と引き継ぎがあります。
 - [現在の知識](docs/wiki/README.md)と[判断記録](docs/decisions/README.md)には、この repo の手順・構造と、その選択理由があります。Claude／Codex 共通の[読む・残す方法](skills/references/documents.md)に従います。
 
@@ -20,7 +20,7 @@ qww
 | `scoping` | 要求・検証方法・合意を整理し、Issueまたは公開しない下書きに渡します。必要な参照は[スキル](skills/scoping/SKILL.md)から辿ります |
 | `implement` | 合意済みIssueを受け取ります。信頼するスキル実体からCLIを解決し、対象repoを指定します。[スキル](skills/implement/SKILL.md)、[通常起動](scripts/README.md#issueからpr作成)、[既存PR修正](scripts/README.md#既存prの修正)に従います |
 | 対象repoの `.dotagents.json` | checkoutルートにコミット済みの設定を使います。repo・remote・base branch、setup・check・CI、必要な媒体を明示します。[設定形式と拒否条件](scripts/README.md#対象repoの設定)が正本です |
-| 文書で案内するCLI・package script | 呼び出し方と用途は[CLI手順](scripts/README.md)、導入とcheckは[セットアップと検証](#セットアップと検証)で確認します。通常の開発と、担当者向けの1回レビュー試行は区別します。旧単独修正CLIの移行先は[実行方式と旧設定](scripts/README.md#実行方式と旧設定)で確認します |
+| 文書で案内するCLI・package script | 呼び出し方と用途は[CLI手順](scripts/README.md)、導入とcheckは[セットアップと検証](#セットアップと検証)で確認します。通常の開発と、担当者向けの1回レビュー試行は区別します |
 | 指示変更のeval | 関連する改善作業で、バージョン・ケース・モデル・有限の上限を固定して比較します。[実行条件と報告](scripts/README.md#指示変更時の同条件eval)から手動で開始します。定期実行や全PRの必須ゲートにはしません |
 | 実行結果 | developmentのrun保存先にある `result.json` から、理由・次の対応・証拠を辿ります。`report.html`は保存結果の表示です。下位state・生ログと、生成できない条件は[結果と再実行](scripts/README.md#結果と再実行)で確認します |
 
@@ -35,7 +35,7 @@ bun install --frozen-lockfile --ignore-scripts
 bun run check
 ```
 
-Bun 1.4.2 を使います。check は、lint、書式、Biome の認知的複雑度 15、型、fallow の未使用コード・循環依存の検査、ハーネスの制御テストの順に実行します。fallow 3.28.0 もバージョンを固定した開発依存で、上記の setup で導入します。Playwright や商品アプリの依存は導入しません。対象 repo では、その repo の検証を指定してください。商品・既存媒体・旧 App 版のコードと実測履歴は、[trial repo](https://github.com/thkt/dotagents-workflow-trial/blob/d0134086ad9bdddb5ed2693327cb1ffb0859c4a2/README.md)に残っています。
+Bun 1.4.2 を使います。check は、lint、書式、Biome の認知的複雑度 15、型、fallow の未使用コード・循環依存の検査、ハーネスの制御テストの順に実行します。fallow 3.28.0 もバージョンを固定した開発依存で、上記の setup で導入します。対象 repo では、その repo の検証を指定してください。
 
 [biome.json](biome.json)は、バージョンを固定した Biome 2.5.14 の既定値（linter の有効化と認知的複雑度の上限 15）を使い、`noExcessiveCognitiveComplexity`を`error`にしています。Biome のバージョンを更新するときは、この既定値と、上限を超えたときに error で拒否されることを再確認してください。
 
@@ -43,7 +43,7 @@ Bun 1.4.2 を使います。check は、lint、書式、Biome の認知的複雑
 
 `bun run check:unused`は、未使用のファイル・export・型・依存（dev・optional を含む）と、実行時 import の循環が指摘されると失敗します。[実行入口](scripts/lint/fallow.ts)は、fallow の終了時の失敗を引き継ぎます。終了コードが 0 でも、JSON の`workspace_diagnostics`に`degrades_analysis: true`があれば不合格にします。構文解析の中断や読み取り不能などで不完全になった解析を、指摘なしの成功として扱わないためです。結果の JSON には、指摘の位置と診断が残ります。設定の不正や起動の失敗も、成功に変換しません。CI の`checks`も同じ`bun run check`を使います。
 
-[Issue #147](https://github.com/thkt/dotagents/issues/147)で合意した循環の検出は、同じ fallow 実行の`--circular-deps`で行います。保証するのは、fallow が解析できる実行時 import の循環に限ります。型のみの参照は循環として拒否しません。循環していない逆向きの依存や、責務境界のすべては検査しません。これらは調査とレビューで判断します。実行時の権限・鮮度・停止・データ保全は、既存の制御テストと独立評価で確認します。循環検査のために追加する適用除外は設けません。
+循環の検出は、同じ fallow 実行の`--circular-deps`で行います。保証するのは、fallow が解析できる実行時 import の循環に限ります。型のみの参照は循環として拒否しません。循環していない逆向きの依存や、責務境界のすべては検査しません。これらは調査とレビューで判断します。実行時の権限・鮮度・停止・データ保全は、既存の制御テストと独立評価で確認します。循環検査のために追加する適用除外は設けません。
 
 [.fallowrc.json](.fallowrc.json)の`entry`には、外部から起動する CLI を、自動発見への追加の入口として指定します。バージョンを固定した fallow 3.28.0 では、`scripts/tests/**/*.test.ts`を Bun プラグインが、Oxlint が読み込む[ローカルプラグイン](scripts/lint/local/index.ts)を Oxlint プラグインが自動で検出します。`includeEntryExports`で入口の export も検査します。カスタム`framework`の`usedExports`と`enablers`では、Oxlint が有効なときの`default` export の利用を宣言します。この export の利用は、通常の lint の実行テストでも確認します。未使用のファイル・export・型と通常の依存には既定の`error`を使い、既定が`warn`の dev・optional 依存は明示的に`error`にします。他の export と、ファイル・依存の未使用検査も維持します。fallow のバージョンを更新するときは、既定の重大度と入口の自動検出を再確認してください。使用判定を調べるには、入口を`bunx --no-install fallow list`で、export の参照を`bunx --no-install fallow dead-code --trace scripts/shared/values.ts:isRecord`で確認してください。
 
@@ -59,18 +59,16 @@ Bun 1.4.2 を使います。check は、lint、書式、Biome の認知的複雑
 
 静的解析の参照と推定 coverage は、実行時の利用やテストの網羅を証明しません。CRAP の推定値や類似コードだけで、自動削除や強制分割はしません。呼び出し元、実際の利用条件、既存のテストと突き合わせて判断します。追加調査で指摘がなくても、除外対象を含む全コードの健全性は保証されません。fallow の認知的複雑度と Biome の判定が常に一致するとは扱いません。
 
-採用範囲と条件付きの比較結果は[Issue #174](https://github.com/thkt/dotagents/issues/174)を参照してください。他のツールより常に速いことは保証しません。ツールの詳細は[公式設定](https://fallow.tools/docs/configuration/overview/)と[重複検査](https://docs.fallow.tools/analysis/duplication)を参照してください。この repo で使うオプションは、導入済みの 3.28.0 の`--help`でも確認してください。
+ツールの詳細は[公式設定](https://fallow.tools/docs/configuration/overview/)と[重複検査](https://docs.fallow.tools/analysis/duplication)を参照してください。この repo で使うオプションは、導入済みの 3.28.0 の`--help`でも確認してください。
 
-[Issue #58の過去の検証報告](docs/research/harness-review-2026-09-14.md)は固定された資料です。通常の check では、この報告の形式検査や、JSON と Markdown の一致確認を行いません。runtime の正常系・異常系の制御テストと、共通 check とは別に行う[撮影の実検証](scripts/README.md#検証)は維持します。
+runtime の正常系・異常系は制御テストで確認します。撮影は、共通 check とは別に[撮影の実検証](scripts/README.md#検証)で確認します。
 
 ## 要求整理とIssue作成
 
 通常の入口は、共通登録済みの`scoping`と`implement`です。`scoping`は、会話、既存の Issue 下書きと Issue、必要な Git 管理文書から、要求・検証方法・合意を整理します。
 
-[六つの問い](skills/scoping/references/sufficiency.md)で不足を判断します。判断を左右する不足や根拠の変更があれば、それに依存する作業を止めます。専用セッションと評価保存 CLI は使いません。Issue の記述と出典で足りるときは報告を作らず、必要な根拠だけを docs/research/に直接保存・改訂します。
+[六つの問い](skills/scoping/references/sufficiency.md)で不足を判断します。判断を左右する不足や根拠の変更があれば、それに依存する作業を止めます。Issue の記述と出典で足りるときは報告を作らず、必要な根拠だけを docs/research/に直接保存・改訂します。
 
 合意済みの Issue は`implement`で実装します。CLI の絶対パスは信頼するスキル実体から解決し、実行対象 repo のパスを渡します。操作は各[スキル](skills/scoping/SKILL.md)と[実装入口](skills/implement/SKILL.md)を参照してください。
 
-共通環境の登録切替と、新しいタスクでの移行受け入れは、2026-09-14 に[Issue #54](https://github.com/thkt/dotagents/issues/54)で完了しました。採用したバージョン・受け入れ結果・未計測の範囲は同 Issue を、今後の保全と登録変更は[開発方針](docs/wiki/development-policy.md#旧資産の保全と登録変更)を参照してください。日常の作業では上記のスキルと制御 CLI の手順を使い、移行手順を通常タスクの前提にはしません。scoping の切替と、新しいタスクでの確認は[切替手順](scripts/README.md#scopingの切替と手順確認)を参照してください。
-
-新規起動での旧 research・think・issue・build・code・cleanup の入口と、旧 workflow hook は採用しません。旧資産と旧 run は保全し、削除・変換・自動再開はしません。
+scoping の切替と、新しいタスクでの確認は[切替手順](scripts/README.md#scopingの切替と手順確認)を参照してください。今後の保全と登録変更は[開発方針](docs/wiki/development-policy.md#旧資産の保全と登録変更)に従います。
