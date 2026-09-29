@@ -35,7 +35,17 @@ bun install --frozen-lockfile --ignore-scripts
 bun run check
 ```
 
-Bun 1.4.2 を使います。check は、lint、書式、Biome の認知的複雑度 15、型、fallow の未使用コード・循環依存の検査、ハーネスの制御テストの順に実行します。fallow 3.28.0 もバージョンを固定した開発依存で、上記の setup で導入します。対象 repo では、その repo の検証を指定してください。
+Bun 1.4.2 を使います。check は次の順に実行します。ツールごとに検査する対象を分けています。fallow 3.28.0 もバージョンを固定した開発依存で、上記の setup で導入します。
+
+| 順 | package script | ツール | 検査する対象 |
+| --- | --- | --- | --- |
+| 1 | `lint` | oxlint | 型情報を使う正しさの検査と、[ローカルプラグイン](scripts/lint/local/index.ts)の規則。警告も失敗にします |
+| 2 | `format:check` | oxfmt | `scripts/**/*.ts`の書式だけ |
+| 3 | `complexity` | Biome | 認知的複雑度の上限 15 だけ。formatter と他の規則は無効です |
+| 4 | `typecheck` | tsc | 型の整合 |
+| 5 | `check:unused` | fallow | 未使用のファイル・export・型・依存と、実行時 import の循環 |
+| 6 | `test:control` | Bun | ハーネスの制御テスト |
+対象 repo では、その repo の検証を指定してください。
 
 [biome.json](biome.json)は、バージョンを固定した Biome 2.5.14 の既定値（linter の有効化と認知的複雑度の上限 15）を使い、`noExcessiveCognitiveComplexity`を`error`にしています。Biome のバージョンを更新するときは、この既定値と、上限を超えたときに error で拒否されることを再確認してください。
 
