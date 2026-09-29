@@ -4,7 +4,6 @@
 
 ## 読む順序
 
-qww
 - [開発方針](docs/wiki/development-policy.md)には、要求と公開範囲の合意、文書・テスト・独立評価、人によるマージ判断と main の保護があります。
 - [制御CLI](scripts/README.md)には、対象の設定、起動、上限、中断、公開があります。
 - [実装開始の条件](docs/wiki/implementation-start.md)には、現在の開始条件と適用範囲があります。根拠の引き継ぎと旧選択の扱いは、[制御CLI](scripts/README.md#調査報告を指定した実装開始)にあります。
