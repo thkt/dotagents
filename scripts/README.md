@@ -1,9 +1,9 @@
 # 制御CLIの試行手順
 
-合意済みIssueから新しい変更を作る担当者と、既存の修正・独立評価の構成を設定して試す担当者向けの手順です。この文書をCLIの操作および実行制約の正本とします。目的に応じて次の入口を選びます。
+合意済みIssueから新しい変更を作る担当者と、独立評価を試行する担当者向けの手順です。この文書をCLIの操作および実行制約の正本とします。目的に応じて次の入口を選びます。
 
 - 合意済みIssueの開発は[implement](../skills/implement/SKILL.md)から`development.ts`を使います。初回実装からPR作成までの手順、利用条件、上限は[IssueからPR作成](#issueからpr作成)を参照してください。文書のみの合意済みIssueも同じ入口で扱い、[ドキュメントの更新](../docs/wiki/development-policy.md#ドキュメントの更新)を適用します。
-- 修正や独立評価の構成を設定して試す場合は`correction.ts`を使います。[準備と実行](#準備と実行)で設定と実行上限を確認し、check失敗または独立評価の`needs_changes`から修正、再検証、再評価へ接続します。
+- 独立評価を1回観測する試行には`review-probe.ts`を使います。[実行方式と旧設定](#実行方式と旧設定)で通常開発との違いと、旧`correction.ts CONFIG_FILE`からの移行を確認してください。
 - ハーネスの導入や検証は[READMEのセットアップと検証](../README.md#セットアップと検証)、変更とレビューの方針は[開発方針](../docs/wiki/development-policy.md)を参照してください。制御CLIや実モデルの起動は不要です。
 - 何を変更するか未確定の相談は[scoping](../skills/scoping/SKILL.md)で要求を整理し、[対話と方針の決定](../docs/wiki/development-policy.md#対話と方針の決定)に従って合意済みIssueへつなぎます。
 
@@ -21,7 +21,7 @@ bun /absolute/path/to/trusted/scripts/implement/development.ts 99 --repo /absolu
 
 必要な調査報告がある場合は[引き継ぎ引数](#調査報告を指定した実装開始)で指定します。旧セッション状態、保存済み評価、lockはそのまま保全し、移行入力にしません。
 
-通常の新規実行では、初回実装・修正・独立評価にモデル経過時間の上限を設けません。初回実装の経過時間は記録し、後工程には時間上限なし（`modelTimeMs: null`）を渡します。追加修正・独立評価も回数上限なし（`repairLimit: null`・`reviewLimit: null`）とし、合意範囲内の必須指摘を解消した最新成果物のcheckと独立評価acceptedまで修正ループを続けます。CI待機の総時間上限も設けません。各checkの9分は維持し、通常コマンドとCIの各状態取得・最後の対象照合は各11分で打ち切ります。要求・対象・権限の照合と手動中断による停止は継続し、通常利用者に時間・回数設定や回数だけを理由とした続行承認は求めません。
+通常の新規実行では、初回実装・修正・独立評価にモデル経過時間の上限を設けません。実行回数・経過時間・指摘履歴・結果・実行中の予約は記録します。追加修正・独立評価にも回数上限を設けず、合意範囲内の必須指摘を解消した最新成果物のcheckと独立評価acceptedまで修正ループを続けます。CI待機の総時間上限も設けません。各checkの9分は維持し、通常コマンドとCIの各状態取得・最後の対象照合は各11分で打ち切ります。要求・対象・権限の照合と手動中断による停止は継続し、通常利用者に時間・回数設定や回数だけを理由とした続行承認は求めません。
 
 [Issue #155](https://github.com/thkt/dotagents/issues/155)の回数上限なしの契約は、採用後に開始する新規runへ適用します。進行中ホストや過去のrun・設定・予算・stateは書換え・変換・削除・再開しません。有限設定の既存runを同じ記録のまま無制限へ切り替えることは設定変更として拒否します。時間・使用量・履歴の保存量が増える可能性があり、修正の収束は保証しません。
 
@@ -118,7 +118,7 @@ bun /absolute/path/to/trusted/scripts/implement/development.ts 99 \
 
 `setup` はコマンド1件なら `"setup": "bun install --frozen-lockfile --ignore-scripts"`、`check` は `"check": "bun run check"` のような空でないシェルコマンド文字列を指定できます。文字列はmacOSの `/bin/sh -c` へそのまま渡し、対象checkoutで実行します。引用符の解釈、変数展開、パイプやリダイレクトはシェルが処理します。`setup` で複数のコマンドを順番に実行する場合は、上例のようなargv配列の配列を使えます。`check` もargv配列を使えます。argv配列はシェルで解釈せず、実行ファイル名と後続の引数を順序どおり渡します。引数の空文字や空白も保持します。シェル解釈が不要なら既存の配列形式をそのまま使えます。文字列形式には、この形式に対応したハーネスが必要です。
 
-`capture.command` は引き続きargv配列です。独立した `correction.ts` 入力の `check` もargv配列のままです。`.dotagents.json` では、実行ファイル名が空または空白だけの配列、`setup`・`check` の欠落・空文字列・空白だけの文字列・不正な型、`check` の空配列、撮影方針の省略は開始前に拒否します。セットアップが不要な場合は `setup: []` と明示します。
+`capture.command` は引き続きargv配列です。`.dotagents.json` では、実行ファイル名が空または空白だけの配列、`setup`・`check` の欠落・空文字列・空白だけの文字列・不正な型、`check` の空配列、撮影方針の省略は開始前に拒否します。セットアップが不要な場合は `setup: []` と明示します。
 
 いずれの形式も対象checkoutで実行し、非zero終了は失敗です。文字列形式も既存のcheck経路で終了コード・タイムアウト・中断を扱い、設定原文の同一性と公開先の照合条件は維持します。対象のcheckがテスト未実行やskipなどを成功扱いしないことも、設定担当と独立評価で確認します。CLIが任意の外部runnerのレポート形式や合意の意味を判定するものではありません。
 
@@ -148,7 +148,7 @@ bun /absolute/path/to/trusted/scripts/scoping/target.ts /absolute/path/to/target
 
 `destination`の媒体は撮影で更新されます。過去の記録の固定ハッシュを最新媒体の根拠には使いません。撮影後に対象ソース（commitと未commit差分を含む）、撮影ログ、配置した媒体のサイズとSHA-256、検証結果を照合し、対応PRへ記録します。公開時はホスト固有のパス、非公開repo情報、非公開の実行ログを転載せず、公開可能な要約と根拠を示します。過去の記録は対象時点を保ち、PR内の表示・再生と同headのCIはそれぞれの実施結果を区別します。
 
-correctionを単独で設定する場合も、capture commandに加えて `captureDestination` と `captureRequired` を明示します。`captureRequired: true` でcommandがない設定は実行前に拒否します。capture commandの省略は、媒体不要の合意がある場合だけ使います。通常入口のdevelopmentは対象設定をそのまま渡します。
+developmentは対象設定のcapture command、保存先、撮影方針を内部の修正ループへ渡します。撮影必須なのにcommandがない設定は実行前に拒否します。撮影の省略は、媒体不要の合意がある場合だけ使います。
 
 撮影結果は同じ実行内で入力と媒体が一致する場合に再利用します。`required: true` は文書・保存記録も同一性に含め、初回は必ず撮影します。以下の文書・保存記録の除外は `required: false` の場合だけ適用します。
 
@@ -158,7 +158,7 @@ correctionを単独で設定する場合も、capture commandに加えて `captu
 
 撮影を再利用しても、文書や記録を含む全体の変更検知、共通check、独立評価は省略しません。評価者は保持された媒体の撮影対象と現在のコードの対応、および証拠記録の整合を確認します。停止済み実行の上限や状態は変更せず、この仕組みは同じ実行の修正ループ内で使います。
 
-再撮影が必要な場合はcheckout外の新しい出力先で行います。要求とソースが変わっていないことを確認して媒体を取り込み、媒体を含む対象を確定して共通check、独立評価、公開へ進みます。撮影失敗時はログを修正担当へ渡します。起動不能は`capture_unavailable`、撮影の時間切れは`capture_timeout`として停止し、ホスト側での環境確認が必要です。撮影にも各checkと同じ9分の上限とプロセスグループの中断処理を適用します。正常な`needs_human`と不正応答を区別して表示し、記録と既存の消費上限を保持します。
+再撮影が必要な場合はcheckout外の新しい出力先で行います。要求とソースが変わっていないことを確認して媒体を取り込み、媒体を含む対象を確定して共通check、独立評価、公開へ進みます。撮影失敗時はログを修正担当へ渡します。起動不能は`capture_unavailable`、撮影の時間切れは`capture_timeout`として停止し、ホスト側での環境確認が必要です。撮影にも各checkと同じ9分の上限とプロセスグループの中断処理を適用します。正常な`needs_human`と不正応答を区別して表示し、記録を保持します。
 
 ### 同じ実行内の確認と再利用
 
@@ -175,36 +175,22 @@ correctionを単独で設定する場合も、capture commandに加えて `captu
 
 撮影を再利用しても、修正後の共通checkと独立評価、同じPR headのCI確認は維持します。失敗・中断のログ、旧state、消費時間と回数は削除・変換しません。
 
-## 準備と実行
+## 実行方式と旧設定
 
-```text
-bun scripts/implement/correction.ts /absolute/path/config.json
-```
+修正・評価の実行は次の2用途に分けます。
 
-設定は信頼する公開・実行担当が用意します。対象base branchと照合した隔離作業コピーを用意し、設定、制御コード、証拠ディレクトリを修正対象の外へ配置します。以下は設定形式の例です。Issue番号、絶対パス、実行上限はその試行で合意した値を起動前に設定してください。例の値自体は新たな実行許可を意味しません。
+| 用途 | 入口と終了条件 |
+| --- | --- |
+| 通常開発 | `development.ts`が初回実装後に内部の修正ループを呼びます。check失敗や必須指摘を修正し、最新のcheck成功と独立評価acceptedまで続けます。回数・累計モデル時間の設定はありません |
+| 評価試行 | `review-probe.ts`がcheck後に内部の`reviewOnce`を呼びます。レビューは1回で、acceptedとneeds_changesの双方を`review_completed`として保存します。修正担当を呼ばず、指摘・対象・生応答を残します |
 
-```json
-{
-  "cwd": "/absolute/path/isolated-worktree",
-  "runDir": "/absolute/path/evidence",
-  "issue": ["gh", "issue", "view", "DELIVERABLE_ISSUE_NUMBER", "--repo", "OWNER/REPO", "--json", "title,body,updatedAt"],
-  "check": ["bun", "run", "check"],
-  "repair": ["bun", "/absolute/path/controller/scripts/implement/codex-actor.ts", "repair", "/absolute/path/evidence"],
-  "review": ["bun", "/absolute/path/controller/scripts/implement/codex-actor.ts", "review", "/absolute/path/evidence"],
-  "repairLimit": 2,
-  "reviewLimit": 2,
-  "modelTimeMs": 1200000,
-  "checkTimeMs": 540000
-}
-```
+両用途はレビュー指示、対象と要求の照合、応答検査、証拠保存、中断処理を共用します。評価試行では1回のレビューに有限の`reviewTimeMs`を適用します。時間切れは`review_timeout`、check失敗は`check_failed`として保存し、観測完了と区別します。check・撮影にも有限の`checkTimeMs`を適用します。`review_completed`は評価を観測できたことを示し、要求充足、公開の許可、人の承認を意味しません。判定の妥当性は保存した成果物と独立した再現で確認します。
 
-`repairLimit`・`reviewLimit`もそれぞれ必須で、正の整数は有限の回数上限、明示的な`null`は回数上限なしです。省略、0、負数、小数、文字列などの不正値は拒否します。上の例は追加修正・独立評価を各2回までとする単独試行です。通常入口は両方に`null`を渡します。上限なしでも回数・経過時間・指摘履歴・結果・実行中の予約を記録します。有限のモデル時間、check・CI・通常コマンドの制約と手動中断は独立して有効です。
+旧コマンド`bun scripts/implement/correction.ts CONFIG_FILE`は終了コード1と移行案内を返し、指定されたコマンドを起動しません。任意の`repairLimit`・`reviewLimit`・`modelTimeMs`を指定する単独修正試行は廃止しました。通常開発は合意済みIssueから`development.ts`で開始し、評価試行は後述の`review-probe.ts`を使ってください。旧設定を無制限の実行へ読み替えることはありません。
 
-`modelTimeMs`は必須です。正の有限数なら修正・独立評価の累計時間の上限（ミリ秒）、`null`ならモデルの時間上限なしを意味します。省略、0、負数、文字列などの不正値は拒否します。上の例はモデル累計20分に制限する単独試行であり、通常のdevelopment入口とは異なります。時間上限なしでも経過時間・結果を記録し、明示した有限の回数上限と中断処理は働きます。`checkTimeMs`は引き続き正の有限数が必須で、`null`にはできません。
+この変更は採用版で開始する新規runに適用します。過去の設定・state・ログを上書き、変換、再開しません。既存PR修正では、前回正常公開したrunの旧設定を元のhashのまま読み取り照合できます。過去の`execution_limit`も旧記録の停止理由として保持します。
 
-`issue`は成果物の要求を取得するコマンドです。CLIは取得結果の全文を修正と独立評価の両方へ渡します。GitHubの書き込みコマンドはこの入口にありません。
-
-必要な調査報告を伴う単独実行では、`baseCommit`に開始commitを指定し、`reports`に`[{"path":"docs/research/reset-behavior.md","blob":"確認済みの完全なGit blob ID"}]`の形式で参照を指定します。`reports`は省略できますが、指定した報告がある場合は`baseCommit`が必要です。通常のdevelopment入口では[引き継ぎ引数](#調査報告を指定した実装開始)から自動設定するため、手作業で二重管理しません。参照は実行設定の同一性検査にも含まれ、実行途中で差し替えることはできません。
+要求はIssueの取得結果の全文を修正と独立評価へ渡します。必要な調査報告は通常開発の[引き継ぎ引数](#調査報告を指定した実装開始)で指定し、開始commitと確認済みblobへ結び付けます。実行中に設定や参照を差し替えることはできません。
 
 ### 成果物の要求と実験の管理
 
@@ -222,7 +208,7 @@ bun scripts/implement/correction.ts /absolute/path/config.json
 
 `repair`と`review`は、要求と失敗の根拠を標準入力で受け取り、結果のJSONだけを標準出力へ返します。`repair`は`status: repaired | needs_host | needs_human`と文字列`findings`を返します。`review`は[review.ts](implement/review.ts)の専用schemaに従います。独自のreviewコマンドにも同じ形式が必要です。
 
-レビュー応答の項目・型・許可値と余分な項目の拒否は、`review.ts`のZod定義を正本とします。受信時の構造検証とCodexの`--output-schema`へ渡すJSON Schemaをここから作り、保存用の完全なレビューも応答定義を組み合わせて検証・型推論します。応答項目を変更するときは該当するZod定義を変更し、関連テスト・指示文・利用側への影響を確認します。JSON SchemaやTypeScript型を別途手書きで同期する必要はありません。Zodは[package.json](../package.json)とlockfileで固定した直接依存です。actorの修正応答や一般のJSON読込みには適用しません。
+レビュー応答の項目・型・許可値と余分な項目の拒否は、`review.ts`のZod定義を正本とします。受信時の構造検証とCodexの`--output-schema`へ渡すJSON Schemaをここから作り、保存用の完全なレビューも応答定義を組み合わせて検証・型推論します。応答項目を変更するときは該当するZod定義を変更し、関連テスト・指示文・利用側への影響を確認します。JSON SchemaやTypeScript型を別途手書きで同期する必要はありません。Zodは[package.json](../package.json)とlockfileで固定した直接依存です。保存状態は`input.ts`の定義から型と検査を導き、保存済みレビューの定義も共用します。検査は元の記録を変換せず、不正時は`Invalid saved state: 項目パス`で拒否した場所を示します。actorの修正応答や、その他のJSON読込みには適用しません。
 
 空白だけの文字列と安全な正整数でない行番号を拒否し、文字列の自動trimや型変換は行いません。行番号がある場合にpathを必須とする関係はZodの実行時検査で確認します。この項目間の検査は生成JSON Schemaには含まれないため、生成に成功しても受信時の検査を省略しません。対象ID・過去指摘の更新ID・文書参照の重複検査と、ID・状態・総合statusの付与は引き続きホストが担当します。保存済みレビューの形式と旧runを変換・再開しない条件は維持します。
 
@@ -384,7 +370,9 @@ bun scripts/implement/run-report.ts /absolute/path/to/run --output /absolute/pat
 | `host_evidence_changed` | 復帰後のcheck・評価中に参照証拠が変化・欠落した。担当AIが原因を照合し、新しい証拠と保存先を使って元の`--host-run`から再評価する。失敗runも終端記録として保全する。 |
 | `host_verification_required` | 担当AIが通常経路に含まれない検証を実行し、[ホスト検証後の再評価](#ホスト検証後の再評価)へ進む。停止run・未コミット成果物と元の差分基準を保つ。 |
 | `human_decision_required` | findingsを確認し、要求・範囲・許可など必要な選択を人へ戻す。 |
-| `execution_limit` | 単独試行で明示した有限の回数・モデル時間上限に到達した。指摘と消費量を確認し、新しい実行予算など必要な選択を人へ戻す。通常入口の新規runは回数・モデル時間を理由にここへ停止しない。旧runの停止理由と上限は書き換えない。 |
+| `execution_limit` | 旧runで有限の回数・モデル累計時間の上限に到達した記録。新規runでは返しません。指摘と消費量を確認し、旧runの停止理由と上限は書き換えません。 |
+| `review_completed` | 評価試行の1回レビューを保存した。acceptedとneeds_changesの判定・根拠を読み、独立した再現と照合する。通常開発の完了や公開可能を意味しない。 |
+| `review_timeout` / `check_failed` | 評価試行のレビュー時間切れ、またはcheck失敗。ログと対象を確認し、評価完了や指摘なしに読み替えない。 |
 
 支援後も対象・根拠・権限・検証を再確認します。対応案内は旧runの再開許可ではなく、現行CLIに停止runを再開する入口はありません。旧run、lock、active予約、上限を変更せず、新しい保存先を停止条件の迂回に使いません。公開結果が不明ならGitHubの実状態を確認し、自動再試行しません。
 
@@ -483,7 +471,7 @@ bun scripts/implement/review-probe.ts
 
 レビュー応答のSchemaを変更した場合も、この入口から実際のCodexによる受理と応答を確認します。`review-codex-*/schema.json`が`--output-schema`へ渡した生成物です。同じディレクトリの`final.json`と、検証済みの`verification/review-1.json`を照合し、CLIのSchema受理とホストによる応答検証を分けて確認してください。生成差分では必須項目・型・enum・余分な項目の拒否・値の制約を確認します。`$schema`やnullableの`anyOf`などの表現差だけで互換性を判断せず、模擬Codexの制御テストとSchema生成の成功だけでは実CLI確認の代わりにしません。
 
-OSの一時ディレクトリに公開可能な小さなページ分割関数のfixtureを作り、不具合入りと正しい変更をAstra/highで各1回評価します。既存のcorrection・actorを使い、自動修正はせず、対象と指摘を保持します。各試行はreview 1回、修正への引き継ぎ応答1回、モデル時間20分を上限とし、通常フローの設定は変更しません。これはレビュー品質の観測であり、見落としや誤指摘がないことを成功条件にはしません。
+OSの一時ディレクトリに公開可能な小さなページ分割関数のfixtureを作り、不具合入りと正しい変更をAstra/highで各1回評価します。既存のcorrection・actorを使い、自動修正はせず、対象と指摘を保持します。各試行はレビュー1回で終了し、レビューの実行時間を20分に制限します。修正や人への判断依頼の応答でループを止める処理はありません。これはレビュー品質の観測であり、見落としや誤指摘がないことを成功条件にはしません。
 
 [Issue #138](https://github.com/thkt/dotagents/issues/138)に従い、checkoutとレビュー記録は正誤と無関係なランダム名の`case-*`配下に置き、両ケースの実行順もランダムに決めます。開始時に表示する保存先の`host/cases.json`が、実行順のケースIDと正誤の対応表です。最初のレビュー前に保存するため、中断時も対象を照合できます。実行環境とハーネスの版・差分は`host/environment.json`に保持します。停止したrunの上限や記録を変更して続行しません。
 

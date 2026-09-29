@@ -6,10 +6,18 @@ import { parseRepairReply, repairInstructions } from './repair.ts';
 import { parseReview, reviewInstructions, reviewSummary } from './review.ts';
 import type { Review } from './review.ts';
 import { researchContext, verifyReportBase } from './research-handoff.ts';
-import { assertConfig, assertState } from './input.ts';
+import { assertConfig, assertProbeConfig, assertState } from './input.ts';
 import { outside } from '../shared/values.ts';
-import type { Config, State, ActorRole, StopReason, CaptureDecision } from './input.ts';
-import { command, assertRunning, withInterrupts, interruptionMessage } from '../shared/process.ts';
+import type {
+  Config,
+  ReviewConfig,
+  ProbeConfig,
+  State,
+  ActorRole,
+  StopReason,
+  CaptureDecision,
+} from './input.ts';
+import { command, interruptionMessage } from '../shared/process.ts';
 import { createHash } from 'node:crypto';
 import {
   readFile,
@@ -154,7 +162,7 @@ export async function recordArtifacts(cwd: string, baseCommit: string) {
   return { source, files, additions, diff: diff.stdout };
 }
 
-async function validate(config: Config) {
+async function validate(config: ReviewConfig) {
   if (!outside(resolve(config.cwd), resolve(config.runDir))) {
     throw Error('Evidence must be outside the worktree');
   }
@@ -164,7 +172,7 @@ async function validate(config: Config) {
   }
 }
 
-async function readIssue(config: Config, record = false) {
+async function readIssue(config: ReviewConfig, record = false) {
   if (record) {
     const files = await readdir(config.runDir);
     assert(
@@ -188,7 +196,7 @@ async function readIssue(config: Config, record = false) {
 
 // Use only the Issue just read at this boundary; checkRevision reads the remaining
 // revision inputs afresh. Keep its failures ahead of the generic Issue hash check.
-async function revisionUnchanged(config: Config, issue: string) {
+async function revisionUnchanged(config: ReviewConfig, issue: string) {
   if (config.revision) {
     await checkRevision(
       config.revision,
@@ -203,7 +211,7 @@ async function revisionUnchanged(config: Config, issue: string) {
   }
 }
 
-async function readEntryIssue(config: Config, record: boolean) {
+async function readEntryIssue(config: ReviewConfig, record: boolean) {
   const issue = await readIssue(config, record);
   await revisionUnchanged(config, issue);
   if (record) {
@@ -213,31 +221,21 @@ async function readEntryIssue(config: Config, record: boolean) {
   return issue;
 }
 
-function modelLimitReached(config: Config, state: State, role: ActorRole) {
-  const limit = config[`${role}Limit`];
-  return (
-    (limit !== null && state[role] >= limit) ||
-    (config.modelTimeMs !== null && state.modelMs >= config.modelTimeMs)
-  );
-}
-
 async function runModel(
-  config: Config,
+  config: ReviewConfig,
   state: State,
   role: ActorRole,
+  argv: string[],
   prompt: string,
   persist: Persist,
+  timeoutMs: number | null = null,
 ): Promise<ModelResult> {
-  if (modelLimitReached(config, state, role)) {
-    return { stop: 'execution_limit' };
-  }
-  const remaining = config.modelTimeMs === null ? null : config.modelTimeMs - state.modelMs;
   state[role]++;
   const prefix = resolve(config.runDir, `${role}-${state[role]}`);
   state.active = { role, prefix };
   await persist(); // Reserve before launching. An interrupted reservation is never reset.
   await writeFile(`${prefix}.prompt`, prompt, { flag: 'wx' });
-  const result = await command(config[role], config.cwd, prompt, remaining, prefix, {
+  const result = await command(argv, config.cwd, prompt, timeoutMs, prefix, {
     ...process.env,
     DOTAGENTS_ACTOR_PREFIX: prefix,
   });
@@ -254,7 +252,7 @@ async function runModel(
   // Keep the persisted reservation until the next command reservation or terminal save.
   // A failure before that save must never make this attempt runnable again.
   if (result.timedOut) {
-    return { stop: 'execution_limit' };
+    return { stop: 'review_timeout' };
   }
   if (result.code !== 0) {
     return { stop: `${role}_failed` };
@@ -263,7 +261,7 @@ async function runModel(
 }
 
 async function hostCommand(
-  config: Config,
+  config: ReviewConfig,
   state: State,
   role: 'capture' | 'check',
   argv: string[],
@@ -292,7 +290,7 @@ async function hostCommand(
   return { ...result, prefix };
 }
 
-async function installMedia(config: Config, output: string) {
+async function installMedia(config: ReviewConfig, output: string) {
   const names = await readdir(output);
   for (const name of names) {
     if (
@@ -316,7 +314,7 @@ async function installMedia(config: Config, output: string) {
   await cp(output, destination, { recursive: true });
 }
 
-function captureDefinitions(config: Config) {
+function captureDefinitions(config: ReviewConfig) {
   const command = config.capture ?? [];
   const directories = command.flatMap((argument, index) =>
     argument === '--cwd'
@@ -336,7 +334,7 @@ function captureDefinitions(config: Config) {
   });
 }
 
-async function captureIdentity(config: Config, source: string, files: SourceFile[]) {
+async function captureIdentity(config: ReviewConfig, source: string, files: SourceFile[]) {
   assert(config.captureDestination);
   const definitions = captureDefinitions(config);
   const ignored = await command(
@@ -380,7 +378,7 @@ async function captureIdentity(config: Config, source: string, files: SourceFile
 }
 
 async function captureDecision(
-  config: Config,
+  config: ReviewConfig,
   source: string,
   files: SourceFile[],
   previousSource?: string,
@@ -473,7 +471,7 @@ async function plainMarkdownFile(cwd: string, path: string, deleted: boolean) {
 }
 
 async function verifyHost(
-  config: Config,
+  config: ReviewConfig,
   state: State,
   persist: Persist,
 ): Promise<{ stop?: StopReason; findings?: string }> {
@@ -519,7 +517,7 @@ async function verifyHost(
 }
 
 async function verifyCheck(
-  config: Config,
+  config: ReviewConfig,
   state: State,
   persist: Persist,
   decision: CaptureDecision,
@@ -540,7 +538,7 @@ async function verifyCheck(
 }
 
 async function reviewTarget(
-  config: Config,
+  config: ReviewConfig,
   state: State,
   issue: string,
   repairsSinceReview: RepairReference[],
@@ -627,19 +625,16 @@ function documentVersions(review: Review, files: [string, number, string][]) {
 }
 
 async function evaluate(
-  config: Config,
+  config: ReviewConfig,
   state: State,
   issue: string,
   persist: Persist,
   repairsSinceReview: RepairReference[],
-): Promise<{ stop?: StopReason; findings?: string }> {
-  // Do not create an apparent attempt if the existing execution budget is exhausted.
-  if (modelLimitReached(config, state, 'review')) {
-    return { stop: 'execution_limit' };
-  }
+  timeoutMs: number | null = null,
+): Promise<StopReason | null> {
   const target = await reviewTarget(config, state, issue, repairsSinceReview);
-  if ('stop' in target) {
-    return { stop: target.stop };
+  if (target.stop) {
+    return target.stop;
   }
   const history = state.reviewHistory;
   const prompt = [
@@ -652,15 +647,23 @@ async function evaluate(
   ].join('\n');
   const before = await targetChange(config, state);
   if (before) {
-    return { stop: before };
+    return before;
   }
-  const reviewed = await runModel(config, state, 'review', prompt, persist);
+  const reviewed = await runModel(
+    config,
+    state,
+    'review',
+    config.review,
+    prompt,
+    persist,
+    timeoutMs,
+  );
   if ('stop' in reviewed) {
-    return { stop: reviewed.stop };
+    return reviewed.stop;
   }
   const changed = await targetChange(config, state);
   if (changed) {
-    return { stop: changed };
+    return changed;
   }
   let review: Review;
   let documents: ReturnType<typeof documentVersions>;
@@ -669,7 +672,7 @@ async function evaluate(
     documents = documentVersions(review, target.files);
   } catch (error) {
     state.findings = `Invalid review: ${error instanceof Error ? error.message : String(error)}; raw response: ${target.prefix}.stdout`;
-    return { stop: 'invalid_review' };
+    return 'invalid_review';
   }
   try {
     await writeFile(
@@ -679,15 +682,11 @@ async function evaluate(
     );
   } catch (error) {
     state.findings = `Cannot save review at ${target.prefix}.json: ${error instanceof Error ? error.message : String(error)}; raw response: ${target.prefix}.stdout; previous complete reviews remain in reviewHistory.`;
-    return { stop: 'review_storage_failed' };
+    return 'review_storage_failed';
   }
   history.push(review);
-  state.reviewHistory = history;
   state.findings = summarizeReviews(state);
-  if (review.status === 'accepted') {
-    return { stop: 'ready_for_human_review' };
-  }
-  return { findings: state.findings };
+  return null;
 }
 
 function summarizeReviews(state: State) {
@@ -697,6 +696,43 @@ function summarizeReviews(state: State) {
   );
 }
 
+async function requirementsChanged(config: ReviewConfig, state: State) {
+  const currentIssue = await readIssue(config);
+  await revisionUnchanged(config, currentIssue);
+  return digest(currentIssue) !== state.issueHash;
+}
+
+async function repairOutcome(
+  config: Config,
+  state: State,
+  stdout: string,
+  repairsSinceReview: RepairReference[],
+): Promise<StopReason | RepairReference[]> {
+  const value = parseRepairReply(stdout);
+  state.findings = value.findings;
+  if (value.status === 'invalid') {
+    return 'invalid_repair';
+  }
+  if (value.status === 'needs_host') {
+    state.source = await snapshot(config.cwd);
+    return 'host_verification_required';
+  }
+  if (value.status === 'needs_human') {
+    return 'human_decision_required';
+  }
+  assert(state.source);
+  return [
+    ...repairsSinceReview,
+    {
+      attempt: state.repair,
+      prefix: resolve(config.runDir, `repair-${state.repair}`),
+      sourceBefore: state.source,
+      sourceAfter: await snapshot(config.cwd),
+      stdoutHash: digest(stdout),
+    },
+  ];
+}
+
 async function cycle(
   config: Config,
   state: State,
@@ -704,9 +740,7 @@ async function cycle(
   persist: Persist,
   repairsSinceReview: RepairReference[],
 ): Promise<StopReason | RepairReference[]> {
-  const currentIssue = await readIssue(config);
-  await revisionUnchanged(config, currentIssue);
-  if (digest(currentIssue) !== state.issueHash) {
+  if (await requirementsChanged(config, state)) {
     return 'requirements_changed';
   }
   const host = await verifyHost(config, state, persist);
@@ -718,11 +752,14 @@ async function cycle(
     findings += `\nPrevious independent review (historical; verify current artifacts):\n${summarizeReviews(state)}`;
   }
   if (!findings) {
-    const result = await evaluate(config, state, issue, persist, repairsSinceReview);
-    if (result.stop) {
-      return result.stop;
+    const stopped = await evaluate(config, state, issue, persist, repairsSinceReview);
+    if (stopped) {
+      return stopped;
     }
-    findings = result.findings;
+    if (state.reviewHistory.at(-1)?.status === 'accepted') {
+      return 'ready_for_human_review';
+    }
+    findings = state.findings;
     // The completed review has consumed these explanations. Check failures do not.
     repairsSinceReview = [];
   }
@@ -743,41 +780,17 @@ async function cycle(
     `Requirements:\n${issue}\nFailure evidence:\n${findings}`,
     researchContext(state.baseCommit, config.reports),
   ].join('\n');
-  const beforeRepair = await readIssue(config);
-  await revisionUnchanged(config, beforeRepair);
-  if (digest(beforeRepair) !== state.issueHash) {
+  if (await requirementsChanged(config, state)) {
     return 'requirements_changed';
   }
-  const repaired = await runModel(config, state, 'repair', prompt, persist);
+  const repaired = await runModel(config, state, 'repair', config.repair, prompt, persist);
   if ('stop' in repaired) {
     return repaired.stop;
   }
-  const value = parseRepairReply(repaired.stdout);
-  state.findings = value.findings;
-  if (value.status === 'invalid') {
-    return 'invalid_repair';
-  }
-  if (value.status === 'needs_host') {
-    state.source = await snapshot(config.cwd);
-    return 'host_verification_required';
-  }
-  if (value.status === 'needs_human') {
-    return 'human_decision_required';
-  }
-  assert(state.source);
-  return [
-    ...repairsSinceReview,
-    {
-      attempt: state.repair,
-      prefix: resolve(config.runDir, `repair-${state.repair}`),
-      sourceBefore: state.source,
-      sourceAfter: await snapshot(config.cwd),
-      stdoutHash: digest(repaired.stdout),
-    },
-  ];
+  return repairOutcome(config, state, repaired.stdout, repairsSinceReview);
 }
 
-async function targetChange(config: Config, state: State): Promise<StopReason | null> {
+async function targetChange(config: ReviewConfig, state: State): Promise<StopReason | null> {
   const issue = await readIssue(config);
   await revisionUnchanged(config, issue);
   if (digest(issue) !== state.issueHash) {
@@ -797,13 +810,42 @@ async function targetChange(config: Config, state: State): Promise<StopReason | 
   return null;
 }
 
+type Verification = (state: State, issue: string, persist: Persist) => Promise<StopReason>;
+
 export async function run(config: unknown) {
   assertConfig(config);
+  return lockedRun(config, async (state, issue, persist) => {
+    // 今回完了した修正だけを次の評価へ渡し、別runの説明を混ぜない。
+    let result: StopReason | RepairReference[] = [];
+    while (typeof result !== 'string') {
+      result = await cycle(config, state, issue, persist, result);
+    }
+    return result;
+  });
+}
+
+export async function reviewOnce(config: unknown) {
+  assertProbeConfig(config);
+  return lockedRun(config, async (state, issue, persist) => {
+    const host = await verifyHost(config, state, persist);
+    if (host.stop) {
+      return host.stop;
+    }
+    if (host.findings) {
+      return 'check_failed';
+    }
+    return (
+      (await evaluate(config, state, issue, persist, [], config.reviewTimeMs)) ?? 'review_completed'
+    );
+  });
+}
+
+async function lockedRun(config: Config | ProbeConfig, verify: Verification) {
   await validate(config);
   const lock = resolve(config.runDir, 'lock');
-  await mkdir(lock); // Existing lock requires reconciliation, never an automatic takeover.
+  await mkdir(lock); // 既存lockは照合が必要であり、自動で引き継がない。
   try {
-    return await execute(config);
+    return await execute(config, verify);
   } finally {
     await rm(lock, { recursive: true });
   }
@@ -813,7 +855,7 @@ function isMissing(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
-async function execute(config: Config): Promise<State> {
+async function execute(config: Config | ProbeConfig, verify: Verification): Promise<State> {
   const path = resolve(config.runDir, 'state.json');
   let state: State | undefined;
   try {
@@ -827,7 +869,7 @@ async function execute(config: Config): Promise<State> {
   }
   const configHash = digest(JSON.stringify(config));
   if (state && state.configHash !== configHash) {
-    throw Error('Run configuration changed; do not reset the existing limits');
+    throw Error('Run configuration changed; preserve the existing run');
   }
   if (state?.active) {
     throw Error(interruptionMessage);
@@ -872,13 +914,7 @@ async function execute(config: Config): Promise<State> {
   };
   const persist = () => save(path, state);
   await persist();
-  // Only repairs completed by this execution are handed off. Never discover
-  // explanations from old state or neighboring runs, or duplicate their text.
-  let result: StopReason | RepairReference[] = [];
-  while (typeof result !== 'string') {
-    result = await cycle(config, state, issue, persist, result);
-  }
-  state.result = result;
+  state.result = await verify(state, issue, persist);
   await saveTerminal(path, state);
   return state;
 }
@@ -895,20 +931,8 @@ async function saveTerminal(path: string, state: State) {
 }
 
 if (import.meta.main) {
-  try {
-    await withInterrupts(async () => {
-      const configFile = process.argv[2];
-      if (!configFile) {
-        throw Error('Usage: bun scripts/implement/correction.ts CONFIG_FILE');
-      }
-      const config: unknown = JSON.parse(await readFile(configFile, 'utf8'));
-      const result = await run(config);
-      assertRunning();
-      console.log(JSON.stringify(result, null, 2));
-      process.exitCode = result.result === 'ready_for_human_review' ? 0 : 1;
-    });
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-  }
+  console.error(
+    '単独の修正CLIは廃止しました。通常開発はdevelopment.ts、評価試行はreview-probe.tsを使ってください。旧runは再開せず保全してください。',
+  );
+  process.exitCode = 1;
 }

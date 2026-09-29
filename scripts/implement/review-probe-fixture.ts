@@ -123,7 +123,7 @@ export async function prepareTestReview(cwd: string, host: string, name: string,
     baseTree,
     headTree,
     preflight: evidence,
-    modelTimeMs: 180000,
+    reviewTimeMs: 180000,
     body: `${contract}\nReview the tests in the current checkout after an update. The previous review covered tests/01-start.test.ts through tests/06-invalid.test.ts against the implementation at commit ${baseCommit}. Confirm the current version and changes, then inspect the tests that need review. Passing tests alone do not establish their adequacy: check the behavior they distinguish and overlap with existing checks. Explain when the prior review still applies to unchanged content. Report concrete problems only; no finding is required. Read and verify locally; do not edit the checkout. No media or publication is required.`,
   };
 }
