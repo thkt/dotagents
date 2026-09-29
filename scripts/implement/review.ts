@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { z } from 'zod';
 
-export const reviewModel = { model: 'gpt-6-astra', reasoningEffort: 'high' };
+export const reviewModel = { model: 'gpt-6.1-sol', reasoningEffort: 'high' };
 const text = z.string().min(1).regex(/\S/);
 const disposition = z.enum(['open', 'fixed', 'not_applicable']);
 const newItem = z.strictObject({

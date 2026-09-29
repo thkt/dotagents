@@ -16,6 +16,9 @@ async function expectInvocation(root: string, role: string) {
   const invocation = object(JSON.parse(await readFile(join(root, 'invocation.json'), 'utf8')));
   expect(invocation.inheritedPrefix).toBeNull();
   const args = events(invocation.args);
+  expect(args[args.indexOf('-m') + 1]).toBe('gpt-6.1-sol');
+  expect(args[args.indexOf('-c') + 1]).toBe('model_reasoning_effort="high"');
+  expect(args).toContain('--ignore-user-config');
   expect(args).toContain('--output-schema');
   expect(args[args.indexOf('--sandbox') + 1]).toBe(
     role === 'repair' ? 'workspace-write' : 'read-only',
@@ -77,6 +80,7 @@ async function expectInvocation(root: string, role: string) {
 
 for (const mode of ['normal', 'repair', 'nonzero', 'missing', 'write_error'] as const) {
   const role = mode === 'repair' ? mode : 'review';
+  const sandbox = role === 'repair' ? 'workspace-write' : 'read-only';
   const succeeds = ['normal', 'repair'].includes(mode);
   test(`Codex actor logs: ${mode}`, async () => {
     const root = await mkdtemp(join(tmpdir(), 'actor-stream-'));
@@ -138,8 +142,9 @@ process.exitCode = ${mode === 'nonzero' ? 7 : 0};
           recordFormat: 1,
           role,
           hostPrefix: 'verification/actor-1',
-          model: 'gpt-6-astra',
+          model: 'gpt-6.1-sol',
           reasoningEffort: 'high',
+          sandbox,
           ignoreUserConfig: true,
         });
       }

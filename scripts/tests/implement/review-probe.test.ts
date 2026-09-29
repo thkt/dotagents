@@ -11,6 +11,17 @@ async function json(path: string) {
   return object(JSON.parse(await readFile(path, 'utf8')));
 }
 
+async function expectModel(actorDir: string, input: Record<string, unknown>) {
+  const settings = { model: 'gpt-6.1-sol', reasoningEffort: 'high' };
+  const actor = await json(join(actorDir, 'actor.json'));
+  expect(actor).toMatchObject({ ...settings, sandbox: 'read-only', ignoreUserConfig: true });
+  expect(object(object(input.target).model).settings).toEqual(settings);
+  expect(object(input.config).reviewModel).toEqual(settings);
+  const args = events(input.args);
+  expect(args[args.indexOf('-m') + 1]).toBe(settings.model);
+  expect(args[args.indexOf('-c') + 1]).toBe('model_reasoning_effort="high"');
+}
+
 test('reviewer usage rejects fractional and overflowing token totals', async () => {
   const root = await mkdtemp(join(tmpdir(), 'review-usage-'));
   const dir = join(root, 'review-codex-trial');
@@ -41,6 +52,7 @@ async function inspectCase(root: string, entry: Record<string, unknown>) {
   expect(actors).toHaveLength(1);
   assert(actors[0]);
   const input = await json(join(dir, actors[0], 'input.json'));
+  await expectModel(join(dir, actors[0]), input);
   expect(input.cwd).toBe(join(dir, 'checkout'));
   const serialized = JSON.stringify(input);
   // Generic review/test/correction vocabulary and actual source defects remain visible.
@@ -229,6 +241,7 @@ async function inspectTestCase(root: string, entry: Record<string, unknown>) {
   expect(actors).toHaveLength(1);
   assert(actors[0]);
   const input = await json(join(dir, actors[0], 'input.json'));
+  await expectModel(join(dir, actors[0]), input);
   const serialized = JSON.stringify(input);
   expect(serialized).not.toMatch(
     /weak|sound|knownDefect|expectedTestGap|pending_host_adjudication|mutation-copy|preflight\.json|cases\.json|oracle\.ts/,
