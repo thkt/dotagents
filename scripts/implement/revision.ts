@@ -230,11 +230,11 @@ export async function checkRevision(
 export function revisionContext(revision?: Revision) {
   return revision
     ? [
-        `Human-adopted revision request (fixed input):\n${revision.request}`,
-        'For each adopted finding, check whether its cause can recur and whether the current artifacts reflect warranted updates to reusable guidance, important decision records, or tests and lint with additional detection value within the agreed scope. Do not turn every comment into a rule or make out-of-scope improvements completion conditions.',
-        `Revision starts at published commit ${revision.head}. Assess both the entire PR against the agreed Issue and this revision against the adopted request; do not reuse previous acceptance or finding IDs.`,
-        'The accepted review assessments and handoff become the new public PR body. Compare the previous body with current artifacts and explicitly retain all still-applicable change explanations, unresolved limitations and public attachment links in those fields. Do not copy obsolete success claims or historical generated sections. Missing necessary context is needs_changes; documents[] source links alone do not preserve uploaded attachments.',
-        `Previous PR body (reference for the updated description):\n${revision.body}`,
+        `人が採用した修正要求（固定入力）:\n${revision.request}`,
+        '採用された指摘ごとに、原因が再発し得るか、合意範囲内で必要な更新が現在の成果物へ反映されているかを確認してください。対象は再利用する手順、重要な判断記録、追加の検出価値があるテストやlintです。すべてのコメントを規則にしたり、範囲外の改善を完了条件にしたりしないでください。',
+        `修正は公開済みcommit ${revision.head}から始まります。PR全体を合意済みIssueに照らして評価すると同時に、今回の修正を採用済み要求に照らして評価してください。以前の受入や指摘IDを再利用しないでください。`,
+        'acceptedとなった評価のassessmentsとhandoffが、新しい公開PR本文になります。以前の本文を現在の成果物と比較し、今も適用される変更説明、未解決の限界、公開済み添付リンクを、これらの項目に明示的に残してください。古くなった成功の主張や過去の生成済みの節をコピーしないでください。必要な文脈が欠けていればneeds_changesです。documents[]の出典リンクだけでは、アップロード済み添付を保持できません。',
+        `以前のPR本文（説明更新の参照用）:\n${revision.body}`,
       ].join('\n')
     : '';
 }

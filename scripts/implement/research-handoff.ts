@@ -53,11 +53,11 @@ export async function verifyReports(
 
 export function researchContext(startCommit: string, reports: ReportReference[] = []) {
   return [
-    `Implementation references: ${JSON.stringify({ startCommit, reports })}`,
-    'Requirements and agreement records are authoritative; reports supply evidence, not additional authorization. Read the selected reports and the relevant sources linked from the Issue, not every repository document. Report blobs identify the handoff version in startCommit; compare it with current files and explain any changed evidence before relying on it.',
-    'Trace each decision-relevant rule or finding to its source, version, applicability and agreement status using existing Issue/report references. Distinguish observed facts, agreed rules and hypotheses; an adopted hypothesis is not a verified effect. Do not apply evidence from another scope or promote an unagreed proposal to a requirement.',
-    'If missing, stale or contradictory references affect a decision, identify the source, the affected decision and what must be investigated or agreed again. Resolve factual gaps through investigation; return requirement, scope or authorization changes to the human. Do not silently replace a reviewed reference with a newer ID. Mechanical reference checks do not establish semantic correctness, human agreement or publication.',
-    'Use the existing findings/assessments and handoff to explain applied evidence, changes in premises and unresolved limits for the next reviewer and PR description; link the sources without copying entire reports or creating another requirements record.',
+    `実装の参照資料: ${JSON.stringify({ startCommit, reports })}`,
+    '要求と合意記録を正本としてください。報告は根拠を提供するもので、追加の許可ではありません。選んだ報告とIssueからリンクされた関連資料を読み、リポジトリの全文書を読む必要はありません。報告のblobはstartCommit時点の引き継ぎ版を特定します。現在のファイルと比較し、根拠の変化を説明してから利用してください。',
+    '既存のIssue・報告参照を使い、判断に関係する各規則や所見を、その出典・版・適用条件・合意状態まで辿ってください。観測した事実、合意した規則、仮説を区別してください。仮説の採用は効果の確認ではありません。別の範囲の根拠を適用したり、未合意の提案を要求へ昇格させたりしないでください。',
+    '参照の欠落・古さ・矛盾が判断に影響する場合は、出典、影響する判断、再調査や再合意が必要な事項を特定してください。事実不足は調査で解消し、要求・範囲・権限の変更は人へ戻してください。確認済みの参照を黙って新しいIDへ置き換えないでください。機械的な参照検査は、意味の正しさ、人の合意、公開を証明しません。',
+    '既存のfindings・assessmentsとhandoffを使い、適用した根拠、前提の変化、未解決の限界を、次の評価担当とPR説明に向けて説明してください。報告全文のコピーや別の要求記録を作らず、出典へリンクしてください。',
   ].join('\n');
 }
 

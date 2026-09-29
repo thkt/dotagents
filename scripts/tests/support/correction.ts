@@ -19,7 +19,7 @@ export function events(value: unknown) {
 
 // Simulated external actor response; expectations remain in individual tests.
 export const reviewReplySource = `
-const reviewContext=role==='review'?JSON.parse(readFileSync(0,'utf8').split('Host context: ')[1].split('\\n')[0]):null;
+const reviewContext=role==='review'?JSON.parse(readFileSync(0,'utf8').split('ホストコンテキスト: ')[1].split('\\n')[0]):null;
 function reviewReply(status,findings) {
  const previous=reviewContext.previous?.items??[];
  return {findings,targetId:reviewContext.targetId,

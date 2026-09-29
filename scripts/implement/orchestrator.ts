@@ -572,13 +572,13 @@ async function implement(context: Context, io: typeof runtime) {
   outcome.operation = 'initial implementation';
   outcome.details = join(dir, 'implementation');
   const prompt = [
-    'Implement the complete agreed Issue using existing code and verification assets. Follow applicable repository instructions; consult the target README and development policy sections relevant to this change.',
-    'Complete the agreed implementation, needed tests and documentation, and targeted checks needed to prepare it for host verification without pausing for approval of routine choices within scope; reuse sufficient existing verification. Do not change the Issue or weaken acceptance criteria.',
-    'Documentation-only Issues use the same flow; add tests or code only when the agreed requirements need them. Include changed documents in the existing independent review.',
+    '既存のコードと検証資産を使い、合意済みIssue全体を実装してください。適用されるリポジトリ指示に従い、対象のREADMEと開発方針のうち今回の変更に関係する節を参照してください。',
+    '合意範囲内の通常の選択について承認待ちで止まらず、合意した実装、必要なテストと文書、ホスト検証の準備に必要な範囲の確認を完了してください。十分な既存検証を再利用してください。Issueを変更したり、受入基準を弱めたりしないでください。',
+    '文書だけのIssueにも同じ流れを使い、合意済みの要求で必要な場合だけテストやコードを追加してください。変更文書を既存の独立評価に含めてください。',
     repairInstructions(context.target.config.capture),
-    `Target setup/check/capture contract (do not weaken or replace): ${JSON.stringify(context.target.config)}`,
-    'Do not edit control scripts or credentials outside this checkout.',
-    `Requirements:\n${original}`,
+    `対象のsetup/check/capture契約（弱めたり置き換えたりしないでください）: ${JSON.stringify(context.target.config)}`,
+    'このcheckoutの外にある制御スクリプトや認証情報を編集しないでください。',
+    `要求:\n${original}`,
     revisionContext(context.revision),
     `Issue: https://github.com/${context.target.config.repository}/issues/${context.number}`,
     researchContext(context.reviewBase, context.reports),

@@ -386,7 +386,7 @@ async function captureDecision(
   if (!config.capture) {
     return {
       outcome: 'not_required',
-      reason: 'Capture is not configured; Issue media requirements must agree',
+      reason: 'captureは未設定です。Issueの媒体要件との一致が必要です',
     };
   }
   const current = await captureIdentity(config, source, files);
@@ -395,8 +395,8 @@ async function captureDecision(
       outcome: previousSource === current ? 'reused' : 'execute',
       reason:
         previousSource === current
-          ? 'Same capture inputs and media in this run'
-          : 'Capture inputs or media changed',
+          ? 'このrun内でcaptureの入力と媒体が一致しています'
+          : 'captureの入力または媒体が変わりました',
       source: current,
       previousSource,
     };
@@ -406,8 +406,8 @@ async function captureDecision(
   return {
     outcome: unnecessary ? 'not_required' : 'execute',
     reason: unnecessary
-      ? 'Only plain Markdown changed; configured as non-rendering input'
-      : 'No matching capture in this run',
+      ? '通常のMarkdownだけの変更で、画面に影響しない入力として設定されています'
+      : 'このrun内に一致するcaptureがありません',
     source: current,
   };
 }
@@ -497,7 +497,7 @@ async function verifyHost(
     if (changed) {
       return { stop: changed };
     }
-    state.findings = `Capture logs: ${capture.prefix}.stdout and ${capture.prefix}.stderr; the assigned AI investigates environment evidence within existing permissions; host environment changes require authorization, execution failures return to repair.`;
+    state.findings = `captureのログ: ${capture.prefix}.stdout と ${capture.prefix}.stderr。担当AIは既存権限内で環境の根拠を調査してください。ホスト環境の変更には許可が必要です。実行失敗は修正へ戻してください。`;
     if (capture.timedOut) {
       return { stop: 'capture_timeout' };
     }
@@ -528,13 +528,15 @@ async function verifyCheck(
   if (changed) {
     return { stop: changed };
   }
-  state.findings = `Check logs: ${checked.prefix}.stdout and ${checked.prefix}.stderr.`;
+  state.findings = `checkのログ: ${checked.prefix}.stdout と ${checked.prefix}.stderr。`;
   if (checked.timedOut || checked.code === null) {
     return { stop: 'check_unavailable' };
   }
   return checked.code === 0
     ? {}
-    : { findings: `check failed. Read ${checked.prefix}.stdout and ${checked.prefix}.stderr.` };
+    : {
+        findings: `checkが失敗しました。${checked.prefix}.stdout と ${checked.prefix}.stderr を読んでください。`,
+      };
 }
 
 async function reviewTarget(
@@ -641,8 +643,8 @@ async function evaluate(
     reviewInstructions,
     revisionContext(config.revision),
     hostReturnContext(config.hostReturn),
-    `Host context: ${JSON.stringify({ targetId: target.targetId, attempt: state.review + 1, targetRecord: `${target.prefix}.target.json`, diff: `${target.prefix}.diff`, additions: `${target.prefix}.additions.json`, previous: history.at(-1) ?? null })}`,
-    `Requirements:\n${issue}`,
+    `ホストコンテキスト: ${JSON.stringify({ targetId: target.targetId, attempt: state.review + 1, targetRecord: `${target.prefix}.target.json`, diff: `${target.prefix}.diff`, additions: `${target.prefix}.additions.json`, previous: history.at(-1) ?? null })}`,
+    `要求:\n${issue}`,
     researchContext(state.baseCommit, config.reports),
   ].join('\n');
   const before = await targetChange(config, state);
@@ -749,7 +751,7 @@ async function cycle(
   }
   let findings = host.findings;
   if (findings && state.reviewHistory.length) {
-    findings += `\nPrevious independent review (historical; verify current artifacts):\n${summarizeReviews(state)}`;
+    findings += `\n過去の独立評価（過去の記録です。現在の成果物を確認してください）:\n${summarizeReviews(state)}`;
   }
   if (!findings) {
     const stopped = await evaluate(config, state, issue, persist, repairsSinceReview);
@@ -764,20 +766,20 @@ async function cycle(
     repairsSinceReview = [];
   }
   const prompt = [
-    'Repair only within these agreed requirements. Read the current files and fix the root cause.',
-    'When findings recur, compare the existing review records and prior repair results with the current artifacts, reassess the cause and repair approach, and continue required corrections within the agreed scope. Do not make out-of-scope improvements or preferences completion conditions.',
+    'これらの合意済み要求の範囲内だけで修正してください。現在のファイルを読み、根本原因を直してください。',
+    '指摘が再発した場合は、既存の評価記録と過去の修正結果を現在の成果物と比較し、原因と修正方法を見直して、合意範囲内で必要な修正を続けてください。範囲外の改善や好みを完了条件にしないでください。',
     revisionContext(config.revision),
     hostReturnContext(config.hostReturn),
-    'Return document content defects to repair and renew affected checks and independent review.',
-    'Preserve agreed acceptance criteria and verification of required behavior; never hide realistic regressions to make checks pass.',
-    'Run only targeted checks needed to diagnose or validate your repair.',
+    '文書内容の欠陥は修正へ戻し、影響するcheckと独立評価を更新してください。',
+    '合意済みの受入基準と必要な振る舞いの検証を保ち、checkを通すために現実的な退行を隠さないでください。',
+    '修正の診断や妥当性の確認に必要な範囲のcheckだけを実行してください。',
     repairInstructions(
       config.capture && config.captureDestination
         ? { destination: config.captureDestination }
         : null,
     ),
-    `Target check/capture contract (do not weaken or replace): ${JSON.stringify({ check: config.check, capture: config.capture ? { command: config.capture, destination: config.captureDestination, required: config.captureRequired } : null })}`,
-    `Requirements:\n${issue}\nFailure evidence:\n${findings}`,
+    `対象のcheck/capture契約（弱めたり置き換えたりしないでください）: ${JSON.stringify({ check: config.check, capture: config.capture ? { command: config.capture, destination: config.captureDestination, required: config.captureRequired } : null })}`,
+    `要求:\n${issue}\n失敗の根拠:\n${findings}`,
     researchContext(state.baseCommit, config.reports),
   ].join('\n');
   if (await requirementsChanged(config, state)) {
