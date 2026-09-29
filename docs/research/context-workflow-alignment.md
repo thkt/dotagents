@@ -6,6 +6,8 @@
 
 実コード・フロー整理の設計方針と共通の完了条件は [Issue #90](https://github.com/thkt/dotagents/issues/90)へ反映した。Issue化時に `7c869f80bd95ea01b47e1ffd35f89e2899657bf2` のコードと既存Issueを再確認している。初回の適用対象は未確定として依頼者へ確認中であり、実装着手前に対象と具体例・受入条件をIssueへ反映する。
 
+参照の補足（2026-09-30）：この節のコードと引き継ぎ手順は設計案作成時の版へ固定した。本文中の「現行」は当時を指す。現在の操作は[CLI手順](../../scripts/README.md)で確認する。以下の観測・提案・合意状態は当時の記録のまま残す。
+
 ### セッションから引き継ぐ設計
 
 目的（何を目指すか）、概念と関係（何をどう捉えるか）、規則と仮説（何が成立し、何を確かめたいか）を、根拠と結び付ける。通常の仕事は必要な知識を参照して進め、新しい事実や矛盾が見つかったときに、これらの前提を見直す。三つを毎回順番に通る工程にはしない。
@@ -82,13 +84,13 @@ AIは意味の解釈、関係付け、仮説、変更案を担当する。コー
 
 ### 現行コードとの差と、最初に確かめる範囲
 
-現行の [research-handoff.ts](../../scripts/research-handoff.ts) は、選んだ報告のパス・確認済みblob・開始commitを照合する。共通の `researchContext()` を [development.ts](../../scripts/development.ts) と [correction.ts](../../scripts/correction.ts) が実装・修正・独立評価で使う。[pr-body.ts](../../scripts/pr-body.ts) は受理済み評価と検証済みcommitからPR本文を作る。参照の受け渡しと出力の再利用は、すでに一部実装されている。
+現行の [research-handoff.ts](https://github.com/thkt/dotagents/blob/d6b76a7854167e789d5d78fce3d10c0a18bf606c/scripts/research-handoff.ts) は、選んだ報告のパス・確認済みblob・開始commitを照合する。共通の `researchContext()` を [development.ts](https://github.com/thkt/dotagents/blob/d6b76a7854167e789d5d78fce3d10c0a18bf606c/scripts/development.ts) と [correction.ts](https://github.com/thkt/dotagents/blob/d6b76a7854167e789d5d78fce3d10c0a18bf606c/scripts/correction.ts) が実装・修正・独立評価で使う。[pr-body.ts](https://github.com/thkt/dotagents/blob/d6b76a7854167e789d5d78fce3d10c0a18bf606c/scripts/pr-body.ts) は受理済み評価と検証済みcommitからPR本文を作る。参照の受け渡しと出力の再利用は、すでに一部実装されている。
 
 一方、要求がどの概念・規則・根拠に依存するかは文章に残され、これらの関係を機械が取り出す仕組みはない。報告の版が一致しても、どの主張を今回採用したかや、その適用の正しさまでは決まらない。
 
 最初の対象候補は、**「一つの目的・対象概念・規則や仮説を形式化し、根拠から変更案を考え、合意した要求を実装・評価へ渡し、その結果から前提を見直す」一例**とする。三つそれぞれについて哲学的な問いと形式的な利用を対応させる。この例の人向け説明とAI入力を同じ参照元から取り出し、更新時にどの既存の転記・再整理が不要になるかを確かめる。参照先と版の受け渡しだけでは、共有モデルと見直しの循環の検証を完了したことにはしない。
 
-例えば現行の「マウス操作の確認結果と未合意のキーボード操作案が同じ報告にある」例では、次を区別する。これは [引き継ぎ手順](../../skills/scoping/references/session.md) の説明例であり、実在アプリの観測結果ではない。
+例えば現行の「マウス操作の確認結果と未合意のキーボード操作案が同じ報告にある」例では、次を区別する。これは [引き継ぎ手順](https://github.com/thkt/dotagents/blob/d6b76a7854167e789d5d78fce3d10c0a18bf606c/skills/scoping/references/session.md) の説明例であり、実在アプリの観測結果ではない。
 
 - 操作の目的と対象概念。
 - マウス操作で確認した事実、その対象版と根拠。
