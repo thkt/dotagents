@@ -17,7 +17,9 @@ async function expectInvocation(root: string, role: string) {
   expect(invocation.inheritedPrefix).toBeNull();
   const args = events(invocation.args);
   expect(args[args.indexOf('-m') + 1]).toBe('gpt-6.1-sol');
-  expect(args[args.indexOf('-c') + 1]).toBe('model_reasoning_effort="high"');
+  expect(args[args.indexOf('-c') + 1]).toBe(
+    role === 'repair' ? 'model_reasoning_effort="medium"' : 'model_reasoning_effort="high"',
+  );
   expect(args).toContain('--ignore-user-config');
   expect(args).toContain('--output-schema');
   expect(args[args.indexOf('--sandbox') + 1]).toBe(
@@ -135,20 +137,18 @@ process.exitCode = ${mode === 'nonzero' ? 7 : 0};
       }
       const entries = await readdir(root);
       const dir = entries.find((entry) => entry.startsWith(`${role}-codex-`));
-      expect(dir).toBeDefined();
-      if (dir) {
-        const metadata: unknown = JSON.parse(await readFile(join(root, dir, 'actor.json'), 'utf8'));
-        expect(metadata).toMatchObject({
-          recordFormat: 1,
-          role,
-          hostPrefix: 'verification/actor-1',
-          model: 'gpt-6.1-sol',
-          reasoningEffort: 'high',
-          sandbox,
-          ignoreUserConfig: true,
-        });
-      }
-      if (dir && (succeeds || mode === 'nonzero')) {
+      assert(dir, 'Actor evidence directory missing');
+      const metadata: unknown = JSON.parse(await readFile(join(root, dir, 'actor.json'), 'utf8'));
+      expect(metadata).toMatchObject({
+        recordFormat: 1,
+        role,
+        hostPrefix: 'verification/actor-1',
+        model: 'gpt-6.1-sol',
+        reasoningEffort: role === 'repair' ? 'medium' : 'high',
+        sandbox,
+        ignoreUserConfig: true,
+      });
+      if (succeeds || mode === 'nonzero') {
         await expectInvocation(root, role);
         expect(await readFile(join(root, dir, 'events.jsonl'), 'utf8')).toBe(
           'x'.repeat(bytes) + 'stdout-end',
@@ -157,7 +157,7 @@ process.exitCode = ${mode === 'nonzero' ? 7 : 0};
           'y'.repeat(bytes) + 'stderr-end',
         );
       }
-      if (dir && mode === 'write_error') {
+      if (mode === 'write_error') {
         await expectInvocation(root, role);
         const sizes = await Promise.all(
           ['events.jsonl', 'stderr.log'].map(
