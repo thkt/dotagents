@@ -228,7 +228,7 @@ developmentは対象設定のcapture command、保存先、撮影方針を内部
 
 ホストは形式と必須項目、対象ID、更新IDの欠落・重複・未知IDを検査します。新規指摘に`id`・`introducedIn`・`disposition`などの余分な項目があれば拒否します。過去指摘はIDを指定した`updates`で更新し、欠落を解決済みに読み替えません。不正な応答は`invalid_review`で停止します。ホストは過去の本文に現在の判断と新規指摘を合わせ、必須かつ`open`の指摘があれば`needs_changes`、それ以外は`accepted`を算出します。必須対応でない懸念はacceptedにも残せます。指摘の真偽や判断理由の十分性まで形式検査で保証するものではありません。欠落、不正、実行失敗時は停止し、指摘なしや成功には読み替えません。
 
-付属のCodex呼び出しはAstra/highを使います。修正はworkspace-write、評価はread-onlyで新しい実行を開始します。評価者はコード、テスト、文書を読み、ホスト側のcheck結果と分けて評価します。実行前にCodexへログインし、対象モデルが利用できるCLIを用意してください。GitHubの書き込みtokenを成果物やプロンプトへ埋め込まないでください。
+付属のCodex呼び出しは `gpt-6.1-sol` を使います。通常の初回実装・追加修正（role=`repair`）は `medium`、独立評価と付属actorを使う手動review probe（role=`review`）は `high` です。[codex-actor.ts](implement/codex-actor.ts)でroleから選んだ同じ設定を、起動引数とactor記録へ渡します。独立評価の設定とreview target記録は[review.ts](implement/review.ts)の `reviewModel` を使い、highを維持します。チャットで選んだモデルでは子CLIの設定は変わりません。初回実装と修正はworkspace-write、評価はread-onlyで新しい実行を開始します。評価者はコード、テスト、文書を読み、ホスト側のcheck結果と分けて評価します。実行前にCodexへログインし、対象モデルが利用できるCLIを用意してください。GitHubの書き込みtokenを成果物やプロンプトへ埋め込まないでください。
 
 独立評価は、コードの正しさ、Issueの要求・範囲との一致、テストの検出力、文書・証拠と実装版の整合を区別して判断します。差分に加え、影響する呼出し元、共有型、状態遷移、エラー処理、関連テストを読みます。Issueに個別の要求がなくてもコードとしての欠陥を指摘します。無関係な全コードや全テストの監査、好みの書き方、対象外の機能追加は求めません。
 
@@ -249,7 +249,7 @@ PR作成・添付・CIの登録と成功の確認はCLI、PR内の表示確認�
 - `review-N.json`: 過去の本文・現在の判断・新規指摘からホストが再構成した完全なレビュー（`status`・`items`を含む）、対象記録への参照、参照文書の位置・内容hash・モード・役割・参照理由。
 - `review-N.prompt`・`.stdout`・`.stderr`: 指示と生の応答。失敗、不正応答、中断でも既存ログと予約を保全します。検証済みの`.json`がない試行を成功とは扱いません。
 
-通常入口は実装前のcommitとAstra/high設定をホストから渡します。correction単独実行では`baseCommit`の省略時に開始時のHEADを基準として固定します。Git commitのない作業コピーは対象にできません。独自モデルコマンドは、ホストが把握した`reviewModel: {model, reasoningEffort}`を設定します。省略時はモデル設定を不明として記録し、モデルの自己申告で補いません。
+通常入口は実装前のcommitと、独立評価用の `gpt-6.1-sol` / `high` 設定をホストから渡します。correction単独実行では`baseCommit`の省略時に開始時のHEADを基準として固定します。Git commitのない作業コピーは対象にできません。独自モデルコマンドは、ホストが把握した`reviewModel: {model, reasoningEffort}`を設定します。省略時はモデル設定を不明として記録し、モデルの自己申告で補いません。
 
 評価者は今回参照した主要なリポジトリ内文書を列挙し、ホストは対象内の通常ファイルであることと版を結び付けます。symlink先など対象同一性の範囲外にある文書はこの参照記録に含められません。これは全文書の索引でも、モデルが十分に読んだことの証明でもありません。
 
@@ -479,7 +479,7 @@ bun scripts/implement/review-probe.ts
 
 レビュー応答のSchemaを変更した場合も、この入口から実際のCodexによる受理と応答を確認します。`review-codex-*/schema.json`が`--output-schema`へ渡した生成物です。同じディレクトリの`final.json`と、検証済みの`verification/review-1.json`を照合し、CLIのSchema受理とホストによる応答検証を分けて確認してください。生成差分では必須項目・型・enum・余分な項目の拒否・値の制約を確認します。`$schema`やnullableの`anyOf`などの表現差だけで互換性を判断せず、模擬Codexの制御テストとSchema生成の成功だけでは実CLI確認の代わりにしません。
 
-OSの一時ディレクトリに公開可能な小さなページ分割関数のfixtureを作り、不具合入りと正しい変更をAstra/highで各1回評価します。`correction.ts`の`reviewOnce`とactorを使い、自動修正はせず、対象と指摘を保持します。各試行はレビュー1回で終了し、レビューの実行時間を20分に制限します。修正応答を終了条件には使いません。これはレビュー品質の観測であり、見落としや誤指摘がないことを成功条件にはしません。
+OSの一時ディレクトリに公開可能な小さなページ分割関数のfixtureを作り、不具合入りと正しい変更をSol/highで各1回評価します。`correction.ts`の`reviewOnce`とactorを使い、自動修正はせず、対象と指摘を保持します。各試行はレビュー1回で終了し、レビューの実行時間を20分に制限します。修正応答を終了条件には使いません。これはレビュー品質の観測であり、見落としや誤指摘がないことを成功条件にはしません。
 
 checkoutとレビュー記録は正誤と無関係なランダム名の`case-*`配下に置き、両ケースの実行順もランダムに決めます。開始時に表示する保存先の`host/cases.json`が、実行順のケースIDと正誤の対応表です。最初のレビュー前に保存するため、中断時も対象を照合できます。実行環境とハーネスの版・差分は`host/environment.json`に保持します。停止したrunの上限や記録を変更して続行しません。
 
@@ -750,7 +750,7 @@ SIGINT/SIGTERM・失敗・期限で所有するコンテナーとnetworkを削�
   "format": 1,
   "conditions": {
     "id": "baseline",
-    "model": "gpt-6-astra",
+    "model": "gpt-6.1-sol",
     "reasoningEffort": "high",
     "environment": "固定したCLI・ハーネス・指示・ツール・入力の版と実行条件",
     "evaluationCriteria": "要求・境界・失敗条件を成果物から確認する基準",
@@ -798,6 +798,8 @@ bun scripts/implement/usage.ts selection.json
 `actors`は原イベントの相対パス、thread ID、turn順序、行番号とSHA-256を持ち、`references`は読んだ原記録の相対パスとSHA-256を持ちます。入力ファイルのSHA-256も出力します。選択した全runを読み終えた後、読んだ各原記録のSHA-256を再照合し、内容変更を検出したら拒否します。同じrunの別名指定、同じthread・実行UUIDの重複も拒否します。turnの対応は開始・終了イベントの順序で確認し、同値のusageを持つ別turnを捨てません。usageの欠損、不正なJSONやtoken値、重複した終了、未完了turnは理由を残します。不正や重複で対応が曖昧になった行以降は数えず、それまでに確認できたturnだけを観測値に残します。観測できない使用量は`null`で、ゼロとは区別します。
 
 `recorded`はrunの終了・CI・最後のレビューの記録です。`evaluation.outcome`は評価担当が根拠とともに与える`satisfied`・`unsatisfied`・`unknown`で、自動採点ではありません。`verified_local`、`published_draft`、CI成功、レビューaccepted、人の承認・マージを要求充足へ変換しません。課題とモデル・設定・評価条件を揃えた選択は評価担当の責任です。モデルと推論設定はactor記録と照合しますが、自由文の条件や評価根拠の妥当性を機械検証したとは扱いません。
+
+現在の通常runは実装・修正がmedium、独立評価がhighのため、単一の`conditions.reasoningEffort`とは全actorが一致しません。既存の集計器はこの差を`problems`へ記録します。役割別の比較条件は指定できないため、この集計だけで通常run全体を同一の推論設定で比較したと扱わないでください。
 
 `counts`は全試行・再試行・一意な課題数、実行失敗・実行状態不明、要求充足の判定不能・不充足・充足を分けます。工程コマンドの非ゼロ終了・起動失敗・時間切れと、CIの`failed`を実行失敗に数えます。CI待機の`timed_out`、取得不能の`unavailable`、応答不正の`invalid_response`、保存失敗の`storage_failed`、対象変更の`target_changed`は、CIの合否を確認できない実行状態不明として数えます。CI工程に到達した後、割込みなどで`ci`が未保存のrunも実行状態不明に数えます。CIへ進んでいないローカルrunの`ci`省略だけでは、実行状態不明に数えません。工程の失敗とCIの未確認が同じrunに記録されていれば、両方の件数に含めます。停止状態だけで失敗と断定しません。`satisfactionRate`は充足試行数／全試行数です。`perSatisfiedTask`の分子には失敗・停止・再試行を含む全選択runを残し、分母には同条件で独立に充足を確認した一意な課題IDを置きます。同じ課題の再試行は入力の先行試行へ`retryOf`で対応付け、開始commitも揃えます。別の課題を同じ課題IDへ、同じ記録上の課題を複数IDへ割り当てる入力は拒否します。
 

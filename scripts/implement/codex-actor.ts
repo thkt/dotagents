@@ -11,6 +11,7 @@ const [role, evidenceDir] = process.argv.slice(2);
 if ((role !== 'repair' && role !== 'review') || !evidenceDir) {
   throw Error('Usage: bun scripts/implement/codex-actor.ts repair|review EVIDENCE_DIR');
 }
+const model = role === 'repair' ? { ...reviewModel, reasoningEffort: 'medium' } : reviewModel;
 const dir = await mkdtemp(join(evidenceDir, `${role}-codex-`));
 const hostPrefix = process.env.DOTAGENTS_ACTOR_PREFIX;
 // Consume host context; tools or nested actors must not inherit this association.
@@ -22,8 +23,8 @@ await writeFile(
     invocationId: randomUUID(),
     role,
     hostPrefix: hostPrefix ? relative(evidenceDir, hostPrefix) : null,
-    model: reviewModel.model,
-    reasoningEffort: reviewModel.reasoningEffort,
+    model: model.model,
+    reasoningEffort: model.reasoningEffort,
     sandbox: role === 'repair' ? 'workspace-write' : 'read-only',
     ignoreUserConfig: true,
   }),
@@ -54,9 +55,9 @@ const args = [
   'exec',
   '--ignore-user-config',
   '-m',
-  reviewModel.model,
+  model.model,
   '-c',
-  `model_reasoning_effort="${reviewModel.reasoningEffort}"`,
+  `model_reasoning_effort="${model.reasoningEffort}"`,
   '--sandbox',
   role !== 'repair' ? 'read-only' : 'workspace-write',
   '--json',

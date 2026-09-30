@@ -8,6 +8,7 @@
 | --- | --- |
 | 調査の根拠を実装・修正・独立評価・PR説明へ引き継ぐ方法を見直すとき | [Issue #73の参照引き継ぎの確認](context-handoff-73.md) |
 | 独立レビューの分担や並列化を、過去の品質・時間・使用量と照らして判断するとき | [implementの独立レビュー基盤](implement-review-foundation.md) |
+| Solの役割別effort設定の合意と、限定試行の見落とし・時間・使用量・環境差を確認するとき | [Sol/highの限定試行](gpt-6-1-sol-trial-20260930.md)、[mediumとの比較](gpt-6-1-sol-medium-comparison-20260930.md) |
 | 調査成果の保存先や共有方法を変える前に、当時の背景を確認するとき | [scopingの調査成果を共有する保存先](scoping-research-storage.md) |
 | 共有モデルで用語と責任の境界を表す試行を参照するとき | [用語と責任境界の試行](domain-boundary-trial-20260920.md) |
 | fallowとKnipの採用前の比較条件・測定値を確認するとき | [fallow・Knipのローカル比較](fallow-trial-20260921.md) |
