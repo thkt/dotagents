@@ -33,30 +33,26 @@ const reportPath = 'docs/research/result-behavior.md';
 const reportContent = 'Reviewed finding: keep the result visible until reset.\n';
 const secondReport = 'docs/wiki/result-validation.md';
 
-for (const ignored of [false, true]) {
-  testDevelopment(`ローカル設定を引き継ぎ公開差分へ混入させない: 除外=${ignored}`, async (f) => {
-    await gitOutput(f.repo, 'rm', '--cached', '.dotagents.json');
-    await gitOutput(f.repo, 'commit', '-m', 'local configuration');
-    if (ignored) {
-      await writeFile(join(f.repo, '.git/info/exclude'), '/.dotagents.json\n');
-    }
-    const original = await readFile(join(f.repo, '.dotagents.json'), 'utf8');
-    const result = await develop(f.args, f.io);
-    expect(result.status).toBe('published_draft');
-    expect(await readFile(join(result.checkout, '.dotagents.json'), 'utf8')).toBe(original);
-    expect(JSON.parse(await readFile(join(f.dir, 'target.json'), 'utf8'))).toMatchObject({
-      text: original,
-    });
-    expect(await gitOutput(result.checkout, 'ls-tree', 'HEAD', '--', '.dotagents.json')).toBe('');
-    expect(
-      await gitOutput(result.checkout, 'diff', result.startCommit, 'HEAD', '--', '.dotagents.json'),
-    ).toBe('');
-    expect(f.calls.pushes).toBe(1);
-    expect(await readFile(join(f.dir, 'pr.md'), 'utf8')).not.toContain(
-      `/blob/${result.commit}/.dotagents.json`,
-    );
+testDevelopment('ローカル除外設定を引き継ぎ公開差分へ混入させない', async (f) => {
+  await gitOutput(f.repo, 'rm', '--cached', '.dotagents.json');
+  await gitOutput(f.repo, 'commit', '-m', 'local configuration');
+  await writeFile(join(f.repo, '.git/info/exclude'), '/.dotagents.json\n');
+  const original = await readFile(join(f.repo, '.dotagents.json'), 'utf8');
+  const result = await develop(f.args, f.io);
+  expect(result.status).toBe('published_draft');
+  expect(await readFile(join(result.checkout, '.dotagents.json'), 'utf8')).toBe(original);
+  expect(JSON.parse(await readFile(join(f.dir, 'target.json'), 'utf8'))).toMatchObject({
+    text: original,
   });
-}
+  expect(await gitOutput(result.checkout, 'ls-tree', 'HEAD', '--', '.dotagents.json')).toBe('');
+  expect(
+    await gitOutput(result.checkout, 'diff', result.startCommit, 'HEAD', '--', '.dotagents.json'),
+  ).toBe('');
+  expect(f.calls.pushes).toBe(1);
+  expect(await readFile(join(f.dir, 'pr.md'), 'utf8')).not.toContain(
+    `/blob/${result.commit}/.dotagents.json`,
+  );
+});
 
 testDevelopment(
   '設定以外がすべてstage済み削除でも公開できる',
@@ -185,6 +181,9 @@ for (const advanceBranch of [false, true]) {
       await gitOutput(f.repo, 'rm', '--cached', '.dotagents.json');
       await gitOutput(f.repo, 'commit', '-m', 'local configuration');
     }
+    const original = advanceBranch
+      ? undefined
+      : await readFile(join(f.repo, '.dotagents.json'), 'utf8');
     const remote = join(f.dir, 'receiver.git');
     let verified = '';
     let publishedCommit = '';
@@ -245,6 +244,26 @@ for (const advanceBranch of [false, true]) {
     expect(publishedCommit).toBe(verified);
     assert(isRecord(outcome), String(outcome));
     expect(outcome).toMatchObject({ status: 'published_draft', commit: verified, ci: 'passed' });
+    if (!advanceBranch) {
+      assert(typeof original === 'string');
+      expect(await readFile(join(f.dir, 'checkout/.dotagents.json'), 'utf8')).toBe(original);
+      expect(JSON.parse(await readFile(join(f.dir, 'target.json'), 'utf8'))).toMatchObject({
+        text: original,
+      });
+      expect(
+        await gitOutput(
+          join(f.dir, 'checkout'),
+          'diff',
+          String(outcome.startCommit),
+          'HEAD',
+          '--',
+          '.dotagents.json',
+        ),
+      ).toBe('');
+      expect(await readFile(join(f.dir, 'pr.md'), 'utf8')).not.toContain(
+        `/blob/${verified}/.dotagents.json`,
+      );
+    }
   });
 }
 
@@ -1273,13 +1292,27 @@ testDevelopment(
     expect(body).toContain(
       'https://github.com/thkt/dotagents/blob/main/scripts/README.md#公開後確認とreadyへの切替',
     );
+    // 固定説明の綴りではなく、残作業・担当・動的な引継ぎを確認する。
+    expect(body).toContain('## 残作業と担当');
+    expect(body).toMatch(/CLI:[^\n]*draft[^\n]*同じheadのCI（checks）/);
+    expect(body).toMatch(/CLI:[^\n]*媒体[^\n]*review\/media\/view\.png/);
+    for (const responsibility of [
+      'rendered_media_check',
+      'published_body_check',
+      'mark_ready',
+      '人:',
+    ]) {
+      expect(body.split(responsibility)).toHaveLength(2);
+    }
+    expect(body).toMatch(
+      /担当AI:[^\n]*実際のPR画面[^\n]*媒体[^\n]*表示・再生[^\n]*説明・配置[^\n]*確認[^\n]*rendered_media_check/,
+    );
+    expect(body).toMatch(
+      /担当AI:[^\n]*公開本文[^\n]*Issue[^\n]*対象commit[^\n]*accepted評価[^\n]*検証結果[^\n]*照合[^\n]*published_body_check[^\n]*mark_ready/,
+    );
+    expect(body).toMatch(/人:[^\n]*要求[^\n]*権限[^\n]*レビュー・承認・マージ/);
+    expect(body).toMatch(/draft公開[^\n]*CI[^\n]*ready切替[^\n]*人の承認[^\n]*未完了/);
     [
-      'CLI: PRをdraftで公開し、同じheadのCI（checks）',
-      'CLI: 対象commitの媒体を添付する（review/media/view.png）',
-      '担当AI: 添付後の実際のPR画面',
-      '担当AI: 最新の公開本文をIssue・対象commit・accepted評価・検証結果と照合',
-      '人: 要求や権限の変更を判断',
-      'draft公開・CI・本文と媒体の確認・ready切替・人の承認は未完了',
       '担当AI: 実サービスAの応答が遅い場合、結果の保持時間を計測する。現時点では未計測（（内部パス省略））。',
       '運用担当: 実サービスBの応答が遅い場合、結果の保持時間を計測する。現時点では未計測。',
     ].forEach((task) => {

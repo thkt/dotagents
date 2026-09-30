@@ -26,6 +26,7 @@ import { correctionConfig, reviewReplySource } from '../support/correction.ts';
 import type { Config, State, Revision } from '../../implement/input.ts';
 import { isRecord } from '../../shared/values.ts';
 import { initializeTarget, githubTarget, git, targetConfig } from '../support/target.ts';
+import { testDevelopment } from '../support/development.ts';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const issue = JSON.stringify({
@@ -872,7 +873,7 @@ for (const [name, change, reason] of [
   [
     'wrong_head',
     (pr: RevisionFixture['pr']) => {
-      pr.headRefOid = 'a'.repeat(40);
+      pr.headRefOid = 'b'.repeat(40);
     },
     /PR identity changed/,
   ],
@@ -900,7 +901,7 @@ for (const [name, change, reason] of [
   [
     'wrong_base',
     (pr: RevisionFixture['pr']) => {
-      pr.baseRefName = 'main';
+      pr.baseRefName = 'release';
     },
     /PR identity changed/,
   ],
@@ -926,13 +927,73 @@ for (const [name, change, reason] of [
     /PR identity changed/,
   ],
 ] as const) {
-  testRevision(name, async (f) => {
-    change(f.pr);
-    await runRevision(f, reason);
-    expect(f.hooks.implementations).toBe(1);
-    noRevisionPublication(f);
+  test(`既存PRの項目別照合: ${name}`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'revision-identity-'));
+    try {
+      const revision = revisionInput(root);
+      await writeFile(revision.requestFile, revision.request);
+      const pr = {
+        url: 'https://github.com/team/component/pull/100',
+        state: 'OPEN',
+        isDraft: true,
+        author: { login: 'operator' },
+        headRefName: 'codex/revision',
+        headRefOid: 'a'.repeat(40),
+        baseRefName: 'main',
+        headRepositoryOwner: { login: 'team' },
+        headRepository: { name: 'component' },
+        isCrossRepository: false,
+        body: 'Closes #99',
+        closingIssuesReferences: [] as { url: string }[],
+        statusCheckRollup: [],
+      };
+      const check = () =>
+        checkRevision(
+          revision,
+          root,
+          async (argv) => {
+            if (argv[0] === 'git') {
+              return 'codex/revision';
+            }
+            if (argv[1] === 'pr') {
+              return JSON.stringify(pr);
+            }
+            expect(argv).toEqual([
+              'gh',
+              'api',
+              'repos/team/component/git/ref/heads/codex/revision',
+            ]);
+            return JSON.stringify({ object: { sha: 'a'.repeat(40) } });
+          },
+          {
+            // bodyのIssue参照だけを変えた入力もidentity判定後まで到達させる。
+            captureBody: true,
+            draft: 'require',
+            issue,
+            target: {
+              cwd: root,
+              config: targetConfig,
+              actor: 'operator',
+              repositoryId: 123,
+              text: '{}',
+            },
+          },
+        );
+      expect(await check()).toBe('Closes #99');
+      change(pr);
+      await assert.rejects(check, reason);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 }
+
+testRevision('wrong_head', async (f) => {
+  f.pr.headRefOid = 'a'.repeat(40);
+  await runRevision(f, /PR identity changed/);
+  expect(f.hooks.implementations).toBe(1);
+  noRevisionPublication(f);
+});
 
 testRevision('body_changed', async (f) => {
   const execute = f.io.command;
@@ -1294,10 +1355,25 @@ for (const boundary of ['reservation', 'setup', 'issue_during_setup']) {
   });
 }
 
+for (const current of [{ title: ' ' }, { body: ' ' }]) {
+  testDevelopment(`空の開始Issueを副作用前に拒否する: ${Object.keys(current)[0]}`, async (f) => {
+    const github = f.github;
+    f.github = async (argv, ...rest) =>
+      argv[1] === 'issue'
+        ? ok(JSON.stringify({ ...updatedRequirements, ...current }))
+        : github(argv, ...rest);
+    const head = git(f.repo, 'rev-parse', 'HEAD');
+    await assert.rejects(() => develop(f.args, f.io), /Issue must be open/);
+    await assert.rejects(() => readdir(f.dir), { code: 'ENOENT' });
+    expect(f.calls.implementations).toBe(0);
+    expect(f.calls.pushes).toBe(0);
+    expect(f.calls.publications).toBe(0);
+    expect(git(f.repo, 'rev-parse', 'HEAD')).toBe(head);
+  });
+}
+
 for (const [mode, current, reason] of [
   ['closed', { state: 'CLOSED' }, /Issue must be open/],
-  ['empty_title', { title: ' ' }, /Issue must be open/],
-  ['empty_body', { body: ' ' }, /Issue must be open/],
   ['prior_issue_tampered', {}, /Previous Issue evidence differs/],
   ['changed_after_snapshot', {}, /Agreed Issue changed during revision/],
 ] as const) {
@@ -1581,7 +1657,7 @@ const pr = JSON.parse(readFileSync(${JSON.stringify(livePr)},'utf8'));
 const changed = existsSync(${JSON.stringify(checked)});
 if (changed && ${mode === 'head_changed'}) pr.headRefOid = 'f'.repeat(40);
 if (['issue', 'pr'].includes(args[0])) appendFileSync(${JSON.stringify(join(root, 'reads'))}, args[0]+'\\n');
-if(args[1] === 'user') appendFileSync(${JSON.stringify(join(root, 'target-reads'))}, 'target\\n');
+if(args[1] === 'user' && ${mode === 'updated_issue'}) appendFileSync(${JSON.stringify(join(root, 'target-reads'))}, 'target\\n');
 if(args[0] === 'issue') process.stdout.write(readFileSync(${JSON.stringify(liveIssue)},'utf8'));
 else if(args[0] === 'pr') console.log(JSON.stringify(pr));
 else if(args[1] === 'user') console.log(JSON.stringify({login:changed && ${mode === 'actor_changed'} ? 'another-operator' : 'operator'}));
@@ -1639,6 +1715,9 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
                   active: { role: 'repair', prefix: join(input.runDir, 'repair-1') },
                 });
           await writeFile(join(input.runDir, 'state.json'), rejectedState);
+        }
+        if (mode !== 'updated_issue') {
+          return run(config);
         }
         const targetLog = Bun.file(join(root, 'target-reads'));
         const before = (await targetLog.exists()) ? (await targetLog.text()).length : 0;
