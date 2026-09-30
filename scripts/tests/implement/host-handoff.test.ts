@@ -133,12 +133,56 @@ async function runRecords(dir: string): Promise<Record<string, string>> {
   return records;
 }
 
+for (const ignored of [false, true]) {
+  testDevelopment(`ローカル設定でホスト検証後に再評価する: 除外=${ignored}`, async (f) => {
+    await gitOutput(f.repo, 'rm', '--cached', '.dotagents.json');
+    await gitOutput(f.repo, 'commit', '-m', 'local configuration');
+    if (ignored) {
+      await writeFile(join(f.repo, '.git/info/exclude'), '/.dotagents.json\n');
+    }
+    const cwd = await prepareStop(f, ignored ? 'repair' : 'initial');
+    const text = await readFile(join(cwd, '.dotagents.json'), 'utf8');
+    const records = await runRecords(f.dir);
+    const m = await measurement(f, cwd);
+    const result = await develop(m.args, f.io);
+    expect(result.status).toBe('verified_local');
+    expect(await readFile(join(cwd, '.dotagents.json'), 'utf8')).toBe(text);
+    expect(JSON.parse(await readFile(join(m.dir, 'target.json'), 'utf8'))).toMatchObject({ text });
+    expect(await gitOutput(cwd, 'ls-tree', 'HEAD', '--', '.dotagents.json')).toBe('');
+    expect(await runRecords(f.dir)).toEqual(records);
+    expect(f.calls.pushes).toBe(0);
+    expect(f.calls.implementations).toBe(1);
+  });
+}
+
 for (const stage of ['initial', 'repair'] as const) {
   testDevelopment(
     `host ${stage} handoff returns current work to fresh check and review`,
     async (f) => {
       const base = await gitOutput(f.repo, 'rev-parse', 'HEAD');
+      let handoff = false;
+      let targetReads = 0;
+      const command = f.io.command;
+      f.io.command = async (...args) => {
+        const [argv] = args;
+        if (handoff && argv[0] === 'gh' && argv[1] === 'api' && argv[2] === 'user') {
+          targetReads++;
+        }
+        const result = await command(...args);
+        if (stage === 'initial' && argv[1]?.endsWith('/codex-actor.ts')) {
+          handoff = true;
+        }
+        return result;
+      };
+      const verify = f.io.verify;
+      f.io.verify = async (config) => {
+        const state = await verify(config);
+        handoff = true;
+        return state;
+      };
       const cwd = await prepareStop(f, stage);
+      expect(targetReads).toBe(1);
+      handoff = false;
       const original = await runRecords(f.dir);
       const m = await measurement(f, cwd);
       const result = await develop(m.args, f.io);

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { test, expect } from 'bun:test';
+import { test, expect, spyOn } from 'bun:test';
+import * as fs from 'node:fs/promises';
 import {
   mkdtemp,
   realpath,
@@ -45,7 +46,13 @@ const reportPath = 'docs/research/start.md';
 const reportContent = 'Reviewed start evidence.\n';
 
 // Real Git and the existing development/publish entry points; only external responses are simulated.
-async function fixture(root: string, media = false, setup: string[][] = [], report = false) {
+async function fixture(
+  root: string,
+  media = false,
+  setup: string[][] = [],
+  report = false,
+  local: false | 'untracked' | 'ignored' = false,
+) {
   const repo = join(root, 'repo');
   const prior = join(root, 'prior');
   const dir = join(root, 'revision');
@@ -55,6 +62,13 @@ async function fixture(root: string, media = false, setup: string[][] = [], repo
     setup,
     capture: media ? { command: ['capture'], destination: 'media', required: true } : null,
   });
+  if (local) {
+    git(repo, 'rm', '--cached', '.dotagents.json');
+    git(repo, 'commit', '-m', 'local configuration');
+    if (local === 'ignored') {
+      await writeFile(join(repo, '.git/info/exclude'), '/.dotagents.json\n');
+    }
+  }
   if (report) {
     await mkdir(join(repo, 'docs/research'), { recursive: true });
     await writeFile(join(repo, reportPath), reportContent);
@@ -566,10 +580,14 @@ async function successfulRevision(
   const { pr, hooks } = f;
   const verifiedHeads: string[] = [];
   let beforeCommit = -1;
+  let beforePush = -1;
   hooks.beforeVerify = async () => {
     verifiedHeads.push(git(f.cwd, 'rev-parse', 'HEAD'));
     if (verifiedHeads.length === 2) {
       beforeCommit = f.commands.length;
+    }
+    if (verifiedHeads.length === 3) {
+      beforePush = f.commands.length;
     }
   };
   const result = await runRevision(f);
@@ -581,13 +599,22 @@ async function successfulRevision(
   });
   expect(result.url).toBe(pr.url);
   expect(hooks.edits).toBe(localOnly ? 0 : 1);
-  // Start inputs are checked at entry and after setup, once per canonical checkout.
-  expect(f.commands.filter(({ argv }) => argv[1] === 'hash-object')).toEqual(
-    Array.from({ length: 2 }, () => ({
-      argv: ['git', 'hash-object', '--no-filters', '--', '.dotagents.json'],
-      cwd: f.cwd,
-    })),
-  );
+  // Share acquired inputs during preparation, then observe them anew after run
+  // reservation and setup. Each PR reconciliation still checks its own inputs.
+  const reconciliations = f.commands
+    .map(({ argv }, index) => (argv[1] === 'pr' && argv[2] === 'view' ? index : -1))
+    .filter((index) => index >= 0)
+    .slice(0, 3);
+  expect(reconciliations).toHaveLength(3);
+  let boundary = 0;
+  for (const reconciliation of reconciliations) {
+    const observations = f.commands.slice(boundary, reconciliation);
+    expect(observations.filter(({ argv }) => argv[2] === 'user')).toHaveLength(1);
+    expect(
+      observations.filter(({ argv }) => argv[1] === 'issue' && argv[2] === 'view'),
+    ).toHaveLength(1);
+    boundary = reconciliation + 1;
+  }
   if (localOnly) {
     expect(verifiedHeads).toEqual([f.oldHead]);
     expect(git(f.cwd, 'rev-parse', 'HEAD')).toBe(f.oldHead);
@@ -599,7 +626,7 @@ async function successfulRevision(
     expect(verifiedHeads).toEqual([f.oldHead, f.oldHead, result.commit]);
     // Reconcile after the final pre-commit verification and before staging.
     expect(beforeCommit).toBeGreaterThanOrEqual(0);
-    const staging = f.commands.findIndex(({ argv }) => argv[0] === 'git' && argv[1] === 'add');
+    const staging = f.commands.findIndex(({ argv }) => argv[0] === 'git' && argv.includes('add'));
     expect(staging).toBeGreaterThan(beforeCommit);
     expect(
       f.commands
@@ -608,9 +635,6 @@ async function successfulRevision(
     ).toBe(true);
     // Share one fresh target observation within the push boundary.
     const push = f.commands.findIndex(({ argv }) => argv.includes('push'));
-    const beforePush = f.commands
-      .slice(0, push)
-      .findLastIndex(({ argv }) => argv.join(' ') === 'git rev-parse HEAD');
     expect(beforePush).toBeGreaterThan(staging);
     expect(push).toBeGreaterThan(beforePush);
     expect(
@@ -655,11 +679,15 @@ testRevision('push直前のHEAD更新後も検証済みSHAで本文更新と読�
   expect(f.pr.body).not.toContain(git(f.cwd, 'rev-parse', 'HEAD'));
 });
 
-function testRevision(name: string, check: (f: RevisionFixture) => Promise<void>) {
+function testRevision(
+  name: string,
+  check: (f: RevisionFixture) => Promise<void>,
+  local: false | 'untracked' | 'ignored' = false,
+) {
   test(`existing PR revision: ${name}`, async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-')));
     try {
-      await check(await fixture(root));
+      await check(await fixture(root, false, [], false, local));
     } finally {
       await withInterrupts(async () => {});
       await rm(root, { recursive: true, force: true });
@@ -701,6 +729,23 @@ async function stoppedRevision(f: RevisionFixture, reason: RegExp) {
   expect(result.status).toBe('stopped');
   expect(result.nextAction).toBeTruthy();
   return result;
+}
+
+for (const local of ['untracked', 'ignored'] as const) {
+  testRevision(
+    `ローカル設定で既存PRを修正する: ${local}`,
+    async (f) => {
+      const text = await readFile(join(f.cwd, '.dotagents.json'), 'utf8');
+      await successfulRevision(f);
+      expect(await readFile(join(f.cwd, '.dotagents.json'), 'utf8')).toBe(text);
+      expect(git(f.cwd, 'ls-tree', 'HEAD', '--', '.dotagents.json')).toBe('');
+      expect(git(f.cwd, 'diff', 'HEAD^', 'HEAD', '--', '.dotagents.json')).toBe('');
+      expect(JSON.parse(await readFile(join(f.dir, 'target.json'), 'utf8'))).toMatchObject({
+        text,
+      });
+    },
+    local,
+  );
 }
 
 testRevision('success', async (f) => {
@@ -1219,7 +1264,11 @@ for (const boundary of ['reservation', 'setup', 'issue_during_setup']) {
       expect(f.hooks.verifications).toBe(initialVerifications);
       expect(f.hooks.pushes).toBe(1);
       expect(f.hooks.edits).toBe(0);
-      expect(f.commands.some(({ argv }) => argv[2] === 'ready' || argv[1] === 'add')).toBe(false);
+      expect(
+        f.commands.some(
+          ({ argv }) => argv[2] === 'ready' || (argv[0] === 'git' && argv.includes('add')),
+        ),
+      ).toBe(false);
       expect(git(f.cwd, 'rev-parse', 'HEAD')).toBe(f.oldHead);
       const result = await readObject(join(f.dir, 'result.json'));
       expect(result).toMatchObject({
@@ -1282,7 +1331,7 @@ for (const [mode, current, reason] of [
           ]);
           issueReads++;
           if (mode === 'changed_after_snapshot' && issueReads === 1) {
-            // Even a timestamp-only change after pinning must stop preparation.
+            // Even a timestamp-only change after pinning must stop before setup.
             f.hooks.issueText = updatedIssue.replace('2026-09-21', '2026-09-22');
           }
         }
@@ -1297,7 +1346,20 @@ for (const [mode, current, reason] of [
         false,
       );
       expect(git(f.cwd, 'rev-parse', 'HEAD')).toBe(f.oldHead);
-      expect(await readdir(root)).not.toContain('revision');
+      if (mode === 'changed_after_snapshot') {
+        const stopped = await readObject(join(f.dir, 'result.json'));
+        expect(stopped).toMatchObject({
+          status: 'stopped',
+          phase: 'implementation',
+          operation: 'check revision before setup',
+          publication: 'not_attempted',
+          url: f.pr.url,
+        });
+        expect(stopped.reason).toMatch(reason);
+        expect(issueReads).toBe(2);
+      } else {
+        expect(await readdir(root)).not.toContain('revision');
+      }
       expect(
         await Promise.all(priorFiles.map((path) => readFile(join(f.prior, path), 'utf8'))),
       ).toEqual(priorEvidence);
@@ -1349,7 +1411,11 @@ for (const [mode, reason] of [
       expect(f.hooks.pushes).toBe(1);
       expect(f.hooks.edits).toBe(0);
       expect(f.commands.some(({ argv }) => argv.join(' ') === setup.join(' '))).toBe(false);
-      expect(f.commands.some(({ argv }) => argv[2] === 'ready' || argv[1] === 'add')).toBe(false);
+      expect(
+        f.commands.some(
+          ({ argv }) => argv[2] === 'ready' || (argv[0] === 'git' && argv.includes('add')),
+        ),
+      ).toBe(false);
       expect(git(f.cwd, 'rev-parse', 'HEAD')).toBe(f.oldHead);
       expect(git(f.cwd, 'status', '--porcelain', '--untracked-files=all')).toBe('');
       expect(await readdir(root)).not.toContain('revision');
@@ -1422,7 +1488,7 @@ for (const [change, expected] of Object.entries(verificationChanges)) {
       await assert.rejects(() => develop(f.args, f.io), expected);
       expect(changed).toBe(true);
       expect(git(f.cwd, 'rev-parse', 'HEAD')).toBe(f.oldHead);
-      expect(f.commands.some(({ argv }) => argv[0] === 'git' && argv[1] === 'add')).toBe(false);
+      expect(f.commands.some(({ argv }) => argv[0] === 'git' && argv.includes('add'))).toBe(false);
       expect(f.hooks.pushes).toBe(1); // Only the fixture's original publication.
       expect(f.hooks.edits).toBe(0);
       expect(await readObject(join(f.dir, 'result.json'))).toMatchObject({
@@ -1457,7 +1523,7 @@ async function retainedCorrectionEntry(
   if (rejectedState) {
     expect(await readFile(join(verification, 'state.json'), 'utf8')).toBe(rejectedState);
   }
-  if (mode !== 'body_changed') {
+  if (mode !== 'body_changed' && mode !== 'conflicting_target') {
     expect(await Bun.file(join(root, 'reads')).exists()).toBe(false);
   }
   if (mode === 'locked_body_changed') {
@@ -1467,6 +1533,8 @@ async function retainedCorrectionEntry(
 
 for (const [mode, reason] of [
   ['updated_issue', null],
+  ['conflicting_target', /検証中に対象設定が変更されました/],
+  ['config_changed', /Revision target or actor changed/],
   ['issue_changed', /Agreed Issue changed during revision/],
   ['request_changed', /Revision request changed/],
   ['actor_changed', /Revision target or actor changed/],
@@ -1513,6 +1581,7 @@ const pr = JSON.parse(readFileSync(${JSON.stringify(livePr)},'utf8'));
 const changed = existsSync(${JSON.stringify(checked)});
 if (changed && ${mode === 'head_changed'}) pr.headRefOid = 'f'.repeat(40);
 if (['issue', 'pr'].includes(args[0])) appendFileSync(${JSON.stringify(join(root, 'reads'))}, args[0]+'\\n');
+if(args[1] === 'user') appendFileSync(${JSON.stringify(join(root, 'target-reads'))}, 'target\\n');
 if(args[0] === 'issue') process.stdout.write(readFileSync(${JSON.stringify(liveIssue)},'utf8'));
 else if(args[0] === 'pr') console.log(JSON.stringify(pr));
 else if(args[1] === 'user') console.log(JSON.stringify({login:changed && ${mode === 'actor_changed'} ? 'another-operator' : 'operator'}));
@@ -1535,6 +1604,10 @@ if(role === 'check') {
  writeFileSync(${JSON.stringify(checked)}, 'check completed');
  if (${mode === 'issue_changed'}) writeFileSync(${JSON.stringify(liveIssue)}, ${JSON.stringify(updatedIssue.replace('Keep result visible', 'Changed requirements'))});
  if (${mode === 'request_changed'}) writeFileSync(${JSON.stringify(f.request)}, 'Expanded scope');
+ if (${mode === 'config_changed'}) {
+  const path = '.dotagents.json';
+  writeFileSync(path, JSON.stringify({...JSON.parse(readFileSync(path,'utf8')), check:['false']}));
+ }
  if (${mode === 'branch_changed'}) execFileSync('git', ['branch', '-m', 'changed-branch']);
  if (${reason !== null && mode !== 'issue_changed'}) process.exit(0);
  process.exit(readFileSync('result.txt','utf8') === 'corrected' ? 0 : 1);
@@ -1552,6 +1625,9 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
           repair: [process.execPath, helper, 'repair'],
           review: [process.execPath, helper, 'review'],
         };
+        if (mode === 'conflicting_target') {
+          config.targetText = config.revision?.targetText + '\n';
+        }
         if (mode === 'invalid_state_body_changed' || mode === 'active_body_changed') {
           await mkdir(input.runDir, { recursive: true });
           rejectedState =
@@ -1564,11 +1640,28 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
                 });
           await writeFile(join(input.runDir, 'state.json'), rejectedState);
         }
-        return run(config);
+        const targetLog = Bun.file(join(root, 'target-reads'));
+        const before = (await targetLog.exists()) ? (await targetLog.text()).length : 0;
+        const observer = spyOn(fs, 'readFile');
+        try {
+          const state = await run(config);
+          const acquisitions = (await readFile(join(root, 'target-reads'), 'utf8'))
+            .slice(before)
+            .trim()
+            .split('\n');
+          expect(acquisitions.length).toBeGreaterThan(0);
+          const targetReads = observer.mock.calls.filter(
+            ([path, encoding]) => path === join(f.cwd, '.dotagents.json') && encoding === 'utf8',
+          );
+          expect(targetReads.length).toBe(acquisitions.length);
+          return state;
+        } finally {
+          observer.mockRestore();
+        }
       };
       const verification = join(f.dir, 'verification');
-      const entryFailure = mode.endsWith('body_changed');
-      if (entryFailure) {
+      const entryFailure = mode.endsWith('body_changed') || mode === 'conflicting_target';
+      if (mode.endsWith('body_changed')) {
         const execute = f.io.command;
         f.io.command = async (...args) => {
           const result = await execute(...args);
@@ -1595,7 +1688,11 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
         });
         expect(f.hooks.pushes).toBe(1); // Only the fixture's original publication.
         expect(f.hooks.edits).toBe(0);
-        expect(f.commands.some(({ argv }) => argv[1] === 'add' || argv[2] === 'ready')).toBe(false);
+        expect(
+          f.commands.some(
+            ({ argv }) => (argv[0] === 'git' && argv.includes('add')) || argv[2] === 'ready',
+          ),
+        ).toBe(false);
         expect(git(f.cwd, 'rev-parse', 'HEAD')).toBe(f.oldHead);
         expect(await readFile(join(f.cwd, 'result.txt'), 'utf8')).toBe('reset corrected');
         expect(

@@ -87,7 +87,11 @@ async function sourceFiles(cwd: string, additions?: Addition[]) {
     throw Error('Cannot identify source files');
   }
   const entries: SourceFile[] = [];
-  const names = new Set([...list.stdout.split('\0').filter(Boolean), ...untracked.keys()]);
+  const names = new Set([
+    ...list.stdout.split('\0').filter(Boolean),
+    ...untracked.keys(),
+    '.dotagents.json',
+  ]);
   for (const name of [...names].sort()) {
     const path = resolve(cwd, name);
     const stat = await lstat(path).catch((error: unknown) => {
@@ -197,6 +201,17 @@ async function readIssue(config: ReviewConfig, record = false) {
 // Use only the Issue just read at this boundary; checkRevision reads the remaining
 // revision inputs afresh. Keep its failures ahead of the generic Issue hash check.
 async function revisionUnchanged(config: ReviewConfig, issue: string) {
+  if (config.targetText !== undefined) {
+    if (config.revision) {
+      assert(config.targetText === config.revision.targetText, '検証中に対象設定が変更されました');
+    } else {
+      assert(
+        (await lstat(resolve(config.cwd, '.dotagents.json'))).isFile() &&
+          (await readFile(resolve(config.cwd, '.dotagents.json'), 'utf8')) === config.targetText,
+        '検証中に対象設定が変更されました',
+      );
+    }
+  }
   if (config.revision) {
     await checkRevision(
       config.revision,
@@ -362,7 +377,15 @@ async function captureIdentity(config: ReviewConfig, source: string, files: Sour
     .filter(Boolean)
     .map((path) => resolve(config.cwd, path));
   assert(
-    !ignoredPaths.some((path) => definitions.includes(path)),
+    !ignoredPaths.some(
+      (path) =>
+        definitions.includes(path) &&
+        !(
+          config.targetText !== undefined &&
+          path === resolve(config.cwd, '.dotagents.json') &&
+          files.some(([name]) => name === '.dotagents.json')
+        ),
+    ),
     'Capture definitions must not be excluded from source identity by Git ignore rules',
   );
   const destination = resolve(config.cwd, config.captureDestination);
@@ -402,7 +425,7 @@ async function captureDecision(
     };
   }
   const unnecessary =
-    !config.captureRequired && (await onlyPlainMarkdown(config.cwd, captureDefinitions(config)));
+    !config.captureRequired && (await onlyPlainMarkdown(config, captureDefinitions(config)));
   return {
     outcome: unnecessary ? 'not_required' : 'execute',
     reason: unnecessary
@@ -412,7 +435,20 @@ async function captureDecision(
   };
 }
 
-async function onlyPlainMarkdown(cwd: string, definitions: string[]) {
+function initialUntrackedPaths(config: ReviewConfig, definitions: string[], output: string) {
+  const pinnedTarget =
+    config.targetText !== undefined &&
+    !definitions.includes(resolve(config.cwd, '.dotagents.json'));
+  return new Map(
+    output
+      .split('\0')
+      .filter((path) => path && !(pinnedTarget && path === '.dotagents.json'))
+      .map((path) => [path, false]),
+  );
+}
+
+async function onlyPlainMarkdown(config: ReviewConfig, definitions: string[]) {
+  const cwd = config.cwd;
   const tracked = await command(
     ['git', '-c', 'core.filemode=true', 'diff', '--raw', '--no-renames', '-z', 'HEAD'],
     cwd,
@@ -420,7 +456,14 @@ async function onlyPlainMarkdown(cwd: string, definitions: string[]) {
     10000,
   );
   const untracked = await command(
-    ['git', 'ls-files', '--others', '--exclude-standard', '-z'],
+    [
+      'git',
+      'ls-files',
+      '--others',
+      '--exclude-standard',
+      ...(config.targetText !== undefined ? ['--exclude=!/.dotagents.json'] : []),
+      '-z',
+    ],
     cwd,
     '',
     10000,
@@ -428,12 +471,7 @@ async function onlyPlainMarkdown(cwd: string, definitions: string[]) {
   if (tracked.code !== 0 || untracked.code !== 0) {
     return false;
   }
-  const paths = new Map(
-    untracked.stdout
-      .split('\0')
-      .filter(Boolean)
-      .map((path) => [path, false]),
-  );
+  const paths = initialUntrackedPaths(config, definitions, untracked.stdout);
   const records = tracked.stdout.split('\0');
   for (let index = 0; index < records.length - 1; index += 2) {
     const header = records[index] ?? '';

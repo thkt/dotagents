@@ -23,6 +23,7 @@ function publicText(value: string, localRoots: string[]) {
 
 export function prBody(input: {
   review: Review | undefined;
+  localTarget?: boolean;
   repository: string;
   number: string;
   commit: string;
@@ -52,9 +53,15 @@ export function prBody(input: {
     ),
     '## 文書と根拠',
     text(review.assessments.documentation),
-    ...review.documents.map(
-      (doc) =>
-        `- [${doc.path}](https://github.com/${repository}/blob/${commit}/${doc.path.split('/').map(encodeURIComponent).join('/')}) (${doc.role}): ${text(doc.reason)}`,
+    ...(input.localTarget
+      ? [
+          '対象設定はrunへ保存したローカルの必須設定を使用し、commit・pushの対象から除外しました。設定した検証・公開条件は維持しています。',
+        ]
+      : []),
+    ...review.documents.map((doc) =>
+      input.localTarget && doc.path === '.dotagents.json'
+        ? `- ${doc.path}（runに保存したローカル設定） (${doc.role}): ${text(doc.reason)}`
+        : `- [${doc.path}](https://github.com/${repository}/blob/${commit}/${doc.path.split('/').map(encodeURIComponent).join('/')}) (${doc.role}): ${text(doc.reason)}`,
     ),
     '## 残作業と担当',
     '本文作成時点ではdraft公開・CI・本文と媒体の確認・ready切替・人の承認は未完了です。詳細は[公開後確認とreadyへの切替](https://github.com/thkt/dotagents/blob/main/scripts/README.md#公開後確認とreadyへの切替)を参照してください。',

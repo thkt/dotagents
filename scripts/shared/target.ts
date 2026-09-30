@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile, realpath } from 'node:fs/promises';
+import { readFile, realpath, lstat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { isCommandArray, isRecord, relativeDirectory } from './values.ts';
 
@@ -90,7 +90,9 @@ export async function readTarget(checkout: string, read: Reader, writable = fals
     (await realpath(await read(['git', 'rev-parse', '--show-toplevel'], cwd))) === cwd,
     'Target must be the checkout root',
   );
-  const text = await readFile(resolve(cwd, '.dotagents.json'), 'utf8');
+  const path = resolve(cwd, '.dotagents.json');
+  assert((await lstat(path)).isFile(), '対象設定は通常ファイルである必要があります');
+  const text = await readFile(path, 'utf8');
   const settings: unknown = JSON.parse(text);
   assertTarget(settings);
   const config: TargetConfig = {
