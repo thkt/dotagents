@@ -176,6 +176,13 @@ for (const { name, bun, playwright } of [
   });
 }
 
+test('Playwrightの総件数は整数1を受け入れ、小数1.5を拒否する', () => {
+  expect(() => checkReport('playwright', '{"stats":{"expected":1,"skipped":0}}')).not.toThrow();
+  expect(() => checkReport('playwright', '{"stats":{"expected":1.5,"skipped":0}}')).toThrow(
+    'No completed tests',
+  );
+});
+
 test('reports reject truncated output', () => {
   expect(() =>
     checkReport('bun', '<?xml version="1.0"?><testsuites tests="1" skipped="0">'),

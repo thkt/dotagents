@@ -242,6 +242,17 @@ test('target rejects invalid commands before further target access', async () =>
   }
 });
 
+test('Issue番号は正の安全な整数の境界を守る', () => {
+  for (const input of ['1', '9007199254740991']) {
+    expect(issueNumber(input, 'team/component')).toBe(input);
+  }
+  for (const input of ['0', '9007199254740992']) {
+    expect(() => issueNumber(input, 'team/component')).toThrow(
+      'Issue does not match target repository',
+    );
+  }
+});
+
 test('Issue identifiers accept exact supported forms, never embedded URLs', () => {
   for (const input of ['12', '#12', 'https://github.com/team/component/issues/12']) {
     expect(issueNumber(input, 'team/component')).toBe('12');
