@@ -88,6 +88,7 @@ const stopReasons = [
 ] as const;
 export type StopReason = (typeof stopReasons)[number];
 export interface ReviewConfig {
+  targetText?: string;
   baseCommit?: string;
   hostReturn?: HostReturn;
   revision?: Revision;
@@ -145,6 +146,7 @@ function assertReviewConfig(value: unknown, fields: string[]): asserts value is 
     Object.keys(value).every((key) =>
       [
         'baseCommit',
+        'targetText',
         'hostReturn',
         'revision',
         'reports',
@@ -163,6 +165,7 @@ function assertReviewConfig(value: unknown, fields: string[]): asserts value is 
     ),
     'Unknown configuration field',
   );
+  assert(optionalString(value.targetText), '対象設定原文が不正です');
   assert(optionalString(value.baseCommit), 'Invalid base commit');
   assertRevision(value.revision);
   if (value.hostReturn !== undefined) {

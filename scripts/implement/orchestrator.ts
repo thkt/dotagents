@@ -87,6 +87,32 @@ function issueValue(text: string) {
   return { title: value.title };
 }
 
+async function verifyTargetInput(repo: string, base: string, text: string, io: typeof runtime) {
+  const git = (...args: string[]) => checked(io, ['git', ...args], repo);
+  assert(
+    (await readFile(join(repo, '.dotagents.json'), 'utf8')) === text,
+    'Target configuration differs from start commit',
+  );
+  const entry = await git('ls-tree', base, '--', '.dotagents.json');
+  if (!entry) {
+    assert(
+      !(await git('ls-files', '--stage', '--', '.dotagents.json')),
+      'ローカル対象設定をindexへ追加できません',
+    );
+    return true;
+  }
+  assert(
+    /^100(?:644|755) blob /.test(entry) &&
+      (await git('hash-object', '--no-filters', '--', '.dotagents.json')) === entry.split(/\s/)[2],
+    'Target configuration differs from start commit',
+  );
+  assert(
+    !(await git('-c', 'core.filemode=true', 'status', '--porcelain', '--', '.dotagents.json')),
+    'Required start inputs have uncommitted changes',
+  );
+  return false;
+}
+
 async function verifyStartInputs(
   repo: string,
   base: string,
@@ -96,27 +122,31 @@ async function verifyStartInputs(
 ) {
   const git = (...args: string[]) => checked(io, ['git', ...args], repo);
   assert((await git('rev-parse', 'HEAD')) === base, 'Start HEAD changed during preparation');
-  const entry = await git('ls-tree', base, '--', '.dotagents.json');
-  assert(
-    /^100(?:644|755) blob /.test(entry) &&
-      (await git('hash-object', '--no-filters', '--', '.dotagents.json')) ===
-        entry.split(/\s/)[2] &&
-      (await readFile(join(repo, '.dotagents.json'), 'utf8')) === targetText,
-    'Target configuration differs from start commit',
-  );
+  const localTarget = await verifyTargetInput(repo, base, targetText, io);
+  await verifyStartReports(repo, base, reports, io);
+  return localTarget;
+}
+
+async function verifyStartReports(
+  repo: string,
+  base: string,
+  reports: ReportReference[],
+  io: typeof runtime,
+) {
+  const git = (...args: string[]) => checked(io, ['git', ...args], repo);
   await verifyReports(repo, base, reports, git);
   assert(
-    (
-      await git(
-        '-c',
-        'core.filemode=true',
-        'status',
-        '--porcelain',
-        '--',
-        '.dotagents.json',
-        ...reports.map(({ path }) => path),
-      )
-    ).length === 0,
+    reports.length === 0 ||
+      (
+        await git(
+          '-c',
+          'core.filemode=true',
+          'status',
+          '--porcelain',
+          '--',
+          ...reports.map(({ path }) => path),
+        )
+      ).length === 0,
     'Required start inputs have uncommitted changes',
   );
   assert((await git('rev-parse', 'HEAD')) === base, 'Start HEAD changed during preparation');
@@ -169,9 +199,20 @@ async function prepareRevision(
     );
     revision.body = await checkRevision(revision, repo, (argv, cwd) => checked(io, argv, cwd), {
       captureBody: true,
+      target,
+      issue: issueText,
     });
     assert(
-      !(await git('-c', 'core.filemode=true', 'status', '--porcelain', '--untracked-files=all')),
+      !(await git(
+        '-c',
+        'core.filemode=true',
+        'status',
+        '--porcelain',
+        '--untracked-files=all',
+        '--',
+        '.',
+        ':(top,exclude).dotagents.json',
+      )),
       'Revision requires clean tracked and untracked work; preserve existing work',
     );
   }
@@ -295,12 +336,13 @@ async function selectStart(args: string[], io: typeof runtime) {
     await verifyReportBase(inheritedBase, reports, git);
   }
   const inputs = prior || hostPrior ? [] : reports;
-  await verifyStartInputs(repo, base, target.text, inputs, io);
+  const localTarget = await verifyStartInputs(repo, base, target.text, inputs, io);
   return {
     parsed,
     repo,
     base,
     localOnly,
+    localTarget,
     target,
     repository,
     number,
@@ -346,6 +388,7 @@ async function prepare(
     repo,
     base,
     localOnly,
+    localTarget,
     target,
     repository,
     number,
@@ -413,6 +456,9 @@ async function prepare(
     await writeFile(join(dir, 'revision-request.md'), revision.request);
   } else if (!hostPrior) {
     await git('worktree', 'add', '-b', branch, cwd, base);
+    if (localTarget) {
+      await writeFile(join(cwd, '.dotagents.json'), target.text, { flag: 'wx' });
+    }
   }
   return {
     repo,
@@ -427,6 +473,7 @@ async function prepare(
     base,
     remote,
     localOnly,
+    localTarget,
     target,
     reports,
     inputs,
@@ -437,23 +484,27 @@ async function prepare(
 }
 type Context = Awaited<ReturnType<typeof prepare>>;
 
-async function unchangedTarget(context: Context, io: typeof runtime, head = context.base) {
+async function unchangedTarget(
+  context: Context,
+  io: typeof runtime,
+  head = context.base,
+  target?: Context['target'],
+) {
   assert(
     (await checked(io, ['git', 'rev-parse', 'HEAD'], context.cwd)) === head &&
       (await checked(io, ['git', 'branch', '--show-current'], context.cwd)) === context.branch,
     'Actor changed branch or HEAD',
   );
-  const current = await readTarget(
-    context.cwd,
-    (argv, cwd) => checked(io, argv, cwd),
-    !context.localOnly,
-  );
+  const current =
+    target ??
+    (await readTarget(context.cwd, (argv, cwd) => checked(io, argv, cwd), !context.localOnly));
   assert(
     current.text === context.target.text &&
       current.repositoryId === context.target.repositoryId &&
       current.actor === context.target.actor,
     'Target configuration or GitHub actor changed',
   );
+  await verifyTargetInput(context.cwd, context.base, context.target.text, io);
   return current;
 }
 
@@ -471,6 +522,7 @@ function verificationConfig(context: Context): Config {
     baseCommit: context.reviewBase,
     ...(context.revision ? { revision: context.revision } : {}),
     reports: context.reports,
+    targetText: context.target.text,
     ...(context.hostReturn ? { hostReturn: context.hostReturn } : {}),
     reviewModel,
     cwd,
@@ -496,7 +548,6 @@ async function stopForHost(
   findings: string,
   io: typeof runtime,
 ): Promise<never> {
-  await unchangedTarget(context, io);
   assert(
     issueText(await checkedOutput(io, context.issue, context.cwd)) === context.original,
     'Requirements changed during host handoff',
@@ -541,15 +592,26 @@ async function implement(context: Context, io: typeof runtime) {
   outcome.operation = 'check implementation inputs';
   outcome.details = join(dir, 'target.json');
   const target = await unchangedTarget(context, io);
-  for (const checkout of new Set([cwd, context.repo])) {
-    await verifyStartInputs(checkout, context.base, context.target.text, context.inputs, io);
+  await verifyStartReports(cwd, context.base, context.inputs, io);
+  if (context.repo !== cwd) {
+    await verifyStartInputs(context.repo, context.base, context.target.text, context.inputs, io);
   }
   await revisionUnchanged(context, io, target);
   if (context.revision && !context.hostReturn) {
     assert(
       !(await checked(
         io,
-        ['git', '-c', 'core.filemode=true', 'status', '--porcelain', '--untracked-files=all'],
+        [
+          'git',
+          '-c',
+          'core.filemode=true',
+          'status',
+          '--porcelain',
+          '--untracked-files=all',
+          '--',
+          '.',
+          ':(top,exclude).dotagents.json',
+        ],
         cwd,
       )),
       'Setup left work in revision checkout; preserve it',
@@ -613,6 +675,7 @@ async function implement(context: Context, io: typeof runtime) {
   const config = verificationConfig(context);
   await writeFile(join(dir, 'verification-config.json'), JSON.stringify(config, null, 2));
   if (reply.status === 'needs_host') {
+    await unchangedTarget(context, io);
     await stopForHost(context, config, reply.findings, io);
   }
   assert(
@@ -663,6 +726,7 @@ const verificationActions: Record<Exclude<StopReason, 'ready_for_human_review'>,
 };
 
 async function verify(context: Context, config: Config, io: typeof runtime) {
+  await unchangedTarget(context, io, context.result.commit ?? context.base);
   const result = context.result;
   result.phase = 'verification';
   result.operation = 'verification and independent review';
@@ -670,7 +734,13 @@ async function verify(context: Context, config: Config, io: typeof runtime) {
   result.nextAction =
     'Inspect verification/state.json and its referenced findings and logs; reconcile the stop without changing active reservations or limits, and obtain any required human decision.';
   const state: State = await io.verify(config);
-  await revisionUnchanged(context, io);
+  const target = await readTarget(
+    context.cwd,
+    (argv, cwd) => checked(io, argv, cwd),
+    !context.localOnly,
+  );
+  await revisionUnchanged(context, io, target);
+  await unchangedTarget(context, io, context.result.commit ?? context.base, target);
   if (state.result === 'host_verification_required') {
     await stopForHost(context, config, state.findings ?? '', io);
   }
@@ -684,7 +754,7 @@ async function verify(context: Context, config: Config, io: typeof runtime) {
     }
     throw Error(`Verification stopped: ${state.result}. ${state.findings ?? ''}`);
   }
-  return state;
+  return { state, target };
 }
 
 async function checkBranchPulls(context: Context, io: typeof runtime) {
@@ -728,6 +798,15 @@ async function checkBranchPulls(context: Context, io: typeof runtime) {
   }
 }
 
+async function stageDeliverables(context: Context, io: typeof runtime) {
+  await checked(
+    io,
+    // リテラルの除外pathspecはignoredパスの明示指定としてGitに拒否されるため、同じ名前をglobで指定する。
+    ['git', 'add', '--all', '--', '.', ':(top,exclude,glob)[.]dotagents.json'],
+    context.cwd,
+  );
+}
+
 async function ship(
   context: Context,
   config: Awaited<ReturnType<typeof implement>>,
@@ -740,19 +819,18 @@ async function ship(
   result.details = join(dir, 'target.json');
   result.nextAction =
     'Inspect the reason and reconcile publication inputs, permissions and the current target before any further write.';
-  await unchangedTarget(context, io);
   const git = (...args: string[]) => checked(io, ['git', ...args], cwd);
   assert((await git('remote', 'get-url', remoteName)) === context.remote, 'Actor changed remote');
-  const changed = await git('status', '--porcelain');
+  const changed = await git('status', '--porcelain', '--', '.', ':(top,exclude).dotagents.json');
   assert(changed.length > 0, 'No implementation changes; no PR created');
   // Reuse the controller's source/Issue check immediately before publication.
-  const verified = await verify(context, config, io);
+  const { state: verified } = await verify(context, config, io);
   result.phase = 'publication';
   result.operation = 'commit and prepare PR';
   result.details = join(dir, 'pr.md');
   result.nextAction =
     'Inspect the reason, checkout and publication evidence; reconcile the Git and GitHub state before any further write.';
-  await git('add', '--all');
+  await stageDeliverables(context, io);
   await git('commit', '-m', `${requirements.title} (#${number})`);
   const commit = await git('rev-parse', 'HEAD');
   result.commit = commit;
@@ -780,6 +858,7 @@ async function ship(
     body,
     prBody({
       review: verified.reviewHistory.at(-1),
+      localTarget: context.localTarget,
       repository,
       number,
       commit,
@@ -792,13 +871,12 @@ async function ship(
   const bodyText = await readFile(body, 'utf8');
   assert(bodyText.includes(`Closes #${number}`), 'Generated PR lost Issue reference');
   assert(bodyText.includes(commit), 'Generated PR lost verified commit');
-  await verify(context, config, io);
+  const { target } = await verify(context, config, io);
   result.phase = 'publication';
   result.operation = 'push';
   result.details = body;
   result.nextAction =
     'Inspect the publication evidence and GitHub branch state before any further write; PR creation has not been attempted.';
-  const target = await unchangedTarget(context, io, commit);
   const push = await pushArguments(repository, branch, commit, cwd, (argv, path) =>
     checked(io, argv, path),
   );
@@ -937,7 +1015,6 @@ export async function develop(args: string[], io = runtime) {
     const config = await implement(context, io);
     outcome.remaining = outcome.remaining.filter((task) => task !== 'local_verification');
     if (context.localOnly) {
-      await unchangedTarget(context, io);
       outcome.status = 'verified_local';
       outcome.reasonCode = 'ready_for_human_review';
       outcome.reason = 'Local check and independent review accepted the current deliverables.';

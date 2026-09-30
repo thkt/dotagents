@@ -19,7 +19,7 @@
 | --- | --- |
 | `scoping` | 要求・検証方法・合意を整理し、Issueまたは公開しない下書きに渡します。必要な参照は[スキル](skills/scoping/SKILL.md)から辿ります |
 | `implement` | 合意済みIssueを受け取ります。信頼するスキル実体からCLIを解決し、対象repoを指定します。[スキル](skills/implement/SKILL.md)、[通常起動](scripts/README.md#issueからpr作成)、[既存PR修正](scripts/README.md#既存prの修正)に従います |
-| 対象repoの `.dotagents.json` | checkoutルートにコミット済みの設定を使います。repo・remote・base branch、setup・check・CI、必要な媒体を明示します。[設定形式と拒否条件](scripts/README.md#対象repoの設定)が正本です |
+| 対象repoの `.dotagents.json` | checkoutルートの設定は必須です。commit・pushは任意で、リポジトリへの登録による共有を推奨します。repo・remote・base branch、setup・check・CI、必要な媒体を明示します。[設定形式と拒否条件](scripts/README.md#対象repoの設定)が正本です |
 | 文書で案内するCLI・package script | 呼び出し方と用途は[CLI手順](scripts/README.md)、導入とcheckは[セットアップと検証](#セットアップと検証)で確認します。通常の開発と、担当者向けの1回レビュー試行は区別します |
 | 指示変更のeval | 関連する改善作業で、バージョン・ケース・モデル・有限の上限を固定して比較します。[実行条件と報告](scripts/README.md#指示変更時の同条件eval)から手動で開始します。定期実行や全PRの必須ゲートにはしません |
 | 実行結果 | developmentのrun保存先にある `result.json` から、理由・次の対応・証拠を辿ります。`report.html`は保存結果の表示です。下位state・生ログと、生成できない条件は[結果と再実行](scripts/README.md#結果と再実行)で確認します |

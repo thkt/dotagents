@@ -3,8 +3,9 @@ import { existsSync } from 'node:fs';
 import { mkdir, writeFile, readFile, rm, symlink, chmod } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { reviewReplySource, correctionFixture, object, events } from '../support/correction.ts';
-import { git } from '../support/target.ts';
+import { git, targetConfig } from '../support/target.ts';
 
 const { trial, cleanup } = correctionFixture();
 afterEach(cleanup);
@@ -88,6 +89,8 @@ async function prepareInitialMediaInput(cwd: string, kind: string) {
 
 for (const kind of [
   'tracked-doc',
+  'local-target-doc',
+  'ignored-target-doc',
   'command-doc',
   'staged-doc',
   'new-doc',
@@ -125,6 +128,13 @@ for (const kind of [
     if (kind === 'ignored-executable-mode') {
       git(cwd, 'config', 'core.filemode', 'false');
     }
+    if (kind === 'local-target-doc' || kind === 'ignored-target-doc') {
+      if (kind === 'ignored-target-doc') {
+        await writeFile(join(cwd, '.git/info/exclude'), '/.dotagents.json\n');
+      }
+      t.config.targetText = JSON.stringify(targetConfig);
+      await writeFile(join(cwd, '.dotagents.json'), t.config.targetText);
+    }
     await changeInitialMediaInput(cwd, kind);
     if (kind === 'staged-doc') {
       git(cwd, 'add', 'README.md');
@@ -141,7 +151,14 @@ for (const kind of [
     await writeFile(t.configFile, JSON.stringify(t.config));
     expect(t.execute().status).toBe(0);
     const state = await t.state();
-    const hasCode = !['tracked-doc', 'staged-doc', 'new-doc', 'deleted-doc'].includes(kind);
+    const hasCode = ![
+      'tracked-doc',
+      'local-target-doc',
+      'ignored-target-doc',
+      'staged-doc',
+      'new-doc',
+      'deleted-doc',
+    ].includes(kind);
     expect(events(state.events).filter((event) => object(event).role === 'capture')).toHaveLength(
       hasCode ? 1 : 0,
     );
@@ -301,6 +318,8 @@ test('required capture runs for documentation and installs into the configured m
     ).status,
   ).toBe(0);
   await writeFile(join(t.config.cwd, 'README.md'), 'rendered documentation');
+  t.config.targetText = JSON.stringify(targetConfig);
+  await writeFile(join(t.config.cwd, '.dotagents.json'), t.config.targetText);
   t.config.capture = [process.execPath, join(t.root, 'helper.js'), 'capture'];
   await writeFile(t.configFile, JSON.stringify(t.config));
   expect(t.execute().status).toBe(0);
@@ -324,6 +343,67 @@ test('a successful capture command without media cannot reach review or remove p
   expect((await t.state()).review).toBe(0);
   expect(await readFile(join(media, 'prior.png'), 'utf8')).toBe('keep');
 });
+
+for (const [required, argument] of [
+  [false, '.dotagents.json'],
+  [false, '--config=.dotagents.json'],
+  [true, '--config=.dotagents.json'],
+] as const) {
+  test(`固定したローカル除外設定をcapture入力として使用できる: ${argument}`, async () => {
+    const t = await trial('media_scope', { captureRequired: required });
+    const { cwd } = t.config;
+    await writeFile(join(cwd, 'source.txt'), 'correct');
+    await writeFile(join(cwd, 'README.md'), 'original');
+    git(cwd, 'add', '.');
+    git(
+      cwd,
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@example.com',
+      'commit',
+      '-qm',
+      'baseline',
+    );
+    await writeFile(join(cwd, '.git/info/exclude'), '/.dotagents.json\n');
+    t.config.targetText = JSON.stringify(targetConfig);
+    await writeFile(join(cwd, '.dotagents.json'), t.config.targetText);
+    await writeFile(join(cwd, 'README.md'), 'current');
+    t.config.capture = [
+      process.execPath,
+      '-e',
+      "require('node:fs').writeFileSync(require('node:path').join(process.argv.at(-1), 'desktop.png'), 'correct')",
+      argument,
+    ];
+    await writeFile(t.configFile, JSON.stringify(t.config));
+    const result = t.execute();
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    const state = await t.state();
+    expect(state.result).toBe('ready_for_human_review');
+    expect(state.checks).toBe(1);
+    expect(state.review).toBe(1);
+    expect(events(state.events).filter((event) => object(event).role === 'capture')).toHaveLength(
+      1,
+    );
+    expect(await readFile(join(cwd, 'trial/evidence/generated/desktop.png'), 'utf8')).toBe(
+      'correct',
+    );
+    const target = object(
+      JSON.parse(await readFile(join(t.config.runDir, 'review-1.target.json'), 'utf8')),
+    );
+    expect(target.files).toEqual(
+      expect.arrayContaining([
+        [
+          '.dotagents.json',
+          expect.any(Number),
+          createHash('sha256').update(t.config.targetText).digest('hex'),
+        ],
+      ]),
+    );
+    expect(git(cwd, 'ls-files', '--', '.dotagents.json')).toBe('');
+  });
+}
 
 test('capture directory arguments tolerate unrelated ignored dependencies', async () => {
   const t = await trial('media_scope', { captureRequired: true });
@@ -365,10 +445,13 @@ test('ignored generated media stops before check or review and retains capture e
   );
 });
 
-for (const required of [false, true]) {
-  test(`ignored capture definition stops without replacing media (required: ${required})`, async () => {
+for (const [required, definition] of [
+  [false, 'trial/evidence/capture.json'],
+  [true, 'trial/evidence/capture.json'],
+  [false, '.dotagents.json'],
+] as const) {
+  test(`ignored capture definition stops without replacing media (required: ${required}, definition: ${definition})`, async () => {
     const t = await trial('media_scope', { captureRequired: required });
-    const definition = 'trial/evidence/capture.json';
     const media = join(t.config.cwd, 'trial/evidence/generated/desktop.png');
     await mkdir(join(t.config.cwd, 'trial/evidence/generated'), { recursive: true });
     await writeFile(join(t.config.cwd, 'source.txt'), 'correct');

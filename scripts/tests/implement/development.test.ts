@@ -33,8 +33,157 @@ const reportPath = 'docs/research/result-behavior.md';
 const reportContent = 'Reviewed finding: keep the result visible until reset.\n';
 const secondReport = 'docs/wiki/result-validation.md';
 
+testDevelopment('ローカル除外設定を引き継ぎ公開差分へ混入させない', async (f) => {
+  await gitOutput(f.repo, 'rm', '--cached', '.dotagents.json');
+  await gitOutput(f.repo, 'commit', '-m', 'local configuration');
+  await writeFile(join(f.repo, '.git/info/exclude'), '/.dotagents.json\n');
+  const original = await readFile(join(f.repo, '.dotagents.json'), 'utf8');
+  const result = await develop(f.args, f.io);
+  expect(result.status).toBe('published_draft');
+  expect(await readFile(join(result.checkout, '.dotagents.json'), 'utf8')).toBe(original);
+  expect(JSON.parse(await readFile(join(f.dir, 'target.json'), 'utf8'))).toMatchObject({
+    text: original,
+  });
+  expect(await gitOutput(result.checkout, 'ls-tree', 'HEAD', '--', '.dotagents.json')).toBe('');
+  expect(
+    await gitOutput(result.checkout, 'diff', result.startCommit, 'HEAD', '--', '.dotagents.json'),
+  ).toBe('');
+  expect(f.calls.pushes).toBe(1);
+  expect(await readFile(join(f.dir, 'pr.md'), 'utf8')).not.toContain(
+    `/blob/${result.commit}/.dotagents.json`,
+  );
+});
+
+testDevelopment(
+  '設定以外がすべてstage済み削除でも公開できる',
+  async (f) => {
+    await gitOutput(f.repo, 'rm', '--cached', '.dotagents.json');
+    await gitOutput(f.repo, 'commit', '-m', 'local configuration');
+    await writeFile(join(f.repo, '.git/info/exclude'), '/.dotagents.json\n');
+    const implement = f.implement;
+    f.implement = async (...args) => {
+      const response = await implement(...args);
+      await gitOutput(args[1], 'rm', '--force', 'result.txt');
+      return response;
+    };
+    f.verify = async (config) => {
+      expect(await gitOutput(config.cwd, 'ls-files')).toBe('');
+      const checked = await command(config.check, config.cwd, '', 10000);
+      expect(checked.code).toBe(0);
+      await mkdir(config.runDir, { recursive: true });
+      await writeFile(join(config.runDir, 'review-2.stdout'), f.rawReview);
+      return {
+        reviewFormat: 4,
+        issueFormat: 1,
+        baseCommit: config.baseCommit ?? '',
+        reviewHistory: f.history,
+        configHash: '',
+        issueHash: '',
+        repair: 0,
+        review: 1,
+        checks: 1,
+        modelMs: 1,
+        active: null,
+        events: [],
+        findings: f.summary,
+        result: 'ready_for_human_review',
+      };
+    };
+    const result = await develop(f.args, f.io);
+    expect(result.status).toBe('published_draft');
+    expect(await gitOutput(result.checkout, 'ls-tree', '-r', '--name-only', 'HEAD')).toBe('');
+    expect(
+      await gitOutput(result.checkout, 'diff', '--name-status', result.startCommit, 'HEAD'),
+    ).toBe('D\tresult.txt');
+    expect(await readFile(join(result.checkout, '.dotagents.json'), 'utf8')).toBe(
+      JSON.stringify(f.settings),
+    );
+    expect(f.calls.pushes).toBe(1);
+    expect(f.calls.publications).toBe(1);
+  },
+  { setup: [], check: ['sh', '-c', 'test ! -e result.txt'] },
+);
+
+for (const phase of ['implementation', 'check', 'staging'] as const) {
+  testDevelopment(`ローカル除外設定の差替えを拒否する: ${phase}`, async (f) => {
+    await gitOutput(f.repo, 'rm', '--cached', '.dotagents.json');
+    await gitOutput(f.repo, 'commit', '-m', 'local configuration');
+    await writeFile(join(f.repo, '.git/info/exclude'), '/.dotagents.json\n');
+    const change = async (cwd: string) => {
+      const path = join(cwd, '.dotagents.json');
+      await writeFile(path, (await readFile(path, 'utf8')) + '\n');
+    };
+    if (phase === 'implementation' || phase === 'staging') {
+      const implement = f.implement;
+      f.implement = async (...args) => {
+        const result = await implement(...args);
+        if (phase === 'staging') {
+          await gitOutput(args[1], 'add', '--force', '.dotagents.json');
+        } else {
+          await change(args[1]);
+        }
+        return result;
+      };
+    } else {
+      f.verify = async (config) => {
+        await run({
+          ...config,
+          issue: [process.execPath, '-e', `process.stdout.write(${JSON.stringify(issue)})`],
+          check: ['sh', '-c', 'printf "\\n" >> .dotagents.json'],
+        });
+        throw Error('設定差替えの拒否が必要');
+      };
+    }
+    await assert.rejects(
+      () => develop(f.args, f.io),
+      phase === 'staging'
+        ? /ローカル対象設定をindexへ追加できません/
+        : /Target configuration or GitHub actor changed|検証中に対象設定が変更されました/,
+    );
+    expect(f.calls.pushes).toBe(0);
+    expect(f.calls.publications).toBe(0);
+    expect(await gitOutput(join(f.dir, 'checkout'), 'rev-parse', 'HEAD')).toBe(
+      await gitOutput(f.repo, 'rev-parse', 'HEAD'),
+    );
+  });
+}
+
+for (const mode of ['missing', 'invalid', 'symlink'] as const) {
+  testDevelopment(`必須設定の${mode}を開始前に拒否する`, async (f) => {
+    const path = join(f.repo, '.dotagents.json');
+    if (mode === 'invalid') {
+      await writeFile(path, '{}');
+    } else {
+      await rm(path);
+      if (mode === 'symlink') {
+        const outside = join(f.repo, '..', 'settings.json');
+        await writeFile(outside, JSON.stringify(f.settings));
+        await symlink(outside, path);
+      }
+    }
+    await assert.rejects(
+      () => develop(f.args, f.io),
+      mode === 'missing'
+        ? /ENOENT/
+        : mode === 'invalid'
+          ? /Invalid repository/
+          : /対象設定は通常ファイルである必要があります/,
+    );
+    expect(existsSync(f.dir)).toBe(false);
+    expect(f.calls.implementations).toBe(0);
+    expect(f.calls.pushes).toBe(0);
+  });
+}
+
 for (const advanceBranch of [false, true]) {
   testDevelopment(`検証済みSHAを送信して公開へ渡す: ブランチ更新=${advanceBranch}`, async (f) => {
+    if (!advanceBranch) {
+      await gitOutput(f.repo, 'rm', '--cached', '.dotagents.json');
+      await gitOutput(f.repo, 'commit', '-m', 'local configuration');
+    }
+    const original = advanceBranch
+      ? undefined
+      : await readFile(join(f.repo, '.dotagents.json'), 'utf8');
     const remote = join(f.dir, 'receiver.git');
     let verified = '';
     let publishedCommit = '';
@@ -79,6 +228,14 @@ for (const advanceBranch of [false, true]) {
     const outcome = await develop(f.args, f.io).catch((error: unknown) => error);
     // 後続処理の停止だけでは送信内容を保証できないため、受信した実体を先に照合する。
     expect(await gitOutput(remote, 'rev-parse', 'refs/heads/codex/development-99')).toBe(verified);
+    const receivedConfig = await gitOutput(
+      remote,
+      'ls-tree',
+      'refs/heads/codex/development-99',
+      '--',
+      '.dotagents.json',
+    );
+    expect(receivedConfig.length > 0).toBe(advanceBranch);
     expect(await gitOutput(remote, 'show', 'refs/heads/codex/development-99:result.txt')).toBe(
       'implemented',
     );
@@ -87,6 +244,26 @@ for (const advanceBranch of [false, true]) {
     expect(publishedCommit).toBe(verified);
     assert(isRecord(outcome), String(outcome));
     expect(outcome).toMatchObject({ status: 'published_draft', commit: verified, ci: 'passed' });
+    if (!advanceBranch) {
+      assert(typeof original === 'string');
+      expect(await readFile(join(f.dir, 'checkout/.dotagents.json'), 'utf8')).toBe(original);
+      expect(JSON.parse(await readFile(join(f.dir, 'target.json'), 'utf8'))).toMatchObject({
+        text: original,
+      });
+      expect(
+        await gitOutput(
+          join(f.dir, 'checkout'),
+          'diff',
+          String(outcome.startCommit),
+          'HEAD',
+          '--',
+          '.dotagents.json',
+        ),
+      ).toBe('');
+      expect(await readFile(join(f.dir, 'pr.md'), 'utf8')).not.toContain(
+        `/blob/${verified}/.dotagents.json`,
+      );
+    }
   });
 }
 
@@ -1115,13 +1292,27 @@ testDevelopment(
     expect(body).toContain(
       'https://github.com/thkt/dotagents/blob/main/scripts/README.md#公開後確認とreadyへの切替',
     );
+    // 固定説明の綴りではなく、残作業・担当・動的な引継ぎを確認する。
+    expect(body).toContain('## 残作業と担当');
+    expect(body).toMatch(/CLI:[^\n]*draft[^\n]*同じheadのCI（checks）/);
+    expect(body).toMatch(/CLI:[^\n]*媒体[^\n]*review\/media\/view\.png/);
+    for (const responsibility of [
+      'rendered_media_check',
+      'published_body_check',
+      'mark_ready',
+      '人:',
+    ]) {
+      expect(body.split(responsibility)).toHaveLength(2);
+    }
+    expect(body).toMatch(
+      /担当AI:[^\n]*実際のPR画面[^\n]*媒体[^\n]*表示・再生[^\n]*説明・配置[^\n]*確認[^\n]*rendered_media_check/,
+    );
+    expect(body).toMatch(
+      /担当AI:[^\n]*公開本文[^\n]*Issue[^\n]*対象commit[^\n]*accepted評価[^\n]*検証結果[^\n]*照合[^\n]*published_body_check[^\n]*mark_ready/,
+    );
+    expect(body).toMatch(/人:[^\n]*要求[^\n]*権限[^\n]*レビュー・承認・マージ/);
+    expect(body).toMatch(/draft公開[^\n]*CI[^\n]*ready切替[^\n]*人の承認[^\n]*未完了/);
     [
-      'CLI: PRをdraftで公開し、同じheadのCI（checks）',
-      'CLI: 対象commitの媒体を添付する（review/media/view.png）',
-      '担当AI: 添付後の実際のPR画面',
-      '担当AI: 最新の公開本文をIssue・対象commit・accepted評価・検証結果と照合',
-      '人: 要求や権限の変更を判断',
-      'draft公開・CI・本文と媒体の確認・ready切替・人の承認は未完了',
       '担当AI: 実サービスAの応答が遅い場合、結果の保持時間を計測する。現時点では未計測（（内部パス省略））。',
       '運用担当: 実サービスBの応答が遅い場合、結果の保持時間を計測する。現時点では未計測。',
     ].forEach((task) => {
