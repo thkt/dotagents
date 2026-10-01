@@ -799,7 +799,14 @@ bun scripts/implement/usage.ts selection.json
 
 対象は`terminal: true`とUTCの`startedAt`・`finishedAt`を持つ上位`result.json`、存在する検証stateは`reviewFormat: 4`・`issueFormat: 1`の現行形式に限ります。日時のない旧結果、旧検証形式は拒否し、部分読取り・変換・補完をしません。HTMLの再生成も同じ上位結果の検証を使い、旧検証形式を拒否します。旧run原本や既存HTMLの削除・書換え・再開は行いません。主記録の不正・形式不一致、重複実行などは理由と終了1で拒否します。
 
-新しいactorは、起動前にイベントと同じディレクトリへ`actor.json`を保存します。実行UUID、ホスト工程のprefix、role、指定モデル・推論設定・sandbox・ユーザー設定を読み込まない指定を記録します。初回実装のroleもrepairです。集計器は上位`implementation.json`と検証stateのprefixに対応付け、ディレクトリ名から工程を決めません。付属actor以外のコマンドや記録追加前の現行runで対応が欠ける場合は`unassigned`と理由を示します。CLI・ツール・有効な全コンテキストの版をactor記録が保証するものではありません。
+新しく起動する付属actorは、起動前にイベントと同じディレクトリへ`actor.json`（`recordFormat: 2`）を保存します。実行UUID、ホスト工程のprefix、role、指定モデル・推論設定・sandbox・ユーザー設定を読み込まない指定に加え、次の観測を`runtime`へ記録します。初回実装のroleもrepairです。
+
+- `cli`：PATHから一度解決した起動入口（`entry`）、その入口の`realpath`、同じ入口・cwd・環境で`--version`を実行した`version`。execの起動先をrealpathへ置き換えません。realpathは入口の参照先であり、shimが転送するCLI本体の同一性を証明しません。
+- `harness`：対象repoと区別したハーネス自身の`commit`、Gitの`status --porcelain=v1 --untracked-files=no`による追跡差分の有無（`trackedDirty`）、限定範囲の`codeHash`と範囲の定義（`scope`）。Git観測では継承した`GIT_*`環境変数を除き、ハーネスの管理領域とindexを使います。hash対象は`scripts/implement`・`scripts/shared`直下の`.ts`ファイルと`package.json`・`bun.lock`です。相対パス順に、パス・権限ビット（`mode & 0777`）・内容のSHA-256を並べたJSONのSHA-256を保存します。範囲内の未追跡TypeScriptも含め、追加・削除は一覧の変化として反映します。必須のpackage/lockfile、対象ディレクトリの欠落や読取り失敗、範囲内のsymlinkなど通常ファイル以外はhash取得不能とします。完全な依存追跡ではありません。
+
+各観測は`value`と`reason`の組で、取得不能は`value: null`と理由を保存します。CLI版取得と各Gitコマンドの時間枠はそれぞれ2秒で、標準出力が64KiBを超えた場合も取得不能とします。観測は専用のprocess groupで起動し、観測終了時に通常の子孫もまとめて停止します。監視プロセスは50msごとにactorの生存を確認し、ホストによるactor停止後も観測groupを回収します。停止の検知にはスケジューリングによる遅延があります。任意のdaemon化までは保証しません。観測だけの失敗ではexecを止めません。Codex入口が見つからない場合、実際の起動が失敗した場合、記録を保存できない場合は停止します。既存の設定・権限・検証不一致の停止条件も維持します。観測時間はactorコマンド時間に含まれます。ホストの絶対パスは私的runに限って保存し、公開説明へ転記しないでください。wrapper内部の引数別転送、観測後の更新、全ツール・暗黙コンテキスト・サーバー側モデルの完全再現は保証しません。値が不明な観測は、版を揃えた比較では未確認として扱います。
+
+集計器は形式2のstrict schemaを検査し、上位`implementation.json`と検証stateのprefixに対応付けます。ディレクトリ名から工程を決めません。形式内の取得不能だけでは工程対応を失いません。形式1など非対応形式・JSONとして読めるschema不正・欠落したmetadataや、付属actor以外のコマンドで対応が欠ける場合は`unassigned`と理由を示します。過去runの変換・再開・上書きや旧形式の互換読取りは行いません。過去の集計は、その記録に対応するハーネス版と観測範囲で扱ってください。使用量の加算・採点・上位state/resultの形式は変更しません。JSON構文不正や、権限不足などで原記録を読み取れない場合は、選択全体の集計を理由付きで拒否し、終了1にします。
 
 `actors`は原イベントの相対パス、thread ID、turn順序、行番号とSHA-256を持ち、`references`は読んだ原記録の相対パスとSHA-256を持ちます。入力ファイルのSHA-256も出力します。選択した全runを読み終えた後、読んだ各原記録のSHA-256を再照合し、内容変更を検出したら拒否します。同じrunの別名指定、同じthread・実行UUIDの重複も拒否します。turnの対応は開始・終了イベントの順序で確認し、同値のusageを持つ別turnを捨てません。usageの欠損、不正なJSONやtoken値、重複した終了、未完了turnは理由を残します。不正や重複で対応が曖昧になった行以降は数えず、それまでに確認できたturnだけを観測値に残します。観測できない使用量は`null`で、ゼロとは区別します。
 

@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { object } from '../support/correction.ts';
 import { aggregateUsage } from '../../implement/usage.ts';
 import { readUsageEvents } from '../../implement/usage-events.ts';
 
@@ -108,7 +109,21 @@ async function runFixture(base: string, id: string, failed = false) {
     await writeFile(
       join(root, directory, 'actor.json'),
       JSON.stringify({
-        recordFormat: 1,
+        recordFormat: 2,
+        runtime: {
+          cli: {
+            entry: { value: '/fixture/codex', reason: null },
+            realpath: { value: '/fixture/manager', reason: null },
+            version: { value: null, reason: 'timeout' },
+          },
+          harness: {
+            commit: { value: commit, reason: null },
+            trackedDirty: { value: false, reason: null },
+            codeHash: { value: 'b'.repeat(64), reason: null },
+            scope:
+              'implement/shared direct *.ts + package.json + bun.lock; sorted path/mode/content SHA-256; regular files only',
+          },
+        },
         invocationId: randomUUID(),
         role,
         hostPrefix: prefix,
@@ -478,5 +493,56 @@ test('CLI reads explicit selection without modifying records and refuses symlink
     await rm(join(root, 'arbitrary-b/events.jsonl'));
     await symlink(join(root, 'arbitrary-a/events.jsonl'), join(root, 'arbitrary-b/events.jsonl'));
     await assert.rejects(aggregateUsage(input, base), /Cannot read regular record/);
+  });
+});
+
+test('unsupported or malformed actor metadata stays unassigned without changing usage', async () => {
+  await withFixture(async (base) => {
+    const { root } = await runFixture(base, 'local');
+    const path = join(root, 'arbitrary-a/actor.json');
+    const raw = await readFile(path, 'utf8');
+    const metadata = object(JSON.parse(raw));
+    const runtime = object(metadata.runtime);
+    const cli = object(runtime.cli);
+    const input = { format: 1, conditions, runs: [selected('local', null, 'unknown')] };
+    for (const invalid of [
+      { ...metadata, recordFormat: 1, runtime: undefined },
+      { ...metadata, extra: true },
+      {
+        ...metadata,
+        runtime: {
+          ...runtime,
+          cli: { ...cli, version: { value: null, reason: null } },
+        },
+      },
+      {
+        ...metadata,
+        runtime: {
+          ...runtime,
+          cli: { ...cli, version: { value: 'fixture', reason: 'timeout' } },
+        },
+      },
+      {
+        ...metadata,
+        runtime: {
+          ...runtime,
+          cli: { ...cli, version: { value: null, reason: '  ' } },
+        },
+      },
+    ]) {
+      await writeFile(path, JSON.stringify(invalid));
+      const report = await aggregateUsage(input, base);
+      expect(report.runs[0]?.actors[0]?.phase).toBe('unassigned');
+      expect(report.runs[0]?.problems.join('\n')).toContain('unsupported/invalid format');
+      expect(report.observed).toEqual({
+        input_tokens: 300,
+        cached_input_tokens: 240,
+        output_tokens: 30,
+      });
+      expect(await readFile(path, 'utf8')).toBe(JSON.stringify(invalid));
+    }
+    await writeFile(path, raw);
+    const valid = await aggregateUsage(input, base);
+    expect(valid.runs[0]?.actors[0]?.phase).toBe('implementation');
   });
 });
