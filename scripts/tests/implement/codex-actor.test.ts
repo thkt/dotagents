@@ -24,6 +24,12 @@ function sortedStrings(value: unknown) {
 
 async function expectInvocation(root: string, role: string) {
   const invocation = object(JSON.parse(await readFile(join(root, 'invocation.json'), 'utf8')));
+  const version = object(JSON.parse(await readFile(join(root, 'version-invocation.json'), 'utf8')));
+  for (const key of ['entry', 'cwd', 'env']) {
+    expect(invocation[key]).toEqual(version[key]);
+  }
+  expect(invocation.entry).toBe(join(root, 'codex'));
+  expect(object(invocation.env).DOTAGENTS_FIXTURE_ENV).toBe('fixture-339');
   expect(invocation.inheritedPrefix).toBeNull();
   const args = events(invocation.args);
   expect(args[args.indexOf('-m') + 1]).toBe('gpt-6.1-sol');
@@ -216,6 +222,24 @@ async function cleanupDescendant(root: string) {
   }
 }
 
+async function expectWriteError(root: string, dir: string, bytes: number, stderr: string) {
+  // /bin/shの単位差に備え、512バイト単位でも小さい記録が収まることを確認します。
+  for (const path of [
+    join(root, 'version-invocation.json'),
+    join(root, 'invocation.json'),
+    join(root, dir, 'actor.json'),
+    join(root, dir, 'schema.json'),
+    join(root, dir, 'final.json'),
+  ]) {
+    expect((await stat(path)).size).toBeLessThan(16 * 512);
+  }
+  const sizes = await Promise.all(
+    ['events.jsonl', 'stderr.log'].map(async (name) => (await stat(join(root, dir, name))).size),
+  );
+  expect(sizes.some((size) => size > 0 && size < bytes)).toBe(true);
+  expect(stderr).toContain('EFBIG');
+}
+
 for (const mode of modes) {
   const role = mode === 'repair' ? mode : 'review';
   const sandbox = role === 'repair' ? 'workspace-write' : 'read-only';
@@ -231,7 +255,7 @@ for (const mode of modes) {
     try {
       const bytes = ['normal', 'repair', 'write_error'].includes(mode) ? 2 * 1024 * 1024 : 64;
       await mockCodex(root, mode, bytes);
-      // Allow schema and invocation metadata, then fail large log writes with EFBIG.
+      // 小さい明示環境でschemaと起動記録を保存し、大容量ログだけをEFBIGにします。
       const result = spawnSync(
         '/bin/sh',
         [
@@ -245,8 +269,8 @@ for (const mode of modes) {
         ],
         {
           env: {
-            ...process.env,
             PATH: root,
+            DOTAGENTS_FIXTURE_ENV: 'fixture-339',
             DOTAGENTS_ACTOR_PREFIX: join(root, 'verification/actor-1'),
           },
           input: 'Review fixture',
@@ -288,16 +312,10 @@ for (const mode of modes) {
         expect(pid).toBeGreaterThan(0);
         expect(() => process.kill(pid, 0)).toThrow();
       }
-      if (succeeds || mode === 'nonzero') {
-        const version = object(
-          JSON.parse(await readFile(join(root, 'version-invocation.json'), 'utf8')),
-        );
-        const execution = object(JSON.parse(await readFile(join(root, 'invocation.json'), 'utf8')));
-        for (const key of ['entry', 'cwd', 'env']) {
-          expect(execution[key]).toEqual(version[key]);
-        }
-        expect(execution.entry).toBe(join(root, 'codex'));
+      if (succeeds || mode === 'nonzero' || mode === 'write_error') {
         await expectInvocation(root, role);
+      }
+      if (succeeds || mode === 'nonzero') {
         expect(await readFile(join(root, dir, 'events.jsonl'), 'utf8')).toBe(
           'x'.repeat(bytes) + 'stdout-end',
         );
@@ -306,14 +324,7 @@ for (const mode of modes) {
         );
       }
       if (mode === 'write_error') {
-        await expectInvocation(root, role);
-        const sizes = await Promise.all(
-          ['events.jsonl', 'stderr.log'].map(
-            async (name) => (await stat(join(root, dir, name))).size,
-          ),
-        );
-        expect(sizes.some((size) => size > 0 && size < bytes)).toBe(true);
-        expect(result.stderr).toContain('EFBIG');
+        await expectWriteError(root, dir, bytes, result.stderr);
       }
     } finally {
       await cleanupDescendant(root);
