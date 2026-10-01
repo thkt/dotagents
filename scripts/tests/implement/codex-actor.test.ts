@@ -15,6 +15,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { events, object } from '../support/correction.ts';
+import { runtimeShape } from '../../implement/actor-runtime.ts';
 
 function sortedStrings(value: unknown) {
   const values = events(value);
@@ -41,7 +42,15 @@ async function expectInvocation(root: string, role: string) {
   expect(args[args.indexOf('--sandbox') + 1]).toBe(
     role === 'repair' ? 'workspace-write' : 'read-only',
   );
-  const schema = object(invocation.schema);
+  return invocation.schema;
+}
+
+function expectResponseSchema(value: unknown, mode: Mode) {
+  if (!['normal', 'repair'].includes(mode)) {
+    return;
+  }
+  const role = mode === 'repair' ? 'repair' : 'review';
+  const schema = object(value);
   expect(sortedStrings(schema.required)).toEqual(
     (role === 'review'
       ? ['findings', 'targetId', 'assessments', 'updates', 'newItems', 'documents', 'handoff']
@@ -180,6 +189,19 @@ function expectRuntime(
   entries: string[],
 ) {
   const runtime = object(object(metadata).runtime);
+  if (mode === 'normal') {
+    // PATHには模擬Codexだけがあり、Git観測は取得不能でも限定hashは保存されます。
+    expect(runtime.harness).toMatchObject({
+      commit: { value: null, reason: 'exit code 1' },
+      trackedDirty: { value: null, reason: 'harness repository unavailable' },
+      scope:
+        'implement/shared direct *.ts + package.json + bun.lock; sorted path/mode/content SHA-256; regular files only',
+    });
+    const codeHash = object(object(runtime.harness).codeHash);
+    expect(codeHash.value).toMatch(/^[a-f0-9]{64}$/);
+    expect(codeHash.reason).toBeNull();
+    expect(runtimeShape.safeParse(runtime).success).toBe(true);
+  }
   const cli = object(runtime.cli);
   if (mode === 'missing') {
     expectUnknown(cli.entry);
@@ -313,7 +335,8 @@ for (const mode of modes) {
         expect(() => process.kill(pid, 0)).toThrow();
       }
       if (succeeds || mode === 'nonzero' || mode === 'write_error') {
-        await expectInvocation(root, role);
+        const schema = await expectInvocation(root, role);
+        expectResponseSchema(schema, mode);
       }
       if (succeeds || mode === 'nonzero') {
         expect(await readFile(join(root, dir, 'events.jsonl'), 'utf8')).toBe(

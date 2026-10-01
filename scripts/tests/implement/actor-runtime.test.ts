@@ -1,4 +1,5 @@
 import { test, expect } from 'bun:test';
+import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import {
   chmod,
@@ -6,6 +7,7 @@ import {
   mkdtemp,
   readFile,
   realpath,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -29,7 +31,7 @@ function expectChangedHash(
   expect(hash.value).not.toBe(initial);
 }
 
-test('harness identity uses its own root; code hash covers contents, additions, deletion and modes', async () => {
+test('harness identity uses its own root; code hash covers contents, paths, additions, deletion and modes', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'actor-runtime-')));
   try {
     const target = join(root, 'target'),
@@ -100,6 +102,7 @@ test('harness identity uses its own root; code hash covers contents, additions, 
     );
     expect(inherited.harness).toEqual(initial.harness);
     const hash = initial.harness.codeHash.value;
+    assert(typeof hash === 'string', 'Initial code hash must be available');
     expect(hash).toMatch(/^[a-f0-9]{64}$/);
     await writeFile(join(harness, 'notes.md'), 'outside scope');
     expect((await observe()).harness).toEqual(initial.harness);
@@ -113,6 +116,11 @@ test('harness identity uses its own root; code hash covers contents, additions, 
     await chmod(join(harness, 'scripts/shared/b.ts'), 0o755);
     expectChangedHash((await observe()).harness.codeHash, hash);
     await chmod(join(harness, 'scripts/shared/b.ts'), 0o644);
+    // 同じディレクトリに1ファイルだけなので、順序・内容・モードを保ちパスだけを変えます。
+    await rename(join(harness, 'scripts/shared/b.ts'), join(harness, 'scripts/shared/c.ts'));
+    expectChangedHash((await observe()).harness.codeHash, hash);
+    await rename(join(harness, 'scripts/shared/c.ts'), join(harness, 'scripts/shared/b.ts'));
+    expect((await observe()).harness.codeHash).toEqual({ value: hash, reason: null });
     await writeFile(join(harness, 'scripts/shared/new.ts'), 'new');
     const added = (await observe()).harness;
     expect(added.trackedDirty.value).toBe(false);
