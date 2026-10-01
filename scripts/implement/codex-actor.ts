@@ -1,3 +1,4 @@
+import { observeRuntime } from './actor-runtime.ts';
 import { reviewSchema, reviewModel } from './review.ts';
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
@@ -16,10 +17,14 @@ const dir = await mkdtemp(join(evidenceDir, `${role}-codex-`));
 const hostPrefix = process.env.DOTAGENTS_ACTOR_PREFIX;
 // Consume host context; tools or nested actors must not inherit this association.
 delete process.env.DOTAGENTS_ACTOR_PREFIX;
+const cwd = process.cwd();
+const env = { ...process.env };
+const runtime = await observeRuntime(cwd, env);
 await writeFile(
   join(dir, 'actor.json'),
   JSON.stringify({
-    recordFormat: 1,
+    recordFormat: 2,
+    runtime,
     invocationId: randomUUID(),
     role,
     hostPrefix: hostPrefix ? relative(evidenceDir, hostPrefix) : null,
@@ -67,7 +72,10 @@ const args = [
   final,
   '-',
 ];
-const child = spawn('codex', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+if (runtime.cli.entry.value === null) {
+  throw Error('Codex launch entry unavailable');
+}
+const child = spawn(runtime.cli.entry.value, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
 process.stdin.pipe(child.stdin);
 child.stdin.on('error', () => {});
 const [code] = await Promise.all([

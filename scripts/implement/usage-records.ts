@@ -1,3 +1,4 @@
+import { runtimeShape } from './actor-runtime.ts';
 import assert from 'node:assert/strict';
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
@@ -16,7 +17,8 @@ const commandResult = z.object({
   ms: nonnegative,
 });
 const metadataShape = z.strictObject({
-  recordFormat: z.literal(1),
+  recordFormat: z.literal(2),
+  runtime: runtimeShape,
   invocationId: z.uuid(),
   role: z.enum(['repair', 'review']),
   hostPrefix: z.string().min(1).nullable(),
@@ -217,7 +219,9 @@ async function readActor(records: Records, directory: string) {
   const parsed = metadataShape.safeParse(value);
   const metadata = parsed.success ? parsed.data : null;
   if (!metadata) {
-    events.problems.push('actor.json: missing or invalid host association/model settings');
+    events.problems.push(
+      'actor.json: missing or unsupported/invalid format, runtime observations or host association/model settings',
+    );
   }
   return { path, ...events, metadata, phase: 'unassigned', hostPrefix: null as string | null };
 }
