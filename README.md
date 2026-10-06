@@ -35,7 +35,7 @@ bun install --frozen-lockfile --ignore-scripts
 bun run check
 ```
 
-Bun 1.4.2 を使います。check は次の順に実行します。ツールごとに検査する対象を分けています。fallow 3.28.0 もバージョンを固定した開発依存で、上記の setup で導入します。
+Bun 1.4.2 を使います。check は次の順に実行します。ツールごとに検査する対象を分けています。fallow 3.31.0 もバージョンを固定した開発依存で、上記の setup で導入します。
 
 | 順 | package script | ツール | 検査する対象 |
 | --- | --- | --- | --- |
@@ -47,7 +47,7 @@ Bun 1.4.2 を使います。check は次の順に実行します。ツールご�
 | 6 | `test:control` | Bun | ハーネスの制御テスト |
 対象 repo では、その repo の検証を指定してください。
 
-[biome.json](biome.json)は、バージョンを固定した Biome 2.5.14 の既定値（linter の有効化と認知的複雑度の上限 15）を使い、`noExcessiveCognitiveComplexity`を`error`にしています。Biome のバージョンを更新するときは、この既定値と、上限を超えたときに error で拒否されることを再確認してください。
+[biome.json](biome.json)は、バージョンを固定した Biome 2.5.15 の既定値（linter の有効化と認知的複雑度の上限 15）を使い、`noExcessiveCognitiveComplexity`を`error`にしています。Biome のバージョンを更新するときは、この既定値と、上限を超えたときに error で拒否されることを再確認してください。
 
 ### 未使用コード検査とコードベース調査
 
