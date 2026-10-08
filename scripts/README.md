@@ -166,6 +166,60 @@ developmentは対象設定のcapture command、保存先、撮影方針を内部
 
 再撮影が必要な場合はcheckout外の新しい出力先で行います。要求とソースが変わっていないことを確認して媒体を取り込み、媒体を含む対象を確定して共通check、独立評価、公開へ進みます。撮影失敗時はログを修正担当へ渡します。起動不能は`capture_unavailable`、撮影の時間切れは`capture_timeout`として停止し、ホスト側での環境確認が必要です。撮影にも各checkと同じ9分の上限とプロセスグループの中断処理を適用します。正常な`needs_human`と不正応答を区別して表示し、記録を保持します。
 
+### UI変更時の幅掃引
+
+初回実装と追加修正でUIを実装・変更した場合は、[幅掃引の手順](../skills/implement/references/testing.md#ui変更時の幅掃引)に従い、主要状態を対応幅の全整数で計測します。同じ画面・状態・対象版・条件の既存結果を使える場合を除き、実行を省略しません。通常checkに含めたspecは既存のホストcheckで実行し、含まれない実ブラウザー検証は既存の`needs_host`と[再評価](#ホスト検証後の再評価)を使います。`capture: null`でも媒体を要求しないDOM計測は可能です。
+
+対象repoに置くspecの例です。パス・URL・状態・範囲は対象repoの要求から選びます。例の320〜1440px・高さ900pxはIssueの試行条件であり、全repoの既定値ではありません。`prepare`は状態を作り、`ready`は各幅でその状態の描画完了を待ちます。実際の画面に合わせて複数状態を定義し、fixtureの認証・データ準備を使ってください。
+
+```ts
+import { test, expect } from '@playwright/test';
+import { join } from 'node:path';
+import { widthSweep } from '/absolute/path/to/trusted/scripts/ui/width-sweep.ts';
+
+test('主要状態の幅掃引', async ({ page, browser }, testInfo) => {
+  test.setTimeout(180_000); // 対象repoの待機と既存のホスト上限に合わせて選ぶ
+  const output = process.env.WIDTH_SWEEP_OUTPUT;
+  if (!output) throw Error('WIDTH_SWEEP_OUTPUTが必要です');
+  await widthSweep(page, {
+    testInfo,
+    minWidth: 320, maxWidth: 1440, height: 900,
+    output: join(output, `${testInfo.project.name || 'default'}.json`),
+    source: '対象commitと未commit差分の識別値',
+    browser: `${browser.browserType().name()} ${browser.version()}`,
+    conditions: '対象URL、認証・データ、フォント、OS、projectのuse設定',
+    limitations: '確認した状態の範囲と、今回確認しない操作・環境',
+    states: [
+      {
+        name: '読込後', url: '/screen',
+        prepare: async () => { await expect(page.getByTestId('screen-ready')).toBeVisible(); },
+        ready: async () => { await expect(page.getByTestId('screen-ready')).toBeVisible(); },
+      },
+      {
+        name: '詳細展開', url: '/screen',
+        prepare: async () => { await page.getByRole('button', { name: '詳細' }).click(); },
+        ready: async () => { await expect(page.getByTestId('detail-ready')).toBeVisible(); },
+      },
+    ],
+  });
+});
+```
+
+ホストで、対象repoのcheckoutを作業ディレクトリにして実行します。出力先はcheckout外の未使用の絶対ディレクトリです。親ディレクトリは先に用意します。通常checkから直接呼ぶ場合も、`widthSweep`の`output`には外部の新しい絶対ファイルを渡してください。
+
+```sh
+bun /absolute/path/to/trusted/scripts/ui/run.ts \
+  tests/width-sweep.spec.ts playwright.config.ts /absolute/path/outside-checkout/new-sweep
+```
+
+入口は対象repoの`@playwright/test/cli`を解決します。設定ファイルから辿れる依存が存在することを先に確認し、BunのキャッシュだけにあるPlaywrightは使いません。依存がなければ出力を作る前に拒否します。[撮影アダプター](#ホストによるブラウザー検証と撮影)と同じ設定解決と実行結果の検査を再利用し、元のprojects・依存project・webServer・hooks・ブラウザー設定を引き継ぎます。撮影は要求しません。指定specのみを選び、skip・0件・失敗・計測記録なし・幅の欠落・対象条件やDOM値の欠落・成功とページ超過の矛盾を非zeroで拒否します。`testInfo`から記録したproject名、specの絶対パス、テストの位置とタイトルを実行レポートへ照合し、指定specの各テスト・projectの記録欠落も拒否します。別ファイルの依存projectのsetupは掃引対象に数えません。page fixtureのビューポートを指定するため、固定サイズに変更できない構成は成功にしません。projectごと・テストごとに異なる出力ファイルを指定してください。
+
+計測JSONには対象版・高さ・ブラウザー・条件・一意な状態名と各整数幅の計測値を残します。各sampleの`measurement`はDOMの幅の値だけ、`candidates`は境界・selector・スクロールやクリップする祖先の詳細を一度だけ持ちます。古い二重保存形式や対象識別情報のない記録は、この入口の成功判定には使えません。同じ画面・状態・版・条件の既存結果の明示的な再利用は、引き続き担当AIが証拠を照合して独立評価へ渡します。
+
+新しい出力ディレクトリに計測JSONを、その隣に`.config.mjs`・`.report.json`・`.artifacts`を残します。既存の記録は上書きせず拒否します。依存やブラウザーが不足した場合も非zeroで終了し、起動不能を検査できた場合は78です。一般の実行失敗は1です。途中で中断され、JSONが未完成・未生成の場合は未実行または未完了として生ログに記し、成功へ読み替えません。spec・hook・serverが独自に書くファイルも対象repoで外部へ向けます。任意の対象コードの書き込みを隔離する機能ではありません。
+
+実ブラウザーの結果と候補の実画面確認は、同じ対象版・差分の`findings`から独立評価へ渡します。正常な対照、849〜851pxだけページ全体がはみ出す例、意図した局所横スクロールを使う限定したホスト検証と、模擬pageによる制御テストを区別します。合成HTMLと生結果はcheckout外へ生成し、既存のローカル試行資産は取り込みません。
+
 ### 同じ実行内の確認と再利用
 
 各工程は、それぞれの入力に対応する既存の記録を使います。再利用は同じ実行内に限り、別実行、PR差し戻し、中断復旧へ結果を引き継ぎません。入力を取得・照合できない場合は成功を再利用せず、原因を確認します。
