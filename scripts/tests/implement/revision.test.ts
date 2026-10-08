@@ -557,11 +557,8 @@ for (const file of ['result.json', 'verification/state.json']) {
       const path = join(sibling, file);
       await assert.rejects(check, /Revision request changed/); // ENOENT is optional.
       await writeFile(path, '');
-      if (file === 'result.json') {
-        await assert.rejects(check, SyntaxError);
-      } else {
-        await assert.rejects(check, /Revision request changed/); // Empty state stays optional.
-      }
+      // 存在する空ファイルは、欠落した任意ファイルと区別して拒否する。
+      await assert.rejects(check, SyntaxError);
       await writeFile(path, '{');
       await assert.rejects(check, SyntaxError);
       expect(await readFile(path, 'utf8')).toBe('{');

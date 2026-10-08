@@ -234,7 +234,8 @@ for (const stage of ['initial', 'repair'] as const) {
 testDevelopment(
   'repeated host return redacts all prior runs and evidence from publication',
   async (f) => {
-    const cwd = await prepareStop(f, 'repair', false);
+    // 復帰履歴の除去を検査するため、準備では初回の検証・修正を繰り返さない。
+    const cwd = await prepareStop(f, 'initial', false);
     const original = await runRecords(f.dir);
     await writeFile(join(cwd, 'host-pending.txt'), 'Additional host measurement required');
     const first = await measurement(f, cwd);
@@ -253,13 +254,17 @@ testDevelopment(
     m.args.pop();
     const verify = f.verify;
     const paths = [
-      join(f.dir, 'verification/check-1.stdout'),
+      join(f.dir, 'implementation.stdout'),
       first.evidenceFile,
       first.evidence.logs[0]?.path,
       join(first.dir, 'verification/check-1.stdout'),
       m.evidenceFile,
       m.evidence.logs[0]?.path,
     ];
+    for (const path of paths) {
+      assert(path);
+      await readFile(path);
+    }
     f.verify = async (config) => {
       const state = await verify(config);
       const review = state.reviewHistory.at(-1);
