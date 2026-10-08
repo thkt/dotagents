@@ -4,7 +4,7 @@ import * as fs from 'node:fs/promises';
 import * as syncFs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { assertState } from '../../implement/input.ts';
 import { run, snapshot } from '../../implement/correction.ts';
@@ -494,13 +494,25 @@ for (const defect of [
     const action = () =>
       reconcileExecutions({ previousRun: dir, runDirectory: join(dir, '..', 'new-run') }, cwd);
     if (defect === 'none') {
-      await action();
+      await assertOwnedReconciliation(action, dirname(cwd));
     } else {
       await assert.rejects(action);
     }
     expect(await readOptionalState(statePath)).toBe(originalState);
     expect(await fs.readFile(resultPath, 'utf8')).toBe(originalResult);
   });
+}
+
+// 実出力の正常対照もfixture所有領域だけを走査し、共有tmpへ出ない。
+async function assertOwnedReconciliation(action: () => Promise<void>, root: string) {
+  const scan = spyOn(fs, 'readdir');
+  try {
+    await action();
+    expect(scan).toHaveBeenCalledTimes(1);
+    expect(scan).toHaveBeenCalledWith(root, { withFileTypes: true });
+  } finally {
+    scan.mockRestore();
+  }
 }
 
 // 正常対照だけ実出力を使い、拒否条件はGit・actorを必要としない独立した記録で検査する。
@@ -510,7 +522,9 @@ async function legacyRecord(
   if (realOutput) {
     const t = await trial('normal');
     expect(t.execute().status).toBe(0);
-    return { dir: t.root, cwd: t.config.cwd, saved: await t.state() };
+    const dir = join(t.root, 'previous');
+    await fs.mkdir(dir);
+    return { dir, cwd: t.config.cwd, saved: await t.state() };
   }
   const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'interruption-record-')));
   recordRoots.push(root);
