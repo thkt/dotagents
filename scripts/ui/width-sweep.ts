@@ -5,7 +5,12 @@ import { open, realpath } from 'node:fs/promises';
 import { dirname, isAbsolute } from 'node:path';
 import { outside } from '../shared/values.ts';
 
-import { type boundaryShape, measurementShape, testInfoShape } from './records.ts';
+import {
+  type boundaryShape,
+  measurementShape,
+  type SweepSample,
+  testInfoShape,
+} from './records.ts';
 
 type Boundary = z.infer<typeof boundaryShape>;
 type Measurement = z.infer<typeof measurementShape>;
@@ -163,14 +168,7 @@ export async function widthSweep<P extends SweepPage>(page: P, options: SweepOpt
   const root = await realpath(process.cwd());
   assert(outside(root, await realpath(dirname(options.output))), 'Output must be outside checkout');
   const file = await open(options.output, 'wx');
-  const samples: {
-    state: string;
-    url: string;
-    width: number;
-    measurement: Omit<Measurement, 'elements'>;
-    pageOverflow: boolean;
-    candidates: Boundary[];
-  }[] = [];
+  const samples: SweepSample[] = [];
   let status: 'passed' | 'failed' | 'unavailable' = 'unavailable';
   let error = '';
   try {
@@ -186,15 +184,12 @@ export async function widthSweep<P extends SweepPage>(page: P, options: SweepOpt
         await page.evaluate(settledDOM);
         const measurement = measurementShape.parse(await page.evaluate(measureDOM));
         assert(measurement.innerWidth === width, 'Viewport width differs from requested width');
+        const { elements: _elements, ...viewport } = measurement;
         samples.push({
           state: state.name,
           url: page.url(),
           width,
-          measurement: {
-            innerWidth: measurement.innerWidth,
-            clientWidth: measurement.clientWidth,
-            scrollWidth: measurement.scrollWidth,
-          },
+          measurement: viewport,
           ...classifyWidth(measurement),
         });
       }

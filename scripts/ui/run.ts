@@ -46,10 +46,11 @@ async function run() {
   const cli = requireTarget.resolve('@playwright/test/cli');
   await mkdir(output);
   const outputPath = await realpath(output);
-  await mkdir(`${outputPath}.artifacts`);
-  const reportFile = await open(`${outputPath}.report.json`, 'wx');
-  await reportFile.close();
+  const reportPath = `${outputPath}.report.json`;
   const config = `${outputPath}.config.mjs`;
+  await mkdir(`${outputPath}.artifacts`);
+  const reportFile = await open(reportPath, 'wx');
+  await reportFile.close();
   await writeFile(
     config,
     `import base from ${JSON.stringify(pathToFileURL(configFile).href)};
@@ -67,7 +68,7 @@ export default captureConfig(base, ${JSON.stringify(configFile)}, ${JSON.stringi
     child.once('error', () => done(null));
     child.once('close', done);
   });
-  const report = JSON.parse(await readFile(`${outputPath}.report.json`, 'utf8')) as unknown;
+  const report = JSON.parse(await readFile(reportPath, 'utf8')) as unknown;
   if (code !== 0 && captureUnavailable(report)) {
     process.exitCode = 78;
     return;
@@ -82,11 +83,9 @@ export default captureConfig(base, ${JSON.stringify(configFile)}, ${JSON.stringi
   const covered = new Set<string>();
   for (const name of records) {
     assert(name.endsWith('.json'), 'Only sweep JSON records belong in output');
-    assert(
-      (await lstat(resolve(outputPath, name))).isFile(),
-      'Sweep records must be regular files',
-    );
-    const target = completeSweep(JSON.parse(await readFile(resolve(outputPath, name), 'utf8')));
+    const recordPath = join(outputPath, name);
+    assert((await lstat(recordPath)).isFile(), 'Sweep records must be regular files');
+    const target = completeSweep(JSON.parse(await readFile(recordPath, 'utf8')));
     const key = targetKey(target);
     assert(required.has(key), 'Sweep record does not match a selected test target');
     covered.add(key);

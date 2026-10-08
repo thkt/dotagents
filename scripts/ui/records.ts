@@ -11,12 +11,21 @@ export const boundaryShape = z.strictObject({
     z.strictObject({ ...edges, overflowX: z.enum(['auto', 'scroll', 'hidden', 'clip']) }),
   ),
 });
-const scalars = z.strictObject({
+const viewportShape = z.strictObject({
   innerWidth: positiveInteger,
   clientWidth: positiveInteger,
   scrollWidth: positiveInteger,
 });
-export const measurementShape = scalars.extend({ elements: z.array(boundaryShape) });
+export const measurementShape = viewportShape.extend({ elements: z.array(boundaryShape) });
+const sampleShape = z.strictObject({
+  state: text,
+  url: text,
+  width: positiveInteger,
+  measurement: viewportShape,
+  pageOverflow: z.boolean(),
+  candidates: z.array(boundaryShape),
+});
+export type SweepSample = z.infer<typeof sampleShape>;
 export const testInfoShape = z.object({
   project: z.object({ name: z.string() }),
   file: text.refine(isAbsolute),
@@ -38,16 +47,7 @@ const sweepShape = z.strictObject({
   height: positiveInteger,
   tolerance: z.literal(1),
   states: z.array(z.strictObject({ name: text, url: text })).min(1),
-  samples: z.array(
-    z.strictObject({
-      state: text,
-      url: text,
-      width: positiveInteger,
-      measurement: scalars,
-      pageOverflow: z.literal(false),
-      candidates: z.array(boundaryShape),
-    }),
-  ),
+  samples: z.array(sampleShape.extend({ pageOverflow: z.literal(false) })),
 });
 
 function validEdges(value: { left: number; right: number }) {

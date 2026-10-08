@@ -111,6 +111,8 @@ test('all integer widths and states are measured, including a narrow overflow an
     expect(saved).not.toContain('"elements"');
     expect(saved).toContain('"overflowX": "auto"');
     const report = reportShape.parse(JSON.parse(saved));
+    const normalState = options.states[0];
+    assert(normalState);
     expect(report.status).toBe('failed');
     expect(ready).toHaveLength(15);
     expect(
@@ -130,7 +132,7 @@ test('all integer widths and states are measured, including a narrow overflow an
     await widthSweep(page, {
       ...options,
       output: join(root, 'passed.json'),
-      states: [options.states[0]].filter((state) => state !== undefined),
+      states: [normalState],
     });
     expect(
       reportShape.parse(JSON.parse(await readFile(join(root, 'passed.json'), 'utf8'))).status,
@@ -148,7 +150,7 @@ test('all integer widths and states are measured, including a narrow overflow an
         output: join(root, 'drawing.json'),
         states: [
           {
-            ...options.states[0],
+            ...normalState,
             name: 'broken',
             url: 'normal',
             prepare: async () => {},

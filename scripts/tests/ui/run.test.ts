@@ -45,7 +45,7 @@ test('Bun entry uses target Playwright and rejects successful tests without comp
       if (process.env.SWEEP_TEST_MODE !== 'no-record') {
         writeFileSync(join(out, 'sweep.json'), JSON.stringify({status:'passed',error:'',source:'control snapshot',browser:'chromium mock',conditions:'mock DOM',limitations:'no browser',height:900,tolerance:1,minWidth:848,maxWidth:852,
           target:{file:join(process.cwd(),'width.spec.ts'),projectName:'chromium',title:'sweep',line:1,column:0},
-          states:[{name:'normal',url:'https://example.test'}],samples:[848,849,850,851,852].map(width=>process.env.SWEEP_TEST_MODE==='missing-width'?848:width).map(width=>({state:'normal',url:'https://example.test',width,measurement:{innerWidth:width,clientWidth:width,scrollWidth:width},pageOverflow:false,candidates:[]}))}));
+          states:[{name:'normal',url:'https://example.test'}],samples:[848,849,850,851,852].map(width=>process.env.SWEEP_TEST_MODE==='duplicate-width'?848:width).map(width=>({state:'normal',url:'https://example.test',width,measurement:{innerWidth:width,clientWidth:width,scrollWidth:width},pageOverflow:false,candidates:[]}))}));
       }
       if (process.env.SWEEP_TEST_MODE === 'multi-complete') {
         const {readFileSync} = await import('node:fs');
@@ -70,9 +70,9 @@ test('Bun entry uses target Playwright and rejects successful tests without comp
     const absent = execute('no-record');
     expect(absent.status).toBe(1);
     expect(absent.stderr).toContain('No sweep records');
-    const missing = execute('missing-width');
-    expect(missing.status).toBe(1);
-    expect(missing.stderr).toContain('Duplicate measured width');
+    const duplicate = execute('duplicate-width');
+    expect(duplicate.status).toBe(1);
+    expect(duplicate.stderr).toContain('Duplicate measured width');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

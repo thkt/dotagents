@@ -41,7 +41,8 @@ function record() {
 }
 
 test('complete records preserve local candidates and reject incomplete or contradictory success', () => {
-  expect(completeSweep(record())).toEqual(record().target);
+  const normal = record();
+  expect(completeSweep(normal)).toEqual(normal.target);
   for (const field of ['source', 'browser', 'conditions', 'limitations', 'height', 'target']) {
     const value = record();
     Reflect.deleteProperty(value, field);
