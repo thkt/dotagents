@@ -10,6 +10,8 @@ import { checkRevision, revisionContext } from './revision.ts';
 import { issueText } from './issue.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
 import { parseReview, reviewInstructions, reviewSummary } from './review.ts';
+import { preserveWalkthrough } from './walkthrough.ts';
+import type { SavedWalkthrough } from './walkthrough.ts';
 import type { Review } from './review.ts';
 import { researchContext, verifyReportBase } from './research-handoff.ts';
 import { assertConfig, assertProbeConfig, assertState, testRecordsShape } from './input.ts';
@@ -69,7 +71,11 @@ function isCaptureRecord(name: string, destination: string) {
 type SourceFile = [string, number, string];
 type Addition = { path: string; mode: number; symlink: boolean; content: string };
 
-async function sourceFiles(cwd: string, additions?: Addition[]) {
+async function sourceFiles(
+  cwd: string,
+  additions?: Addition[],
+  testManifest?: Record<string, string>,
+) {
   const untracked = new Map<string, number>();
   if (additions) {
     const list = await command(
@@ -89,7 +95,7 @@ async function sourceFiles(cwd: string, additions?: Addition[]) {
     '',
     10000,
   );
-  if (list.code !== 0) {
+  if (list.code !== 0 || (testManifest && list.timedOut)) {
     throw Error('Cannot identify source files');
   }
   const entries: SourceFile[] = [];
@@ -99,32 +105,53 @@ async function sourceFiles(cwd: string, additions?: Addition[]) {
     '.dotagents.json',
   ]);
   for (const name of [...names].sort()) {
-    const path = resolve(cwd, name);
-    const stat = await lstat(path).catch((error: unknown) => {
-      if (!isMissing(error) || untracked.has(name)) {
-        throw error;
-      }
-      return undefined;
-    });
-    if (!stat) {
-      // Materialized deletion has the same identity before and after staging.
+    const file = await readSourceFile(cwd, name, untracked.has(name), testManifest);
+    if (!file) {
       continue;
     }
-    // A path disappearing after lstat is an unknown read, not an identified deletion.
-    const bytes = stat.isSymbolicLink() ? await readlink(path) : await readFile(path);
-    entries.push([name, stat.mode, digest(bytes)]);
+    const { mode, symlink, bytes } = file;
+    entries.push([name, mode, digest(bytes)]);
     const index = untracked.get(name);
     if (index !== undefined) {
       assert(additions);
       additions[index] = {
         path: name,
-        mode: stat.mode,
-        symlink: stat.isSymbolicLink(),
+        mode,
+        symlink,
         content: typeof bytes === 'string' ? bytes : bytes.toString('base64'),
       };
     }
   }
   return entries;
+}
+
+async function readSourceFile(
+  cwd: string,
+  name: string,
+  required: boolean,
+  testManifest?: Record<string, string>,
+) {
+  const path = resolve(cwd, name);
+  const stat = await lstat(path).catch((error: unknown) => {
+    if (!isMissing(error) || required) {
+      throw error;
+    }
+    return undefined;
+  });
+  if (!stat) {
+    // 削除済みのファイルはstage前後で同じ版として扱います。
+    return undefined;
+  }
+  if (testManifest) {
+    assert(stat.isFile() || stat.isSymbolicLink(), `テスト入力の種別が不正です: ${name}`);
+  }
+  // lstat後の消失は読取り失敗であり、確認済みの削除として扱いません。
+  const symlink = stat.isSymbolicLink();
+  const bytes = symlink ? await readlink(path) : await readFile(path);
+  if (testManifest) {
+    testManifest[name] = digest(Buffer.concat([Buffer.from(`${stat.mode}:`), Buffer.from(bytes)]));
+  }
+  return { mode: stat.mode, symlink, bytes };
 }
 
 function captureFiles(
@@ -518,8 +545,9 @@ async function verifyHost(
   config: ReviewConfig,
   state: State,
   persist: Persist,
+  observedFiles?: SourceFile[],
 ): Promise<{ stop?: StopReason; findings?: string }> {
-  const files = await sourceFiles(config.cwd);
+  const files = observedFiles ?? (await sourceFiles(config.cwd));
   state.source = digest(JSON.stringify(files));
   const decision = await captureDecision(config, state.source, files, state.captureSource);
   if (config.capture && decision.outcome === 'execute') {
@@ -720,9 +748,18 @@ async function evaluate(
   }
   let review: Review;
   let documents: ReturnType<typeof documentVersions>;
+  let walkthrough: SavedWalkthrough | undefined;
   try {
     review = parseReview(reviewed.stdout, target.targetId, state.review, history.at(-1));
     documents = documentVersions(review, target.files);
+    assert(state.source);
+    walkthrough = await preserveWalkthrough(
+      config.cwd,
+      target.targetId,
+      state.source,
+      target.files,
+      review.walkthrough,
+    );
   } catch (error) {
     state.findings = `Invalid review: ${error instanceof Error ? error.message : String(error)}; raw response: ${target.prefix}.stdout`;
     return 'invalid_review';
@@ -730,7 +767,11 @@ async function evaluate(
   try {
     await writeFile(
       `${target.prefix}.json`,
-      JSON.stringify({ target: `${target.prefix}.target.json`, review, documents }, null, 2),
+      JSON.stringify(
+        { target: `${target.prefix}.target.json`, review, documents, walkthrough },
+        null,
+        2,
+      ),
       { flag: 'wx' },
     );
   } catch (error) {
@@ -760,6 +801,7 @@ async function repairOutcome(
   state: State,
   stdout: string,
   repairsSinceReview: RepairReference[],
+  observedFiles?: SourceFile[],
 ): Promise<StopReason | RepairReference[]> {
   const value = parseRepairReply(stdout);
   state.findings = value.findings;
@@ -767,7 +809,9 @@ async function repairOutcome(
     return 'invalid_repair';
   }
   if (value.status === 'needs_host') {
-    state.source = await snapshot(config.cwd);
+    state.source = observedFiles
+      ? digest(JSON.stringify(observedFiles))
+      : await snapshot(config.cwd);
     return 'host_verification_required';
   }
   if (value.status === 'needs_human') {
@@ -780,7 +824,9 @@ async function repairOutcome(
       attempt: state.repair,
       prefix: resolve(config.runDir, `repair-${state.repair}`),
       sourceBefore: state.source,
-      sourceAfter: await snapshot(config.cwd),
+      sourceAfter: observedFiles
+        ? digest(JSON.stringify(observedFiles))
+        : await snapshot(config.cwd),
       stdoutHash: digest(stdout),
     },
   ];
@@ -797,10 +843,10 @@ async function cycle(
     return 'requirements_changed';
   }
   const invalidTests = await testArtifactStop(config, state);
-  if (invalidTests) {
-    return invalidTests;
+  if (invalidTests.stop) {
+    return invalidTests.stop;
   }
-  const host = await verifyHost(config, state, persist);
+  const host = await verifyHost(config, state, persist, invalidTests.files);
   if (host.stop) {
     return host.stop;
   }
@@ -861,10 +907,10 @@ async function performRepair(
     return repaired.stop;
   }
   const changedTests = await testArtifactStop(config, state);
-  if (changedTests) {
-    return changedTests;
+  if (changedTests.stop) {
+    return changedTests.stop;
   }
-  return repairOutcome(config, state, repaired.stdout, repairsSinceReview);
+  return repairOutcome(config, state, repaired.stdout, repairsSinceReview, changedTests.files);
 }
 
 async function targetChange(config: ReviewConfig, state: State): Promise<StopReason | null> {
@@ -887,13 +933,22 @@ async function targetChange(config: ReviewConfig, state: State): Promise<StopRea
   return null;
 }
 
-async function testArtifactStop(config: ReviewConfig, state: State): Promise<StopReason | null> {
+// 保全確認と直後の版識別だけで共有し、次の工程へは持ち越しません。
+async function testArtifactStop(
+  config: ReviewConfig,
+  state: State,
+): Promise<{ stop?: StopReason; files?: SourceFile[] }> {
   try {
-    await verifyTestArtifacts(config.cwd, state.testRecords ?? []);
-    return null;
+    const records = state.testRecords ?? [];
+    const manifest: Record<string, string> = {};
+    const files = records.some((record) => Object.keys(record.files).length > 0)
+      ? await sourceFiles(config.cwd, undefined, manifest)
+      : undefined;
+    await verifyTestArtifacts(config.cwd, records, manifest);
+    return { files };
   } catch (error) {
     state.findings = error instanceof Error ? error.message : String(error);
-    return 'invalid_test';
+    return { stop: 'invalid_test' };
   }
 }
 

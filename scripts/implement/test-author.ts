@@ -109,13 +109,17 @@ export async function prepareTestBaseline(cwd: string, baseline: string, io = co
   return files;
 }
 
-export async function verifyTestArtifacts(cwd: string, records: TestRecord[]) {
+export async function verifyTestArtifacts(
+  cwd: string,
+  records: TestRecord[],
+  observedManifest?: Files,
+) {
   if (records.length === 0) {
     return;
   }
-  const current = records.some((record) => Object.keys(record.files).length > 0)
-    ? await entries(cwd)
-    : {};
+  const current =
+    observedManifest ??
+    (records.some((record) => Object.keys(record.files).length > 0) ? await entries(cwd) : {});
   await verifyTestManifest(current, records);
 }
 

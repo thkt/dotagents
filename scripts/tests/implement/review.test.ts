@@ -35,6 +35,16 @@ console.log(JSON.stringify(reply));`,
 // Pure response validation needs no repository or external command.
 function reviewResponse() {
   return {
+    walkthrough: [
+      {
+        title: '変更',
+        intent: '要求を満たす',
+        rationale: '関連コードを確認',
+        code: [{ path: 'source.txt', start: 1, end: 1 }],
+        evidence: ['保存check'],
+        limitations: [],
+      },
+    ],
     targetId: 'target-1',
     findings: 'Setup instructions are missing',
     assessments: {
@@ -79,6 +89,18 @@ test('host assigns stable IDs by attempt and response order, independently of fi
 });
 
 const invalidFields: [string, (reply: ReturnType<typeof reviewResponse>) => void][] = [
+  [
+    'missing walkthrough',
+    (reply) => {
+      delete object(reply).walkthrough;
+    },
+  ],
+  [
+    'walkthrough outside target',
+    (reply) => {
+      object(reply.walkthrough[0]?.code[0]).path = '../outside.txt';
+    },
+  ],
   [
     'blank findings',
     (reply) => {
@@ -263,6 +285,7 @@ test('document references require strict nonblank fields and unique paths', () =
 // Retain orchestration coverage for parser rejection and file-version binding.
 for (const [name, mutation, reason] of [
   ['target', "reply.targetId='different-source'", 'target mismatch'],
+  ['walkthrough range', 'reply.walkthrough[0].code[0].end=1000', 'コード行範囲を確認できません'],
   [
     'document outside target',
     "reply.documents=[{path:'missing.md',role:'current',reason:'Policy'}]",
@@ -464,6 +487,16 @@ test('host combines reordered judgments and new findings, reopens resolved findi
     ...newFinding
   } = finding;
   const response = {
+    walkthrough: [
+      {
+        title: '変更',
+        intent: '要求を満たす',
+        rationale: '関連コードを確認',
+        code: [{ path: 'source.txt', start: 1, end: 1 }],
+        evidence: ['保存check'],
+        limitations: [],
+      },
+    ],
     targetId: 'target-1',
     findings: 'Pagination review',
     assessments: {
@@ -1153,4 +1186,35 @@ test('correction rejects a stale report pin before executing verification', asyn
   expect(result.stderr).toContain(`Required report differs from reviewed version: ${path}`);
   expect(await Bun.file(join(t.config.runDir, 'check-1.stdout')).exists()).toBe(false);
   expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
+});
+
+test('final walkthrough snapshots include repaired documentation', async () => {
+  const t = await trial('docs');
+  await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
+  await reviewer(
+    t,
+    `
+const fixed = readFileSync(reviewContext.targetRecord,'utf8').includes('README.md');
+const reply = reviewReply(fixed?'accepted':'needs_changes',fixed?'文書修正を確認':'文書が必要');
+reply.walkthrough[0].code = [{path:fixed?'README.md':'source.txt',start:1,end:1}];
+reply.walkthrough[0].title = fixed?'追加修正後の文書':'初回のコード';
+if (!fixed) writeFileSync(${JSON.stringify(join(t.root, 'reviewed'))},'yes');
+`,
+  );
+  expect(t.execute().status).toBe(0);
+  const final = object(JSON.parse(await readFile(join(t.config.runDir, 'review-2.json'), 'utf8')));
+  const saved = object(final.walkthrough);
+  expect(saved.source).toBe((await t.state()).source);
+  expect(saved.files).toEqual([
+    {
+      path: 'README.md',
+      sha256: createHash('sha256').update('current').digest('hex'),
+      content: 'current',
+    },
+  ]);
+  expect(object(final.review).walkthrough).toMatchObject([{ title: '追加修正後の文書' }]);
+  await writeFile(join(t.config.cwd, 'README.md'), 'later checkout');
+  expect(
+    object(JSON.parse(await readFile(join(t.config.runDir, 'review-2.json'), 'utf8'))).walkthrough,
+  ).toEqual(saved);
 });
