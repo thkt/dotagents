@@ -4,6 +4,8 @@ import { checkRevision, revisionContext } from './revision.ts';
 import { issueText } from './issue.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
 import { parseReview, reviewInstructions, reviewSummary } from './review.ts';
+import { preserveWalkthrough } from './walkthrough.ts';
+import type { SavedWalkthrough } from './walkthrough.ts';
 import type { Review } from './review.ts';
 import { researchContext, verifyReportBase } from './research-handoff.ts';
 import { assertConfig, assertProbeConfig, assertState } from './input.ts';
@@ -707,9 +709,18 @@ async function evaluate(
   }
   let review: Review;
   let documents: ReturnType<typeof documentVersions>;
+  let walkthrough: SavedWalkthrough | undefined;
   try {
     review = parseReview(reviewed.stdout, target.targetId, state.review, history.at(-1));
     documents = documentVersions(review, target.files);
+    assert(state.source);
+    walkthrough = await preserveWalkthrough(
+      config.cwd,
+      target.targetId,
+      state.source,
+      target.files,
+      review.walkthrough,
+    );
   } catch (error) {
     state.findings = `Invalid review: ${error instanceof Error ? error.message : String(error)}; raw response: ${target.prefix}.stdout`;
     return 'invalid_review';
@@ -717,7 +728,11 @@ async function evaluate(
   try {
     await writeFile(
       `${target.prefix}.json`,
-      JSON.stringify({ target: `${target.prefix}.target.json`, review, documents }, null, 2),
+      JSON.stringify(
+        { target: `${target.prefix}.target.json`, review, documents, walkthrough },
+        null,
+        2,
+      ),
       { flag: 'wx' },
     );
   } catch (error) {

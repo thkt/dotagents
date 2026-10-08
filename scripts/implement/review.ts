@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { z } from 'zod';
+import { walkthroughSteps } from './walkthrough.ts';
 
 export const reviewModel = { model: 'gpt-6.1-sol', reasoningEffort: 'high' };
 const text = z.string().min(1).regex(/\S/);
@@ -24,6 +25,7 @@ const newItem = z.strictObject({
 });
 const reviewResponse = z.strictObject({
   findings: text,
+  walkthrough: walkthroughSteps,
   targetId: text,
   assessments: z.strictObject({ code: text, requirements: text, tests: text, documentation: text }),
   updates: z.array(z.strictObject({ id: text, disposition, reason: text })),
@@ -43,6 +45,7 @@ export const reviewSchema = z.toJSONSchema(reviewResponse);
 // response fields so reading a saved review validates the same item details.
 const reviewItem = newItem.extend({ id: text, introducedIn: text, disposition });
 export const reviewRecord = reviewResponse.omit({ updates: true, newItems: true }).extend({
+  walkthrough: walkthroughSteps.optional(),
   status: z.enum(['accepted', 'needs_changes']),
   items: z.array(reviewItem),
 });
@@ -96,6 +99,7 @@ export function parseReview(
 
 export const reviewInstructions = [
   '初回評価でも再評価でも、現在の成果物を独立して評価してください。現在の差分に加え、影響する呼出元・呼出先、共有型、状態遷移、エラー処理、関連テストを読んでください。過去の指摘を判定すると同時に、現在の関連経路で具体的な問題の再発や新規発生も確認してください。過去の指摘を直しただけでは受入の根拠になりません。無関係なコードの監査や、範囲外の機能・書き方の好みを要求しないでください。',
+  'walkthroughには、現在の最終評価対象の実際の差分と関連コードに基づく説明順のステップを返してください。追加修正と必要な文書変更も考慮し、初回要約を最終説明として流用しないでください。各ステップのtitle、intent、rationale、code（repo相対path・1始まりのstart/end行）、evidence（保存済み検証の参照と意味）、limitations（未確認事項）を記してください。全ファイルの網羅や固定ステップ数は不要です。現在の対象に存在する通常UTF-8ファイルだけを参照し、削除の説明には関連する現行コードと保存diffを使ってください。コード・証拠と説明の意味、版、条件を四観点の既存評価で独立して照合し、識別値の一致だけで内容を正しいと判断しないでください。説明の欠陥は通常の指摘へ戻してください。',
   '次の四つの観点を分けて評価してください。コードの正しさ（入力境界、状態更新、非同期動作、失敗時の副作用）と具体的な冗長性、合意済みIssueの要求と範囲、テストによる現実的な不具合の検出力、必要な文書・証拠と実装版の整合です。',
   'Issueにその振る舞いが明記されていなくても、コードの欠陥を報告してください。確認できた欠陥と未確認の懸念を区別してください。指摘なしもcheck成功も、欠陥が存在しないことを保証しません。',
   '変更に関係する冗長性は、影響するヘルパーの呼出しを、その内部の読取りと検査まで展開して確認してください。隣接する重複文だけでなく、呼出元と呼出先を通して、対象・入力・版・目的の一致を追ってください。観測が繰り返される箇所ごとに、その間の操作、または新たな結果を必要とする別の保証を特定してください。同じ境界内で、一度の新しい観測結果を呼出元と呼出先で共用できるか検討してください。外部状態が変わり得ることだけでは、すべての再読取りを正当化できません。モデル実行、setup、書込み、公開をまたぐために必要な観測は保ち、鮮度と失敗時の動作を考慮してください。ローカル書込みがないことだけでも、冗長性の証明にはなりません。工程をまたぐキャッシュや再検証の一括削除を指示しないでください。分岐・状態・引き継ぎの重複も調べ、最初の指摘で関連経路の追跡を止めないでください。',
