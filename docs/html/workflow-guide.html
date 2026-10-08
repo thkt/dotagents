@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
-<meta name="source-commit" content="375151dc2544e3f2aa0f2421580f4aa2e37a06d3">
+<meta name="source-commit" content="7aca234e768638a3d77a6d72d2cff928d3edb44f">
 <meta name="description" content="初めてハーネスを導入する人向けに、導入準備から要求整理・実装・PRまでを解説。差し戻しの調査と見直し、関係者への動作説明、リリース・運用・振り返りの共通の観点も収録。">
 <title>AIと進める開発、その判断のつなぎ方。 | dotagents</title>
 <style>
@@ -38,13 +38,13 @@
 <noscript><p>参照版と根拠リンクの表示にはJavaScriptが必要です。本文はそのまま読めます。</p></noscript>
 <a class="skip-link" href="#overview">本文へ移動</a>
 <div class="page-wrap">
-<header class="masthead"><a href="#top" class="brand" aria-label="dotagents ページ先頭">dotagents<span aria-hidden="true"> /</span></a><span class="edition">開発の流れ · 2026.09.28</span></header>
+<header class="masthead"><a href="#top" class="brand" aria-label="dotagents ページ先頭">dotagents<span aria-hidden="true"> /</span></a><span class="edition">開発の流れ · 2026.10.08 更新</span></header>
 <div class="hero" id="top"><div class="eyebrow">開発の進め方を読む</div><h1>AIと進める開発、<br>その判断のつなぎ方。</h1><div class="hero-copy"><p>AIに開発を任せるとき、何を伝え、どこまで任せ、何を確かめて受け入れるか。このページは、初めてハーネスを導入する人が、一連の流れをつかむためのガイドです。</p>
 <p>ここでいう<strong>ハーネス</strong>は、AIの役割、実行手順、検証、停止条件、記録を組み合わせて、開発の進め方を支える仕組みです。dotagentsを例に、依頼から変更を作成し、人のレビューへ渡すまでの流れを読み解きます。</p>
 <p>入口は2つあります。要求を整理する <strong>scoping</strong> と、合意したGitHub Issueから実装・検証・PR作成を進める <strong>implement</strong> です。まず全体像と導入準備を確認し、次に各工程で誰が何を判断するかをたどります。</p>
 <p>記事の範囲には、ハーネスを使って開発するアプリ・サービスのリリース、稼働確認、振り返りまでを含めます。要求整理から人のマージ判断までは、現行の文書やコードに基づく説明です。既存PRの修正は、人が採用した指摘から同じ開発CLIで検証・更新まで進みます。PRの説明をQA・デザイナー・企画側が確認できる資料へ自動でつなぐ仕組みは、今後の設計方針として区別します。リリース以降については、アプリごとに異なる運用を検討するための共通の判断や確認の流れを説明します。具体的な手順は、各アプリで定めるものとして区別しています。</p>
 </div><div class="top-actions"><a href="workflow-map.html">工程と接続を図で見る →</a><a href="#overview">全体像から読む <span aria-hidden="true">↘</span></a><a href="#setup">導入前に揃えるもの</a></div></div>
-<div class="draft-line"><strong>現行実装と照合</strong><span>2026.09.28 · <span data-commit="short"></span></span><a href="#sources">確認した版と範囲へ →</a></div>
+<div class="draft-line"><strong>対象範囲を現行実装へ照合</strong><span>2026.10.08 · <span data-commit="short"></span></span><a href="#sources">確認した版と範囲へ →</a></div>
 <div class="article-layout"><aside class="toc"><nav aria-label="目次"><div class="toc-title">目次</div><ol><li><a href="#overview"><span aria-hidden="true">01</span>全体像</a></li><li><a href="#setup"><span aria-hidden="true">02</span>導入準備と言葉</a></li><li><a href="#roles"><span aria-hidden="true">03</span>責任の分担</a></li><li><a href="#checks-and-materials"><span aria-hidden="true">＋</span>資料と確認の対応</a></li><li><a href="#context-principles"><span aria-hidden="true">＋</span>コンテキスト整備の原則</a></li><li><a href="#scoping"><span aria-hidden="true">04</span>要求を整理する</a></li><li><a href="#issue"><span aria-hidden="true">05</span>Issueへ引き継ぐ</a></li><li><a href="#start"><span aria-hidden="true">06</span>実装を始める</a></li><li><a href="#build"><span aria-hidden="true">07</span>検証と独立評価</a></li><li><a href="#writing"><span aria-hidden="true">08</span>文書の内容を確かめる</a></li><li><a href="#capture"><span aria-hidden="true">09</span>画面の証拠を揃える</a></li><li><a href="#publish"><span aria-hidden="true">10</span>PRを公開する</a></li><li><a href="#human"><span aria-hidden="true">11</span>人が判断する</a></li><li><a href="#post-review"><span aria-hidden="true">12</span>差し戻しへの対応</a></li><li><a href="#handoff"><span aria-hidden="true">13</span>関係者への引き継ぎ</a></li><li><a href="#after-merge"><span aria-hidden="true">14</span>リリースから振り返り</a></li><li><a href="#stops"><span aria-hidden="true">15</span>停止と戻り先</a></li><li><a href="#records"><span aria-hidden="true">16</span>成果物の保存</a></li><li><a href="#harness-eval"><span aria-hidden="true">＋</span>指示変更時の比較eval</a></li><li><a href="#questions"><span aria-hidden="true">17</span>合意と今後の実装</a></li><li><a href="#sources"><span aria-hidden="true">18</span>出典</a></li></ol></nav><div class="reading-controls" hidden><button id="reading-mode" type="button" aria-pressed="false">要点だけ読む</button><p id="reading-status" aria-live="polite">すべての説明を表示しています。</p></div></aside><main><section id="overview" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">01</span><h2>まず、流れを一枚でつかむ</h2></header><div class="chapter-body"><p>流れの中心は、<strong>要求を揃える → Issueに合意を残す → 実装する → 確かめる → PRで伝える → 人が判断する</strong>、という受け渡しです。</p>
 <ol>
 <li><strong>依頼を受け取る。</strong> 誰の何を改善するのか、対象はどこかを確認する。</li>
@@ -75,7 +75,7 @@
 <pre><code class="language-sh">bun install --frozen-lockfile --ignore-scripts
 bun run check
 </code></pre>
-<p>日常の入口は <code>scoping</code> と <code>implement</code> です。詳細な設定例、実行コマンド、スキル登録、中断時の手順は出典のCLIガイドと根拠の保存・引き継ぎ手順を参照してください。修正・独立評価だけを設定して試す <code>correction.ts</code> もありますが、通常のIssue実装は <code>development.ts</code> を通します。</p>
+<p>日常の入口は <code>scoping</code> と <code>implement</code> です。詳細な設定例、実行コマンド、スキル登録、中断時の手順は出典のCLIガイドと根拠の保存・引き継ぎ手順を参照してください。通常のIssue実装は <code>development.ts</code> を通します。単独の <code>correction.ts</code> CLIは廃止され、コマンドを起動しません。担当者向けの評価試行は <code>review-probe.ts</code> から修正なしのレビュー1回で終了します。</p>
 <h3>このページで使う言葉</h3>
 <table>
 <thead>
@@ -111,7 +111,7 @@ bun run check
 <p>これは責任の分担です。担当人数を規定するものではありません。実際に誰がそれぞれを担当するかは、対象repoの運用に従います。</p>
 <p>独立評価のAIが受入可能と答えても、人の承認が済んだことにはなりません。公開前の評価は、これから公開担当と人へ渡すための判断です。</p>
 </div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="README.md">README.md</a> · <a data-source="scripts/README.md">scripts/README.md</a></p><p>実装内部では、コマンド実行と中断管理を<a data-source="scripts/shared/process.ts">process.ts</a>が、基本的な値の検査を<a data-source="scripts/shared/values.ts">values.ts</a>が受け持ちます。実行中のプロセスと中断状態を一か所で管理し、修正フローへの不要な依存と入力検査・独立評価の循環依存を解消しています。初回実装と修正に共通する指示・応答検査は<a data-source="scripts/implement/repair.ts">repair.ts</a>にまとめています。利用者の操作や承認手順は変わりません。</p></details></section>
-<section id="checks-and-materials" class="chapter"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">補足</span><h2>何を読み、どこで、誰が確かめるのか</h2></header><div class="chapter-body"><p>工程ごとに、使う資料、機械による確認、AIによる内容の精査、人の判断を整理します。本文・確認表・詳細図は、2026年9月28日に同じcommit <code data-commit></code>の文書とコードへ照合しました。</p>
+<section id="checks-and-materials" class="chapter"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">補足</span><h2>何を読み、どこで、誰が確かめるのか</h2></header><div class="chapter-body"><p>工程ごとに、使う資料、機械による確認、AIによる内容の精査、人の判断を整理します。2026年10月8日、<a href="https://github.com/thkt/dotagents/issues/354">Issue #354</a>の範囲で設定の開始条件と、通常開発・既存PR修正・ホスト復帰・評価試行・旧記録の区別をcommit <code data-commit></code>へ再照合しました。今回、本文・確認表・詳細図を全面照合したものではありません。</p>
 <h3><code>.dotagents.json</code> は何の設定か</h3>
 <p><strong>このハーネスが、開発対象のリポジトリを扱うために読む設定です。</strong> 対象リポジトリのルートに置きます。Codex一般の設定ファイルではありません。ファイル名と読み方はdotagents側の実装で決まっており、対象の照合は<code>scripts/shared/target.ts</code>が担当します。</p>
 <p>現在のハーネスは、実装や評価のためにCodex CLIを呼び出します。<code>.dotagents.json</code>を読み、対象リポジトリを照合して準備・検証・公開へつなぐ処理は、このハーネスのコードが担当します。設定は、Issue公開時の対象確認、実装の準備、PR公開時の照合で使います。モデルの選択は、現行の<code>review.ts</code>や<code>codex-actor.ts</code>側で扱います。</p>
@@ -165,12 +165,12 @@ bun run check
 </table>
 <p>内容を修正した後は、その変更に関係する検証と評価を更新します。機械的な不備は修正や停止理由として残します。要求や権限の変更、判断材料の不足は、調査や人との合意へ戻します。</p>
 <h3>内容の精査は、何と何を比べるのか</h3>
-<p><strong>設定の検査。</strong> <code>.dotagents.json</code>の<code>check</code>が有効なコマンド配列かどうかは、CLIで検査できます。そのコマンドが今回の不具合を検出できるかは、Issueが期待する振る舞い、実際のテスト、変更後のコードを照らして判断します。</p>
+<p><strong>設定の検査。</strong> <code>.dotagents.json</code>の<code>check</code>が空でないシェル文字列または有効なargv配列かどうかは、CLIで検査できます。そのコマンドが今回の不具合を検出できるかは、Issueが期待する振る舞い、実際のテスト、変更後のコードを照らして判断します。</p>
 <p><strong>要求整理の精査。</strong> <code>sufficiency.md</code>の六つの問いを使い、担当AIが出典、対象版、適用範囲と合意を照合します。十分性を判定する専用CLIはありません。判断を左右する不足はIssue・下書きに残し、調査や人の回答で解消してから再評価します。AIの評価を人の合意や実装許可には読み替えません。</p>
 <p><strong>文章の精査。</strong> 執筆担当と独立評価担当は、読みやすさに加えて、数量、否定、条件、範囲、権限、断定の強さ、参照先を原資料と照合します。「まだ試していない」ことを「確認できた」と説明していれば、修正へ戻します。事実そのものに根拠がなければ調査へ戻します。</p>
 <p><strong>実装の精査。</strong> 独立評価では、テストの成功や実装担当の説明だけで結論を出さず、現在の差分と影響を受ける呼出元・呼出先、境界条件、失敗時の動作、関連テストを読み、具体的な冗長性も確認します。前回の指摘を修正済みや非該当とする判断も、現在の成果物と必要な検証で確かめ、理由を残します。</p>
 <p>たとえば「一覧を名前順にする」という要求なら、表示が変わったことに加え、同名の項目、空の一覧、絞り込みとの組み合わせなど、今回の仕様に関係する条件を調べます。どの条件が必要かは対象アプリの要求と実装から選び、不明な期待値を推測で補いません。この例をすべての変更に対する必須チェックリストにはしません。</p>
-<p>既存PRの再調査や、QA・デザイナー・企画向けの確認ガイドは、後続の章にある設計方針です。担当者や対象アプリ固有の確認条件で未確定のものは、その実装や運用を具体化する際に確認します。</p>
+<p>既存PRの修正入口は導入済みです。QA・デザイナー・企画向けの確認ガイドの自動生成・共有は、後続の章にある設計方針です。担当者や対象アプリ固有の確認条件で未確定のものは、その実装や運用を具体化する際に確認します。</p>
 </div><details class="evidence"><summary>この補足の根拠（<span data-commit="short"></span>）</summary><p><a data-source="scripts/shared/target.ts">scripts/shared/target.ts</a> · <a data-source="scripts/implement/orchestrator.ts">scripts/implement/orchestrator.ts</a> · <a data-source="scripts/implement/correction.ts">scripts/implement/correction.ts</a> · <a data-source="scripts/implement/review.ts">scripts/implement/review.ts</a> · <a data-source="skills/scoping/SKILL.md">skills/scoping/SKILL.md</a> · <a data-source="skills/scoping/references/sufficiency.md">skills/scoping/references/sufficiency.md</a> · <a data-source="skills/scoping/references/issue.md">skills/scoping/references/issue.md</a> · <a data-source="scripts/README.md">scripts/README.md</a> · <a data-source="docs/wiki/development-policy.md">docs/wiki/development-policy.md</a></p></details></section>
 <section id="context-principles" class="chapter"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">知識</span><h2>判断の前提を、たどって見直せるようにする</h2></header><div class="chapter-body"><p><strong>実装開始の条件はwikiで説明し、必要な根拠を同じ版で各工程へ渡します。</strong> 要求・許可はIssue、根拠の版付き引き継ぎは報告参照、実行制御はホストが担います。共有モデルのJSON正本・ID選択・生成説明はIssue #265で終了します。</p>
 <h3>目的・概念・振る舞いを、根拠と結び付ける</h3>
@@ -245,7 +245,7 @@ bun run check
 <section id="start" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">06</span><h2>実装する対象と、検証条件を固定する</h2></header><div class="chapter-body"><p>implementは対象Issueを特定し、合意済みの要求と、対象repoの <code>.dotagents.json</code> を照合して始まります。この設定には、repo、remote、base branch、セットアップ、check、必要なCI、撮影方針が入ります。</p>
 <p>検証方法が未設定なら、実行に必要な設定を推測で補って開始しません。未知の設定キーはモデル実行・公開前に入力形式エラーとして拒否します。対象repoの方針と設定を確認してから新規実行を始めます。対象repoの言語やテストツールは、そのrepoの設定に従います。ハーネス自体はBunで動きます。</p>
 <p>ホストは、checkout、設定、fetchとpushのremote、GitHubのrepo ID、base branch、既存のgh認証による実効ユーザーを照合します。公開する実行ではpush権限も実装前に確認します。途中で主体を別のユーザーへ自動で切り替えることはありません。</p>
-<p>新規実装は起動時のHEADを開始commitに固定し、設定と選択した報告の本文・版・index・モードを照合します。必要入力の不一致、既存の実行保存先や同名branchでは開始しません。無関係な未コミット差分・未追跡ファイルは元のcheckoutへ残せます。</p>
+<p>新規実装は起動時のHEADを開始commitに固定します。ローカルの <code>.dotagents.json</code> は通常ファイルであることが必須ですが、commit・pushは任意です。追跡済みなら開始commitのblob・本文・index・モードへ照合し、開始commitにない場合はindexへの追加を拒否します。読み込んだ設定原文を固定し、未追跡・ignoredなローカル設定も作業用worktreeへコピーします。設定はcommit対象から除外し、実行中の原文変更と追跡状態の変更を検出します。ignoredなローカル設定もsnapshotへ含めます。選択した報告の本文・版・index・モードも照合します。必要入力の不一致、既存の実行保存先や同名branchでは開始しません。無関係な未コミット差分・未追跡ファイルは元のcheckoutへ残せます。</p>
 <p>必要な調査報告がある場合、開発CLIへ<code>--start-commit</code>と<code>--report パス=確認済みblob ID</code>を渡します。CLIは開始HEAD、報告がcommit内の通常ファイルであること、確認済みの版、実際の本文を照合します。欠落・未コミット・内容の違いがあれば停止し、確認せず新しいIDへ差し替えません。</p>
 <p>新規実装は要求全文と対象情報を保存し、照合した開始commitから分離したworktreeと <code>codex/development-N</code> branchを作ります。worktreeは、元の作業場所と分けて同じリポジトリの変更を作るための作業場所です。設定されたセットアップの後も、隔離先と元checkoutの両方で同じ必要入力を照合してから実装AIを起動します。報告や開始commitの指定がない場合も、起動時に固定したHEADから始めます。</p>
 <p>必要な報告のpath・blob・開始commitを初回実装、修正、独立評価へ渡します。報告を改訂した場合は開始版との差分を評価し、根拠・適用条件・合意状態を確かめます。ファイルの一致だけで資料の十分性や意味の正しさを保証するものではありません。</p>
@@ -381,7 +381,7 @@ bun run check
 <h3>公開済みPRを、新しい修正依頼から更新する</h3>
 <p>人が採用した指摘・期待する結果・許可範囲を一つの文章ファイルにまとめます。このハーネスで検証・公開したopen PRを対象に、前回公開run、既存checkout、修正依頼、新しい保存先を同じdevelopmentへ渡します。具体的な引数は<a data-source="scripts/README.md#既存prの修正">CLIガイド</a>に従います。</p>
 <p>要求を合意してIssueを更新した場合は、開始時に最新のopen Issue全文を取得して新runの要求として固定します。担当ホストが合意と修正依頼の範囲を確認し、前回runのIssue本文と同一であることは要求しません。開始後のIssue変更では停止し、今回の要求と修正依頼でPR全体を再評価します。</p>
-<p>checkoutが記録した公開headと一致し、追跡・未追跡の作業差分がないことを確認します。前回の対象・Issue・公開・評価記録とGit/GitHubの実状態を照合し、未完了の実行や結果不明があれば、作業と記録を保って停止します。前回runにも現行の形式を要求し、不一致なら拒否します。新runは前回runと同じ親ディレクトリへ作り、旧runは読み取り参照に限ります。初期結果と入力を保存してから、setup直前に対象と並行実行を再照合します。不一致ならsetupや実装AIを起動せず、新runの<code>result.json</code>に停止理由・PR URL・次の対応を残します。setup後も入力とPRの変化を確認し、同じ箇所で取得した対象情報は再利用します。</p>
+<p>checkoutが記録した公開headと一致し、追跡・未追跡の作業差分がないことを確認します。前回の対象・Issue・公開・評価記録とGit/GitHubの実状態を照合し、未完了の実行や結果不明があれば、作業と記録を保って停止します。前回の評価記録には現行の形式を要求します。旧設定の <code>repairLimit</code>・<code>reviewLimit</code>・<code>modelTimeMs</code> は前回公開記録の読取り検査に限って受け付け、元の設定原文とhashを保ちます。新しい実行設定には渡しません。不整合なら拒否します。新runは前回runと同じ親ディレクトリへ作り、旧runは読み取り参照に限ります。初期結果と入力を保存してから、setup直前に対象と並行実行を再照合します。不一致ならsetupや実装AIを起動せず、新runの<code>result.json</code>に停止理由・PR URL・次の対応を残します。setup後も入力とPRの変化を確認し、同じ箇所で取得した対象情報は再利用します。</p>
 <p>初回修正後は追加修正・独立評価の回数で停止せず、必要な撮影・check・独立評価・同じPR更新・同じheadのCIへ進みます。PR全体の基点を維持し、Issue全体と採用した修正要求をともに評価します。前回の成功や指摘IDは新runへ移さず、旧runを再開しません。</p>
 <p>前回本文の変更説明・未確認事項・添付リンクは、現在も必要な内容を評価して新しい本文へ残します。修正入力やIssue、主体、設定、PRの本文・head・baseが途中で変われば停止します。コメントの自動採用、作業差分の移植、自動承認・マージは行いません。<code>--no-publish</code>は独立評価までで止まります。</p>
 </div></section>
@@ -439,7 +439,7 @@ bun run check
 <tr><td>要求、対象、設定、主体が変化</td><td data-label="扱いと戻り先">停止し、現在の条件を照合する。古い成功を流用しない</td></tr>
 <tr><td>未知の設定キーがある</td><td data-label="扱いと戻り先">モデル実行・公開前に形式エラーとして拒否する。現行の対象設定と照合して修正する</td></tr>
 <tr><td>撮影やcheckの起動不能・時間切れ</td><td data-label="扱いと戻り先">担当AIが起動失敗・時間切れをログで調べ、ホストが許可範囲で環境を解消する</td></tr>
-<tr><td>有限試行の回数・モデル時間上限に到達／モデル応答が不正</td><td data-label="扱いと戻り先">未達として停止し、消費量と結果を保持する。判断内容が空の<code>needs_human</code>も<a href="#build">応答不正として扱う</a></td></tr>
+<tr><td>評価試行のレビュー時間切れ／モデル応答が不正</td><td data-label="扱いと戻り先">レビュー時間切れは <code>review_timeout</code> で停止し、証拠を保持する。旧記録の回数・モデル時間上限による <code>execution_limit</code> は新規runの停止条件ではない。判断内容が空の<code>needs_human</code>も<a href="#build">応答不正として扱う</a></td></tr>
 <tr><td>PR作成済みだがCI未確認・公開結果が不明</td><td data-label="扱いと戻り先">PR URLや記録を保持する。CIは上の分類表に沿って、記録された次の対応に沿ってGitHub上の実状態を照合する</td></tr>
 <tr><td>評価・CIの証拠を保存できない</td><td data-label="扱いと戻り先">応答不正と分け、元の原因・保存先・保存できた証拠を確認する。以前の完全な履歴を保持し、後続修正・公開を止める</td></tr>
 <tr><td>プロセス中断・lockや実行予約が残存</td><td data-label="扱いと戻り先">実プロセス、設定、ログ、消費量、現在のIssueと差分を照合する</td></tr>
@@ -448,8 +448,9 @@ bun run check
 <p>修正・評価の起動前に回数と<code>active</code>を保存します。モデル完了直後のstateの中間保存は行わず、次のコマンド予約か終端保存まで起動前の予約を保持します。その間の例外で完了イベントや経過時間がstateに未反映でも、予約・生ログ・成果物は残り、二重実行を拒否します。終端保存も失敗した場合は元の理由と保存エラーを併記します。</p>
 <p>指摘が反復したら、既存の評価履歴・修正結果と現在の成果物を照合し、原因と方針を見直します。合意範囲内の必須修正を続け、範囲外の改善や好みを完了条件にしません。check失敗も同じ修正経路へ戻り、変更した成果物のcheck・評価を更新します。停滞専用AI・追加レビュー工程・別台帳は設けません。</p>
 <p><code>host_verification_required</code>では、<a href="#host-verification">担当AIへの引き継ぎと新しいrunでの再評価</a>へ進みます。成果物と旧記録を保ち、初回実装や公開済みPR修正の開始条件と混同しません。</p>
-<h3>通常は回数で止めず、有限試行と中断条件を区別する</h3>
-<p>通常の新規implementと既存PR修正では、初回作業・追加修正・独立評価にモデル時間の上限を設けません。経過時間は記録しますが、初回実装の時間を後工程から差し引きません。追加修正・独立評価も回数上限なし（<code>repairLimit: null</code>・<code>reviewLimit: null</code>）です。回数だけを理由とした続行承認は求めず、合意範囲内の必須指摘を解消した最新成果物のcheckと独立評価acceptedまで修正を続けます。CI待機に総時間上限はありません。各checkと撮影の上限はそれぞれ9分、汎用コマンドとCIの各状態取得・最後の対象照合は11分です。単独試行では明示した有限の回数・モデル時間上限も使えます。両回数上限はそれぞれ正の整数か明示的な<code>null</code>が必須で、省略・不正値を上限なしに読み替えません。回数・経過時間・指摘・結果・active予約の記録は続けます。時間・使用量・保存量が増える可能性があり、収束は保証しません。</p>
+<h3>通常開発、レビュー1回の試行、旧記録を区別する</h3>
+<p>通常の新規implementと既存PR修正では、初回作業・追加修正・独立評価にモデル時間や回数の上限を設けません。廃止した <code>repairLimit</code>・<code>reviewLimit</code>・<code>modelTimeMs</code> を新しい設定に渡すと、未知のキーとして拒否します。経過時間は記録しますが、初回実装の時間を後工程から差し引きません。合意範囲内の必須指摘を解消し、最新成果物のcheck成功と独立評価acceptedまで修正を続けます。CI待機に総時間上限はありません。各checkと撮影の上限はそれぞれ9分、汎用コマンドとCIの各状態取得・最後の対象照合は11分です。回数・経過時間・指摘・結果・active予約の記録は続けます。時間・使用量・保存量が増える可能性があり、収束は保証しません。</p>
+<p>単独の修正CLIはコマンドを起動しません。評価試行は <code>review-probe.ts</code> から <code>reviewOnce</code> を使い、check成功後のレビュー1回で終了します。追加修正はせず、<code>reviewTimeMs</code> で各レビューの有限時間を指定します。正常終了の <code>review_completed</code> と時間切れの <code>review_timeout</code> を区別し、通常開発の受入・公開成功とは扱いません。<code>execution_limit</code> は旧記録の読取りだけに残り、新規runでは返しません。</p>
 <p>新しい設定は採用後の新規実行に適用します。過去のrunを無制限設定へ変更・変換・自動再開したり、記録を削除して消費回数を初期化したりしません。通常の中断は実行中のコマンドと同一プロセスグループの子を停止し、出力保存を待ちます。強制終了やOS停止では子プロセスが残る場合があり、実状態の確認が必要です。完全自動再開は提供していません。</p>
 </div><details class="evidence"><summary>この工程の根拠</summary><p><a data-source="scripts/README.md">scripts/README.md</a> · <a data-source="scripts/implement/correction.ts">scripts/implement/correction.ts</a></p></details></section>
 <section id="records" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">16</span><h2>成果物と根拠を、次の人がたどれるようにする</h2></header><div class="chapter-body"><table>
@@ -493,7 +494,7 @@ bun run check
 <p>通常の開発と既存PR修正の上限・停止条件はCLIガイドに従います。中断記録を変換・再開せず、新しい明示的な修正依頼は新runとして扱います。</p>
 <p>合意した既存PRの修正はdevelopmentへ接続済みです。関係者向けの確認ガイドを自動で作成・共有する仕組みは、今後の実装で具体化します。アプリ固有の公開方式・担当・コマンド・確認値は、そのアプリで定める項目です。合意した方向性と実装済みの機能を区別し、不明な部分は確認先へ戻します。</p>
 </div></section>
-<section id="sources" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">18</span><h2>出典と、このページの位置づけ</h2></header><div class="chapter-body"><p>全体の静的照合は2026年9月28日。確認基点はdotagentsのcommit <code data-commit></code>です。ホスト検証後の再評価、文書の日本語確認、実行レポート、任意の比較と使用量集計を、同じcheckoutの現行方針と実装へ照合しました。実モデルやGitHub公開、対象アプリの動作を新たに実行した記録ではありません。</p>
+<section id="sources" class="chapter "><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">18</span><h2>出典と、このページの位置づけ</h2></header><div class="chapter-body"><p>今回の対象範囲は、<a href="https://github.com/thkt/dotagents/issues/354">Issue #354</a>の設定開始条件、通常開発・既存PR修正・ホスト復帰と評価試行・旧記録の区別です。2026年10月8日にcommit <code data-commit></code>の実装へ再照合しました。今回、全面照合はしていません。前回の全体静的照合は2026年9月28日、<a href="https://github.com/thkt/dotagents/tree/375151dc2544e3f2aa0f2421580f4aa2e37a06d3">commit <code>375151d</code></a>でした。この過去の確認を変更後の成功の証拠へ読み替えません。実モデルやGitHub公開、対象アプリの動作を新たに実行した記録ではありません。</p>
 <p>このページはフローを読み通すための解説です。要求や手順の正本を置き換えるものではありません。実行時は対象repoと利用する版の指示・設定を確認します。現在の保護設定や、個別Issue・PRの実行成功を、このページの作成によって検証したものではありません。</p>
 <p>本文の編集元は<code>docs/html/workflow-guide.html</code>、図のデータと表示の編集元は<code>docs/html/workflow-map.html</code>です。変更前の保全・比較用コピーは必要な作業の間だけ作業領域に置き、継続して編集する全文コピーは増やしません。これらのHTMLはrepoで管理し、変更はIssueとPRで確認します。確認基点の版表示は<code>source-commit</code>から<code>data-commit</code>へ反映します。<code>data-source</code>の根拠リンクは同じcheckoutのファイルへ解決します。過去版を意図したリンクは通常の<code>href</code>で固定します。</p>
 <ul>
@@ -520,7 +521,7 @@ bun run check
 <p>差し戻しの3分類を土台に、人が対象PRと指摘を示して依頼し、担当AIが根拠・影響範囲・戻り先を調べる方向性を合意しました。必要ならIssue作成から見直します。PRの動作説明をQA・デザイナー・企画向けの確認ガイドへつなぐ方向性も合意しています。既存PRの修正入口は導入済みです。関係者向けの自動引き継ぎやアプリの運用は別に具体化します。</p>
 <p>これらは記事で説明する設計方針であり、参照したcommitにすべて実装済みという意味ではありません。特定アプリの運用手順や、本番公開・関係者への送信の許可をこの記事で与えるものではありません。</p>
 </div></section></main></div>
-<footer><span>dotagents · 全体確認基点 <span data-commit="short"></span> · 2026.09.28。根拠リンクは同じcheckoutのファイルです。</span><a href="#top">ページ先頭へ ↑</a></footer>
+<footer><span>dotagents · 対象範囲の確認基点 <span data-commit="short"></span> · 2026.10.08。根拠リンクは同じcheckoutのファイルです。</span><a href="#top">ページ先頭へ ↑</a></footer>
 </div>
 <script>
 const sourceCommit=document.querySelector('meta[name="source-commit"]').content;

@@ -70,7 +70,7 @@ async function prepareStop(
     status: 'stopped',
     publication: 'not_attempted',
   });
-  expect(f.calls.reviews).toBe(stage === 'initial' ? 0 : 1);
+  expect(f.calls.verificationEntries).toBe(stage === 'initial' ? 0 : 1);
   const cwd = join(f.dir, 'checkout');
   if (stage === 'repair') {
     const state = object(
@@ -457,7 +457,7 @@ for (const mode of [
       );
       expect(await readFile(join(m.dir, 'host-return.json'), 'utf8')).toContain(m.evidenceFile);
     } else {
-      expect(f.calls.reviews).toBe(0);
+      expect(f.calls.verificationEntries).toBe(0);
     }
   });
 }

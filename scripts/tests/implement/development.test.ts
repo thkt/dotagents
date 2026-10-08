@@ -354,7 +354,7 @@ async function stopped(f: DevelopmentFixture, reason: RegExp) {
 async function rejectedBeforeStart(f: DevelopmentFixture, reason: RegExp) {
   await assert.rejects(() => runDevelopment(f), reason);
   expect(f.calls.implementations).toBe(0);
-  expect(f.calls.reviews).toBe(0);
+  expect(f.calls.verificationEntries).toBe(0);
   noPublication(f);
   expect(existsSync(f.dir)).toBe(false);
 }
@@ -422,7 +422,7 @@ testDevelopment('worktree_failure', async (f) => {
     publication: 'not_attempted',
   });
   expect(f.calls.implementations).toBe(0);
-  expect(f.calls.reviews).toBe(0);
+  expect(f.calls.verificationEntries).toBe(0);
   noPublication(f);
 });
 
@@ -435,7 +435,7 @@ testDevelopment('setup_failure', async (f) => {
     publication: 'not_attempted',
   });
   expect(f.calls.implementations).toBe(0);
-  expect(f.calls.reviews).toBe(0);
+  expect(f.calls.verificationEntries).toBe(0);
   noPublication(f);
 });
 
@@ -482,7 +482,7 @@ testDevelopment('report failure preserves a verified local result', async (f) =>
   );
   expect((await savedResult(f.dir)).status).toBe('verified_local');
   expect(await readFile(join(f.dir, 'report.html'), 'utf8')).toBe('existing report');
-  expect(f.calls.reviews).toBe(1);
+  expect(f.calls.verificationEntries).toBe(1);
   noPublication(f);
 });
 
@@ -566,14 +566,21 @@ for (const [name, args, replacement, reason] of [
   testDevelopment(name, async (f) => {
     f.args.push(...args);
     const github = f.github;
+    const verify = f.verify;
+    let verified = false;
+    f.verify = async (config) => {
+      const state = await verify(config);
+      verified = true;
+      return state;
+    };
     f.github = async (...args) => {
       const response = await github(...args);
-      return f.calls.reviews > 0
+      return verified
         ? { ...response, stdout: response.stdout.replace(replacement[0], replacement[1]) }
         : response;
     };
     await stopped(f, reason);
-    expect(f.calls.reviews).toBe(1);
+    expect(f.calls.verificationEntries).toBe(1);
     noPublication(f);
   });
 }
@@ -609,7 +616,7 @@ for (const [name, change, reason] of [
       return verify(config);
     };
     await stopped(f, reason);
-    expect(f.calls.reviews).toBe(1);
+    expect(f.calls.verificationEntries).toBe(1);
     noPublication(f);
   });
 }
@@ -628,7 +635,7 @@ for (const status of ['repaired', 'needs_host'] as const) {
         : github(argv, ...rest);
     await stopped(f, /Requirements changed during (implementation|host handoff)/);
     expect(f.calls.implementations).toBe(1);
-    expect(f.calls.reviews).toBe(0);
+    expect(f.calls.verificationEntries).toBe(0);
     expect(await Bun.file(join(f.dir, 'host-stop.json')).exists()).toBe(false);
     noPublication(f);
   });
@@ -637,7 +644,7 @@ for (const status of ['repaired', 'needs_host'] as const) {
 async function initialStop(f: DevelopmentFixture, reason: RegExp) {
   const saved = await stopped(f, reason);
   expect(f.calls.implementations).toBe(1);
-  expect(f.calls.reviews).toBe(0);
+  expect(f.calls.verificationEntries).toBe(0);
   noPublication(f);
   expect(saved.publication).toBe('not_attempted');
   expect(existsSync(join(f.dir, 'verification-config.json'))).toBe(false);
@@ -747,7 +754,7 @@ for (const [result, nextAction] of [
     expect(saved.nextAction).toContain('Do not resume this run');
     expect(saved.publication).toBe('not_attempted');
     expect(saved.remaining).toContain('local_verification');
-    expect(f.calls.reviews).toBe(1);
+    expect(f.calls.verificationEntries).toBe(1);
     noPublication(f);
     const statePath = await verificationEvidence(f, result);
     expect(saved.details).toBe(statePath);
@@ -766,13 +773,17 @@ testDevelopment('review_failure', async (f) => {
 
 testDevelopment('source_changed', async (f) => {
   const verify = f.verify;
-  f.verify = async (config) => ({
-    ...(await verify(config)),
-    result: f.calls.reviews > 1 ? 'target_changed_after_stop' : 'ready_for_human_review',
-  });
+  f.verify = async (config) => {
+    // commit前に、保存済み終端結果を再照合する入口で変化を返す。
+    const retained = await Bun.file(join(config.runDir, 'state.json')).exists();
+    return {
+      ...(await verify(config)),
+      result: retained ? 'target_changed_after_stop' : 'ready_for_human_review',
+    };
+  };
   const saved = await stopped(f, /Verification stopped: target_changed_after_stop/);
   expect(saved).toMatchObject({ phase: 'verification', reasonCode: 'target_changed_after_stop' });
-  expect(f.calls.reviews).toBe(2);
+  expect(f.calls.verificationEntries).toBe(2);
   noPublication(f);
   const statePath = await verificationEvidence(f, 'ready_for_human_review');
   expect(saved.details).toBe(statePath);
@@ -790,7 +801,7 @@ testDevelopment('save_failure', async (f) => {
   expect((await stat(join(f.dir, 'result.json'))).isDirectory()).toBe(true);
   expect(await readFile(join(f.dir, 'setup-1.stderr'), 'utf8')).toContain('setup fixture failure');
   expect(f.calls.implementations).toBe(0);
-  expect(f.calls.reviews).toBe(0);
+  expect(f.calls.verificationEntries).toBe(0);
   noPublication(f);
 });
 
@@ -812,7 +823,7 @@ testDevelopment('save_success_failure', async (f) => {
     'retained temporary evidence',
   );
   expect(f.calls.implementations).toBe(1);
-  expect(f.calls.reviews).toBe(1);
+  expect(f.calls.verificationEntries).toBe(1);
   noPublication(f);
 });
 
@@ -896,7 +907,7 @@ testDevelopment('save_stopped_interruption', async (f) => {
       'setup fixture failure',
     );
     expect(f.calls.implementations).toBe(0);
-    expect(f.calls.reviews).toBe(0);
+    expect(f.calls.verificationEntries).toBe(0);
     noPublication(f);
   } finally {
     write.mockRestore();
