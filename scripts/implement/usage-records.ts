@@ -20,7 +20,7 @@ const metadataShape = z.strictObject({
   recordFormat: z.literal(2),
   runtime: runtimeShape,
   invocationId: z.uuid(),
-  role: z.enum(['repair', 'review']),
+  role: z.enum(['repair', 'review', 'test']),
   hostPrefix: z.string().min(1).nullable(),
   model: z.string().min(1),
   reasoningEffort: z.string().min(1),
@@ -96,6 +96,27 @@ async function verificationExpected(records: Records, phase: string) {
   );
 }
 
+async function initialTestSteps(records: Records, problems: string[]): Promise<HostStep[]> {
+  const test = await records.json('test-1.execution.json');
+  if (test !== undefined) {
+    return [{ phase: 'test', prefix: 'test-1', recorded: true, ...commandResult.parse(test) }];
+  }
+  if ((await records.read('test-1.prompt')) !== undefined) {
+    problems.push('test: command result missing');
+    return [
+      {
+        phase: 'test',
+        prefix: 'test-1',
+        code: null,
+        timedOut: false,
+        ms: null,
+        recorded: false,
+      },
+    ];
+  }
+  return [];
+}
+
 async function hostSteps(
   records: Records,
   originalRoot: string,
@@ -124,6 +145,7 @@ async function hostSteps(
     });
     problems.push('implementation: command result missing');
   }
+  steps.push(...(await initialTestSteps(records, problems)));
   const raw = await records.json('verification/state.json');
   let state: State | undefined;
   let verificationMissing = false;
@@ -232,7 +254,7 @@ function requireAssociations(
   problems: string[],
 ) {
   for (const step of steps.filter((step) =>
-    ['implementation', 'repair', 'review'].includes(step.phase),
+    ['implementation', 'repair', 'review', 'test'].includes(step.phase),
   )) {
     if (actors.filter((actor) => actor.hostPrefix === step.prefix).length !== 1) {
       problems.push(`${step.prefix}: expected exactly one actor execution`);
@@ -249,14 +271,18 @@ function associate(
   for (const actor of actors) {
     const metadata = actor.metadata;
     const step = steps.find((step) => step.prefix === metadata?.hostPrefix);
-    if (!step || !metadata || !['implementation', 'repair', 'review'].includes(step.phase)) {
+    if (
+      !step ||
+      !metadata ||
+      !['implementation', 'repair', 'review', 'test'].includes(step.phase)
+    ) {
       actor.problems.push('No unique recorded host model command association');
       continue;
     }
     const role = step.phase === 'implementation' ? 'repair' : step.phase;
     if (
       role !== metadata.role ||
-      metadata.sandbox !== (role === 'repair' ? 'workspace-write' : 'read-only')
+      metadata.sandbox !== (role === 'review' ? 'read-only' : 'workspace-write')
     ) {
       actor.problems.push('Actor role/settings disagree with host phase');
       continue;

@@ -1,12 +1,18 @@
+import { authorTests, prepareTestBaseline, verifyTestArtifacts } from './test-author.ts';
 import assert from 'node:assert/strict';
-import { hostReturnContext, verifyHostReturn } from './host-records.ts';
+import {
+  hostPreparationRecord,
+  readReference,
+  hostReturnContext,
+  verifyHostReturn,
+} from './host-records.ts';
 import { checkRevision, revisionContext } from './revision.ts';
 import { issueText } from './issue.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
 import { parseReview, reviewInstructions, reviewSummary } from './review.ts';
 import type { Review } from './review.ts';
 import { researchContext, verifyReportBase } from './research-handoff.ts';
-import { assertConfig, assertProbeConfig, assertState } from './input.ts';
+import { assertConfig, assertProbeConfig, assertState, testRecordsShape } from './input.ts';
 import { outside } from '../shared/values.ts';
 import type {
   Config,
@@ -17,7 +23,7 @@ import type {
   StopReason,
   CaptureDecision,
 } from './input.ts';
-import { command, interruptionMessage } from '../shared/process.ts';
+import { command, interruptionMessage, assertRunning } from '../shared/process.ts';
 import { createHash } from 'node:crypto';
 import {
   readFile,
@@ -611,9 +617,11 @@ async function reviewTarget(
     reports: config.reports ?? [],
     revision: config.revision,
     hostReturn: config.hostReturn,
+    hostPreparation: config.hostPreparation,
     source: state.source,
     latestRepair: repairsSinceReview.at(-1) ?? null,
     repairsSinceReview,
+    tests: state.testRecords ?? [],
     files,
     check: {
       command: config.check,
@@ -681,6 +689,11 @@ async function evaluate(
     reviewInstructions,
     revisionContext(config.revision),
     hostReturnContext(config.hostReturn),
+    ...(config.hostPreparation
+      ? [
+          `復帰入口の照合後に許可された変更の版記録: ${JSON.stringify(config.hostPreparation)}。変更前・テスト転送後・初回実装後の版と差分を照合し、追加証拠の成立条件に影響する変更ならneeds_changesで必要な再検証へ戻してください。現在版へのホスト検証成功や受入の自動継承ではありません。`,
+        ]
+      : []),
     `ホストコンテキスト: ${JSON.stringify({ targetId: target.targetId, attempt: state.review + 1, targetRecord: `${target.prefix}.target.json`, diff: `${target.prefix}.diff`, additions: `${target.prefix}.additions.json`, previous: history.at(-1) ?? null })}`,
     `要求:\n${issue}`,
     researchContext(state.baseCommit, config.reports),
@@ -783,6 +796,10 @@ async function cycle(
   if (await requirementsChanged(config, state)) {
     return 'requirements_changed';
   }
+  const invalidTests = await testArtifactStop(config, state);
+  if (invalidTests) {
+    return invalidTests;
+  }
   const host = await verifyHost(config, state, persist);
   if (host.stop) {
     return host.stop;
@@ -803,7 +820,23 @@ async function cycle(
     // The completed review has consumed these explanations. Check failures do not.
     repairsSinceReview = [];
   }
+  const testing = await testBeforeRepair(config, state, issue, persist);
+  if (testing) {
+    return testing;
+  }
+  return performRepair(config, state, issue, persist, repairsSinceReview, findings);
+}
+
+async function performRepair(
+  config: Config,
+  state: State,
+  issue: string,
+  persist: Persist,
+  repairsSinceReview: RepairReference[],
+  findings: string | undefined,
+): Promise<StopReason | RepairReference[]> {
   const prompt = [
+    `独立テストの記録: ${JSON.stringify(state.testRecords ?? [])}。対応する.jsonのfindingsと成果物を読んでください。修正前の狙った失敗と修正後の成功・正常動作を区別してください。`,
     'これらの合意済み要求の範囲内だけで修正してください。現在のファイルを読み、根本原因を直してください。',
     '指摘が再発した場合は、既存の評価記録と過去の修正結果を現在の成果物と比較し、原因と修正方法を見直して、合意範囲内で必要な修正を続けてください。範囲外の改善や好みを完了条件にしないでください。',
     revisionContext(config.revision),
@@ -827,6 +860,10 @@ async function cycle(
   if ('stop' in repaired) {
     return repaired.stop;
   }
+  const changedTests = await testArtifactStop(config, state);
+  if (changedTests) {
+    return changedTests;
+  }
   return repairOutcome(config, state, repaired.stdout, repairsSinceReview);
 }
 
@@ -841,13 +878,100 @@ async function targetChange(config: ReviewConfig, state: State): Promise<StopRea
   }
   if (config.hostReturn) {
     try {
-      await verifyHostReturn(config.hostReturn, config.cwd);
+      await verifyHostEntry(config, state);
     } catch (error) {
       state.findings = error instanceof Error ? error.message : String(error);
       return 'host_evidence_changed';
     }
   }
   return null;
+}
+
+async function testArtifactStop(config: ReviewConfig, state: State): Promise<StopReason | null> {
+  try {
+    await verifyTestArtifacts(config.cwd, state.testRecords ?? []);
+    return null;
+  } catch (error) {
+    state.findings = error instanceof Error ? error.message : String(error);
+    return 'invalid_test';
+  }
+}
+
+async function testCheckEvidence(config: Config, state: State) {
+  const check = state.events.findLast((event) => event.role === 'check');
+  if (!check) {
+    return [];
+  }
+  return [
+    {
+      command: config.check,
+      source: check.source ?? '',
+      code: check.code,
+      stdout: await readFile(`${check.prefix}.stdout`, 'utf8'),
+      stderr: await readFile(`${check.prefix}.stderr`, 'utf8'),
+    },
+  ];
+}
+
+async function testBeforeRepair(
+  config: Config,
+  state: State,
+  issue: string,
+  persist: Persist,
+): Promise<StopReason | null> {
+  if (!config.test) {
+    return null;
+  }
+  assert(config.testBaseline);
+  state.test = (state.test ?? 0) + 1;
+  const prefix = resolve(config.runDir, `test-${state.test}`);
+  state.active = { role: 'test', prefix };
+  await persist();
+  try {
+    const tests = await authorTests({
+      cwd: config.cwd,
+      baseline: config.testBaseline,
+      prefix,
+      issue,
+      baseCommit: state.baseCommit,
+      check: config.check,
+      setup: config.setup,
+      reports: config.reports,
+      actor: config.test,
+      previous: state.testRecords ?? [],
+      evidence: await testCheckEvidence(config, state),
+      completed: async (result) => {
+        state.active = null;
+        state.modelMs += result.ms;
+        state.events.push({
+          role: 'test',
+          prefix,
+          source: state.source,
+          code: result.code,
+          timedOut: result.timedOut,
+          ms: result.ms,
+        });
+        await persist();
+      },
+    });
+    state.findings = tests.reply.findings;
+    if (tests.reply.status === 'needs_human') {
+      return 'human_decision_required';
+    }
+    if (tests.reply.status === 'needs_host') {
+      state.source = await snapshot(config.cwd);
+      return 'host_verification_required';
+    }
+    assert(tests.record);
+    state.testRecords = [...(state.testRecords ?? []), tests.record];
+    state.source = await snapshot(config.cwd);
+    await persist();
+    return null;
+  } catch (error) {
+    assertRunning();
+    state.findings = `${prefix}: ${error instanceof Error ? error.message : String(error)}`;
+    return error instanceof Error && error.cause === 'test_failed' ? 'test_failed' : 'invalid_test';
+  }
 }
 
 type Verification = (state: State, issue: string, persist: Persist) => Promise<StopReason>;
@@ -895,6 +1019,41 @@ function isMissing(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
+async function initialTestRecords(config: Config | ProbeConfig, state: State) {
+  if (!state.testRecords && 'test' in config && config.test) {
+    assert(config.testBaseline);
+    try {
+      const initial: unknown = JSON.parse(
+        await readFile(resolve(dirname(config.runDir), 'test-records.json'), 'utf8'),
+      );
+      state.testRecords = testRecordsShape.parse(initial);
+    } catch (error) {
+      if (!isMissing(error)) {
+        throw error;
+      }
+      await prepareTestBaseline(config.cwd, config.testBaseline);
+      state.testRecords = [];
+    }
+  }
+}
+
+async function verifyHostEntry(config: ReviewConfig, state: State | undefined) {
+  if (config.hostReturn) {
+    const evidence = await verifyHostReturn(config.hostReturn, config.cwd);
+    const preparation = config.hostPreparation
+      ? hostPreparationRecord.parse(JSON.parse(await readReference(config.hostPreparation)))
+      : undefined;
+    assert(
+      !preparation || preparation.sourceBefore === evidence.source,
+      'Host preparation does not match evidence source',
+    );
+    assert(
+      state || (preparation?.sourceAfter ?? evidence.source) === (await snapshot(config.cwd)),
+      'Host evidence does not match current deliverables',
+    );
+  }
+}
+
 async function execute(config: Config | ProbeConfig, verify: Verification): Promise<State> {
   const path = resolve(config.runDir, 'state.json');
   let state: State | undefined;
@@ -926,13 +1085,7 @@ async function execute(config: Config | ProbeConfig, verify: Verification): Prom
     return result.stdout.trim();
   };
   await verifyReportBase(base, config.reports ?? [], git);
-  if (config.hostReturn) {
-    const evidence = await verifyHostReturn(config.hostReturn, config.cwd);
-    assert(
-      state || evidence.source === (await snapshot(config.cwd)),
-      'Host evidence does not match current deliverables',
-    );
-  }
+  await verifyHostEntry(config, state);
   if (state?.result) {
     const unchanged =
       state.issueHash === digest(issue) && state.source === (await snapshot(config.cwd));
@@ -952,6 +1105,7 @@ async function execute(config: Config | ProbeConfig, verify: Verification): Prom
     active: null,
     events: [],
   };
+  await initialTestRecords(config, state);
   const persist = () => save(path, state);
   await persist();
   state.result = await verify(state, issue, persist);

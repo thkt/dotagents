@@ -28,6 +28,7 @@ import { isRecord } from '../../shared/values.ts';
 import { initializeTarget, githubTarget, git, targetConfig } from '../support/target.ts';
 import { testDevelopment } from '../support/development.ts';
 
+const shellLiteral = (value: string) => `'${value.replaceAll("'", "'\"'\"'")}'`;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const issue = JSON.stringify({
   title: 'Visible result',
@@ -116,6 +117,12 @@ async function fixture(
   };
   let remoteHead = '';
   const commands: { argv: string[]; cwd: string }[] = [];
+  const independentTests: {
+    cwd: string;
+    prompt: string;
+    source: string;
+    implementations: number;
+  }[] = [];
   const publicationCommands: string[][] = [];
   async function gitCommand(argv: string[], cwd: string, input: string, timeout: number | null) {
     if (argv.includes('push')) {
@@ -228,13 +235,43 @@ async function fixture(
     return ok(JSON.stringify({ status: 'repaired', findings: 'Changed requested behavior' }));
   }
   const io = {
-    command: async (argv: string[], cwd: string, input: string, timeout: number | null) => {
+    command: async (
+      argv: string[],
+      cwd: string,
+      input: string,
+      timeout: number | null,
+      prefix?: string,
+    ) => {
       commands.push({ argv, cwd });
       if (argv[0] === 'git') {
         return gitCommand(argv, cwd, input, timeout);
       }
       if (argv[0] === 'gh') {
         return githubCommand(argv);
+      }
+      if (argv.includes('test')) {
+        const match = input.match(/入力: (\{[^\n]+\})/);
+        assert(match?.[1], 'テスト作成入力が必要');
+        const context: unknown = JSON.parse(match[1]);
+        assert(isRecord(context) && typeof context.targetId === 'string');
+        independentTests.push({
+          cwd,
+          prompt: input,
+          source: await readFile(join(cwd, 'result.txt'), 'utf8'),
+          implementations: hooks.implementations,
+        });
+        const response = ok(
+          JSON.stringify({
+            targetId: context.targetId,
+            status: 'unnecessary',
+            findings: '既存の検証で受入条件を確認できるため追加テストは不要です。',
+            files: [],
+          }),
+        );
+        assert(prefix);
+        await writeFile(`${prefix}.stdout`, response.stdout);
+        await writeFile(`${prefix}.stderr`, response.stderr);
+        return response;
       }
       if (argv.includes('repair')) {
         return actor(cwd, input);
@@ -345,6 +382,7 @@ async function fixture(
     oldBody,
     initialBase,
     commands,
+    independentTests,
     publicationCommands,
   };
 }
@@ -593,6 +631,16 @@ async function successfulRevision(
   };
   const result = await runRevision(f);
   expect(result.status).toBe(localOnly ? 'verified_local' : 'published_draft');
+  expect(f.independentTests).toHaveLength(2);
+  expect(f.independentTests.map((entry) => entry.implementations)).toEqual([0, 1]);
+  expect(f.independentTests.map((entry) => entry.source)).toEqual(['old', 'implemented']);
+  expect(new Set(f.independentTests.map((entry) => entry.cwd)).size).toBe(2);
+  for (const entry of f.independentTests) {
+    expect(entry.cwd).not.toBe(f.cwd);
+    expect(entry.prompt).toContain('Keep result visible');
+    expect(entry.prompt).not.toContain('Changed requested behavior');
+    expect(entry.prompt).not.toContain('Verified current output');
+  }
   const config = await readObject(join(f.dir, 'verification-config.json'));
   expect(config.baseCommit).toBe(f.initialBase);
   expect(config).toMatchObject({
@@ -1235,8 +1283,8 @@ for (const changed of ['none', 'actor', 'draft']) {
         return url;
       };
       const command = f.io.command;
-      f.io.command = async (argv, cwd, input, timeout) => {
-        const result = await command(argv, cwd, input, timeout);
+      f.io.command = async (argv, cwd, input, timeout, prefix) => {
+        const result = await command(argv, cwd, input, timeout, prefix);
         if (changed === 'actor' && published >= 0 && argv[2] === 'user') {
           return ok(JSON.stringify({ login: 'another-operator' }));
         }
@@ -1289,8 +1337,8 @@ for (const boundary of ['reservation', 'setup', 'issue_during_setup']) {
       const initialVerifications = f.hooks.verifications;
       let changed = false;
       const command = f.io.command;
-      f.io.command = async (argv, cwd, input, timeout) => {
-        const result = await command(argv, cwd, input, timeout);
+      f.io.command = async (argv, cwd, input, timeout, prefix) => {
+        const result = await command(argv, cwd, input, timeout, prefix);
         if (boundary === 'reservation' && !changed && argv[1] === 'remote') {
           const reserved = await readObject(join(f.dir, 'result.json')).catch(() => undefined);
           if (reserved) {
@@ -1539,8 +1587,8 @@ for (const [change, expected] of Object.entries(verificationChanges)) {
         }
       };
       const command = f.io.command;
-      f.io.command = async (argv, cwd, input, timeout) => {
-        const result = await command(argv, cwd, input, timeout);
+      f.io.command = async (argv, cwd, input, timeout, prefix) => {
+        const result = await command(argv, cwd, input, timeout, prefix);
         if (!changed || argv[0] !== 'gh') {
           return result;
         }
@@ -1648,22 +1696,37 @@ for (const [mode, reason] of [
       const liveIssue = join(root, 'issue.json');
       const checked = join(root, 'checked');
       await writeFile(liveIssue, currentIssue + '\n');
+      const changedPr = join(root, 'changed-pr.json');
+      if (mode === 'head_changed') {
+        await writeFile(changedPr, JSON.stringify({ ...f.pr, headRefOid: 'f'.repeat(40) }));
+      }
+      // 同じlive入力を毎回読み戻す。固定JSONの応答にJavaScript起動は不要です。
       await writeFile(
         gh,
-        `#!${process.execPath}
-import {appendFileSync,readFileSync,existsSync} from 'node:fs';
-const args = process.argv.slice(2);
-const pr = JSON.parse(readFileSync(${JSON.stringify(livePr)},'utf8'));
-const changed = existsSync(${JSON.stringify(checked)});
-if (changed && ${mode === 'head_changed'}) pr.headRefOid = 'f'.repeat(40);
-if (['issue', 'pr'].includes(args[0])) appendFileSync(${JSON.stringify(join(root, 'reads'))}, args[0]+'\\n');
-if(args[1] === 'user' && ${mode === 'updated_issue'}) appendFileSync(${JSON.stringify(join(root, 'target-reads'))}, 'target\\n');
-if(args[0] === 'issue') process.stdout.write(readFileSync(${JSON.stringify(liveIssue)},'utf8'));
-else if(args[0] === 'pr') console.log(JSON.stringify(pr));
-else if(args[1] === 'user') console.log(JSON.stringify({login:changed && ${mode === 'actor_changed'} ? 'another-operator' : 'operator'}));
-else if(args[1].includes('/git/ref/')) console.log(JSON.stringify({object:{sha:changed && ${mode === 'ref_changed'} ? 'f'.repeat(40) : pr.headRefOid}}));
-else if(args[1].includes('/branches/')) console.log('{"name":"release"}');
-else console.log(JSON.stringify({full_name:'team/component',id:123,permissions:{push:!(changed && ${mode === 'permission_changed'})}}));
+        `#!/bin/sh
+read_json() { [ -r "$1" ] || exit 1; IFS= read -r response < "$1"; printf '%s\\n' "$response"; }
+changed=false
+[ -f ${shellLiteral(checked)} ] && changed=true
+case "$1" in
+ issue|pr) printf '%s\\n' "$1" >> ${shellLiteral(join(root, 'reads'))} ;;
+esac
+case "$1/$2" in
+ issue/*) read_json ${shellLiteral(liveIssue)} ;;
+ pr/*)
+  if "$changed" && ${mode === 'head_changed'}; then read_json ${shellLiteral(changedPr)}
+  else read_json ${shellLiteral(livePr)}; fi ;;
+ api/user)
+  ${mode === 'updated_issue' ? `printf 'target\\n' >> ${shellLiteral(join(root, 'target-reads'))}` : ':'}
+  if "$changed" && ${mode === 'actor_changed'}; then printf '%s\\n' '{"login":"another-operator"}'
+  else printf '%s\\n' '{"login":"operator"}'; fi ;;
+ api/*/git/ref/*)
+  if "$changed" && ${mode === 'ref_changed'}; then printf '%s\\n' ${shellLiteral(JSON.stringify({ object: { sha: 'f'.repeat(40) } }))}
+  else printf '%s\\n' ${shellLiteral(JSON.stringify({ object: { sha: f.oldHead } }))}; fi ;;
+ api/*/branches/*) printf '%s\\n' '{"name":"release"}' ;;
+ *)
+  if "$changed" && ${mode === 'permission_changed'}; then printf '%s\\n' '{"full_name":"team/component","id":123,"permissions":{"push":false}}'
+  else printf '%s\\n' '{"full_name":"team/component","id":123,"permissions":{"push":true}}'; fi ;;
+esac
 `,
       );
       await chmod(gh, 0o755);
@@ -1676,6 +1739,11 @@ import {readFileSync,writeFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 const role = process.argv[2];
 ${reviewReplySource}
+if(role === 'test') {
+ const prompt=readFileSync(0,'utf8');
+ const input=JSON.parse(prompt.split('入力: ')[1].split('\\n')[0]);
+ console.log(JSON.stringify({targetId:input.targetId,status:'unnecessary',findings:'既存の模擬検証で要求を確認できます。',files:[]}));
+}
 if(role === 'check') {
  writeFileSync(${JSON.stringify(checked)}, 'check completed');
  if (${mode === 'issue_changed'}) writeFileSync(${JSON.stringify(liveIssue)}, ${JSON.stringify(updatedIssue.replace('Keep result visible', 'Changed requirements'))});
@@ -1700,6 +1768,7 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
           check: [process.execPath, helper, 'check'],
           repair: [process.execPath, helper, 'repair'],
           review: [process.execPath, helper, 'review'],
+          test: [process.execPath, helper, 'test'],
         };
         if (mode === 'conflicting_target') {
           config.targetText = config.revision?.targetText + '\n';

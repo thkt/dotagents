@@ -38,6 +38,11 @@ async function prepareStop(
       import {readFileSync,existsSync,writeFileSync} from 'node:fs';
       const role=process.argv[2];
       ${reviewReplySource}
+      if(role==='test') {
+        const prompt=readFileSync(0,'utf8');
+        const input=JSON.parse(prompt.split('入力: ')[1].split('\\n')[0]);
+        console.log(JSON.stringify({targetId:input.targetId,status:'unnecessary',findings:'既存の模擬検証で受入条件を確認できます。',files:[]}));
+      }
       if(role==='repair') {
         writeFileSync('repair-note.md','Verification pending');
         console.log(JSON.stringify({status:'needs_host',findings:${JSON.stringify(findings)}}));
@@ -56,6 +61,7 @@ async function prepareStop(
       issue: [process.execPath, '-e', `process.stdout.write(${JSON.stringify(issue)})`],
       review: [process.execPath, script, 'review'],
       repair: [process.execPath, script, 'repair'],
+      test: [process.execPath, script, 'test'],
     };
     await writeFile(
       join(dirname(config.runDir), 'verification-config.json'),
@@ -133,6 +139,252 @@ async function runRecords(dir: string): Promise<Record<string, string>> {
   return records;
 }
 
+testDevelopment('初回テストのホスト支援後に新しい独立判定と初回実装を行う', async (f) => {
+  f.args.push('--no-publish');
+  const testFile = 'returned-result.test.js';
+  const testSource =
+    "import {readFileSync} from 'node:fs'; process.exit(readFileSync('result.txt','utf8')==='implemented'?0:1);\n";
+  let stoppedWorkspace = '';
+  f.test = async (_argv, cwd, prompt, _timeout, prefix) => {
+    const input = object(JSON.parse(prompt.split('入力: ')[1]?.split('\n')[0] ?? ''));
+    stoppedWorkspace = cwd;
+    await writeFile(join(cwd, 'unfinished.test.js'), 'process.exit(1);\n');
+    const response = ok(
+      JSON.stringify({
+        targetId: input.targetId,
+        status: 'needs_host',
+        findings: 'HOST_PRIVATE_TEST_360: ホストの模擬実行記録を確認して再判定してください。',
+        files: ['unfinished.test.js'],
+      }),
+    );
+    assert(prefix);
+    await writeFile(`${prefix}.stdout`, response.stdout);
+    await writeFile(`${prefix}.stderr`, 'ホスト支援が必要な工程の原診断');
+    return response;
+  };
+  await assert.rejects(() => develop(f.args, f.io), /Host verification required|ホスト/i);
+  expect(f.calls.tests).toBe(1);
+  expect(f.calls.implementations).toBe(0);
+  expect(f.calls.reviews).toBe(0);
+  const cwd = join(f.dir, 'checkout');
+  expect(await readFile(join(cwd, 'result.txt'), 'utf8')).toBe('old');
+  expect(await Bun.file(join(cwd, 'unfinished.test.js')).exists()).toBe(false);
+  const stoppedRecords = await runRecords(f.dir);
+  const m = await measurement(f, cwd);
+  f.test = async (...args) => {
+    expect(args[1]).not.toBe(stoppedWorkspace);
+    expect(await readFile(join(args[1], 'result.txt'), 'utf8')).toBe('old');
+    expect(await Bun.file(join(args[1], 'unfinished.test.js')).exists()).toBe(false);
+    expect(args[2]).not.toContain('HOST_PRIVATE_TEST_360');
+    expect(args[2]).not.toContain('Implementation claim, not verification');
+    const input = object(JSON.parse(args[2].split('入力: ')[1]?.split('\n')[0] ?? ''));
+    await writeFile(join(args[1], testFile), testSource);
+    const red = await command([process.execPath, testFile], args[1], '', 10000);
+    expect(red.code).toBe(1);
+    expect(red.stderr).toBe('');
+    const response = ok(
+      JSON.stringify({
+        targetId: input.targetId,
+        status: 'prepared',
+        findings: '修正前oldでは終了1、要求したimplementedでは終了0。',
+        files: [testFile],
+      }),
+    );
+    assert(args[4]);
+    await writeFile(`${args[4]}.stdout`, response.stdout);
+    await writeFile(`${args[4]}.stderr`, '');
+    return response;
+  };
+  const script = join(dirname(f.dir), 'returned-review.js');
+  await writeFile(
+    script,
+    `
+import {readFileSync} from 'node:fs';
+const role=process.argv[2];
+${reviewReplySource}
+if(role==='repair') throw Error('初回実装後に不要な追加修正を実行しました');
+if(role==='review') {
+ if(readFileSync(${JSON.stringify(testFile)},'utf8')!==${JSON.stringify(testSource)}) process.exit(8);
+ console.log(JSON.stringify(reviewReply('accepted','転送したテストと初回実装後の成果物を確認しました。')));
+}
+`,
+  );
+  f.verify = (config) =>
+    run({
+      ...config,
+      issue: [process.execPath, '-e', `process.stdout.write(${JSON.stringify(issue)})`],
+      check: [process.execPath, testFile],
+      review: [process.execPath, script, 'review'],
+      repair: [process.execPath, script, 'repair'],
+    });
+  const result = await develop(m.args, f.io);
+  expect(result.status).toBe('verified_local');
+  const state = object(JSON.parse(await readFile(join(m.dir, 'verification/state.json'), 'utf8')));
+  expect(state).toMatchObject({
+    checks: 1,
+    review: 1,
+    repair: 0,
+    result: 'ready_for_human_review',
+  });
+  expect(await readFile(join(cwd, testFile), 'utf8')).toBe(testSource);
+  expect(f.calls.tests).toBe(2);
+  expect(f.calls.implementations).toBe(1);
+  expect(await readFile(join(cwd, 'result.txt'), 'utf8')).toBe('implemented');
+  expect(await Bun.file(join(cwd, 'unfinished.test.js')).exists()).toBe(false);
+  expect(await readFile(join(stoppedWorkspace, 'unfinished.test.js'), 'utf8')).toBe(
+    'process.exit(1);\n',
+  );
+  expect(await runRecords(f.dir)).toEqual(stoppedRecords);
+  expect(f.calls.pushes).toBe(0);
+});
+
+for (const changeExpectation of [false, true]) {
+  testDevelopment(
+    `ホスト復帰後の追加修正でも元のbaselineと期待値を保持する: 変更=${changeExpectation}`,
+    async (f) => {
+      const testFile = 'host-result.test.js';
+      const testSource =
+        "import {readFileSync} from 'node:fs'; process.exit(readFileSync('result.txt','utf8')==='implemented'?0:1);\n";
+      f.test = async (_argv, cwd, prompt, _timeout, prefix) => {
+        const input = object(JSON.parse(prompt.split('入力: ')[1]?.split('\n')[0] ?? ''));
+        const prior = await Bun.file(join(cwd, testFile)).exists();
+        if (!prior) {
+          await writeFile(join(cwd, testFile), testSource);
+        }
+        const response = ok(
+          JSON.stringify({
+            targetId: input.targetId,
+            status: prior ? 'unnecessary' : 'prepared',
+            findings: '要求したimplementedを同じ期待値で確認します。',
+            files: prior ? [] : [testFile],
+          }),
+        );
+        assert(prefix);
+        await writeFile(`${prefix}.stdout`, response.stdout);
+        await writeFile(`${prefix}.stderr`, '');
+        return response;
+      };
+      const cwd = await prepareStop(f, 'repair');
+      expect(await readFile(join(cwd, testFile), 'utf8')).toBe(testSource);
+      const original = await runRecords(f.dir);
+      const m = await measurement(f, cwd);
+      const script = join(dirname(f.dir), 'host-followup.js');
+      const observations = join(dirname(f.dir), 'host-followup-tests.jsonl');
+      await writeFile(
+        script,
+        `
+import {appendFileSync,readFileSync,writeFileSync,existsSync} from 'node:fs';
+const role=process.argv[2];
+${reviewReplySource}
+if(role==='test') {
+ const prompt=readFileSync(0,'utf8');
+ const input=JSON.parse(prompt.split('入力: ')[1].split('\\n')[0]);
+ appendFileSync(${JSON.stringify(observations)},JSON.stringify({source:readFileSync('result.txt','utf8'),test:readFileSync(${JSON.stringify(testFile)},'utf8'),prompt})+'\\n');
+ console.log(JSON.stringify({targetId:input.targetId,status:'unnecessary',findings:'元の要求期待値と既存検証を維持します。',files:[]}));
+}
+if(role==='repair') {
+ writeFileSync('README.md','ホスト検証後の追加修正');
+ if(${changeExpectation}) writeFileSync(${JSON.stringify(testFile)},'process.exit(0);\\n');
+ console.log(JSON.stringify({status:'repaired',findings:'HOST_RETURN_IMPLEMENTATION_PRIVATE_360'}));
+}
+if(role==='review') console.log(JSON.stringify(reviewReply(existsSync('README.md')?'accepted':'needs_changes','要求した追加修正の有無を確認しました。')));
+`,
+      );
+      f.verify = (config) =>
+        run({
+          ...config,
+          issue: [process.execPath, '-e', `process.stdout.write(${JSON.stringify(issue)})`],
+          test: [process.execPath, script, 'test'],
+          repair: [process.execPath, script, 'repair'],
+          review: [process.execPath, script, 'review'],
+        });
+      const outcome: unknown = await develop(m.args, f.io).catch((error: unknown) => error);
+      assert(await Bun.file(observations).exists(), String(outcome));
+      const observed = (await readFile(observations, 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => object(JSON.parse(line)));
+      expect(observed).toHaveLength(1);
+      expect(observed[0]?.source).toBe('old');
+      expect(observed[0]?.test).toBe(testSource);
+      expect(observed[0]?.prompt).not.toContain('HOST_RETURN_IMPLEMENTATION_PRIVATE_360');
+      expect(observed[0]?.prompt).not.toContain('Required measurement missing');
+      const state = object(
+        JSON.parse(await readFile(join(m.dir, 'verification/state.json'), 'utf8')),
+      );
+      if (changeExpectation) {
+        expect(outcome).toBeInstanceOf(Error);
+        expect(state.result).not.toBe('ready_for_human_review');
+        expect(state.review).toBe(1);
+        expect(state.findings).toMatch(/test|テスト|期待値/i);
+        expect(await readFile(join(cwd, testFile), 'utf8')).toBe('process.exit(0);\n');
+      } else {
+        expect(outcome).toMatchObject({ status: 'verified_local' });
+        expect(state.result).toBe('ready_for_human_review');
+        expect(state.review).toBe(2);
+        expect(await readFile(join(cwd, testFile), 'utf8')).toBe(testSource);
+      }
+      expect(await runRecords(f.dir)).toEqual(original);
+      expect(f.calls.pushes).toBe(0);
+    },
+  );
+}
+
+testDevelopment(
+  '復帰後の追加変更で必要なホスト測定が失効したら新しい独立評価で支援へ戻る',
+  async (f) => {
+    const cwd = await prepareStop(f, 'repair');
+    const original = await runRecords(f.dir);
+    const m = await measurement(f, cwd);
+    const script = join(dirname(f.dir), 'invalidated-host-review.js');
+    await writeFile(
+      script,
+      `
+import {readFileSync,writeFileSync,existsSync} from 'node:fs';
+const role=process.argv[2];
+${reviewReplySource}
+if(role==='test') {
+ const input=JSON.parse(readFileSync(0,'utf8').split('入力: ')[1].split('\\n')[0]);
+ console.log(JSON.stringify({targetId:input.targetId,status:'unnecessary',findings:'既存checkを維持します。',files:[]}));
+}
+if(role==='review') console.log(JSON.stringify(reviewReply('needs_changes',existsSync('host-pending.txt')?'追加変更後のホスト測定が必要です。':'追加変更が必要です。')));
+if(role==='repair') {
+ if(existsSync('host-pending.txt')) console.log(JSON.stringify({status:'needs_host',findings:'追加変更後の版をホストで再測定してください。'}));
+ else {writeFileSync('host-pending.txt','追加変更によって必要な測定が失効'); console.log(JSON.stringify({status:'repaired',findings:'追加変更を完了しました。'}));}
+}
+`,
+    );
+    f.verify = (config) =>
+      run({
+        ...config,
+        issue: [process.execPath, '-e', `process.stdout.write(${JSON.stringify(issue)})`],
+        test: [process.execPath, script, 'test'],
+        review: [process.execPath, script, 'review'],
+        repair: [process.execPath, script, 'repair'],
+      });
+    await assert.rejects(() => develop(m.args, f.io), /Host verification required/);
+    const state = object(
+      JSON.parse(await readFile(join(m.dir, 'verification/state.json'), 'utf8')),
+    );
+    expect(state).toMatchObject({
+      checks: 2,
+      review: 2,
+      repair: 2,
+      result: 'host_verification_required',
+    });
+    const stopped = object(JSON.parse(await readFile(join(m.dir, 'result.json'), 'utf8')));
+    expect(stopped).toMatchObject({
+      status: 'stopped',
+      publication: 'not_attempted',
+      reasonCode: 'host_verification_required',
+    });
+    expect(await readFile(join(cwd, 'host-pending.txt'), 'utf8')).toContain('失効');
+    expect(await runRecords(f.dir)).toEqual(original);
+    expect(f.calls.pushes).toBe(0);
+    expect(f.calls.publications).toBe(0);
+  },
+);
+
 for (const ignored of [false, true]) {
   testDevelopment(`ローカル設定でホスト検証後に再評価する: 除外=${ignored}`, async (f) => {
     await gitOutput(f.repo, 'rm', '--cached', '.dotagents.json');
@@ -169,7 +421,7 @@ for (const stage of ['initial', 'repair'] as const) {
           targetReads++;
         }
         const result = await command(...args);
-        if (stage === 'initial' && argv[1]?.endsWith('/codex-actor.ts')) {
+        if (stage === 'initial' && argv[1]?.endsWith('/codex-actor.ts') && argv[2] === 'repair') {
           handoff = true;
         }
         return result;
@@ -523,4 +775,85 @@ testDevelopment('changed external evidence during check cannot reach review', as
   expect((await develop(args, f.io)).status).toBe('verified_local');
   expect(await runRecords(m.dir)).toEqual(failedRecords);
   expect(f.calls.publications).toBe(0);
+});
+
+testDevelopment('ホスト復帰の版記録がcheck中に変わったらreviewと公開を止める', async (f) => {
+  const normalTest = f.test;
+  const normalImplement = f.implement;
+  f.test = async (_argv, _cwd, prompt, _timeout, prefix) => {
+    const input = object(JSON.parse(prompt.split('入力: ')[1]?.split('\n')[0] ?? ''));
+    const response = ok(
+      JSON.stringify({
+        targetId: input.targetId,
+        status: 'needs_host',
+        findings: 'ホスト測定後に要求から独立してテストの要否を再判定します。',
+        files: [],
+      }),
+    );
+    assert(prefix);
+    await writeFile(`${prefix}.stdout`, response.stdout);
+    await writeFile(`${prefix}.stderr`, '');
+    return response;
+  };
+  const cwd = await prepareStop(f, 'initial', false);
+  const original = await runRecords(f.dir);
+  const m = await measurement(f, cwd);
+  m.args.pop();
+  f.test = normalTest;
+  f.implement = normalImplement;
+  const verify = f.verify;
+  const preparationPath = join(m.dir, 'host-preparation.json');
+  let preparationBefore = '';
+  let changedPreparation = '';
+  f.verify = async (config) => {
+    preparationBefore = await readFile(preparationPath, 'utf8');
+    expect(config.hostPreparation).toEqual({
+      path: preparationPath,
+      sha256: hash(preparationBefore),
+    });
+    const preparation = object(JSON.parse(preparationBefore));
+    expect(preparation.sourceBefore).toBe(m.evidence.source);
+    expect(preparation.sourceAfterTests).toBe(preparation.sourceBefore);
+    expect(preparation.sourceAfter).toBe(await snapshot(cwd));
+    expect(preparation.sourceAfter).not.toBe(preparation.sourceBefore);
+    changedPreparation = JSON.stringify({
+      ...preparation,
+      sourceAfterTests: 'changed during check',
+    });
+    return verify({
+      ...config,
+      check: [
+        process.execPath,
+        '-e',
+        `const fs=require('node:fs'); if(fs.readFileSync('result.txt','utf8')!=='implemented'||fs.readFileSync('setup.txt','utf8')!=='configured')process.exit(1); fs.writeFileSync(${JSON.stringify(preparationPath)},${JSON.stringify(changedPreparation)});`,
+      ],
+    });
+  };
+  const outcome: unknown = await develop(m.args, f.io).catch((error: unknown) => error);
+  const state = object(JSON.parse(await readFile(join(m.dir, 'verification/state.json'), 'utf8')));
+  expect(state).toMatchObject({
+    checks: 1,
+    review: 0,
+    repair: 0,
+    reviewHistory: [],
+    result: 'host_evidence_changed',
+  });
+  expect(outcome).toBeInstanceOf(Error);
+  expect(state.findings).toContain(preparationPath);
+  const result = object(JSON.parse(await readFile(join(m.dir, 'result.json'), 'utf8')));
+  expect(result).toMatchObject({ status: 'stopped', publication: 'not_attempted' });
+  expect(await readFile(preparationPath, 'utf8')).toBe(changedPreparation);
+  const savedConfig = object(
+    JSON.parse(await readFile(join(m.dir, 'verification-config.json'), 'utf8')),
+  );
+  expect(savedConfig.hostPreparation).toEqual({
+    path: preparationPath,
+    sha256: hash(preparationBefore),
+  });
+  expect(await runRecords(f.dir)).toEqual(original);
+  expect(await readFile(join(cwd, 'result.txt'), 'utf8')).toBe('implemented');
+  expect(await gitOutput(cwd, 'status', '--porcelain')).toContain('verification.md');
+  expect(f.calls.implementations).toBe(1);
+  expect(f.calls.publications).toBe(0);
+  expect(f.calls.pushes).toBe(0);
 });

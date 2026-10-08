@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { command, withInterrupts } from '../../shared/process.ts';
+import { isRecord } from '../../shared/values.ts';
 import type { Config, State } from '../../implement/input.ts';
 import type { PublishInput } from '../../implement/publish.ts';
 import { reviewSummary } from '../../implement/review.ts';
@@ -122,7 +123,14 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
     join(dir, 'verification/review-2.json'),
   ]);
 
-  const calls = { implementations: 0, reviews: 0, pushes: 0, publications: 0, attachments: 0 };
+  const calls = {
+    implementations: 0,
+    tests: 0,
+    reviews: 0,
+    pushes: 0,
+    publications: 0,
+    attachments: 0,
+  };
   const prReads: string[] = [];
   let attached = false;
   const fixture = {
@@ -137,6 +145,32 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
     args: [`https://github.com/${settings.repository}/issues/99`, '--repo', repo, '--run-dir', dir],
     // Overrides are the actual IO boundaries; individual tests own fault injection.
     localCommand: command,
+    async test(
+      this: void,
+      _argv: string[],
+      _cwd: string,
+      input: string,
+      _timeout: number | null,
+      prefix?: string,
+    ): ReturnType<typeof command> {
+      const match = input.match(/入力: (\{[^\n]+\})/);
+      assert(match?.[1], 'テスト作成入力が必要');
+      const context: unknown = JSON.parse(match[1]);
+      assert(isRecord(context) && typeof context.targetId === 'string');
+      const response = ok(
+        JSON.stringify({
+          targetId: context.targetId,
+          status: 'unnecessary',
+          findings: '既存の設定済みcheckで要求した結果を確認でき、追加テストは不要です。',
+          files: [],
+        }),
+      );
+      if (prefix) {
+        await writeFile(`${prefix}.stdout`, response.stdout);
+        await writeFile(`${prefix}.stderr`, response.stderr);
+      }
+      return response;
+    },
     async implement(
       this: void,
       _argv: string[],
@@ -290,6 +324,10 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
       }
       if (argv[0] === 'gh') {
         return githubCommand(argv, cwd, timeout, prefix);
+      }
+      if (argv[2] === 'test') {
+        calls.tests++;
+        return fixture.test(argv, cwd, input, timeout, prefix);
       }
       expect(argv.slice(1, 3)).toEqual([
         new URL('../../implement/codex-actor.ts', import.meta.url).pathname,

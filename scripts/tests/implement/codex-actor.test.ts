@@ -34,18 +34,26 @@ async function expectInvocation(root: string, role: string) {
   expect(invocation.inheritedPrefix).toBeNull();
   const args = events(invocation.args);
   expect(args[args.indexOf('-m') + 1]).toBe('gpt-6.1-sol');
-  expect(args[args.indexOf('-c') + 1]).toBe(
-    role === 'repair' ? 'model_reasoning_effort="medium"' : 'model_reasoning_effort="high"',
-  );
+  if (role !== 'test') {
+    expect(args[args.indexOf('-c') + 1]).toBe(
+      role === 'repair' ? 'model_reasoning_effort="medium"' : 'model_reasoning_effort="high"',
+    );
+  }
+  expect(args[0]).toBe('exec');
+  expect(args).not.toContain('resume');
   expect(args).toContain('--ignore-user-config');
   expect(args).toContain('--output-schema');
   expect(args[args.indexOf('--sandbox') + 1]).toBe(
-    role === 'repair' ? 'workspace-write' : 'read-only',
+    role === 'review' ? 'read-only' : 'workspace-write',
   );
   return invocation.schema;
 }
 
 function expectResponseSchema(value: unknown, mode: Mode) {
+  if (mode === 'test') {
+    expectTestResponseSchema(value);
+    return;
+  }
   if (!['normal', 'repair'].includes(mode)) {
     return;
   }
@@ -108,6 +116,7 @@ function expectResponseSchema(value: unknown, mode: Mode) {
 const modes = [
   'normal',
   'repair',
+  'test',
   'shim',
   'version_failure',
   'version_empty',
@@ -121,6 +130,35 @@ const modes = [
   'write_error',
 ] as const;
 type Mode = (typeof modes)[number];
+
+const testResponse = {
+  targetId: 'independent-test-fixture',
+  status: 'unnecessary',
+  findings: '既存検証で要求を確認できるため追加テストは不要です。',
+  files: [],
+};
+
+function expectTestResponseSchema(value: unknown) {
+  const schema = object(value);
+  expect(schema.additionalProperties).toBe(false);
+  expect(sortedStrings(schema.required)).toEqual(['files', 'findings', 'status', 'targetId']);
+  const properties = object(schema.properties);
+  expect(Object.keys(properties).sort()).toEqual(['files', 'findings', 'status', 'targetId']);
+  expect(sortedStrings(object(properties.status).enum)).toEqual([
+    'needs_host',
+    'needs_human',
+    'prepared',
+    'unnecessary',
+  ]);
+  for (const field of ['targetId', 'findings']) {
+    expect(object(properties[field])).toMatchObject({
+      type: 'string',
+      minLength: 1,
+      pattern: '\\S',
+    });
+  }
+  expect(object(properties.files)).toMatchObject({ type: 'array', items: { type: 'string' } });
+}
 
 async function mockCodex(root: string, mode: Mode, bytes: number) {
   if (mode !== 'missing') {
@@ -151,7 +189,7 @@ if(args[0] === '--version') {
 const schemaIndex = args.indexOf('--output-schema');
 const schema = schemaIndex < 0 ? null : JSON.parse(readFileSync(args[schemaIndex + 1], 'utf8'));
 writeFileSync(${JSON.stringify(join(root, 'invocation.json'))}, JSON.stringify({...conditions, args, schema, inheritedPrefix: process.env.DOTAGENTS_ACTOR_PREFIX ?? null}));
-writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify({status:'accepted', findings:''}));
+writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify(${JSON.stringify(mode === 'test' ? testResponse : { status: 'accepted', findings: '' })}));
 process.stdout.write('x'.repeat(${bytes}) + 'stdout-end');
 process.stderr.write('y'.repeat(${bytes}) + 'stderr-end');
 }
@@ -263,8 +301,11 @@ async function expectWriteError(root: string, dir: string, bytes: number, stderr
 }
 
 for (const mode of modes) {
-  const role = mode === 'repair' ? mode : 'review';
-  const sandbox = role === 'repair' ? 'workspace-write' : 'read-only';
+  const role = mode === 'repair' || mode === 'test' ? mode : 'review';
+  const sandbox = role === 'review' ? 'read-only' : 'workspace-write';
+  const expectedResponse = mode === 'test' ? testResponse : { status: 'accepted', findings: '' };
+  const reasoning =
+    role === 'test' ? {} : { reasoningEffort: role === 'repair' ? 'medium' : 'high' };
   const succeeds = ![
     'metadata_error',
     'launch_error',
@@ -303,7 +344,7 @@ for (const mode of modes) {
       expect(result.error).toBeUndefined();
       expect(result.status).toBe(succeeds ? 0 : 1);
       if (succeeds) {
-        expect(JSON.parse(result.stdout)).toEqual({ status: 'accepted', findings: '' });
+        expect(JSON.parse(result.stdout)).toEqual(expectedResponse);
       } else {
         expect(result.stdout).toBe('');
       }
@@ -324,7 +365,7 @@ for (const mode of modes) {
         role,
         hostPrefix: 'verification/actor-1',
         model: 'gpt-6.1-sol',
-        reasoningEffort: role === 'repair' ? 'medium' : 'high',
+        ...reasoning,
         sandbox,
         ignoreUserConfig: true,
       });

@@ -28,7 +28,7 @@ async function recordFiles(dir: string): Promise<string[]> {
     const path = join(dir, entry.name);
     if (entry.isFile()) {
       files.push(path);
-    } else if (entry.isDirectory() && entry.name !== 'lock') {
+    } else if (entry.isDirectory() && entry.name !== 'lock' && !entry.name.endsWith('-workspace')) {
       files.push(...(await recordFiles(path)));
     }
   }
