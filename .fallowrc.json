@@ -2,6 +2,7 @@
   "$schema": "./node_modules/fallow/schema.json",
   "entry": [
     "scripts/capture/capture.ts",
+    "scripts/ui/run.ts",
     "scripts/lint/fallow.ts",
     "scripts/implement/codex-actor.ts",
     "scripts/implement/development.ts",
