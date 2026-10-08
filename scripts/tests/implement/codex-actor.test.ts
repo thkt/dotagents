@@ -53,7 +53,16 @@ function expectResponseSchema(value: unknown, mode: Mode) {
   const schema = object(value);
   expect(sortedStrings(schema.required)).toEqual(
     (role === 'review'
-      ? ['findings', 'targetId', 'assessments', 'updates', 'newItems', 'documents', 'handoff']
+      ? [
+          'findings',
+          'targetId',
+          'assessments',
+          'updates',
+          'newItems',
+          'documents',
+          'handoff',
+          'walkthrough',
+        ]
       : ['status', 'findings']
     ).toSorted(),
   );
