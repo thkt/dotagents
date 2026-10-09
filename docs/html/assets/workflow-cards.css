@@ -1,0 +1,60 @@
+/* Basecoat Cardのheader・section・footerを使い、図の役割だけを補います。 */
+.phase-card, .reading-node { min-width: 0; }
+.reading-node { margin-bottom: 16px; }
+.card > header { column-gap: 16px; }
+.card > header > h3 { line-height: 1.6; }
+.card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--muted-foreground); font-size: 12px; line-height: 1.6; }
+.card-meta .badge { font-family: var(--font-mono); color: var(--c); background: color-mix(in srgb, var(--c) 10%, var(--card)); border-color: color-mix(in srgb, var(--c) 25%, var(--border)); }
+.card-owner { display: inline-flex; align-items: center; gap: 6px; }
+.card-owner i { width: 7px; height: 7px; border-radius: 50%; background: var(--c); flex-shrink: 0; }
+.phase-card > header > p { grid-column: 1 / -1; line-height: 1.8; }
+.phase-card.policy { border: 1px dashed var(--orange); box-shadow: none; }
+.card > footer.card-footer { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+.phase-card > footer { margin-top: auto; }
+.phase-card footer details, .stop-routes { width: 100%; }
+.phase-card footer summary, .stop-routes > summary { font-size: 12px; color: var(--muted-foreground); line-height: 1.7; }
+.phase-link.btn { justify-content: flex-start; height: auto; white-space: normal; text-align: left; width: 100%; margin-top: 4px; }
+.stop-count { align-self: flex-start; }
+.route-list { list-style: none; padding: 0; margin: 0; }
+.route-list li + li { margin-top: 6px; }
+.route-list .btn { display: grid; justify-content: stretch; align-items: start; gap: 4px; width: 100%; height: auto; padding: 10px 12px; text-align: left; white-space: normal; }
+.route-condition { color: var(--muted-foreground); font-size: 12px; font-weight: 400; line-height: 1.6; overflow-wrap: anywhere; }
+.route-target { display: flex; align-items: baseline; gap: 8px; font-size: 13px; line-height: 1.7; }
+.route-target > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.route-target > span:first-child { color: var(--muted-foreground); flex-shrink: 0; }
+.stop-routes .route-list { margin-top: 10px; }
+.route-end { font-size: 12px; color: var(--muted-foreground); line-height: 1.8; }
+/* 接続図では座標と寸法を保ち、枠・文字・選択状態を揃えます。 */
+.node, .portal { position: absolute; z-index: 2; background: var(--card); color: var(--card-foreground); border: 1px solid var(--border); border-radius: var(--radius-xl); text-align: left; line-height: 1.55; box-shadow: 0 1px 2px #0000000d; }
+.node { width: 284px; min-height: 94px; padding: 12px 15px; }
+.node small { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted-foreground); font-size: 11px; margin-bottom: 6px; }
+.node small > span:first-child { color: var(--c); }
+.node small > span:last-child { display: inline-flex; align-items: center; gap: 6px; }
+.node small > span:last-child::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--c); flex-shrink: 0; }
+.node strong { display: block; font-size: 15px; font-weight: 600; }
+.overview .node strong { font-size: 17px; }
+.node:hover, .portal:hover { border-color: var(--primary); }
+.node.near { box-shadow: 0 0 0 1px var(--border); }
+.node.decision { border-color: var(--orange); background: #fffaf1; }
+.node.end { border-radius: 24px; }
+.node.stop { border-color: var(--red); background: #fff7f6; }
+.node.policy { border-color: var(--orange); border-style: dashed; }
+.node.selected:not(:focus-visible), .portal.selected:not(:focus-visible) { outline: 2px solid var(--primary); outline-offset: 3px; }
+.node.dim { opacity: .22; }
+.portal { width: 238px; min-height: 58px; padding: 8px 12px; }
+.portal small { display: block; font-size: 10px; color: var(--muted-foreground); margin-bottom: 3px; }
+.portal strong { display: block; font-size: 12px; font-weight: 500; }
+.explanation-dialog > .explanation-surface { width: calc(100vw - 32px); max-width: 640px; max-height: calc(100dvh - 32px); padding: 0; gap: 0; background: var(--card); }
+.explanation-dialog > .explanation-surface > header { flex-direction: row; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+.explanation-dialog > .explanation-surface > section { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.explanation-dialog .inspector { position: static; max-height: none; padding: 20px; display: block; }
+.inspector #outs + details { margin-top: 16px; }
+.inspector details .route-list { margin-top: 10px; }
+@media (max-width: 700px) {
+  .card > header { grid-template-columns: 1fr; }
+  .card > header > .card-action { grid-column: 1; grid-row: auto; place-self: start; }
+  .route-list .btn { padding: 10px 8px; }
+  .card-meta { align-items: flex-start; }
+}
+
+body:has(.explanation-dialog[open]) { overflow: hidden; }

@@ -1,0 +1,31 @@
+/* Basecoatの標準テーマを共有し、本文と図の役割色を補います。 */
+:root {
+  color-scheme: light;
+  --primary: #3f3f46;
+  --primary-foreground: #fafafa;
+  --ring: #71717a;
+  --selection-background: color-mix(in srgb, var(--primary) 10%, var(--card));
+  --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+  --font-heading: var(--font-sans);
+  --paper: var(--background);
+  --panel: var(--card);
+  --white: var(--card);
+  --ink: var(--foreground);
+  --text-muted: var(--muted-foreground);
+  --line: var(--border);
+  --green: var(--primary);
+  --soft: var(--muted);
+  --pending: #885019;
+  --pending-bg: #fffaf1;
+}
+body { font-family: var(--font-sans); }
+a { text-underline-offset: .2em; }
+a:not(.btn):hover { color: #27272a; }
+.btn[data-variant="outline"], .btn[data-variant="ghost"]:not(.phase) { color: var(--primary); }
+button, a, select, summary { touch-action: manipulation; }
+button, summary { cursor: pointer; }
+[hidden] { display: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .btn { transition: none; }
+}

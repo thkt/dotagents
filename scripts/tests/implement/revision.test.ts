@@ -46,18 +46,20 @@ const ok = (stdout = '') => ({ stdout, stderr: '', code: 0, timedOut: false, ms:
 const reportPath = 'docs/research/start.md';
 const reportContent = 'Reviewed start evidence.\n';
 
-// Real Git and the existing development/publish entry points; only external responses are simulated.
+// 実Gitと修正・公開入口を使う。通常は前回記録を準備し、接続ケースだけ初回公開を通す。
 async function fixture(
   root: string,
   media = false,
   setup: string[][] = [],
   report = false,
   local: false | 'untracked' | 'ignored' = false,
+  initialPublication = false,
 ) {
-  const repo = join(root, 'repo');
   const prior = join(root, 'prior');
+  const cwd = join(prior, 'checkout');
+  const repo = initialPublication ? join(root, 'repo') : cwd;
   const dir = join(root, 'revision');
-  await mkdir(repo);
+  await mkdir(repo, { recursive: true });
   await initializeTarget(repo, {
     ...targetConfig,
     setup,
@@ -77,6 +79,9 @@ async function fixture(
     git(repo, 'commit', '-m', 'reviewed report');
   }
   const initialBase = git(repo, 'rev-parse', 'HEAD');
+  const reports = report
+    ? [{ path: reportPath, blob: git(repo, 'rev-parse', `${initialBase}:${reportPath}`) }]
+    : [];
   // GitHub does not create closing links from the body for a non-default base.
   const closingIssuesReferences: { url: string }[] = [];
   const pr = {
@@ -104,22 +109,25 @@ async function fixture(
     implementations: number;
     pushes: number;
     edits: number;
-    verifications: number;
-    beforeVerify?: () => Promise<void>;
+    verificationEntries: number;
+    beforeCommitVerify?: () => Promise<void>;
+    beforePushVerify?: () => Promise<void>;
+    beforeVerify?: (head: string) => Promise<void>;
     beforeActor?: () => Promise<void>;
   } = {
     issueText: issue,
     implementations: 0,
     pushes: 0,
     edits: 0,
-    verifications: 0,
+    verificationEntries: 0,
   };
   let remoteHead = '';
+  let priorPublished = false;
   const commands: { argv: string[]; cwd: string }[] = [];
   const publicationCommands: string[][] = [];
   async function gitCommand(argv: string[], cwd: string, input: string, timeout: number | null) {
     if (argv.includes('push')) {
-      if (hooks.pushes) {
+      if (priorPublished) {
         expect(pr.isDraft).toBe(true);
       }
       hooks.pushes++;
@@ -145,12 +153,12 @@ async function fixture(
   }
   function undoDraft(argv: string[]) {
     expect(argv).toEqual(['gh', 'pr', 'ready', pr.url, '--repo', 'team/component', '--undo']);
-    expect(hooks.pushes).toBe(1);
+    expect(hooks.pushes).toBe(0);
     pr.isDraft = true;
     return ok();
   }
   function branchPulls() {
-    if (hooks.implementations < 2) {
+    if (!priorPublished) {
       return [[]];
     }
     const pages = [
@@ -209,10 +217,10 @@ async function fixture(
   }
   async function actor(cwd: string, input: string) {
     hooks.implementations++;
-    if (hooks.implementations === 1) {
+    if (!priorPublished) {
       await implementOriginal(cwd);
     }
-    if (hooks.implementations > 1) {
+    if (priorPublished) {
       await hooks.beforeActor?.();
       expect(input).toContain(await readFile(request, 'utf8'));
       expect(input).toContain(pr.body);
@@ -221,11 +229,42 @@ async function fixture(
         await writeFile(join(cwd, 'media/result.png'), 'simulated capture');
       }
     }
-    await writeFile(
-      join(cwd, 'result.txt'),
-      hooks.implementations === 1 ? 'implemented' : 'reset corrected',
-    );
+    await writeFile(join(cwd, 'result.txt'), priorPublished ? 'reset corrected' : 'implemented');
     return ok(JSON.stringify({ status: 'repaired', findings: 'Changed requested behavior' }));
+  }
+  async function verifiedState(config: Config): Promise<State> {
+    return {
+      reviewFormat: 4,
+      baseCommit: config.baseCommit ?? initialBase,
+      configHash: hash(JSON.stringify(config)),
+      issueFormat: 1,
+      issueHash: hash(hooks.issueText.trim()),
+      source: await snapshot(config.cwd),
+      repair: 0,
+      review: 1,
+      checks: 1,
+      modelMs: 1,
+      active: null,
+      events: [],
+      result: 'ready_for_human_review',
+      reviewHistory: [
+        {
+          status: 'accepted',
+          targetId: 'current',
+          findings: 'Verified current output',
+          assessments: {
+            code: `Current change; evidence: ${prior}/verification/check-1.stdout`,
+            requirements: 'Issue and adopted reset request satisfied',
+            tests: 'Simulated check, live update untested',
+            documentation:
+              'Current instructions compared. Prior limitation and attachment: https://example.com/media.png',
+          },
+          items: [],
+          documents: [],
+          handoff: [],
+        },
+      ],
+    };
   }
   const io = {
     command: async (argv: string[], cwd: string, input: string, timeout: number | null) => {
@@ -242,41 +281,24 @@ async function fixture(
       throw Error(`Unexpected fixture command: ${argv.join(' ')}`);
     },
     verify: async (config: Config): Promise<State> => {
-      hooks.verifications++;
-      await hooks.beforeVerify?.();
+      hooks.verificationEntries++;
+      const boundaryHook =
+        config.revision &&
+        (hooks.beforeCommitVerify || hooks.beforePushVerify) &&
+        (await Bun.file(join(config.runDir, 'state.json')).exists());
+      if (boundaryHook || hooks.beforeVerify) {
+        const head = git(config.cwd, 'rev-parse', 'HEAD');
+        if (boundaryHook) {
+          if (head === config.revision?.head) {
+            await hooks.beforeCommitVerify?.();
+          } else {
+            await hooks.beforePushVerify?.();
+          }
+        }
+        await hooks.beforeVerify?.(head);
+      }
       await mkdir(config.runDir, { recursive: true });
-      const state: State = {
-        reviewFormat: 4,
-        baseCommit: config.baseCommit ?? initialBase,
-        configHash: hash(JSON.stringify(config)),
-        issueFormat: 1,
-        issueHash: hash(hooks.issueText.trim()),
-        source: await snapshot(config.cwd),
-        repair: 0,
-        review: 1,
-        checks: 1,
-        modelMs: 1,
-        active: null,
-        events: [],
-        result: 'ready_for_human_review',
-        reviewHistory: [
-          {
-            status: 'accepted',
-            targetId: 'current',
-            findings: 'Verified current output',
-            assessments: {
-              code: `Current change; evidence: ${prior}/verification/check-1.stdout`,
-              requirements: 'Issue and adopted reset request satisfied',
-              tests: 'Simulated check, live update untested',
-              documentation:
-                'Current instructions compared. Prior limitation and attachment: https://example.com/media.png',
-            },
-            items: [],
-            documents: [],
-            handoff: [],
-          },
-        ],
-      };
+      const state = await verifiedState(config);
       await writeFile(join(config.runDir, 'state.json'), JSON.stringify(state));
       return state;
     },
@@ -297,27 +319,77 @@ async function fixture(
       });
     },
   };
-  await develop(
-    [
-      '99',
-      '--repo',
-      repo,
-      '--run-dir',
-      prior,
-      ...(report
-        ? [
-            '--start-commit',
-            initialBase,
-            '--report',
-            `${reportPath}=${git(repo, 'rev-parse', `HEAD:${reportPath}`)}`,
-          ]
-        : []),
-    ],
-    io,
-  );
+  if (initialPublication) {
+    await develop(
+      [
+        '99',
+        '--repo',
+        repo,
+        '--run-dir',
+        prior,
+        ...(report
+          ? [
+              '--start-commit',
+              initialBase,
+              '--report',
+              `${reportPath}=${git(repo, 'rev-parse', `HEAD:${reportPath}`)}`,
+            ]
+          : []),
+      ],
+      io,
+    );
+  } else {
+    git(repo, 'checkout', '-b', pr.headRefName);
+    await implementOriginal(repo);
+    await writeFile(join(repo, 'result.txt'), 'implemented');
+    git(repo, 'add', 'result.txt', 'original-pr.txt', ...(report ? [reportPath] : []));
+    git(repo, 'commit', '-m', '前回の公開成果物');
+    remoteHead = git(repo, 'rev-parse', 'HEAD');
+    pr.headRefOid = remoteHead;
+    pr.body = `Closes #99\nPublished ${remoteHead}\nPrior limitation and attachment: https://example.com/media.png`;
+    const targetText = await readFile(join(repo, '.dotagents.json'), 'utf8');
+    const config: Config = {
+      ...correctionConfig(root),
+      cwd: repo,
+      runDir: join(prior, 'verification'),
+      baseCommit: initialBase,
+      targetText,
+      reports,
+    };
+    await mkdir(config.runDir, { recursive: true });
+    const records = {
+      'verification-config.json': config,
+      'verification/state.json': await verifiedState(config),
+      'target.json': { text: targetText, actor: 'operator', repositoryId: 123 },
+      'result.json': {
+        publication: 'published',
+        phase: 'ci',
+        status: 'published_draft',
+        reason: 'Published as draft; ready requires assigned AI checks',
+        terminal: true,
+        finishedAt: '2026-09-20T00:00:00Z',
+        checkout: repo,
+        repository: 'team/component',
+        issue: 'https://github.com/team/component/issues/99',
+        url: pr.url,
+        commit: remoteHead,
+        branch: pr.headRefName,
+      },
+      'pr.json': pr,
+    };
+    for (const [path, value] of Object.entries(records)) {
+      await writeFile(join(prior, path), JSON.stringify(value));
+    }
+    await writeFile(join(prior, 'issue.json'), issue);
+    await writeFile(join(prior, 'pr-url.txt'), pr.url);
+  }
+  // 準備の呼出しを修正操作の計数に混ぜない。接続検証でも同じ起点から数える。
   commands.length = 0;
+  hooks.implementations = 0;
+  hooks.verificationEntries = 0;
+  hooks.pushes = 0;
+  priorPublished = true;
   pr.isDraft = false;
-  const cwd = join(prior, 'checkout');
   const oldHead = pr.headRefOid;
   const oldBody = pr.body;
   const args = [
@@ -485,11 +557,8 @@ for (const file of ['result.json', 'verification/state.json']) {
       const path = join(sibling, file);
       await assert.rejects(check, /Revision request changed/); // ENOENT is optional.
       await writeFile(path, '');
-      if (file === 'result.json') {
-        await assert.rejects(check, SyntaxError);
-      } else {
-        await assert.rejects(check, /Revision request changed/); // Empty state stays optional.
-      }
+      // 存在する空ファイルは、欠落した任意ファイルと区別して拒否する。
+      await assert.rejects(check, SyntaxError);
       await writeFile(path, '{');
       await assert.rejects(check, SyntaxError);
       expect(await readFile(path, 'utf8')).toBe('{');
@@ -509,6 +578,8 @@ test('revision verification validates external configuration and binds it to the
   const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-cli-')));
   try {
     const f = await fixture(root);
+    const otherCheckout = join(root, 'other-checkout');
+    git(f.cwd, 'worktree', 'add', '--detach', otherCheckout, f.initialBase);
     f.io.publish = async (input: PublishInput) => {
       const configPath = join(f.dir, 'verification-config.json');
       const original = await readFile(configPath, 'utf8');
@@ -542,7 +613,7 @@ test('revision verification validates external configuration and binds it to the
         ['{', /JSON/],
         [JSON.stringify({ ...config, check: [] }), /Invalid check command/],
         [JSON.stringify({ ...config, revision: undefined }), /Revision publication target differs/],
-        [JSON.stringify({ ...config, cwd: f.repo }), /Revision publication target differs/],
+        [JSON.stringify({ ...config, cwd: otherCheckout }), /Revision publication target differs/],
         [
           JSON.stringify({ ...config, revision: { ...config.revision, branch: 'codex/other' } }),
           /Revision publication target differs/,
@@ -582,14 +653,14 @@ async function successfulRevision(
   const verifiedHeads: string[] = [];
   let beforeCommit = -1;
   let beforePush = -1;
-  hooks.beforeVerify = async () => {
-    verifiedHeads.push(git(f.cwd, 'rev-parse', 'HEAD'));
-    if (verifiedHeads.length === 2) {
-      beforeCommit = f.commands.length;
-    }
-    if (verifiedHeads.length === 3) {
-      beforePush = f.commands.length;
-    }
+  hooks.beforeVerify = async (head) => {
+    verifiedHeads.push(head);
+  };
+  hooks.beforeCommitVerify = async () => {
+    beforeCommit = f.commands.length;
+  };
+  hooks.beforePushVerify = async () => {
+    beforePush = f.commands.length;
   };
   const result = await runRevision(f);
   expect(result.status).toBe(localOnly ? 'verified_local' : 'published_draft');
@@ -600,6 +671,11 @@ async function successfulRevision(
   });
   expect(result.url).toBe(pr.url);
   expect(hooks.edits).toBe(localOnly ? 0 : 1);
+  expect(hooks.verificationEntries).toBe(localOnly ? 1 : 3);
+  expect(await readObject(join(f.dir, 'verification/state.json'))).toMatchObject({
+    review: 1,
+    checks: 1,
+  });
   // Share acquired inputs during preparation, then observe them anew after run
   // reservation and setup. Each PR reconciliation still checks its own inputs.
   const reconciliations = f.commands
@@ -719,7 +795,7 @@ async function runRevision(
 }
 
 function noRevisionPublication(f: RevisionFixture) {
-  expect(f.hooks.pushes).toBe(1); // The fixture's original publication only.
+  expect(f.hooks.pushes).toBe(0); // 修正のpushは未実施。
   expect(f.hooks.edits).toBe(0);
 }
 
@@ -749,6 +825,18 @@ for (const local of ['untracked', 'ignored'] as const) {
   );
 }
 
+test('初回公開の実出力から既存PR修正へ接続する', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'revision-connection-')));
+  try {
+    const f = await fixture(root, false, [], false, false, true);
+    expect(await Bun.file(join(f.prior, 'report.html')).exists()).toBe(true);
+    await successfulRevision(f);
+  } finally {
+    await withInterrupts(async () => {});
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 testRevision('success', async (f) => {
   await successfulRevision(f);
 });
@@ -763,7 +851,7 @@ testRevision('shared_branch', async (f) => {
   const execute = f.io.command;
   f.io.command = async (...args) => {
     const result = await execute(...args);
-    if (args[0][2] === 'repos/team/component/pulls' && f.hooks.implementations >= 2) {
+    if (args[0][2] === 'repos/team/component/pulls' && f.hooks.implementations >= 1) {
       // Keep the normal first page; the conflicting PR is on a later page and another base.
       const pages: unknown = JSON.parse(result.stdout);
       assert(Array.isArray(pages));
@@ -805,7 +893,7 @@ testRevision('draft_failed', async (f) => {
         'team/component',
         '--undo',
       ]);
-      expect(f.hooks.pushes).toBe(1);
+      expect(f.hooks.pushes).toBe(0);
       return { ...ok(), code: 1, stderr: 'draft conversion failed fixture' };
     }
     return execute(...args);
@@ -864,7 +952,7 @@ testRevision('draft_body_changed', async (f) => {
 testRevision('dirty', async (f) => {
   await writeFile(join(f.cwd, 'untracked.txt'), 'keep me');
   await runRevision(f, /Checkout differs|clean tracked/);
-  expect(f.hooks.implementations).toBe(1);
+  expect(f.hooks.implementations).toBe(0);
   noRevisionPublication(f);
   expect(await readFile(join(f.cwd, 'untracked.txt'), 'utf8')).toBe('keep me');
 });
@@ -991,7 +1079,7 @@ for (const [name, change, reason] of [
 testRevision('wrong_head', async (f) => {
   f.pr.headRefOid = 'a'.repeat(40);
   await runRevision(f, /PR identity changed/);
-  expect(f.hooks.implementations).toBe(1);
+  expect(f.hooks.implementations).toBe(0);
   noRevisionPublication(f);
 });
 
@@ -1027,7 +1115,7 @@ testRevision('issue_after_push', async (f) => {
   const execute = f.io.command;
   f.io.command = async (...args) => {
     const result = await execute(...args);
-    if (args[0][1] === 'issue' && f.hooks.pushes > 1) {
+    if (args[0][1] === 'issue' && f.hooks.pushes > 0) {
       return ok(f.hooks.issueText.replace('Keep result visible', 'Changed requirement'));
     }
     return result;
@@ -1035,7 +1123,7 @@ testRevision('issue_after_push', async (f) => {
   const result = await stoppedRevision(f, /Agreed Issue changed/);
   expect(result.publication).toBe('unconfirmed');
   expect(result.commit).not.toBe(f.oldHead);
-  expect(f.hooks.pushes).toBe(2);
+  expect(f.hooks.pushes).toBe(1);
   expect(f.hooks.edits).toBe(0);
 });
 
@@ -1054,7 +1142,7 @@ testRevision('target_after_push', async (f) => {
   const result = await stoppedRevision(f, /Revision target or actor changed/);
   expect(result.publication).toBe('unconfirmed');
   expect(result.commit).not.toBe(f.oldHead);
-  expect(f.hooks.pushes).toBe(2);
+  expect(f.hooks.pushes).toBe(1);
   expect(f.hooks.edits).toBe(0);
 });
 
@@ -1070,7 +1158,7 @@ for (const [name, reason, publication] of [
       JSON.stringify({ checkout: f.cwd, reason, publication }),
     );
     await runRevision(f, /Unfinished or uncertain execution/);
-    expect(f.hooks.implementations).toBe(1);
+    expect(f.hooks.implementations).toBe(0);
     noRevisionPublication(f);
   });
 }
@@ -1085,7 +1173,7 @@ testRevision('unfinished', async (f) => {
     }),
   );
   await runRevision(f, /Previous verification is unfinished/);
-  expect(f.hooks.implementations).toBe(1);
+  expect(f.hooks.implementations).toBe(0);
   noRevisionPublication(f);
 });
 
@@ -1096,7 +1184,7 @@ testRevision('uncertain', async (f) => {
     JSON.stringify({ ...(await readObject(path)), publication: 'unconfirmed' }),
   );
   await runRevision(f, /Previous publication is incomplete/);
-  expect(f.hooks.implementations).toBe(1);
+  expect(f.hooks.implementations).toBe(0);
   noRevisionPublication(f);
 });
 
@@ -1198,7 +1286,7 @@ testRevision('readback_actor_changed', async (f) => {
   const result = await stoppedRevision(f, /Revision target or actor changed/);
   expect(result.publication).toBe('unconfirmed');
   expect(result.commit).not.toBe(f.oldHead);
-  expect(f.hooks.pushes).toBe(2);
+  expect(f.hooks.pushes).toBe(1);
   expect(f.hooks.edits).toBe(1);
 });
 
@@ -1286,7 +1374,6 @@ for (const boundary of ['reservation', 'setup', 'issue_during_setup']) {
       const f = await fixture(root, false, [setup]);
       const priorState = await readFile(join(f.prior, 'verification/state.json'), 'utf8');
       const priorResult = await readFile(join(f.prior, 'result.json'), 'utf8');
-      const initialVerifications = f.hooks.verifications;
       let changed = false;
       const command = f.io.command;
       f.io.command = async (argv, cwd, input, timeout) => {
@@ -1321,9 +1408,9 @@ for (const boundary of ['reservation', 'setup', 'issue_during_setup']) {
       expect(f.commands.filter(({ argv }) => argv.join(' ') === setup.join(' '))).toHaveLength(
         boundary === 'reservation' ? 0 : 1,
       );
-      expect(f.hooks.implementations).toBe(1); // Only the prior run's actor and publication.
-      expect(f.hooks.verifications).toBe(initialVerifications);
-      expect(f.hooks.pushes).toBe(1);
+      expect(f.hooks.implementations).toBe(0); // 修正のactorは未起動。
+      expect(f.hooks.verificationEntries).toBe(0);
+      expect(f.hooks.pushes).toBe(0);
       expect(f.hooks.edits).toBe(0);
       expect(
         f.commands.some(
@@ -1389,7 +1476,6 @@ for (const [mode, current, reason] of [
       const priorEvidence = await Promise.all(
         priorFiles.map((path) => readFile(join(f.prior, path), 'utf8')),
       );
-      const initialVerifications = f.hooks.verifications;
       const execute = f.io.command;
       let issueReads = 0;
       f.io.command = async (...args) => {
@@ -1414,9 +1500,9 @@ for (const [mode, current, reason] of [
         return result;
       };
       await assert.rejects(() => develop(f.args, f.io), reason);
-      expect(f.hooks.implementations).toBe(1);
-      expect(f.hooks.verifications).toBe(initialVerifications);
-      expect(f.hooks.pushes).toBe(1);
+      expect(f.hooks.implementations).toBe(0);
+      expect(f.hooks.verificationEntries).toBe(0);
+      expect(f.hooks.pushes).toBe(0);
       expect(f.hooks.edits).toBe(0);
       expect(f.commands.some(({ argv }) => argv.join(' ') === 'git status --porcelain')).toBe(
         false,
@@ -1480,11 +1566,10 @@ for (const [mode, reason] of [
       const priorEvidence = await Promise.all(
         priorFiles.map((file) => readFile(join(f.prior, file), 'utf8')),
       );
-      const initialVerifications = f.hooks.verifications;
       await assert.rejects(() => develop(f.args, f.io), reason);
-      expect(f.hooks.implementations).toBe(1);
-      expect(f.hooks.verifications).toBe(initialVerifications);
-      expect(f.hooks.pushes).toBe(1);
+      expect(f.hooks.implementations).toBe(0);
+      expect(f.hooks.verificationEntries).toBe(0);
+      expect(f.hooks.pushes).toBe(0);
       expect(f.hooks.edits).toBe(0);
       expect(f.commands.some(({ argv }) => argv.join(' ') === setup.join(' '))).toBe(false);
       expect(
@@ -1520,12 +1605,8 @@ for (const [change, expected] of Object.entries(verificationChanges)) {
       const f = await fixture(root);
       const priorState = await readFile(join(f.prior, 'verification/state.json'), 'utf8');
       const priorResult = await readFile(join(f.prior, 'result.json'), 'utf8');
-      const initialVerifications = f.hooks.verifications;
       let changed = false;
-      f.hooks.beforeVerify = async () => {
-        if (f.hooks.verifications !== initialVerifications + 2) {
-          return;
-        }
+      f.hooks.beforeCommitVerify = async () => {
         changed = true;
         if (change === 'request') {
           await writeFile(f.request, 'Expanded scope');
@@ -1565,7 +1646,7 @@ for (const [change, expected] of Object.entries(verificationChanges)) {
       expect(changed).toBe(true);
       expect(git(f.cwd, 'rev-parse', 'HEAD')).toBe(f.oldHead);
       expect(f.commands.some(({ argv }) => argv[0] === 'git' && argv.includes('add'))).toBe(false);
-      expect(f.hooks.pushes).toBe(1); // Only the fixture's original publication.
+      expect(f.hooks.pushes).toBe(0); // 修正のpushは未実施。
       expect(f.hooks.edits).toBe(0);
       expect(await readObject(join(f.dir, 'result.json'))).toMatchObject({
         status: 'stopped',
@@ -1765,7 +1846,7 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
           publication: 'not_attempted',
           url: f.pr.url,
         });
-        expect(f.hooks.pushes).toBe(1); // Only the fixture's original publication.
+        expect(f.hooks.pushes).toBe(0); // 修正のpushは未実施。
         expect(f.hooks.edits).toBe(0);
         expect(
           f.commands.some(
@@ -1817,7 +1898,7 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
       }
       const result = await develop(f.args, f.io);
       expect(result.status).toBe('published_draft');
-      expect(f.hooks.pushes).toBe(2);
+      expect(f.hooks.pushes).toBe(1);
       expect(f.hooks.edits).toBe(1);
       const verifiedConfig = config;
       assert(verifiedConfig?.revision);
@@ -1892,7 +1973,7 @@ test('a revision reserves existing result evidence before another initial actor 
     };
     await successfulRevision(f);
     expect(reconciled).toBe(true);
-    expect(f.hooks.implementations).toBe(2);
+    expect(f.hooks.implementations).toBe(1);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

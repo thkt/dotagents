@@ -12,7 +12,9 @@
     "scripts/tests/runner.ts",
     "scripts/capture/verify.ts",
     "scripts/implement/review-probe.ts",
-    "scripts/implement/usage.ts"
+    "scripts/implement/usage.ts",
+    "docs/html/workflow-map.html",
+    "docs/html/workflow-guide.html"
   ],
   "includeEntryExports": true,
   "ignoreDependencies": [
