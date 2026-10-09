@@ -23,6 +23,7 @@ const reviewContext=role==='review'?JSON.parse(readFileSync(0,'utf8').split('ホ
 function reviewReply(status,findings) {
  const previous=reviewContext.previous?.items??[];
  return {findings,targetId:reviewContext.targetId,
+ walkthrough:[{title:'現在の変更',intent:'合意した修正',rationale:'対象コードを照合',code:[{path:JSON.parse(readFileSync(reviewContext.targetRecord,'utf8')).files.find(file=>(file[1]&0o170000)===0o100000)[0],start:1,end:1}],evidence:['check記録を参照'],limitations:['模擬評価']}],
  assessments:{code:'Source behavior inspected',requirements:'Compared agreed deliverables',tests:'Existing check covers source',documentation:'Documentation inspected'},
  updates: previous.map(item=>({id:item.id,disposition:status==='accepted'?'fixed':'open',reason:status==='accepted'?'Current README contains the required instructions':'Documentation remains absent'})),
  newItems: previous.length || status==='accepted'?[]:[{

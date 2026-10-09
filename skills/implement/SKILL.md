@@ -21,7 +21,7 @@ description: 合意済みGitHub Issueの実装依頼で、文書変更を含め�
 bun /absolute/path/to/trusted/scripts/implement/development.ts 99 --repo /absolute/path/to/target-checkout
 ```
 
-報告が必要なら[CLIの引き継ぎ手順](../../scripts/README.md#調査報告を指定した実装開始)で同じpath・blob・開始commitを初回実装・修正・独立評価へ渡す。テストの不足を判断するときだけ[今回必要なテストの例](references/testing.md)を読み、既存検証が守る失敗条件を重ねてテストしない。差分が揃ったら[文書の更新手順](../references/documents.md#残す更新する)を確認し、変更文書を含めて[日本語確認の方針](../../docs/wiki/development-policy.md#pr本文人向け文書の日本語確認)と独立評価を適用する。
+報告が必要なら[CLIの引き継ぎ手順](../../scripts/README.md#調査報告を指定した実装開始)で同じpath・blob・開始commitを初回実装・修正・独立評価へ渡す。UIを実装・変更した場合は、対象画面の主要な表示状態を対応幅の範囲で1px刻みに幅掃引する。[幅掃引の手順](references/testing.md#ui変更時の幅掃引)を読み、同じ画面・状態・対象版・条件の既存結果を使える場合以外は実行する。中間幅の必要性判断で省略せず、実行待ちを完了にしない。この条件は追加修正にも適用する。テストの不足を判断するときだけ[今回必要なテストの例](references/testing.md)を読み、既存検証が守る失敗条件を重ねてテストしない。差分が揃ったら[文書の更新手順](../references/documents.md#残す更新する)を確認し、変更文書を含めて[日本語確認の方針](../../docs/wiki/development-policy.md#pr本文人向け文書の日本語確認)と独立評価を適用する。
 
 `host_verification_required`で返ったら、[ホスト検証後の再評価](../../scripts/README.md#ホスト検証後の再評価)に従って担当AIが検証する。要求・対象版・既存権限を照合し、生ログをcheckoutと旧runの外へ保存する。必要な検証要約・文書更新をcheckの前に反映し、同じcheckoutと元の差分基準を使う新しいrunで独立評価へ戻す。通常check・captureの待機、追加検証待ち、人の判断待ちを区別する。検証失敗は原因の修正、実行不能は環境の解消へつなぎ、要求・権限・許容範囲を変える必要がある場合だけ人に具体的な判断を求める。引き継ぎや証拠の提出だけで完了とせず、実行と復帰を人の手作業に転嫁しない。
 

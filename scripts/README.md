@@ -166,6 +166,60 @@ developmentは対象設定のcapture command、保存先、撮影方針を内部
 
 再撮影が必要な場合はcheckout外の新しい出力先で行います。要求とソースが変わっていないことを確認して媒体を取り込み、媒体を含む対象を確定して共通check、独立評価、公開へ進みます。撮影失敗時はログを修正担当へ渡します。起動不能は`capture_unavailable`、撮影の時間切れは`capture_timeout`として停止し、ホスト側での環境確認が必要です。撮影にも各checkと同じ9分の上限とプロセスグループの中断処理を適用します。正常な`needs_human`と不正応答を区別して表示し、記録を保持します。
 
+### UI変更時の幅掃引
+
+初回実装と追加修正でUIを実装・変更した場合は、[幅掃引の手順](../skills/implement/references/testing.md#ui変更時の幅掃引)に従い、主要状態を対応幅の全整数で計測します。同じ画面・状態・対象版・条件の既存結果を使える場合を除き、実行を省略しません。通常checkに含めたspecは既存のホストcheckで実行し、含まれない実ブラウザー検証は既存の`needs_host`と[再評価](#ホスト検証後の再評価)を使います。`capture: null`でも媒体を要求しないDOM計測は可能です。
+
+対象repoに置くspecの例です。パス・URL・状態・範囲は対象repoの要求から選びます。例の320〜1440px・高さ900pxはIssueの試行条件であり、全repoの既定値ではありません。`prepare`は状態を作り、`ready`は各幅でその状態の描画完了を待ちます。実際の画面に合わせて複数状態を定義し、fixtureの認証・データ準備を使ってください。
+
+```ts
+import { test, expect } from '@playwright/test';
+import { join } from 'node:path';
+import { widthSweep } from '/absolute/path/to/trusted/scripts/ui/width-sweep.ts';
+
+test('主要状態の幅掃引', async ({ page, browser }, testInfo) => {
+  test.setTimeout(180_000); // 対象repoの待機と既存のホスト上限に合わせて選ぶ
+  const output = process.env.WIDTH_SWEEP_OUTPUT;
+  if (!output) throw Error('WIDTH_SWEEP_OUTPUTが必要です');
+  await widthSweep(page, {
+    testInfo,
+    minWidth: 320, maxWidth: 1440, height: 900,
+    output: join(output, `${testInfo.project.name || 'default'}.json`),
+    source: '対象commitと未commit差分の識別値',
+    browser: `${browser.browserType().name()} ${browser.version()}`,
+    conditions: '対象URL、認証・データ、フォント、OS、projectのuse設定',
+    limitations: '確認した状態の範囲と、今回確認しない操作・環境',
+    states: [
+      {
+        name: '読込後', url: '/screen',
+        prepare: async () => { await expect(page.getByTestId('screen-ready')).toBeVisible(); },
+        ready: async () => { await expect(page.getByTestId('screen-ready')).toBeVisible(); },
+      },
+      {
+        name: '詳細展開', url: '/screen',
+        prepare: async () => { await page.getByRole('button', { name: '詳細' }).click(); },
+        ready: async () => { await expect(page.getByTestId('detail-ready')).toBeVisible(); },
+      },
+    ],
+  });
+});
+```
+
+ホストで、対象repoのcheckoutを作業ディレクトリにして実行します。出力先はcheckout外の未使用の絶対ディレクトリです。親ディレクトリは先に用意します。通常checkから直接呼ぶ場合も、`widthSweep`の`output`には外部の新しい絶対ファイルを渡してください。
+
+```sh
+bun /absolute/path/to/trusted/scripts/ui/run.ts \
+  tests/width-sweep.spec.ts playwright.config.ts /absolute/path/outside-checkout/new-sweep
+```
+
+入口は対象repoの`@playwright/test/cli`を解決します。設定ファイルから辿れる依存が存在することを先に確認し、BunのキャッシュだけにあるPlaywrightは使いません。依存がなければ出力を作る前に拒否します。[撮影アダプター](#ホストによるブラウザー検証と撮影)と同じ設定解決と実行結果の検査を再利用し、元のprojects・依存project・webServer・hooks・ブラウザー設定を引き継ぎます。撮影は要求しません。指定specのみを選び、skip・0件・失敗・計測記録なし・幅の欠落・対象条件やDOM値の欠落・成功とページ超過の矛盾を非zeroで拒否します。`testInfo`から記録したproject名、specの絶対パス、テストの位置とタイトルを実行レポートへ照合し、指定specの各テスト・projectの記録欠落も拒否します。別ファイルの依存projectのsetupは掃引対象に数えません。page fixtureのビューポートを指定するため、固定サイズに変更できない構成は成功にしません。projectごと・テストごとに異なる出力ファイルを指定してください。
+
+計測JSONには対象版・高さ・ブラウザー・条件・一意な状態名と各整数幅の計測値を残します。各sampleの`measurement`はDOMの幅の値だけ、`candidates`は境界・selector・スクロールやクリップする祖先の詳細を一度だけ持ちます。古い二重保存形式や対象識別情報のない記録は、この入口の成功判定には使えません。同じ画面・状態・版・条件の既存結果の明示的な再利用は、引き続き担当AIが証拠を照合して独立評価へ渡します。
+
+新しい出力ディレクトリに計測JSONを、その隣に`.config.mjs`・`.report.json`・`.artifacts`を残します。既存の記録は上書きせず拒否します。依存やブラウザーが不足した場合も非zeroで終了し、起動不能を検査できた場合は78です。一般の実行失敗は1です。途中で中断され、JSONが未完成・未生成の場合は未実行または未完了として生ログに記し、成功へ読み替えません。spec・hook・serverが独自に書くファイルも対象repoで外部へ向けます。任意の対象コードの書き込みを隔離する機能ではありません。
+
+実ブラウザーの結果と候補の実画面確認は、同じ対象版・差分の`findings`から独立評価へ渡します。正常な対照、849〜851pxだけページ全体がはみ出す例、意図した局所横スクロールを使う限定したホスト検証と、模擬pageによる制御テストを区別します。合成HTMLと生結果はcheckout外へ生成し、既存のローカル試行資産は取り込みません。
+
 ### 同じ実行内の確認と再利用
 
 各工程は、それぞれの入力に対応する既存の記録を使います。再利用は同じ実行内に限り、別実行、PR差し戻し、中断復旧へ結果を引き継ぎません。入力を取得・照合できない場合は成功を再利用せず、原因を確認します。
@@ -226,7 +280,7 @@ developmentは対象設定のcapture command、保存先、撮影方針を内部
 
 修正理由の受け渡しによってcheckや全指摘の再判断を省略せず、修正担当の自己申告を`fixed`や`accepted`へ自動変換しません。不正応答・`needs_host`・`needs_human`・修正失敗では従来どおり停止します。参照する正常応答の保存ログのどれかが次の評価前に変わった場合や読めない場合も、`invalid_repair`で停止して既存記録を保持します。参照とhashの照合は入力の取り違えを防ぐためのもので、修正理由の正しさや実モデルによる指摘解消率・費用の改善を保証しません。
 
-評価担当は、概要の`findings`、ホストが指定した`targetId`、4観点の`assessments`、過去指摘への判断の`updates`、新規指摘の`newItems`、参照文書の`documents`、後続担当の作業を示す`handoff`を返します。総合`status`と完全な`items`はホストが組み立てるため、応答には含めません。各観点には判断理由と未確認範囲を記し、適用しない観点についてもその理由を説明します。
+評価担当は、概要の`findings`、ホストが指定した`targetId`、4観点の`assessments`、変更説明の`walkthrough`、過去指摘への判断の`updates`、新規指摘の`newItems`、参照文書の`documents`、後続担当の作業を示す`handoff`を返します。総合`status`と完全な`items`はホストが組み立てるため、応答には含めません。各観点には判断理由と未確認範囲を記し、適用しない観点についてもその理由を説明します。
 
 指摘は、`id`、初出対象の`introducedIn`、証明できた欠陥と未確認の懸念を分ける`kind`、指摘の観点を表す`area`（code・requirements・tests・documentation）、必須対応かを表す`required`、`location`、発生条件、影響、根拠、必要な対応を持ちます。文書不足など実在するコード位置がない場合は、pathとlineを`null`にし、架空の位置や再現実行を埋めません。新規の指摘は`newItems`に入れ、各項目に`id`・`introducedIn`・`disposition`は含めません。ホストが応答全体の`targetId`を照合した後、`R<評価回数>-<新規指摘の順番>`のID（例: 初回は`R1-1`、`R1-2`）、検証済みの対象ID、`open`をそれぞれ付与し、完全な指摘記録として保存します。順番は各応答の配列順で1から数え、同じ評価回数と順番には同じIDを付けます。一度保存したIDは後続評価で変えません。IDや接頭辞から指摘内容や人の判断が必要かを推測しません。
 
@@ -252,7 +306,7 @@ PR作成・添付・CIの登録と成功の確認はCLI、PR内の表示確認�
 
 - `review-N.target.json`: 取得したIssue全文とhash、差分の基準commit、追跡ファイル、ignoreされていない新規ファイル、ローカル除外された`.dotagents.json`のパス・モード・内容hash、checkのコマンド・対象・結果・ログhash、reviewコマンドとモデル設定、前回評価以降の追加修正への参照一覧`repairsSinceReview`（各参照は`attempt`・`prefix`・`sourceBefore`・`sourceAfter`・`stdoutHash`、追加修正がなければ空配列）と、その最後の参照`latestRepair`（追加修正がなければ`null`）、これらを含めてホストが算出したtargetId。
 - `review-N.diff`と`review-N.additions.json`: 基準commitからのbinary対応差分と、未追跡ファイルの内容・モード。通常ファイルの追加内容はBase64、symlinkはリンク先文字列として保持します。
-- `review-N.json`: 過去の本文・現在の判断・新規指摘からホストが再構成した完全なレビュー（`status`・`items`を含む）、対象記録への参照、参照文書の位置・内容hash・モード・役割・参照理由。
+- `review-N.json`: 過去の本文・現在の判断・新規指摘からホストが再構成した完全なレビュー（`status`・`items`を含む）、対象記録への参照、参照文書の位置・内容hash・モード・役割・参照理由、新しい評価では`walkthrough`の説明と参照先の保存コード・識別値。
 - `review-N.prompt`・`.stdout`・`.stderr`: 指示と生の応答。失敗、不正応答、中断でも既存ログと予約を保全します。検証済みの`.json`がない試行を成功とは扱いません。
 
 通常入口は実装前のcommitと、独立評価用の `gpt-6.1-sol` / `high` 設定をホストから渡します。correction単独実行では`baseCommit`の省略時に開始時のHEADを基準として固定します。Git commitのない作業コピーは対象にできません。独自モデルコマンドは、ホストが把握した`reviewModel: {model, reasoningEffort}`を設定します。省略時はモデル設定を不明として記録し、モデルの自己申告で補いません。
@@ -335,7 +389,15 @@ Issueの取得・保存・hash・再照合には、[issue.ts](implement/issue.ts
 
 コマンド実行の見出しには、保存されたcommandから静的に抽出した「入力ファイル候補」をタグで表示します。展開すると抽出状態（一部のみの場合はその旨）、候補の保存パス、元のcommandと出力を確認でき、イベント原記録へ辿れます。相対パスは実行時の作業ディレクトリへ解決せず、command中の表記から引用符・エスケープを取り除いて表示します。候補は実際の読み込み成功やモデルの理解を示しません。終了コードと開始・未確認状態は別に確認してください。`/tmp/`・`/private/tmp/`配下の絶対パスには`tmp`ラベルを付けます。これはcommand中のパス上の場所を示す印で、用途・不要・削除可・読了を意味しません。
 
-出力パネルの`aggregated_output`とモデル応答の`text`は、保存内容の先頭900文字までをhighlight.jsで色分けします。言語はJSON・Markdown・JavaScriptの構文から生成時に推定します。色分けは構文の正しさや内容の検証結果を示しません。抜粋は再整形せず、切詰めの案内と原記録への導線を残します。MarkdownのHTML・リンク・画像は表示用の文字として扱い、コードも実行しません。クライアントJavaScript・CDNを追加せず、既存のCSPを維持します。
+出力パネルの`aggregated_output`とモデル応答の`text`は、保存内容の先頭900文字までをhighlight.jsで色分けします。言語はJSON・Markdown・JavaScriptの構文から生成時に推定します。色分けは構文の正しさや内容の検証結果を示しません。抜粋は再整形せず、切詰めの案内と原記録への導線を残します。MarkdownのHTML・リンク・画像は表示用の文字として扱い、コードも実行しません。補助操作に必要な固定JavaScriptだけをCSPのSHA-256 hashで許可します。モデル文章・コード・ログはHTMLの文字として扱い、スクリプトへ埋め込みません。外部スクリプト・CDN・ネットワーク通信・モデル呼出し・コマンド実行・自動送信・自動公開は追加しません。
+
+「変更のウォークスルー」は検証・公開状態の後、行動ログの前に表示します。新しい独立評価は、追加修正を含む評価対象の実際の差分・関連コードから、説明順のステップを作成します。見出し・意図・選択理由・コード位置・検証の証拠・未確認事項を含め、文書変更も必要に応じて説明します。説明の意味とコード・証拠の対応は、既存の四観点の独立評価で確認します。全ファイルの説明や固定のステップ数は要求しません。
+
+ホストは`verification/review-N.json`へ評価対象ID・ソース識別値と、参照先のUTF-8コード全文・SHA-256を保存します。対象ファイルの識別値・行範囲を評価対象記録へ照合し、不正な参照は`invalid_review`で停止します。HTMLは最後の評価の説明を使い、保存コードの識別値を対象記録へ照合して該当行を表示します。再生成時に現在のcheckoutを読まず、別版のコードを混ぜません。識別値の一致は説明の正しさを保証しません。初回の`implementation-summary.md`は行動ログに初回要約として残し、最終説明とは区別します。
+
+停止・評価未完了の説明には、その評価対象だけに適用することを示します。対象不一致・欠落・不正な記録は注意として表示し、読めた結果と原記録への導線を残します。現行形式の既存記録にウォークスルーがなければ「未記録」とし、変換・補完・上書きしません。ステップは番号付きの折りたたみで表示し、初期状態ではすべて閉じます。報告全体の配色はOSのライト・ダーク設定に追従します。状態の文字と色はどちらの配色でも併記します。質問欄とコピーボタンはBasecoat 1.0.2のデザインに合わせ、スタイルの適用範囲を質問欄に限定します。前後のステップへの移動リンクは表示しません。対象版の識別値と質問文は別の折りたたみにまとめます。JavaScriptが無効でも各見出しから開けます。既存の行動ログ・実行リストはそのまま表示します。質問文にはステップ・対象版・コード位置を含めます。コピーは固定スクリプトで補助し、失敗時は質問文を選択して手動コピーを案内します。JavaScriptが無効でも説明・コード・選択可能な質問文を読めます。質問文のコピーや読了は送信・承認にはなりません。
+
+制御テストは記録と生成HTML、固定スクリプトのコピー成功・失敗を確認します。実ブラウザーでのJavaScriptなしの可読性、キーボード移動、狭い画面、Clipboard APIとCSPの動作は別のホスト検証です。captureがnullでも実画面確認を免除する意味ではなく、媒体の自動添付は追加しません。
 
 操作タイトル横の「L6」などは、モデル側では各`events.jsonl`の物理行位置で、空行や不正な行も数えます。ホスト側では`verification/state.json`の`state.events`内の1始まりの記録順です。どちらもソースコードの行番号ではなく、L番号はリンクではありません。「ホストの実行ログ」はホストが実行・保存した工程記録であり、会話全体ではありません。入力候補の限界、L番号の意味、別ログ間の全体順序を推定しない旨は、行動ログ冒頭の「読み方」に一度だけ示します。
 

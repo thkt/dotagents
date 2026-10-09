@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { expect, test } from 'bun:test';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { assertState } from '../../implement/input.ts';
 import { writeRunReport } from '../../implement/run-report.ts';
 
 async function fixture(status: 'stopped' | 'verified_local' | 'published_draft') {
@@ -242,7 +244,7 @@ test('run report distinguishes local verification from publication and links onl
       /\.summary-fields\{[^}]*display:grid;[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\);[^}]*gap:16px/,
     );
     expect(html).toMatch(
-      /\.summary-fields>div\{[^}]*padding:12px 14px;[^}]*border:1px solid #dce1e7;[^}]*border-radius:8px;[^}]*background:#fcfdff/,
+      /\.summary-fields>div\{[^}]*padding:12px 14px;[^}]*border:1px solid var\(--report-border\);[^}]*border-radius:8px;[^}]*background:var\(--report-field\)/,
     );
     expect(html).toMatch(/@media\(max-width:700px\)\{\.summary-fields\{grid-template-columns:1fr/);
     expect(html).toMatch(/\.result-note\{[^}]*border-top:/);
@@ -251,7 +253,7 @@ test('run report distinguishes local verification from publication and links onl
     expect(html).toContain(
       '<p class="report-note">残る作業: 人によるレビュー。人の承認・マージは、このrunの結果に含みません。</p>',
     );
-    expect(html).toMatch(/\.report-note\{[^}]*font-size:13px;[^}]*color:#566170/);
+    expect(html).toMatch(/\.report-note\{[^}]*font-size:13px;[^}]*color:var\(--report-muted\)/);
     const scopeNote =
       '保存された事実と未確認事項を、この実行単位で示します。HTML生成は検証や公開を再実行しません。';
     expect(html).not.toContain(scopeNote);
@@ -708,7 +710,7 @@ test('collapsed commands show escaped filenames while full paths and original ev
     );
     expect(tmpSummary).not.toContain('抽出');
     expect(tmpSummary).not.toContain('入力ファイル候補');
-    expect(html).toMatch(/\.input-file-tmp\{[^}]*background:#f4f0e8/);
+    expect(html).toMatch(/\.input-file-tmp\{[^}]*background:var\(--report-tmp-bg\)/);
     expect(html).toMatch(/\.input-location\{[^}]*font-size:11px/);
     expect(html).toContain(
       '<li class="input-path"><code class="input-path-value">/tmp/&lt;img src=x&gt;&amp;&quot;.md</code></li>',
@@ -716,7 +718,7 @@ test('collapsed commands show escaped filenames while full paths and original ev
     expect(html).toMatch(/\.command-paths ul\{[^}]*list-style:none;[^}]*padding:0/);
     expect(html).toMatch(/\.input-path\+\.input-path\{[^}]*border-top:/);
     expect(html).toMatch(
-      /\.input-path-value\{[^}]*display:block;[^}]*color:#566170;[^}]*white-space:pre-wrap;[^}]*overflow-wrap:anywhere/,
+      /\.input-path-value\{[^}]*display:block;[^}]*color:var\(--report-muted\);[^}]*white-space:pre-wrap;[^}]*overflow-wrap:anywhere/,
     );
     expect(html).toMatch(/\.command-inputs\{[^}]*display:flex;[^}]*flex-wrap:wrap/);
     expect(html).toMatch(
@@ -911,10 +913,212 @@ test('event titles respect event and item kinds while badge tones follow explici
     expect(html).toContain('class="pill tone-pending">停止</span>');
     for (const tone of ['success', 'failure', 'pending', 'info', 'neutral']) {
       expect(html).toMatch(
-        new RegExp(`\\.tone-${tone}\\{[^}]*background:#[a-f0-9]+;[^}]*color:#[a-f0-9]+`),
+        new RegExp(
+          `\\.tone-${tone}\\{[^}]*background:var\\(--report-[a-z-]+\\);[^}]*color:var\\(--report-[a-z-]+\\)`,
+        ),
       );
     }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('walkthrough preserves evaluated code and warns on a mismatched target without losing results', async () => {
+  const { dir, result } = await fixture('verified_local');
+  try {
+    const statePath = join(dir, 'verification/state.json');
+    const state: unknown = JSON.parse(await readFile(statePath, 'utf8'));
+    assertState(state);
+    const content = 'const final = "</script><script>alert(9)</script>";\nconst next = 2;';
+    const sha256 = createHash('sha256').update(content).digest('hex');
+    const files = [['app.ts', 33188, sha256]];
+    const source = createHash('sha256').update(JSON.stringify(files)).digest('hex');
+    const target = { source, files };
+    const targetId = createHash('sha256').update(JSON.stringify(target)).digest('hex');
+    const steps = [
+      {
+        title: '追加修正後の説明',
+        intent: '最終版を示す </textarea><img src=x onerror=alert(8)>',
+        rationale: '初回要約とは区別する',
+        code: [{ path: 'app.ts', start: 1, end: 1 }],
+        evidence: ['check-1.stdout: pass'],
+        limitations: ['実画面は未確認'],
+      },
+    ];
+    steps.push({
+      title: '次の変更',
+      intent: '対応を確認',
+      rationale: '別の行を示す',
+      code: [{ path: 'app.ts', start: 2, end: 2 }],
+      evidence: ['check-1.stdout: pass'],
+      limitations: [],
+    });
+    const review = {
+      targetId,
+      status: 'accepted' as const,
+      findings: '評価済み',
+      assessments: {
+        code: 'code',
+        requirements: 'requirements',
+        tests: 'tests',
+        documentation: 'documentation',
+      },
+      items: [],
+      documents: [],
+      handoff: [],
+      walkthrough: steps,
+    };
+    state.source = source;
+    state.reviewHistory = [review];
+    await writeFile(statePath, JSON.stringify(state));
+    const prefix = join(dir, 'verification/review-1');
+    await writeFile(prefix + '.target.json', JSON.stringify({ targetId, ...target }));
+    await writeFile(
+      prefix + '.json',
+      JSON.stringify({
+        review,
+        walkthrough: { targetId, source, files: [{ path: 'app.ts', sha256, content }] },
+      }),
+    );
+    await writeFile(join(dir, 'implementation-summary.md'), '古い初回要約');
+    const actor = join(dir, 'repair-codex-walkthrough');
+    await mkdir(actor);
+    await writeFile(
+      join(actor, 'events.jsonl'),
+      JSON.stringify({
+        type: 'item.completed',
+        item: {
+          type: 'command_execution',
+          command: 'cat app.ts',
+          aggregated_output: '実行リストの出力',
+          exit_code: 0,
+        },
+      }),
+    );
+    const html = await readFile(await writeRunReport(dir), 'utf8');
+    expect(html).toContain('変更のウォークスルー');
+    expect(html.indexOf('変更のウォークスルー')).toBeLessThan(html.indexOf('<h2>行動ログ'));
+    expect(html).toContain('追加修正後の説明');
+    expect(html).toContain('href="./verification/review-1.json"');
+    expect(html).toContain('href="./verification/review-1.target.json"');
+    expect(html).toContain('&lt;/script&gt;&lt;script&gt;alert(9)&lt;/script&gt;');
+    expect(html).toContain('app.ts:1-1');
+    expect(html).toContain('app.ts:2-2');
+    expect(html).not.toContain('data-walk-link');
+    expect(html).not.toContain('<nav aria-label="ステップ');
+    expect(html).toContain('readonly>変更のウォークスルーのステップ2「次の変更」');
+    expect(html).toContain('評価対象: ' + targetId);
+    expect(html).not.toContain('<img src=x');
+    expect(html).toContain('質問文をコピー');
+    expect(html).toContain('実行リストの出力');
+    expect(html).toContain('cat app.ts');
+    expect(html).toContain('古い初回要約');
+    expect(html).not.toContain('<details class="walk-disclosure" open>');
+    expect(html.match(/<details class="walk-disclosure">/g)).toHaveLength(2);
+    expect(html).toContain('<details class="walk-metadata">');
+    expect(html).toContain("script-src 'sha256-");
+    expect(html.match(/<script>/g)).toHaveLength(1);
+    const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? '';
+    const hash = createHash('sha256').update(script).digest('base64');
+    expect(html).toContain(`script-src 'sha256-${hash}'`);
+    expect(html).not.toContain("script-src 'unsafe-inline'");
+    const regenerated = await readFile(await writeRunReport(dir, join(dir, 'again.html')), 'utf8');
+    expect(regenerated).toContain('追加修正後の説明');
+    // 過去の不要な記録が壊れていても、正常な最終対象は読めます。
+    await writeFile(join(dir, 'verification/review-0.json'), 'broken historical JSON');
+    const partial = await readFile(await writeRunReport(dir, join(dir, 'partial.html')), 'utf8');
+    expect(partial).toContain('関連記録の注意');
+    expect(partial).toContain('verification/review-0.json');
+    expect(partial).toContain('追加修正後の説明');
+    expect(partial).toContain('app.ts:2-2');
+    expect(await readFile(join(dir, 'verification/review-0.json'), 'utf8')).toBe(
+      'broken historical JSON',
+    );
+    state.source = 'f'.repeat(64);
+    await writeFile(statePath, JSON.stringify(state));
+    const mismatch = await readFile(await writeRunReport(dir, join(dir, 'mismatch.html')), 'utf8');
+    expect(mismatch).toContain('ウォークスルーの対象不一致');
+    expect(mismatch).toContain('今回の結果');
+    expect(mismatch).not.toContain('追加修正後の説明');
+    state.source = source;
+    await writeFile(statePath, JSON.stringify(state));
+    await writeFile(join(dir, 'result.json'), JSON.stringify({ ...result, status: 'stopped' }));
+    const stopped = await readFile(await writeRunReport(dir, join(dir, 'stopped.html')), 'utf8');
+    expect(stopped).toContain('最終確認済みではありません');
+    expect(stopped).toContain('追加修正後の説明');
+    await rm(prefix + '.target.json');
+    await symlink(prefix + '.json', prefix + '.target.json');
+    const linked = await readFile(await writeRunReport(dir, join(dir, 'linked.html')), 'utf8');
+    expect(linked).toContain('ウォークスルーの記録は通常ファイルである必要があります');
+    expect(linked).toContain('今回の結果');
+    expect(linked).not.toContain('href="./verification/review-1.target.json"');
+    await rm(prefix + '.target.json');
+    await writeFile(prefix + '.target.json', JSON.stringify({ targetId, ...target }));
+    await writeFile(
+      prefix + '.json',
+      JSON.stringify({
+        review,
+        walkthrough: {
+          targetId,
+          source,
+          files: [{ path: 'app.ts', sha256, content: 'wrong version' }],
+        },
+      }),
+    );
+    const corrupt = await readFile(await writeRunReport(dir, join(dir, 'corrupt.html')), 'utf8');
+    expect(corrupt).toContain('ウォークスルーのファイル識別値が一致しません');
+    expect(corrupt).toContain('今回の結果');
+    await rm(prefix + '.json');
+    const missing = await readFile(await writeRunReport(dir, join(dir, 'missing.html')), 'utf8');
+    expect(missing).toContain('ウォークスルーの評価記録が欠落または重複しています');
+    expect(missing).toContain('原記録');
+    await writeFile(prefix + '.json', 'broken JSON');
+    const invalid = await readFile(await writeRunReport(dir, join(dir, 'invalid.html')), 'utf8');
+    expect(invalid).toContain('関連記録の注意');
+    expect(invalid).toContain('今回の結果');
+    expect(invalid).toContain('href="./verification/review-1.json"');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('walkthrough copy helper uses step text and selects it on denied clipboard access', async () => {
+  const { walkthroughAssets } = await import('../../implement/walkthrough-report.ts');
+  const { runInNewContext } = await import('node:vm');
+  const script = walkthroughAssets(true).script.slice('<script>'.length, -'</script>'.length);
+  const callbacks: (() => Promise<void>)[] = [];
+  const selections: number[] = [];
+  const questions = ['ステップ1・対象版a・app.ts:1', 'ステップ2・対象版b・README.md:2'];
+  const statuses = questions.map(() => ({ textContent: '' }));
+  const buttons = questions.map((value, index) => ({
+    hidden: true,
+    addEventListener: (_: string, callback: () => Promise<void>) => callbacks.push(callback),
+    closest: () => ({
+      querySelector: (selector: string) =>
+        selector === 'textarea'
+          ? { value, focus: () => selections.push(index), select: () => selections.push(index) }
+          : statuses[index],
+    }),
+  }));
+  const copied: string[] = [];
+  runInNewContext(script, {
+    document: {
+      querySelectorAll: (selector: string) => (selector === '[data-copy-question]' ? buttons : []),
+    },
+    navigator: {
+      clipboard: {
+        writeText: (value: string) => {
+          copied.push(value);
+          return value === questions[1] ? Promise.reject(Error('denied')) : Promise.resolve();
+        },
+      },
+    },
+  });
+  expect(buttons.every((button) => !button.hidden)).toBe(true);
+  await callbacks[0]?.();
+  await callbacks[1]?.();
+  expect(copied).toEqual(questions);
+  expect(selections).toEqual([1, 1]);
+  expect(statuses[0]?.textContent).toContain('コピーしました');
+  expect(statuses[1]?.textContent).toContain('手動でコピー');
 });
