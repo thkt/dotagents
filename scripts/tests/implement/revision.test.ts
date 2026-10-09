@@ -19,6 +19,7 @@ import { publish, publishCli } from '../../implement/publish.ts';
 import type { PublishInput } from '../../implement/publish.ts';
 import { run, snapshot } from '../../implement/correction.ts';
 import { command, withInterrupts } from '../../shared/process.ts';
+import * as processTools from '../../shared/process.ts';
 import { assertConfig } from '../../implement/input.ts';
 import { checkRevision, previousRun } from '../../implement/revision.ts';
 import { readTarget } from '../../shared/target.ts';
@@ -28,6 +29,7 @@ import { isRecord } from '../../shared/values.ts';
 import { initializeTarget, githubTarget, git, targetConfig } from '../support/target.ts';
 import { testDevelopment } from '../support/development.ts';
 
+const shellLiteral = (value: string) => `'${value.replaceAll("'", "'\"'\"'")}'`;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const issue = JSON.stringify({
   title: 'Visible result',
@@ -124,6 +126,12 @@ async function fixture(
   let remoteHead = '';
   let priorPublished = false;
   const commands: { argv: string[]; cwd: string }[] = [];
+  const independentTests: {
+    cwd: string;
+    prompt: string;
+    source: string;
+    implementations: number;
+  }[] = [];
   const publicationCommands: string[][] = [];
   async function gitCommand(argv: string[], cwd: string, input: string, timeout: number | null) {
     if (argv.includes('push')) {
@@ -267,13 +275,43 @@ async function fixture(
     };
   }
   const io = {
-    command: async (argv: string[], cwd: string, input: string, timeout: number | null) => {
+    command: async (
+      argv: string[],
+      cwd: string,
+      input: string,
+      timeout: number | null,
+      prefix?: string,
+    ) => {
       commands.push({ argv, cwd });
       if (argv[0] === 'git') {
         return gitCommand(argv, cwd, input, timeout);
       }
       if (argv[0] === 'gh') {
         return githubCommand(argv);
+      }
+      if (argv.includes('test')) {
+        const match = input.match(/入力: (\{[^\n]+\})/);
+        assert(match?.[1], 'テスト作成入力が必要');
+        const context: unknown = JSON.parse(match[1]);
+        assert(isRecord(context) && typeof context.targetId === 'string');
+        independentTests.push({
+          cwd,
+          prompt: input,
+          source: await readFile(join(cwd, 'result.txt'), 'utf8'),
+          implementations: hooks.implementations,
+        });
+        const response = ok(
+          JSON.stringify({
+            targetId: context.targetId,
+            status: 'unnecessary',
+            findings: '既存の検証で受入条件を確認できるため追加テストは不要です。',
+            files: [],
+          }),
+        );
+        assert(prefix);
+        await writeFile(`${prefix}.stdout`, response.stdout);
+        await writeFile(`${prefix}.stderr`, response.stderr);
+        return response;
       }
       if (argv.includes('repair')) {
         return actor(cwd, input);
@@ -385,6 +423,7 @@ async function fixture(
   }
   // 準備の呼出しを修正操作の計数に混ぜない。接続検証でも同じ起点から数える。
   commands.length = 0;
+  independentTests.length = 0;
   hooks.implementations = 0;
   hooks.verificationEntries = 0;
   hooks.pushes = 0;
@@ -417,6 +456,7 @@ async function fixture(
     oldBody,
     initialBase,
     commands,
+    independentTests,
     publicationCommands,
   };
 }
@@ -664,6 +704,17 @@ async function successfulRevision(
   };
   const result = await runRevision(f);
   expect(result.status).toBe(localOnly ? 'verified_local' : 'published_draft');
+  // 前回公開の準備を除き、採用した修正要求に対する実装前の判断だけを数える。
+  expect(f.independentTests).toHaveLength(1);
+  expect(f.independentTests.map((entry) => entry.implementations)).toEqual([0]);
+  expect(f.independentTests.map((entry) => entry.source)).toEqual(['implemented']);
+  for (const entry of f.independentTests) {
+    expect(entry.cwd).not.toBe(f.cwd);
+    expect(entry.prompt).toContain('Keep result visible');
+    expect(entry.prompt).toContain(await readFile(f.request, 'utf8'));
+    expect(entry.prompt).not.toContain('Changed requested behavior');
+    expect(entry.prompt).not.toContain('Verified current output');
+  }
   const config = await readObject(join(f.dir, 'verification-config.json'));
   expect(config.baseCommit).toBe(f.initialBase);
   expect(config).toMatchObject({
@@ -807,6 +858,138 @@ async function stoppedRevision(f: RevisionFixture, reason: RegExp) {
   expect(result.nextAction).toBeTruthy();
   return result;
 }
+
+// 新規実装の停止確認とは別に、前回公開記録を保持する既存PR修正の境界を確認する。
+for (const failure of [
+  'command_failure',
+  'invalid_json',
+  'invalid_response',
+  'target_mismatch',
+] as const) {
+  testRevision(`独立テスト工程の${failure}で修正を止め原記録を保つ`, async (f) => {
+    const execute = f.io.command;
+    let workspace = '';
+    let logPrefix = '';
+    let stdout = '';
+    const stderr = `既存PR修正の独立テスト診断: ${failure}`;
+    f.io.command = async (argv, cwd, input, timeout, prefix) => {
+      if (!argv.includes('test')) {
+        return execute(argv, cwd, input, timeout, prefix);
+      }
+      const match = input.match(/入力: (\{[^\n]+\})/);
+      assert(match?.[1]);
+      const context: unknown = JSON.parse(match[1]);
+      assert(isRecord(context) && typeof context.targetId === 'string');
+      expect(cwd).not.toBe(f.cwd);
+      expect(await readFile(join(cwd, 'result.txt'), 'utf8')).toBe('implemented');
+      expect(input).not.toContain('Changed requested behavior');
+      expect(input).not.toContain('Verified current output');
+      assert(prefix);
+      workspace = cwd;
+      logPrefix = prefix;
+      await writeFile(join(cwd, 'pending.test.js'), 'process.exit(1);\n');
+      stdout =
+        failure === 'invalid_json'
+          ? '{broken-test-response'
+          : failure === 'target_mismatch'
+            ? JSON.stringify({
+                targetId: `${context.targetId}-different`,
+                status: 'prepared',
+                findings: '対象IDだけを変えた正常形式の応答です。',
+                files: ['pending.test.js'],
+              })
+            : failure === 'invalid_response'
+              ? JSON.stringify({
+                  targetId: context.targetId,
+                  status: 'prepared',
+                  files: ['pending.test.js'],
+                })
+              : '{}';
+      await writeFile(`${prefix}.stdout`, stdout);
+      await writeFile(`${prefix}.stderr`, stderr);
+      return { ...ok(stdout), stderr, code: failure === 'command_failure' ? 7 : 0 };
+    };
+    const saved = await stoppedRevision(f, failure === 'invalid_response' ? /findings/ : /./);
+    expect(workspace).toBeTruthy();
+    expect(logPrefix).toBeTruthy();
+    expect(saved.publication).toBe('not_attempted');
+    expect(saved.evidence).toBe(f.dir);
+    if (failure === 'command_failure') {
+      expect(saved.reason).toContain(stderr);
+    }
+    if (failure === 'invalid_response') {
+      expect(saved.reason).toMatch(/findings/);
+      expect(saved.reason).not.toMatch(/テスト応答の入力が一致しません/);
+    }
+    if (failure === 'target_mismatch') {
+      expect(saved.reason).toMatch(/テスト応答の入力が一致しません/);
+    }
+    expect(f.hooks.implementations).toBe(0);
+    expect(f.hooks.verificationEntries).toBe(0);
+    noRevisionPublication(f);
+    expect(f.pr.body).toBe(f.oldBody);
+    expect(f.pr.headRefOid).toBe(f.oldHead);
+    expect(git(f.cwd, 'rev-parse', 'HEAD')).toBe(f.oldHead);
+    expect(await readFile(join(f.cwd, 'result.txt'), 'utf8')).toBe('implemented');
+    expect(await Bun.file(join(f.cwd, 'pending.test.js')).exists()).toBe(false);
+    expect(await readFile(join(workspace, 'pending.test.js'), 'utf8')).toBe('process.exit(1);\n');
+    expect(await readFile(`${logPrefix}.stdout`, 'utf8')).toBe(stdout);
+    expect(await readFile(`${logPrefix}.stderr`, 'utf8')).toBe(stderr);
+  });
+}
+
+testRevision('追加修正の独立テスト入力にも採用済み要求を渡す', async (f) => {
+  const script = join(f.dir, 'additional-test-actor.js');
+  const observed = join(f.dir, 'additional-test-prompt.txt');
+  let state: State | undefined;
+  f.io.verify = async (config) => {
+    await writeFile(
+      script,
+      `
+import {readFileSync,writeFileSync} from 'node:fs';
+const role=process.argv[2];
+${reviewReplySource}
+if(role==='review') {
+ console.log(JSON.stringify(reviewReply('needs_changes','PRIVATE_REVIEW_360')));
+} else {
+ const prompt=readFileSync(0,'utf8');
+ writeFileSync(${JSON.stringify(observed)},prompt);
+ const input=JSON.parse(prompt.match(/入力: (\\{[^\\n]+\\})/)[1]);
+ console.log(JSON.stringify({targetId:input.targetId,status:'needs_host',findings:'追加修正の入力を観測したためホストへ戻します。',files:[]}));
+}
+`,
+    );
+    const originalCommand = processTools.command;
+    const github = spyOn(processTools, 'command').mockImplementation(
+      async (argv, cwd, input, timeout, prefix, env) => {
+        if (argv[0] === 'gh') {
+          return f.io.command(argv, cwd, input, timeout, prefix);
+        }
+        return originalCommand(argv, cwd, input, timeout, prefix, env);
+      },
+    );
+    try {
+      state = await run({
+        ...config,
+        review: [process.execPath, script, 'review'],
+        test: [process.execPath, script, 'test'],
+      });
+      return state;
+    } finally {
+      github.mockRestore();
+    }
+  };
+  await stoppedRevision(f, /host|ホスト/i);
+  assert(state);
+  expect(state).toMatchObject({ review: 1, repair: 0, test: 1, active: null });
+  const prompt = await readFile(observed, 'utf8');
+  expect(prompt).toContain('Keep result visible');
+  expect(prompt).toContain(await readFile(f.request, 'utf8'));
+  expect(prompt).not.toContain('PRIVATE_REVIEW_360');
+  expect(prompt).not.toContain('Changed requested behavior');
+  expect(prompt).not.toContain('Verified current output');
+  noRevisionPublication(f);
+});
 
 for (const local of ['untracked', 'ignored'] as const) {
   testRevision(
@@ -1323,8 +1506,8 @@ for (const changed of ['none', 'actor', 'draft']) {
         return url;
       };
       const command = f.io.command;
-      f.io.command = async (argv, cwd, input, timeout) => {
-        const result = await command(argv, cwd, input, timeout);
+      f.io.command = async (argv, cwd, input, timeout, prefix) => {
+        const result = await command(argv, cwd, input, timeout, prefix);
         if (changed === 'actor' && published >= 0 && argv[2] === 'user') {
           return ok(JSON.stringify({ login: 'another-operator' }));
         }
@@ -1376,8 +1559,8 @@ for (const boundary of ['reservation', 'setup', 'issue_during_setup']) {
       const priorResult = await readFile(join(f.prior, 'result.json'), 'utf8');
       let changed = false;
       const command = f.io.command;
-      f.io.command = async (argv, cwd, input, timeout) => {
-        const result = await command(argv, cwd, input, timeout);
+      f.io.command = async (argv, cwd, input, timeout, prefix) => {
+        const result = await command(argv, cwd, input, timeout, prefix);
         if (boundary === 'reservation' && !changed && argv[1] === 'remote') {
           const reserved = await readObject(join(f.dir, 'result.json')).catch(() => undefined);
           if (reserved) {
@@ -1620,8 +1803,8 @@ for (const [change, expected] of Object.entries(verificationChanges)) {
         }
       };
       const command = f.io.command;
-      f.io.command = async (argv, cwd, input, timeout) => {
-        const result = await command(argv, cwd, input, timeout);
+      f.io.command = async (argv, cwd, input, timeout, prefix) => {
+        const result = await command(argv, cwd, input, timeout, prefix);
         if (!changed || argv[0] !== 'gh') {
           return result;
         }
@@ -1729,22 +1912,37 @@ for (const [mode, reason] of [
       const liveIssue = join(root, 'issue.json');
       const checked = join(root, 'checked');
       await writeFile(liveIssue, currentIssue + '\n');
+      const changedPr = join(root, 'changed-pr.json');
+      if (mode === 'head_changed') {
+        await writeFile(changedPr, JSON.stringify({ ...f.pr, headRefOid: 'f'.repeat(40) }));
+      }
+      // 同じlive入力を毎回読み戻す。固定JSONの応答にJavaScript起動は不要です。
       await writeFile(
         gh,
-        `#!${process.execPath}
-import {appendFileSync,readFileSync,existsSync} from 'node:fs';
-const args = process.argv.slice(2);
-const pr = JSON.parse(readFileSync(${JSON.stringify(livePr)},'utf8'));
-const changed = existsSync(${JSON.stringify(checked)});
-if (changed && ${mode === 'head_changed'}) pr.headRefOid = 'f'.repeat(40);
-if (['issue', 'pr'].includes(args[0])) appendFileSync(${JSON.stringify(join(root, 'reads'))}, args[0]+'\\n');
-if(args[1] === 'user' && ${mode === 'updated_issue'}) appendFileSync(${JSON.stringify(join(root, 'target-reads'))}, 'target\\n');
-if(args[0] === 'issue') process.stdout.write(readFileSync(${JSON.stringify(liveIssue)},'utf8'));
-else if(args[0] === 'pr') console.log(JSON.stringify(pr));
-else if(args[1] === 'user') console.log(JSON.stringify({login:changed && ${mode === 'actor_changed'} ? 'another-operator' : 'operator'}));
-else if(args[1].includes('/git/ref/')) console.log(JSON.stringify({object:{sha:changed && ${mode === 'ref_changed'} ? 'f'.repeat(40) : pr.headRefOid}}));
-else if(args[1].includes('/branches/')) console.log('{"name":"release"}');
-else console.log(JSON.stringify({full_name:'team/component',id:123,permissions:{push:!(changed && ${mode === 'permission_changed'})}}));
+        `#!/bin/sh
+read_json() { [ -r "$1" ] || exit 1; IFS= read -r response < "$1"; printf '%s\\n' "$response"; }
+changed=false
+[ -f ${shellLiteral(checked)} ] && changed=true
+case "$1" in
+ issue|pr) printf '%s\\n' "$1" >> ${shellLiteral(join(root, 'reads'))} ;;
+esac
+case "$1/$2" in
+ issue/*) read_json ${shellLiteral(liveIssue)} ;;
+ pr/*)
+  if "$changed" && ${mode === 'head_changed'}; then read_json ${shellLiteral(changedPr)}
+  else read_json ${shellLiteral(livePr)}; fi ;;
+ api/user)
+  ${mode === 'updated_issue' ? `printf 'target\\n' >> ${shellLiteral(join(root, 'target-reads'))}` : ':'}
+  if "$changed" && ${mode === 'actor_changed'}; then printf '%s\\n' '{"login":"another-operator"}'
+  else printf '%s\\n' '{"login":"operator"}'; fi ;;
+ api/*/git/ref/*)
+  if "$changed" && ${mode === 'ref_changed'}; then printf '%s\\n' ${shellLiteral(JSON.stringify({ object: { sha: 'f'.repeat(40) } }))}
+  else printf '%s\\n' ${shellLiteral(JSON.stringify({ object: { sha: f.oldHead } }))}; fi ;;
+ api/*/branches/*) printf '%s\\n' '{"name":"release"}' ;;
+ *)
+  if "$changed" && ${mode === 'permission_changed'}; then printf '%s\\n' '{"full_name":"team/component","id":123,"permissions":{"push":false}}'
+  else printf '%s\\n' '{"full_name":"team/component","id":123,"permissions":{"push":true}}'; fi ;;
+esac
 `,
       );
       await chmod(gh, 0o755);
@@ -1757,6 +1955,11 @@ import {readFileSync,writeFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 const role = process.argv[2];
 ${reviewReplySource}
+if(role === 'test') {
+ const prompt=readFileSync(0,'utf8');
+ const input=JSON.parse(prompt.split('入力: ')[1].split('\\n')[0]);
+ console.log(JSON.stringify({targetId:input.targetId,status:'unnecessary',findings:'既存の模擬検証で要求を確認できます。',files:[]}));
+}
 if(role === 'check') {
  writeFileSync(${JSON.stringify(checked)}, 'check completed');
  if (${mode === 'issue_changed'}) writeFileSync(${JSON.stringify(liveIssue)}, ${JSON.stringify(updatedIssue.replace('Keep result visible', 'Changed requirements'))});
@@ -1781,6 +1984,7 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
           check: [process.execPath, helper, 'check'],
           repair: [process.execPath, helper, 'repair'],
           review: [process.execPath, helper, 'review'],
+          test: [process.execPath, helper, 'test'],
         };
         if (mode === 'conflicting_target') {
           config.targetText = config.revision?.targetText + '\n';

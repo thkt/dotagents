@@ -297,7 +297,11 @@ async function actorLogGroup(root: string, path: string, name: string, warnings:
       return [];
     }
   });
-  const role = name.startsWith('review-codex-') ? 'レビュー担当AI' : '実装・修正担当AI';
+  const role = name.startsWith('review-codex-')
+    ? 'レビュー担当AI'
+    : name.startsWith('test-codex-')
+      ? 'テスト作成担当AI'
+      : '実装・修正担当AI';
   return `<section class="actor-group"><header><h4>${role}</h4><p>${escape(name)}</p><p>${actions.length}/${lines.filter(Boolean).length}行表示（空行を除く、このログ内の順序）。${localLink(root, path, 'イベント原記録を開く')}。画面の長文は抜粋です。</p></header><div class="activity-list">${actions.join('') || '<p>表示対象のイベントは未記録です。</p>'}</div></section>`;
 }
 
@@ -322,7 +326,8 @@ async function actorEvents(root: string, directory: string, warnings: string[], 
   const groups = await Promise.all(
     entries
       .filter(
-        (entry) => entry.isDirectory() && /^(repair|review)-codex-[A-Za-z0-9]+$/.test(entry.name),
+        (entry) =>
+          entry.isDirectory() && /^(repair|review|test)-codex-[A-Za-z0-9]+$/.test(entry.name),
       )
       .map((entry) =>
         actorLogGroup(root, join(directory, entry.name, 'events.jsonl'), entry.name, warnings),
@@ -334,6 +339,7 @@ async function actorEvents(root: string, directory: string, warnings: string[], 
 const hostRoles = new Map([
   ['check', '検証'],
   ['review', 'レビュー依頼'],
+  ['test', '独立テスト作成'],
   ['repair', '修正依頼'],
   ['capture', '撮影'],
 ]);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { hostReturnShape } from './host-records.ts';
+import { hostPreparationShape, hostReturnShape } from './host-records.ts';
 import type { HostReturn } from './host-records.ts';
 import { reviewRecord } from './review.ts';
 import { isArray, isCommandArray, isRecord, relativeDirectory } from '../shared/values.ts';
@@ -72,6 +72,8 @@ const stopReasons = [
   'review_timeout',
   'check_failed',
   'repair_failed',
+  'test_failed',
+  'invalid_test',
   'review_failed',
   'requirements_changed',
   'source_changed',
@@ -92,6 +94,7 @@ export interface ReviewConfig {
   targetText?: string;
   baseCommit?: string;
   hostReturn?: HostReturn;
+  hostPreparation?: { path: string; sha256: string };
   revision?: Revision;
   reports?: ReportReference[];
   reviewModel?: { model: string; reasoningEffort: string };
@@ -107,6 +110,9 @@ export interface ReviewConfig {
 }
 export interface Config extends ReviewConfig {
   repair: string[];
+  test?: string[];
+  testBaseline?: string;
+  setup?: string[][];
 }
 export interface ProbeConfig extends ReviewConfig {
   reviewTimeMs: number;
@@ -119,8 +125,19 @@ const optionalString = (value: unknown) => value === undefined || typeof value =
 const command = (value: unknown) => isCommandArray(value) && value[0].length > 0;
 
 export function assertConfig(value: unknown): asserts value is Config {
-  assertReviewConfig(value, ['repair']);
+  assertReviewConfig(value, ['repair', 'test', 'testBaseline', 'setup']);
   assert('repair' in value && command(value.repair), 'Invalid repair command');
+  assert(
+    !('test' in value) || value.test === undefined || command(value.test),
+    'Invalid test command',
+  );
+  assert(!('testBaseline' in value) || optionalString(value.testBaseline), 'Invalid test baseline');
+  assert(
+    !('setup' in value) ||
+      value.setup === undefined ||
+      (isArray(value.setup) && value.setup.every(command)),
+    'Invalid test setup',
+  );
 }
 
 export function assertProbeConfig(value: unknown): asserts value is ProbeConfig {
@@ -149,6 +166,7 @@ function assertReviewConfig(value: unknown, fields: string[]): asserts value is 
         'baseCommit',
         'targetText',
         'hostReturn',
+        'hostPreparation',
         'revision',
         'reports',
         'reviewModel',
@@ -171,6 +189,10 @@ function assertReviewConfig(value: unknown, fields: string[]): asserts value is 
   assertRevision(value.revision);
   if (value.hostReturn !== undefined) {
     hostReturnShape.parse(value.hostReturn);
+  }
+  if (value.hostPreparation !== undefined) {
+    assert(value.hostReturn !== undefined, 'Host preparation requires host return');
+    hostPreparationShape.parse(value.hostPreparation);
   }
   if (value.reports !== undefined) {
     assertReportReferences(value.reports);
@@ -201,13 +223,21 @@ function assertReviewConfig(value: unknown, fields: string[]): asserts value is 
   assert(positive(value.checkTimeMs), 'Invalid checkTimeMs');
 }
 const savedCount = z.number().nonnegative().refine(Number.isInteger);
-const savedRole = z.enum(['repair', 'review', 'check', 'capture']);
+const savedRole = z.enum(['repair', 'review', 'check', 'capture', 'test']);
 const captureDecision = z.object({
   outcome: z.enum(['execute', 'reused', 'not_required']),
   reason: z.string(),
   source: z.string().optional(),
   previousSource: z.string().optional(),
 });
+export const testRecordsShape = z.array(
+  z.object({
+    prefix: z.string(),
+    targetId: z.string(),
+    stdoutHash: z.string(),
+    files: z.record(z.string(), z.string()),
+  }),
+);
 const savedState = z.object({
   reviewFormat: z.literal(4),
   issueFormat: z.literal(1),
@@ -216,6 +246,8 @@ const savedState = z.object({
   repair: savedCount,
   review: savedCount,
   checks: savedCount,
+  test: savedCount.optional(),
+  testRecords: testRecordsShape.optional(),
   modelMs: z.number().nonnegative(),
   active: z.object({ role: savedRole, prefix: z.string() }).nullable(),
   events: z.array(

@@ -1,3 +1,4 @@
+import { authorTests, prepareTestBaseline, verifyTestArtifacts } from './test-author.ts';
 import assert from 'node:assert/strict';
 import { reviewModel } from './review.ts';
 import { issueText } from './issue.ts';
@@ -8,7 +9,7 @@ import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { parseArgs } from 'node:util';
 import { previousHostRun, saveHostStop } from './host-handoff.ts';
-import { hostLocalRoots } from './host-records.ts';
+import { hostLocalRoots, hash, verifyHostReturn } from './host-records.ts';
 import { run, snapshot, recordArtifacts } from './correction.ts';
 import { previousRun, checkRevision, revisionContext } from './revision.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
@@ -24,6 +25,7 @@ import {
   verifyReportBase,
   verifyReports,
 } from './research-handoff.ts';
+import { assertConfig, assertState, testRecordsShape } from './input.ts';
 import type { Config, State, ReportReference, StopReason, Revision } from './input.ts';
 import { writeRunReport } from './run-report.ts';
 
@@ -536,6 +538,9 @@ function verificationConfig(context: Context): Config {
           captureRequired: context.target.config.capture.required,
         }
       : {}),
+    test: [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'test', dir],
+    testBaseline: join(dir, 'test-baseline'),
+    setup: context.target.config.setup.map(targetCommand),
     repair: [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'repair', dir],
     review: [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'review', dir],
     checkTimeMs,
@@ -579,6 +584,103 @@ async function stopForHost(
   throw Error(`Host verification required: ${findings}`);
 }
 
+async function returnedTests(context: Context) {
+  const verified = context.hostReturn
+    ? await verifyHostReturn(context.hostReturn, context.cwd)
+    : undefined;
+  const sourceBefore = context.hostReturn ? await snapshot(context.cwd) : undefined;
+  assert(
+    !verified || verified.source === sourceBefore,
+    'Host evidence does not match current deliverables',
+  );
+  const records = [];
+  const evidence = [];
+  let pendingImplementation = true;
+  let baseline: string | undefined;
+  for (const entry of verified?.history ?? []) {
+    const previousRun = entry.previousRun;
+    const content = entry.records.get(join(previousRun, 'verification-config.json'));
+    assert(content, 'ホスト復帰の設定参照がありません');
+    const config: unknown = JSON.parse(content);
+    assertConfig(config);
+    baseline ??= config.testBaseline;
+    if (entry.records.has(join(previousRun, 'implementation.prompt'))) {
+      pendingImplementation = false;
+    }
+    const stateContent = entry.records.get(join(previousRun, 'verification/state.json'));
+    if (records.length === 0 && stateContent) {
+      const state: unknown = JSON.parse(stateContent);
+      assertState(state);
+      records.push(...(state.testRecords ?? []));
+    }
+    const testsContent = entry.records.get(join(previousRun, 'test-records.json'));
+    if (records.length === 0 && testsContent) {
+      records.push(...testRecordsShape.parse(JSON.parse(testsContent)));
+    }
+    // 任意のホスト生ログは会話・自己評価を含み得るためテストへ渡しません。
+    evidence.push({
+      source: entry.evidence.source,
+      stdout: JSON.stringify({ hostVerificationStatus: entry.evidence.status }),
+    });
+  }
+  return { baseline, records, evidence, pendingImplementation, sourceBefore };
+}
+
+async function recordHostPreparation(
+  context: Context,
+  config: Config,
+  sourceBefore: string | undefined,
+  sourceAfterTests: string | undefined,
+  sourceAfter: string | undefined,
+) {
+  if (!context.hostReturn) {
+    return;
+  }
+  assert(sourceBefore && sourceAfterTests && sourceAfter, 'ホスト復帰の版記録がありません');
+  const path = join(context.dir, 'host-preparation.json');
+  const content = JSON.stringify(
+    {
+      sourceBefore,
+      sourceAfterTests,
+      sourceAfter,
+    },
+    null,
+    2,
+  );
+  await writeFile(path, content, { flag: 'wx' });
+  config.hostPreparation = { path, sha256: hash(content) };
+  await writeFile(join(context.dir, 'verification-config.json'), JSON.stringify(config, null, 2));
+}
+
+async function prepareIndependentTests(context: Context, testConfig: Config, io: typeof runtime) {
+  const { cwd, dir, result: outcome } = context;
+  assert(testConfig.testBaseline);
+  if (context.hostReturn) {
+    outcome.operation = 'host verification return';
+    outcome.details = join(dir, 'host-return.json');
+    await writeFile(outcome.details, JSON.stringify(context.hostReturn, null, 2), { flag: 'wx' });
+    await writeFile(
+      join(dir, 'host-current-artifacts.json'),
+      JSON.stringify(await recordArtifacts(cwd, context.reviewBase), null, 2),
+      { flag: 'wx' },
+    );
+    await writeFile(join(dir, 'verification-config.json'), JSON.stringify(testConfig, null, 2));
+    await mkdir(testConfig.runDir, { recursive: true });
+  }
+  const returned = await returnedTests(context);
+  if (context.hostReturn) {
+    assert(
+      returned.baseline,
+      '旧runに独立テストの修正前入力がありません。旧runを変換・再開せず保全してください',
+    );
+    testConfig.testBaseline = returned.baseline;
+    await writeFile(join(dir, 'verification-config.json'), JSON.stringify(testConfig, null, 2));
+  } else {
+    await prepareTestBaseline(cwd, testConfig.testBaseline, io.command);
+  }
+  return returned;
+}
+
 async function implement(context: Context, io: typeof runtime) {
   const { cwd, dir, original, result: outcome } = context;
   outcome.phase = 'implementation';
@@ -617,19 +719,58 @@ async function implement(context: Context, io: typeof runtime) {
       'Setup left work in revision checkout; preserve it',
     );
   }
-  if (context.hostReturn) {
-    outcome.operation = 'host verification return';
-    outcome.details = join(dir, 'host-return.json');
-    await writeFile(outcome.details, JSON.stringify(context.hostReturn, null, 2), { flag: 'wx' });
-    await writeFile(
-      join(dir, 'host-current-artifacts.json'),
-      JSON.stringify(await recordArtifacts(cwd, context.reviewBase), null, 2),
-      { flag: 'wx' },
+  const testConfig = verificationConfig(context);
+  assert(testConfig.test && testConfig.testBaseline);
+  const returned = await prepareIndependentTests(context, testConfig, io);
+  outcome.operation = 'independent test authoring';
+  outcome.details = join(dir, 'test-1.target.json');
+  const tests = await authorTests(
+    {
+      cwd,
+      baseline: testConfig.testBaseline,
+      prefix: join(dir, 'test-1'),
+      issue: issueText(original),
+      revisionRequest: context.revision?.request,
+      baseCommit: context.reviewBase,
+      check: testConfig.check,
+      setup: testConfig.setup,
+      reports: testConfig.reports,
+      actor: testConfig.test,
+      previous: returned.records,
+      evidence: returned.evidence,
+    },
+    io.command,
+  );
+  await writeFile(
+    join(dir, 'test-records.json'),
+    JSON.stringify([...returned.records, ...(tests.record ? [tests.record] : [])]),
+    { flag: 'wx' },
+  );
+  if (tests.reply.status === 'needs_human') {
+    outcome.reasonCode = 'human_decision_required';
+    outcome.nextAction = tests.reply.findings;
+    throw Error(`テスト工程で人の判断が必要です: ${tests.reply.findings}`);
+  }
+  if (tests.reply.status === 'needs_host') {
+    await writeFile(join(dir, 'verification-config.json'), JSON.stringify(testConfig, null, 2));
+    await stopForHost(context, testConfig, tests.reply.findings, io);
+  }
+  await unchangedTarget(context, io);
+  assert(
+    issueText(await checkedOutput(io, context.issue, cwd)) === issueText(original),
+    'Requirements changed during test authoring',
+  );
+  const sourceAfterTests = context.hostReturn ? await snapshot(cwd) : undefined;
+  if (context.hostReturn && !returned.pendingImplementation) {
+    await recordHostPreparation(
+      context,
+      testConfig,
+      returned.sourceBefore,
+      sourceAfterTests,
+      sourceAfterTests,
     );
-    const config = verificationConfig(context);
-    await writeFile(join(dir, 'verification-config.json'), JSON.stringify(config, null, 2));
-    await verify(context, config, io);
-    return config;
+    await verify(context, testConfig, io);
+    return testConfig;
   }
   outcome.operation = 'initial implementation';
   outcome.details = join(dir, 'implementation');
@@ -638,6 +779,7 @@ async function implement(context: Context, io: typeof runtime) {
     '合意範囲内の通常の選択について承認待ちで止まらず、合意した実装、必要なテストと文書、ホスト検証の準備に必要な範囲の確認を完了してください。十分な既存検証を再利用してください。Issueを変更したり、受入基準を弱めたりしないでください。',
     '文書だけのIssueにも同じ流れを使い、合意済みの要求で必要な場合だけテストやコードを追加してください。変更文書を既存の独立評価に含めてください。',
     repairInstructions(context.target.config.capture),
+    `独立テストの記録: ${join(dir, 'test-1.json')}。findingsと成果物を読み、修正前の再現と実装後の成功・正常動作を区別してください。`,
     `対象のsetup/check/capture契約（弱めたり置き換えたりしないでください）: ${JSON.stringify(context.target.config)}`,
     'このcheckoutの外にある制御スクリプトや認証情報を編集しないでください。',
     `要求:\n${original}`,
@@ -660,6 +802,7 @@ async function implement(context: Context, io: typeof runtime) {
     result.code === 0,
     `Initial implementation process failed (${result.code}); evidence: ${dir}`,
   );
+  await verifyTestArtifacts(cwd, tests.record ? [tests.record] : []);
   const reply = parseRepairReply(result.stdout);
   assert(
     reply.status !== 'invalid',
@@ -672,7 +815,7 @@ async function implement(context: Context, io: typeof runtime) {
       'Obtain the human decision described in the implementation findings; do not automatically retry.';
     throw Error(`Human decision required: ${reply.findings}`);
   }
-  const config = verificationConfig(context);
+  const config = testConfig;
   await writeFile(join(dir, 'verification-config.json'), JSON.stringify(config, null, 2));
   if (reply.status === 'needs_host') {
     await unchangedTarget(context, io);
@@ -683,6 +826,13 @@ async function implement(context: Context, io: typeof runtime) {
     'Requirements changed during implementation',
   );
 
+  await recordHostPreparation(
+    context,
+    config,
+    returned.sourceBefore,
+    sourceAfterTests,
+    context.hostReturn ? await snapshot(cwd) : undefined,
+  );
   await verify(context, config, io);
   return config;
 }
@@ -701,6 +851,10 @@ const verificationActions: Record<Exclude<StopReason, 'ready_for_human_review'>,
     '評価試行のcheckが失敗しました。指摘の有無を判断する前に検証ログを確認してください。',
   execution_limit:
     'Assigned AI: inspect consumed attempts, model time and unresolved findings; a human must decide any new scope or budget. Existing limits cannot be extended.',
+  test_failed:
+    '担当AI: テスト工程の原ログと作業場所を保全し、既存権限内で実行失敗の原因を解消してください。',
+  invalid_test:
+    '担当AI: テスト入力・応答・成果物の不一致を調べ、要求へ照合して新しいrunで検証してください。',
   repair_failed:
     'Assigned AI: inspect repair command stdout, stderr and exit evidence; investigate the actor environment within existing permissions before reassessment.',
   review_failed:

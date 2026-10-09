@@ -262,9 +262,9 @@ bun /absolute/path/to/trusted/scripts/ui/run.ts \
 
 ### 修正・独立評価の担当
 
-初回実装と修正は[repair.ts](implement/repair.ts)の共通指示と応答検査を使います。文書・テスト・撮影・公開禁止の指示を共有し、初回はIssue全体の実装とホスト検証の準備、修正は失敗の根拠に沿う原因診断・修正確認を担当します。初回のsetup後照合と結果保存はdevelopment、修正の起動前予約・回数・中断状態の保持はcorrectionが担当します。初回実装は追加修正のカウンタに数えず、修正後のcheckと独立評価はホストが実行します。
+初回実装と修正は[repair.ts](implement/repair.ts)の共通指示と応答検査を使います。文書・独立テストの利用・撮影・公開禁止の指示を共有し、初回はIssue全体の実装とホスト検証の準備、修正は失敗の根拠に沿う原因診断・修正確認を担当します。初回のsetup後照合と結果保存はdevelopment、修正の起動前予約・回数・中断状態の保持はcorrectionが担当します。初回実装は追加修正のカウンタに数えず、修正後のcheckと独立評価はホストが実行します。
 
-初回実装・追加修正・独立評価へ渡す固定の説明文・指示文・見出しは日本語です。報告参照、既存PRの修正要求、ホスト検証からの復帰に添える固定説明も含みます。JSONキー・status・CLI引数・設定値・schema・ファイル名・モデルIDは変更せず、Issue本文、修正要求、過去の評価やログなどの入力は原文のまま渡します。指示の言語から、実モデルの品質や費用の改善を保証するものではありません。
+テスト作成・初回実装・追加修正・独立評価へ渡す固定の説明文・指示文・見出しは日本語です。報告参照、既存PRの修正要求、ホスト検証からの復帰に添える固定説明も含みます。JSONキー・status・CLI引数・設定値・schema・ファイル名・モデルIDは変更せず、Issue本文、修正要求、過去の評価やログなどの入力は原文のまま渡します。指示の言語から、実モデルの品質や費用の改善を保証するものではありません。
 
 `repair`と`review`は、要求と失敗の根拠を標準入力で受け取り、結果のJSONだけを標準出力へ返します。`repair`は`status: repaired | needs_host | needs_human`と文字列`findings`を返します。`review`は[review.ts](implement/review.ts)の専用schemaに従います。独自のreviewコマンドにも同じ形式が必要です。
 
@@ -288,7 +288,7 @@ bun /absolute/path/to/trusted/scripts/ui/run.ts \
 
 ホストは形式と必須項目、対象ID、更新IDの欠落・重複・未知IDを検査します。新規指摘に`id`・`introducedIn`・`disposition`などの余分な項目があれば拒否します。過去指摘はIDを指定した`updates`で更新し、欠落を解決済みに読み替えません。不正な応答は`invalid_review`で停止します。ホストは過去の本文に現在の判断と新規指摘を合わせ、必須かつ`open`の指摘があれば`needs_changes`、それ以外は`accepted`を算出します。必須対応でない懸念はacceptedにも残せます。指摘の真偽や判断理由の十分性まで形式検査で保証するものではありません。欠落、不正、実行失敗時は停止し、指摘なしや成功には読み替えません。
 
-付属のCodex呼び出しは `gpt-6.1-sol` を使います。通常の初回実装・追加修正（role=`repair`）は `medium`、独立評価と付属actorを使う手動review probe（role=`review`）は `high` です。[codex-actor.ts](implement/codex-actor.ts)でroleから選んだ同じ設定を、起動引数とactor記録へ渡します。独立評価の設定とreview target記録は[review.ts](implement/review.ts)の `reviewModel` を使い、highを維持します。チャットで選んだモデルでは子CLIの設定は変わりません。初回実装と修正はworkspace-write、評価はread-onlyで新しい実行を開始します。評価者はコード、テスト、文書を読み、ホスト側のcheck結果と分けて評価します。実行前にCodexへログインし、対象モデルが利用できるCLIを用意してください。GitHubの書き込みtokenを成果物やプロンプトへ埋め込まないでください。
+付属のCodex呼び出しは `gpt-6.1-sol` を使います。テスト作成（role=`test`）と通常の初回実装・追加修正（role=`repair`）は `medium`、独立評価と付属actorを使う手動review probe（role=`review`）は `high` です。[codex-actor.ts](implement/codex-actor.ts)でroleから選んだ同じ設定を、起動引数とactor記録へ渡します。独立評価の設定とreview target記録は[review.ts](implement/review.ts)の `reviewModel` を使い、highを維持します。チャットで選んだモデルでは子CLIの設定は変わりません。テスト作成・初回実装と修正はworkspace-write、評価はread-onlyで新しい実行を開始します。評価者はコード、テスト、文書を読み、ホスト側のcheck結果と分けて評価します。実行前にCodexへログインし、対象モデルが利用できるCLIを用意してください。GitHubの書き込みtokenを成果物やプロンプトへ埋め込まないでください。
 
 独立評価は、コードの正しさ、Issueの要求・範囲との一致、テストの検出力、文書・証拠と実装版の整合を区別して判断します。差分に加え、影響する呼出し元、共有型、状態遷移、エラー処理、関連テストを読みます。Issueに個別の要求がなくてもコードとしての欠陥を指摘します。無関係な全コードや全テストの監査、好みの書き方、対象外の機能追加は求めません。
 
@@ -299,6 +299,20 @@ PR作成・添付・CIの登録と成功の確認はCLI、PR内の表示確認�
 修正担当は調査や修正に必要な箇所を確認し、共通checkはホストが修正後に実行します。独立評価担当は共通checkを再実行せず、要求、コード、テスト、文書の妥当性を確認します。これはCLI試行での担当分担です。
 
 文書の更新要否と完了条件は[ドキュメントの更新](../docs/wiki/development-policy.md#ドキュメントの更新)を参照します。修正担当と独立評価担当で同じ基準を使います。
+
+### テスト作成の独立セッション
+
+方針の正本は[開発方針](../docs/wiki/development-policy.md#実装とテストの整理)です。通常開発はsetup・対象照合の後、実装前のcheckoutをrun内の`test-baseline/`へ複製し、隣接する`test-baseline.json`へpath・mode・内容のhashを保存します。各テスト工程は、この固定版と前回の独立テスト成果物を新しい`test-N-workspace/`へ渡します。初回はrun直下、追加修正は`verification/`内です。既存PR修正でも新runの実装前の版を基準にし、旧runを変換・再開しません。
+
+[test-author.ts](implement/test-author.ts)が入力、作業場所、応答と転送を管理します。`codex-actor.ts test`は新しい`codex exec`を起動し、実装セッションの履歴を継承しません。入力にはIssue全文、基準commit、既存のsetup・check、固定した必要資料の参照を含め、実装のfindings、修正要求の会話、独立評価の説明、新実装のコードをコピーしません。既存PR修正では、人が採用した固定の修正要求も初回と追加修正のテスト工程へ渡し、`revisionRequest`として入力記録と`targetId`の算出に含めます。PR本文や実装担当の説明は、この要求入力に含めません。修正前の接続・仕様は固定版で確認します。追加修正ではホストが記録したcheckのコマンド・対象識別値・終了・stdout/stderrも診断証拠として渡し、テスト担当がIssueと前回テストへ照合します。実際の出力は期待値の根拠にしません。
+
+`test-N.target.json`はIssue・版・入力manifest・コマンドと`targetId`、`.prompt`は実際の入力、`.stdout`・`.stderr`は原応答、`.execution.json`は終了・実行時間、`.json`は判断と成果物hashを保存します。`test`応答は`targetId`、`status: prepared | unnecessary | needs_human | needs_host`、空白以外の`findings`、変更したrepo相対`files`を持ちます。形・余分な項目・対象ID・変更manifestを検査し、`unnecessary`は変更なしで正常完了します。テスト不要の判断でもモデルによる判断工程は行うため、呼出し費用がなくなるという意味ではありません。
+
+ホストは独立担当が変更したファイルと、一般的な`test/`・`tests/`・`__tests__/`・`fixture/`・`fixtures/`内や`.test.`・`.spec.`を含む既存ファイルのhashを保ち、実装による変更では停止します。テスト成果物の転送は通常ファイルに限ります。独自命名の未変更テストやテストの意味、テスト担当が申告したファイルの役割を自動で判別する保証はありません。これらは指示と既存の独立評価でIssueへ照合します。worktree分離と新規セッションは入力管理であり、read権限を隔離するセキュリティ境界ではありません。作業場所外の会話・新実装・ログを読まない指示の遵守やモデル品質・費用の改善は未実証です。
+
+ホスト検証からの復帰では、停止runの設定とtestRecordsを読取り照合し、元のbaselineと独立テストを新runへ引き継ぎます。追加証拠の検証済みstatusと対象識別値は渡しますが、任意のホスト生ログは会話・自己評価を含み得るためテストへ投入しません。新しいテストセッションで再判断した後、初回テスト工程で止まっていた場合は未実行の初回実装へ、それ以外は既存のcheck・独立評価へ進みます。復帰入口では証拠の対象識別値と現在版を照合します。その後の許可済みテスト転送・未実行の初回実装は、変更前・転送後・実装後の識別値を新runの`host-preparation.json`へ記録し、hash付きの`hostPreparation`参照で現在版のcheck・独立評価へ接続します。独立評価は変更が追加証拠の成立条件に影響するかを照合し、必要なら再検証へ戻します。この記録はホスト検証の成功や受入を現在版へ自動継承するものではありません。未完了のテスト成果物を自動採用せず、停止workspaceに保持します。元のテスト入力を記録していない旧runは復帰に使わず保全します。
+
+初回は`test-records.json`、追加修正は`verification/state.json`の`testRecords`から判断を辿り、次の`review-N.target.json`の`tests`へ接続します。独立評価は検出条件・正常対照・修正前の狙った失敗・修正後の成功をIssueとcheckへ照合し、`assessments.tests`からPR説明へ渡します。テスト工程の失敗・不正応答・入力や成果物の不一致では後続を止め、原ログ・workspace・実装checkoutを保全します。追加修正では、コマンド完了時に終了コード・時間を`state.events`と`modelMs`へ登録し、その後に応答・成果物を検査します。非zero終了や不正応答でも完了結果を利用量集計へ残し、`test_failed`または`invalid_test`で止まります。中断など結果取得前の失敗では`active`の予約を保全します。判断や追加ホスト検証が必要な応答は既存の停止・引き継ぎへ接続します。
 
 ### レビュー対象と参照記録
 
@@ -369,7 +383,7 @@ bun /absolute/path/to/trusted/scripts/implement/development.ts 99 \
   --run-dir /absolute/path/to/new-sibling-run --no-publish
 ```
 
-復帰時にrepo・要求・元の基準・HEAD・branch・実行主体・権限・設定・必要報告・保存記録と追加証拠を再照合します。未コミット成果物を同じcheckoutに保ち、初回実装をやり直さず、新しいrunでsetup、必要なcapture・check、独立評価へ進みます。説明更新後の識別値と実際の成果物が異なる場合やsetupが成果物を変えた場合は停止します。通常check中の変更拒否も維持します。旧runは再開・上書きせず、元の基準からの全差分を評価します。既存PR修正中の停止なら、採用した修正要求とPRの照合も引き継ぎます。
+復帰時にrepo・要求・元の基準・HEAD・branch・実行主体・権限・設定・必要報告・保存記録と追加証拠を再照合します。未コミット成果物を同じcheckoutに保ち、新しいrunでsetup、独立テストの再判断、必要なcapture・check、独立評価へ進みます。実行済みの初回実装は繰り返しません。初回テスト工程で止まり実装が未実行の場合だけ、独立テスト後に初回実装します。説明更新後の識別値と実際の成果物が異なる場合やsetupが成果物を変えた場合は停止します。通常check中の変更拒否も維持します。旧runは再開・上書きせず、元の基準からの全差分を評価します。既存PR修正中の停止なら、採用した修正要求とPRの照合も引き継ぎます。
 
 新しいrunの`host-return.json`とレビュー対象の`hostReturn`は、停止run・追加証拠の参照を保持します。`host-current-artifacts.json`で復帰時の成果物を確認できます。過去の成功や`passed`の申告を現在の受入にせず、評価担当が元の必須指摘、追加証拠の十分性・適用条件、文書更新と現在の要求充足を判断します。証拠の欠落・変更、失敗・実行不能、要求・対象・権限の不一致では受入・公開へ進みません。失敗記録と旧runを保ち、原因を解消して新しい証拠と保存先で再評価します。
 

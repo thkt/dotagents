@@ -12,6 +12,7 @@ const reference = z.strictObject({
   path: absolutePath,
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
+export const hostPreparationShape = reference;
 export const hostReturnShape = z.strictObject({
   previousRun: absolutePath,
   records: z.array(reference).min(1),
@@ -23,6 +24,11 @@ export const hostEvidenceShape = z.strictObject({
   source: z.string().regex(/^[a-f0-9]{64}$/),
   findings: nonblank,
   logs: z.array(reference).min(1),
+});
+export const hostPreparationRecord = z.strictObject({
+  sourceBefore: z.string().regex(/^[a-f0-9]{64}$/),
+  sourceAfterTests: z.string().regex(/^[a-f0-9]{64}$/),
+  sourceAfter: z.string().regex(/^[a-f0-9]{64}$/),
 });
 export async function readReference(ref: z.infer<typeof reference>) {
   const content = await readFile(ref.path);
@@ -54,14 +60,17 @@ export async function hostLocalRoots(input?: HostReturn) {
 export async function verifyHostReturn(input: HostReturn, cwd: string) {
   let current: HostReturn | undefined = input;
   let latest;
+  const history = [];
   const visited = new Set<string>();
   while (current) {
     assert(!visited.has(current.previousRun), 'Cyclic host handoff history');
     visited.add(current.previousRun);
     const configPath = join(current.previousRun, 'verification-config.json');
     let configContent: string | undefined;
+    const records = new Map<string, string>();
     for (const ref of current.records) {
       const content = await readReference(ref);
+      records.set(ref.path, content);
       if (ref.path === configPath) {
         configContent = content;
       }
@@ -75,11 +84,12 @@ export async function verifyHostReturn(input: HostReturn, cwd: string) {
       evidence.status === 'passed',
       `Host verification ${evidence.status}: ${evidence.findings}. Assigned AI: repair the defect or resolve the environment within existing authority, repeat required verification and use a new evidence file and run. Request human decisions only for changed requirements or authority.`,
     );
+    history.push({ previousRun: current.previousRun, records, evidence });
     latest ??= evidence;
     current = precedingReturn(configContent);
   }
   assert(latest);
-  return latest;
+  return { ...latest, history };
 }
 export function hostReturnContext(input?: HostReturn) {
   return input

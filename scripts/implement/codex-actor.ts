@@ -1,3 +1,4 @@
+import { testReplySchema } from './test-author.ts';
 import { observeRuntime } from './actor-runtime.ts';
 import { reviewSchema, reviewModel } from './review.ts';
 import { spawn } from 'node:child_process';
@@ -9,10 +10,10 @@ import { pipeline } from 'node:stream/promises';
 
 // Logs stay outside the actor's worktree. The parent owns limits and process termination.
 const [role, evidenceDir] = process.argv.slice(2);
-if ((role !== 'repair' && role !== 'review') || !evidenceDir) {
-  throw Error('Usage: bun scripts/implement/codex-actor.ts repair|review EVIDENCE_DIR');
+if ((role !== 'repair' && role !== 'review' && role !== 'test') || !evidenceDir) {
+  throw Error('Usage: bun scripts/implement/codex-actor.ts repair|review|test EVIDENCE_DIR');
 }
-const model = role === 'repair' ? { ...reviewModel, reasoningEffort: 'medium' } : reviewModel;
+const model = role !== 'review' ? { ...reviewModel, reasoningEffort: 'medium' } : reviewModel;
 const dir = await mkdtemp(join(evidenceDir, `${role}-codex-`));
 const hostPrefix = process.env.DOTAGENTS_ACTOR_PREFIX;
 // Consume host context; tools or nested actors must not inherit this association.
@@ -30,7 +31,7 @@ await writeFile(
     hostPrefix: hostPrefix ? relative(evidenceDir, hostPrefix) : null,
     model: model.model,
     reasoningEffort: model.reasoningEffort,
-    sandbox: role === 'repair' ? 'workspace-write' : 'read-only',
+    sandbox: role !== 'review' ? 'workspace-write' : 'read-only',
     ignoreUserConfig: true,
   }),
   { flag: 'wx' },
@@ -42,18 +43,20 @@ await writeFile(
   JSON.stringify(
     role === 'review'
       ? reviewSchema
-      : {
-          type: 'object',
-          additionalProperties: false,
-          required: ['status', 'findings'],
-          properties: {
-            status: {
-              type: 'string',
-              enum: ['repaired', 'needs_host', 'needs_human'],
+      : role === 'test'
+        ? testReplySchema
+        : {
+            type: 'object',
+            additionalProperties: false,
+            required: ['status', 'findings'],
+            properties: {
+              status: {
+                type: 'string',
+                enum: ['repaired', 'needs_host', 'needs_human'],
+              },
+              findings: { type: 'string' },
             },
-            findings: { type: 'string' },
           },
-        },
   ),
 );
 const args = [
@@ -64,7 +67,7 @@ const args = [
   '-c',
   `model_reasoning_effort="${model.reasoningEffort}"`,
   '--sandbox',
-  role !== 'repair' ? 'read-only' : 'workspace-write',
+  role === 'review' ? 'read-only' : 'workspace-write',
   '--json',
   '--output-schema',
   schema,

@@ -75,7 +75,8 @@ bun run check
 <tbody>
 <tr><td>依頼者・合意する人</td><td data-label="受け持つこと">目的、優先順位、範囲、許容条件、必要な権限を決める</td><td data-label="次へ渡すもの">誰が何に合意したかを確認できる記録</td></tr>
 <tr><td>要求整理の担当AI</td><td data-label="受け持つこと">事実を調べ、問いと案を作り、要求と検証方法を整理する</td><td data-label="次へ渡すもの">合意済みIssueと再利用できる調査報告</td></tr>
-<tr><td>実装・修正の担当AI</td><td data-label="受け持つこと">Issueの範囲でコード、テスト、文書、撮影定義を用意する</td><td data-label="次へ渡すもの">作業差分と、変更または判断待ちの理由</td></tr>
+<tr><td>独立テストの担当AI</td><td data-label="受け持つこと">実装の履歴を継承しない新しいセッションで、要求からテストの必要性と検出条件を判断し、必要なテストを作成・更新する</td><td data-label="次へ渡すもの">入力・成果物・実行記録と、追加または不要の理由</td></tr>
+<tr><td>実装・修正の担当AI</td><td data-label="受け持つこと">Issueの範囲でコード、文書、撮影定義を用意し、独立担当のテストを使う</td><td data-label="次へ渡すもの">作業差分と、変更または判断待ちの理由</td></tr>
 <tr><td>ホスト・CLI</td><td data-label="受け持つこと">対象と権限の照合、実行制御、撮影、check、draft公開、同じheadのCI確認</td><td data-label="次へ渡すもの">対象の版に対応した検証記録とdraft PR</td></tr>
 <tr><td>公開後確認の担当AI</td><td data-label="受け持つこと">実際の本文・必要媒体を根拠と照合し、ready直前の再照合、切替と読戻しを行う</td><td data-label="次へ渡すもの">確認した版・結果・未確認事項と、レビュー可能なPR</td></tr>
 <tr><td>独立評価の担当AI</td><td data-label="受け持つこと">要求全文に対し、実装・テスト・文書・証拠を読み取り専用で評価する</td><td data-label="次へ渡すもの">受入可能か、何を直す必要があるかの所見</td></tr>
@@ -227,7 +228,9 @@ bun run check
 <p>合意を経てIssue本文を更新した場合も、既存PR修正の開始時に最新のopen Issueを読み、その本文で新runを固定できます。前回runの要求や検証を現在の成功として引き継がず、開始後に要求や実行条件が変われば停止します。</p>
 <p><strong>ここで残るもの：</strong> 開始時の要求と設定、主体、作業場所、実行記録。以後、要求や対象、設定、主体が変わった場合は停止し、古い条件のまま続行しません。</p>
 </div><section class="accordion guide-accordion evidence" data-multiple><details><summary><span class="accordion-title">この工程の根拠</span><svg class="accordion-chevron" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></summary><section><p><a data-source="scripts/implement/orchestrator.ts">scripts/implement/orchestrator.ts</a> · <a data-source="scripts/README.md">scripts/README.md</a></p></section></details></section></section>
-<section id="build" class="chapter card" data-size="sm"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">07</span><h2>作り、確かめ、必要なところを直す</h2></header><div class="chapter-body"><p>実装担当のAIは、Issue全文と既存資産を読み、コード、必要なテスト、文書、撮影定義を用意します。合意範囲内の通常の実装判断は進めます。要求・範囲・権限・実行上限の変更が必要なら、初回実装も追加修正も<code>needs_human</code>を返し、既存の<code>findings</code>に問い・人に必要な選択・影響を説明して、回答に依存する作業を止めます。指示ファイルが原因なら、実際に読んだファイルへのリンクと該当文を示し、明示条件と解釈を区別します。</p>
+<section id="build" class="chapter card" data-size="sm"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">07</span><h2>作り、確かめ、必要なところを直す</h2></header><div class="chapter-body"><p>実装担当のAIは、Issue全文と既存資産を読み、コード、文書、撮影定義を用意します。合意範囲内の通常の実装判断は進めます。要求・範囲・権限・実行上限の変更が必要なら、初回実装も追加修正も<code>needs_human</code>を返し、既存の<code>findings</code>に問い・人に必要な選択・影響を説明して、回答に依存する作業を止めます。指示ファイルが原因なら、実際に読んだファイルへのリンクと該当文を示し、明示条件と解釈を区別します。</p>
+<p>初回実装・追加修正・既存PR修正の前に、ホストが固定した実装前baselineと別workspaceを用意し、履歴を継承しない新しい独立テストセッションを起動します。テスト担当は合意済みIssue、必要な仕様・既存検証、人が採用した固定の修正要求から検出条件を判断します。実装中の会話・判断・新実装の説明は期待値の根拠に渡しません。既存検証で十分なら<code>unnecessary</code>として追加せずに進めます。</p>
+<p>ホストは応答形式、入力識別値、変更manifestと保護対象を検査して成果物を転送します。工程失敗・不正応答・不一致では後続の実装と公開を止め、原応答と未完了成果物を保全します。実装担当は受け取ったテストを使います。期待値・fixture・機械的な接続の変更も独立担当へ戻し、Issueと照合します。詳細と保証の限界は<a data-source="scripts/README.md#テスト作成の独立セッション">CLIガイド</a>と<a data-source="docs/wiki/development-policy.md#実装とテストの整理">開発方針</a>を参照してください。</p>
 <p>文書だけのIssueも同じフローで扱います。文章や構成の整備という要求に対して、不要なコードやテストを追加することは求めません。実装に伴って操作、設定、仕様、制約の説明が変わる場合は、その文書更新も成果物へ含めます。</p>
 <p>初回はIssue全体の要求を実装し、追加修正は検証や独立評価で見つかった原因を直します。通常の追加修正・独立評価は、回数だけでは止めず、合意範囲の必須指摘を解消します。</p>
 <p>人の判断が必要な場合は、問いと影響を示して止めます。理由を欠く応答や形式不正も停止し、作業と記録を保全します。担当者の申告だけで判断済みにしません。応答の形式と停止理由は<a data-source="scripts/README.md">CLIガイド</a>で確認できます。</p>
@@ -242,7 +245,7 @@ bun run check
 <ol>
 <li>developmentが停止成果物と記録の参照を<code>host-stop.json</code>と<code>host-artifacts.json</code>へ保存します。担当AIは既存権限と対象版を確認して追加検証を行います。証拠に書かれたコマンドを自動実行する機構ではありません。</li>
 <li>生ログと検証結果JSONをcheckoutと旧runの外へ新しく保存します。必要な要約・待機表記を更新し、測定対象からの変更と証拠の適用理由を説明します。失敗・実行不能はそのまま記録し、動作に影響する修正では測定も更新します。</li>
-<li><code>development.ts --host-run … --host-evidence … --run-dir …</code>で、旧runの隣にある新しい保存先へ渡します。同じcheckoutの未コミット成果物、停止時HEAD・branch、元の差分基準を保ち、初回実装をやり直さずsetup・必要なcapture・check・独立評価へ進みます。</li>
+<li><code>development.ts --host-run … --host-evidence … --run-dir …</code>で、旧runの隣にある新しい保存先へ渡します。同じcheckoutの未コミット成果物、停止時HEAD・branch、元の差分基準を保ち、setup後に独立テスト工程へ戻ります。初回実装が済んでいれば再実行せず、初回テスト工程の停止で未実行なら、テスト完了後に未実行の初回実装へ進みます。その後、必要なcapture・check・独立評価へ進みます。</li>
 </ol>
 <p>復帰時も要求・設定・主体・権限・必要報告、旧記録と追加証拠を照合します。単独correction、旧形式、公開結果が不明なrunは転用しません。<code>--no-publish</code>の制約も維持します。過去のacceptedや証拠の<code>passed</code>申告を現在の受入とせず、独立評価が元の必須指摘と現在の全差分・証拠を確認します。失敗は修正へ、実行不能は既存権限内の環境解消へ戻し、要求や権限の変更が必要な場合だけ人に判断を求めます。</p>
 <p>引数の組合せ、証拠JSON、停止条件は<a data-source="scripts/README.md#ホスト検証後の再評価">ホスト検証後の再評価</a>を参照してください。旧runの再開や書換えは行いません。</p>
@@ -416,7 +419,8 @@ bun run check
 <tr><td>プロセス中断・lockや実行予約が残存</td><td data-label="扱いと戻り先">実プロセス、設定、ログ、消費量、現在のIssueと差分を照合する</td></tr>
 </tbody>
 </table>
-<p>修正・評価の起動前に回数と<code>active</code>を保存します。モデル完了直後のstateの中間保存は行わず、次のコマンド予約か終端保存まで起動前の予約を保持します。その間の例外で完了イベントや経過時間がstateに未反映でも、予約・生ログ・成果物は残り、二重実行を拒否します。終端保存も失敗した場合は元の理由と保存エラーを併記します。</p>
+<p>修正・評価の起動前に回数と<code>active</code>を保存します。実装・修正・評価モデル完了直後のstateの中間保存は行わず、次のコマンド予約か終端保存まで起動前の予約を保持します。その間の例外で完了イベントや経過時間がstateに未反映でも、予約・生ログ・成果物は残り、二重実行を拒否します。終端保存も失敗した場合は元の理由と保存エラーを併記します。</p>
+<p>独立テスト工程では、完了結果を応答解析前に保存します。追加修正では履歴・経過時間・使用量にも登録します。不正応答を成功へ読み替えず、停止と保全へ進みます。</p>
 <p>指摘が反復したら、既存の評価履歴・修正結果と現在の成果物を照合し、原因と方針を見直します。合意範囲内の必須修正を続け、範囲外の改善や好みを完了条件にしません。check失敗も同じ修正経路へ戻り、変更した成果物のcheck・評価を更新します。停滞専用AI・追加レビュー工程・別台帳は設けません。</p>
 <p><code>host_verification_required</code>では、<a href="#host-verification">担当AIへの引き継ぎと新しいrunでの再評価</a>へ進みます。成果物と旧記録を保ち、初回実装や公開済みPR修正の開始条件と混同しません。</p>
 <h3>通常開発、レビュー1回の試行、旧記録を区別する</h3>
