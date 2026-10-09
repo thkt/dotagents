@@ -126,7 +126,7 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
   const calls = {
     implementations: 0,
     tests: 0,
-    reviews: 0,
+    verificationEntries: 0,
     pushes: 0,
     publications: 0,
     attachments: 0,
@@ -247,7 +247,7 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
       }
     },
     async verify(this: void, config: Config): Promise<State> {
-      if (calls.reviews === 1) {
+      if (calls.verificationEntries === 1) {
         await mkdir(config.runDir, { recursive: true });
         await writeFile(join(config.runDir, 'review-2.stdout'), rawReview);
         if (settings.capture) {
@@ -340,9 +340,9 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
     },
     verify: async (config: Config) => {
       expect(config.checkTimeMs).toBe(540000);
-      calls.reviews++;
+      calls.verificationEntries++;
       const state = await fixture.verify(config);
-      if (calls.reviews === 1) {
+      if (calls.verificationEntries === 1) {
         await writeFile(join(config.runDir, 'state.json'), JSON.stringify(state));
       }
       return state;

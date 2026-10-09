@@ -730,6 +730,7 @@ async function implement(context: Context, io: typeof runtime) {
       baseline: testConfig.testBaseline,
       prefix: join(dir, 'test-1'),
       issue: issueText(original),
+      revisionRequest: context.revision?.request,
       baseCommit: context.reviewBase,
       check: testConfig.check,
       setup: testConfig.setup,
@@ -837,6 +838,8 @@ async function implement(context: Context, io: typeof runtime) {
 }
 
 const verificationActions: Record<Exclude<StopReason, 'ready_for_human_review'>, string> = {
+  interrupted:
+    '担当AI: 中断したプロセス・active予約・lock・公開状態を照合し、原記録を保持してください。旧runは再開せず、新しいrunで検証・評価してください。',
   host_evidence_changed:
     'Assigned AI: preserve the failed evidence and findings, reconcile changed or unavailable evidence, and obtain fresh verification evidence. Return from the original --host-run handoff using a new evidence file and run directory; never overwrite old records.',
   host_verification_required:

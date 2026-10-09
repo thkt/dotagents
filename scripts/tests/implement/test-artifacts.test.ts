@@ -81,22 +81,27 @@ test('保護対象があれば成功後も新しいcheckout観測から変更と
         assert(match?.[1] && prefix);
         const context: unknown = JSON.parse(match[1]);
         assert(typeof context === 'object' && context !== null && 'targetId' in context);
-        await writeFile(join(cwd, 'result.test.js'), source);
+        await writeFile(join(cwd, 'pending.test.js'), source);
         const response = ok(
           JSON.stringify({
             targetId: context.targetId,
             status: 'prepared',
             findings: '保存済み成果物を変更・削除した場合に拒否する条件を確認します。',
-            files: ['result.test.js'],
+            files: ['pending.test.js'],
           }),
         );
         await writeFile(`${prefix}.stdout`, response.stdout);
         return response;
       },
     );
+    expect(prepared.reply).toMatchObject({
+      status: 'prepared',
+      findings: '保存済み成果物を変更・削除した場合に拒否する条件を確認します。',
+      files: ['pending.test.js'],
+    });
     assert(prepared.record);
     const records = [prepared.record];
-    const file = join(checkout, 'result.test.js');
+    const file = join(checkout, 'pending.test.js');
     await verifyTestArtifacts(checkout, records);
     await writeFile(file, 'process.exit(0);\n');
     await assert.rejects(verifyTestArtifacts(checkout, records), /実装側でテスト成果物が変更/);

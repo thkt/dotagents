@@ -66,6 +66,7 @@ export function assertReportReferences(value: unknown): asserts value is ReportR
   }
 }
 const stopReasons = [
+  'interrupted',
   'execution_limit',
   'review_completed',
   'review_timeout',

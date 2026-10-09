@@ -76,7 +76,7 @@ async function prepareStop(
     status: 'stopped',
     publication: 'not_attempted',
   });
-  expect(f.calls.reviews).toBe(stage === 'initial' ? 0 : 1);
+  expect(f.calls.verificationEntries).toBe(stage === 'initial' ? 0 : 1);
   const cwd = join(f.dir, 'checkout');
   if (stage === 'repair') {
     const state = object(
@@ -125,17 +125,16 @@ async function measurement(f: DevelopmentFixture, cwd: string, previousRun = f.d
 }
 async function runRecords(dir: string): Promise<Record<string, string>> {
   const records: Record<string, string> = {};
-  for (const item of await readdir(dir, { withFileTypes: true })) {
-    if (item.name === 'checkout') {
-      continue;
-    }
-    const path = join(dir, item.name);
-    if (item.isDirectory()) {
-      Object.assign(records, await runRecords(path));
-    } else {
-      records[path] = hash(await readFile(path));
-    }
-  }
+  const entries = await Promise.all(
+    (await readdir(dir, { withFileTypes: true })).map(async (item) => {
+      if (item.name === 'checkout') {
+        return {};
+      }
+      const path = join(dir, item.name);
+      return item.isDirectory() ? runRecords(path) : { [path]: hash(await readFile(path)) };
+    }),
+  );
+  Object.assign(records, ...entries);
   return records;
 }
 
@@ -165,7 +164,7 @@ testDevelopment('初回テストのホスト支援後に新しい独立判定と
   await assert.rejects(() => develop(f.args, f.io), /Host verification required|ホスト/i);
   expect(f.calls.tests).toBe(1);
   expect(f.calls.implementations).toBe(0);
-  expect(f.calls.reviews).toBe(0);
+  expect(f.calls.verificationEntries).toBe(0);
   const cwd = join(f.dir, 'checkout');
   expect(await readFile(join(cwd, 'result.txt'), 'utf8')).toBe('old');
   expect(await Bun.file(join(cwd, 'unfinished.test.js')).exists()).toBe(false);
@@ -486,7 +485,8 @@ for (const stage of ['initial', 'repair'] as const) {
 testDevelopment(
   'repeated host return redacts all prior runs and evidence from publication',
   async (f) => {
-    const cwd = await prepareStop(f, 'repair', false);
+    // 復帰履歴の除去を検査するため、準備では初回の検証・修正を繰り返さない。
+    const cwd = await prepareStop(f, 'initial', false);
     const original = await runRecords(f.dir);
     await writeFile(join(cwd, 'host-pending.txt'), 'Additional host measurement required');
     const first = await measurement(f, cwd);
@@ -505,13 +505,17 @@ testDevelopment(
     m.args.pop();
     const verify = f.verify;
     const paths = [
-      join(f.dir, 'verification/check-1.stdout'),
+      join(f.dir, 'implementation.stdout'),
       first.evidenceFile,
       first.evidence.logs[0]?.path,
       join(first.dir, 'verification/check-1.stdout'),
       m.evidenceFile,
       m.evidence.logs[0]?.path,
     ];
+    for (const path of paths) {
+      assert(path);
+      await readFile(path);
+    }
     f.verify = async (config) => {
       const state = await verify(config);
       const review = state.reviewHistory.at(-1);
@@ -550,7 +554,8 @@ for (const boundary of ['return', 'publication'] as const) {
     testDevelopment(
       `repeated host return rejects ancestor ${damaged} at ${boundary}`,
       async (f) => {
-        const cwd = await prepareStop(f, 'repair', false);
+        // 祖先の破損拒否を検査するため、初回の検証・修正を重ねて準備しない。
+        const cwd = await prepareStop(f, 'initial', false);
         const head = await gitOutput(cwd, 'rev-parse', 'HEAD');
         await writeFile(join(cwd, 'host-pending.txt'), 'Additional host measurement required');
         const first = await measurement(f, cwd);
@@ -562,7 +567,7 @@ for (const boundary of ['return', 'publication'] as const) {
         f.publish = async () => `https://github.com/${f.settings.repository}/pull/100`;
         const ancestorPath =
           damaged === 'record'
-            ? join(f.dir, 'verification/review-1.json')
+            ? join(f.dir, 'implementation.stdout')
             : first.evidence.logs[0]?.path;
         assert(ancestorPath);
         const reason = damaged === 'record' ? /ENOENT/ : /Host verification evidence changed/;
@@ -709,7 +714,7 @@ for (const mode of [
       );
       expect(await readFile(join(m.dir, 'host-return.json'), 'utf8')).toContain(m.evidenceFile);
     } else {
-      expect(f.calls.reviews).toBe(0);
+      expect(f.calls.verificationEntries).toBe(0);
     }
   });
 }

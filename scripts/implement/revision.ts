@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { z } from 'zod';
 import { readFile, realpath, access, readdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -7,7 +8,7 @@ import type { Revision } from './input.ts';
 import { isRecord } from '../shared/values.ts';
 import { issueText } from './issue.ts';
 import { readTarget } from '../shared/target.ts';
-import { assertRunning } from '../shared/process.ts';
+import { assertRunning, interruptionMessage } from '../shared/process.ts';
 import type { Reader } from '../shared/target.ts';
 import { graphQlPrPublication, matchPrPublication, referencesIssue } from './pr-identity.ts';
 
@@ -262,7 +263,7 @@ export async function reconcileExecutions(
     if (!isRecord(result) || result.checkout !== cwd) {
       continue;
     }
-    await inactiveVerification(dir);
+    await inactiveVerification(dir, result);
     assert(
       result.reason && result.publication !== 'unconfirmed',
       `Unfinished or uncertain execution requires reconciliation: ${dir}; preserve records and check its process and GitHub state`,
@@ -279,12 +280,40 @@ async function optionalFile(path: string) {
   });
 }
 
-async function inactiveVerification(dir: string) {
+const interruptionTimes = z.object({ startedAt: z.iso.datetime(), finishedAt: z.iso.datetime() });
+
+function terminalInterruption(dir: string, result: Record<string, unknown>) {
+  const times = interruptionTimes.safeParse(result);
+  if (!times.success) {
+    return false;
+  }
+  const started = Date.parse(times.data.startedAt);
+  const finished = Date.parse(times.data.finishedAt);
+  return (
+    result.terminal === true &&
+    result.status === 'stopped' &&
+    result.phase === 'verification' &&
+    result.reason === interruptionMessage &&
+    result.publication === 'not_attempted' &&
+    result.evidence === dir &&
+    result.details === join(dir, 'verification/state.json') &&
+    Number.isFinite(started) &&
+    Number.isFinite(finished) &&
+    finished >= started
+  );
+}
+
+async function inactiveVerification(dir: string, result: Record<string, unknown>) {
   const state = await optionalFile(join(dir, 'verification/state.json'));
-  if (state) {
+  assert(
+    state !== undefined || result.phase !== 'verification' || result.reason !== interruptionMessage,
+    `Missing interrupted verification state requires reconciliation: ${dir}`,
+  );
+  if (state !== undefined) {
     const value: unknown = JSON.parse(state);
+    assertState(value);
     assert(
-      isRecord(value) && value.active === null && value.result,
+      value.active === null && (value.result || terminalInterruption(dir, result)),
       `Unfinished verification requires reconciliation: ${dir}`,
     );
   }

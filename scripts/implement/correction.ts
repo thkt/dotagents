@@ -25,8 +25,9 @@ import type {
   StopReason,
   CaptureDecision,
 } from './input.ts';
-import { command, interruptionMessage, assertRunning } from '../shared/process.ts';
+import { command, assertRunning, interruptionMessage } from '../shared/process.ts';
 import { createHash } from 'node:crypto';
+import { rmdirSync } from 'node:fs';
 import {
   readFile,
   writeFile,
@@ -989,6 +990,7 @@ async function testBeforeRepair(
       prefix,
       issue,
       baseCommit: state.baseCommit,
+      revisionRequest: config.revision?.request,
       check: config.check,
       setup: config.setup,
       reports: config.reports,
@@ -1063,11 +1065,68 @@ async function lockedRun(config: Config | ProbeConfig, verify: Verification) {
   await validate(config);
   const lock = resolve(config.runDir, 'lock');
   await mkdir(lock); // 既存lockは照合が必要であり、自動で引き継がない。
+  const path = resolve(config.runDir, 'state.json');
+  let current: State | undefined;
+  let state: State | undefined;
+  let failure: { error: unknown } | undefined;
   try {
-    return await execute(config, verify);
-  } finally {
-    await rm(lock, { recursive: true });
+    state = await execute(config, (...args) => {
+      current = args[0]; // 既存の終端読取り・開始拒否では原記録を更新しない。
+      return verify(...args);
+    });
+    assertRunning();
+  } catch (error) {
+    failure = { error: await interruptionError(path, current, error) };
   }
+  if (failure?.error instanceof InterruptionStorageError) {
+    throw failure.error; // 未確定の終端を他の実行が採用しないよう、lockも保全する。
+  }
+  try {
+    // 最後の非同期保存まで排他を保つ。同期削除と返却の間には待機を置かない。
+    rmdirSync(lock);
+  } catch (error) {
+    const releaseError = await interruptionError(path, current, error);
+    // 解放失敗時はlockを残し、先行する障害も失わない。
+    throw failure ? combinedFailure(failure.error, releaseError) : releaseError;
+  }
+  if (failure) {
+    throw failure.error;
+  }
+  assert(state);
+  return state;
+}
+
+function observedInterruption() {
+  try {
+    assertRunning();
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+class InterruptionStorageError extends AggregateError {}
+
+function combinedFailure(
+  first: unknown,
+  second: unknown,
+  ErrorType: new (errors: unknown[], message: string) => AggregateError = AggregateError,
+) {
+  const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+  return new ErrorType([first, second], `${message(first)}; ${message(second)}`);
+}
+
+async function interruptionError(path: string, state: State | undefined, error: unknown) {
+  if (!state || state.result === 'interrupted' || !observedInterruption()) {
+    return error;
+  }
+  state.result = 'interrupted';
+  try {
+    await saveTerminal(path, state);
+  } catch (storageError) {
+    return combinedFailure(error, storageError, InterruptionStorageError);
+  }
+  return error;
 }
 
 function isMissing(error: unknown): boolean {
@@ -1163,9 +1222,25 @@ async function execute(config: Config | ProbeConfig, verify: Verification): Prom
   await initialTestRecords(config, state);
   const persist = () => save(path, state);
   await persist();
-  state.result = await verify(state, issue, persist);
-  await saveTerminal(path, state);
+  await finishVerification(path, state, issue, persist, verify);
   return state;
+}
+
+async function finishVerification(
+  path: string,
+  state: State,
+  issue: string,
+  persist: Persist,
+  verify: Verification,
+) {
+  try {
+    state.result = await verify(state, issue, persist);
+    assertRunning();
+    await saveTerminal(path, state);
+    assertRunning();
+  } catch (error) {
+    throw await interruptionError(path, state, error);
+  }
 }
 
 async function saveTerminal(path: string, state: State) {

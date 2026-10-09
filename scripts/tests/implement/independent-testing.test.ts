@@ -142,7 +142,7 @@ testDevelopment('新規テスト成果物symlinkを転送前に拒否して原�
   expect(saved.publication).toBe('not_attempted');
   expect(saved.reason).toMatch(/symlink|symbolic|シンボリック|通常ファイル/i);
   expect(f.calls.implementations).toBe(0);
-  expect(f.calls.reviews).toBe(0);
+  expect(f.calls.verificationEntries).toBe(0);
   expect(f.calls.pushes).toBe(0);
   expect(f.calls.publications).toBe(0);
   expect(await Bun.file(join(f.dir, 'checkout', testFile)).exists()).toBe(false);
@@ -177,16 +177,16 @@ testDevelopment('形が正しい独立テスト応答でも対象不一致なら
   expect(saved.status).toBe('stopped');
   expect(saved.publication).toBe('not_attempted');
   expect(saved.reason).toMatch(/target|対象|入力/i);
-  expect(f.calls.reviews).toBe(0);
+  expect(f.calls.verificationEntries).toBe(0);
   expect(f.calls.pushes).toBe(0);
   expect(f.calls.publications).toBe(0);
 });
 
-// Issue #360の要求から定めた停止条件。新しい成功応答の形はここでは仮定しない。
+// Issue #360の停止条件。schema拒否は対象・status・成果物を正常にし、findingsだけ欠落させる。
 for (const failure of ['command_failure', 'invalid_json', 'invalid_response'] as const) {
   testDevelopment(`独立テスト工程の${failure}で公開を止め原記録を保つ`, async (f) => {
     const execute = f.io.command;
-    const retained: { stdout: string; stderr: string; prefix: string }[] = [];
+    const retained: { stdout: string; stderr: string; prefix: string; cwd: string }[] = [];
     const originalHead = await gitOutput(f.repo, 'rev-parse', 'HEAD');
     f.io.command = async (argv, cwd, input, timeout, prefix) => {
       // 既存の実装actor・Git・setup・GitHub照合は正常にする。
@@ -195,9 +195,20 @@ for (const failure of ['command_failure', 'invalid_json', 'invalid_response'] as
         return execute(argv, cwd, input, timeout, prefix);
       }
       assert(prefix, '独立テスト工程の原ログ保存先が必要');
-      const stdout = failure === 'invalid_json' ? '{broken-test-response' : '{}';
+      const context = testInput(input);
+      await writeFile(join(cwd, 'pending.test.js'), 'process.exit(1);\n');
+      const stdout =
+        failure === 'invalid_json'
+          ? '{broken-test-response'
+          : failure === 'invalid_response'
+            ? JSON.stringify({
+                targetId: context.targetId,
+                status: 'prepared',
+                files: ['pending.test.js'],
+              })
+            : '{}';
       const stderr = `独立テスト工程の試験診断: ${failure}`;
-      retained.push({ stdout, stderr, prefix });
+      retained.push({ stdout, stderr, prefix, cwd });
       await writeFile(`${prefix}.stdout`, stdout);
       await writeFile(`${prefix}.stderr`, stderr);
       return { ...ok(stdout), stderr, code: failure === 'command_failure' ? 7 : 0 };
@@ -214,10 +225,19 @@ for (const failure of ['command_failure', 'invalid_json', 'invalid_response'] as
     if (failure === 'command_failure') {
       expect(saved.reason).toContain(`独立テスト工程の試験診断: ${failure}`);
     }
+    if (failure === 'invalid_response') {
+      expect(saved.reason).toMatch(/findings/);
+      expect(saved.reason).not.toMatch(/テスト応答の入力が一致しません/);
+    }
+    expect(f.calls.implementations).toBe(0);
+    expect(await Bun.file(join(f.dir, 'checkout/pending.test.js')).exists()).toBe(false);
+    for (const log of retained) {
+      expect(await readFile(join(log.cwd, 'pending.test.js'), 'utf8')).toBe('process.exit(1);\n');
+    }
     expect(saved.nextAction).toBeTruthy();
     expect(saved.evidence).toBe(f.dir);
     expect(saved.issue).toContain('/issues/99');
-    expect(f.calls.reviews).toBe(0);
+    expect(f.calls.verificationEntries).toBe(0);
     expect(f.calls.pushes).toBe(0);
     expect(f.calls.publications).toBe(0);
     expect(f.calls.attachments).toBe(0);
@@ -371,11 +391,12 @@ if(role==='review') {
  process.exit(0);
 }
 if(role==='test') {
- readFileSync(0,'utf8');
+ const prompt=readFileSync(0,'utf8');
+ const input=JSON.parse(prompt.match(/入力: (\\{[^\\n]+\\})/)[1]);
  writeFileSync(${JSON.stringify(observed)},process.cwd());
  writeFileSync('pending.test.js','process.exit(1);\\n');
  console.error('追加テスト工程の原診断: ${failure}');
- console.log(${JSON.stringify(failure === 'invalid_json' ? '{broken-response' : '{}')});
+ console.log(${failure === 'invalid_response' ? "JSON.stringify({targetId:input.targetId,status:'prepared',files:['pending.test.js']})" : JSON.stringify(failure === 'invalid_json' ? '{broken-response' : '{}')});
  process.exit(${code});
 }
 if(role==='repair') throw Error('失敗したテスト工程の後続が実行されました');
@@ -417,9 +438,22 @@ if(role==='repair') throw Error('失敗したテスト工程の後続が実行�
         active: null,
         result: failure === 'command_failure' ? 'test_failed' : 'invalid_test',
       });
-      expect(await readFile(`${prefix}.stdout`, 'utf8')).toBe(
-        (failure === 'invalid_json' ? '{broken-response' : '{}') + '\n',
-      );
+      const stdout = await readFile(`${prefix}.stdout`, 'utf8');
+      if (failure === 'invalid_response') {
+        expect(stopped.reason).toMatch(/findings/);
+        expect(state.findings).toMatch(/findings/);
+        expect(stopped.reason).not.toMatch(/テスト応答の入力が一致しません/);
+        const input = testInput(await readFile(`${prefix}.prompt`, 'utf8'));
+        expect(stdout).toBe(
+          JSON.stringify({
+            targetId: input.targetId,
+            status: 'prepared',
+            files: ['pending.test.js'],
+          }) + '\n',
+        );
+      } else {
+        expect(stdout).toBe((failure === 'invalid_json' ? '{broken-response' : '{}') + '\n');
+      }
       expect(await readFile(`${prefix}.stderr`, 'utf8')).toContain(
         `追加テスト工程の原診断: ${failure}`,
       );

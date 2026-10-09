@@ -214,6 +214,7 @@ export async function authorTests(
     baseline: string;
     prefix: string;
     issue: string;
+    revisionRequest?: string;
     baseCommit: string;
     check: string[];
     setup?: string[][];
@@ -252,6 +253,7 @@ export async function authorTests(
   const before = await copyPreviousTests(input.cwd, cwd, input.previous, prepared);
   const target = {
     issue: input.issue,
+    revisionRequest: input.revisionRequest ?? null,
     baseCommit: input.baseCommit,
     baseline: baselineRecord.files,
     files: before,
@@ -277,6 +279,7 @@ export async function authorTests(
     `入力: ${JSON.stringify({ targetId, baseCommit: input.baseCommit, check: input.check, setup: input.setup ?? [] })}`,
     `ホスト実行証拠: ${JSON.stringify(input.evidence ?? [])}`,
     `要求:\n${input.issue}`,
+    ...(input.revisionRequest ? [`人が採用した固定の修正要求:\n${input.revisionRequest}`] : []),
     researchContext(input.baseCommit, input.reports),
   ].join('\n');
   await writeFile(`${input.prefix}.prompt`, prompt, { flag: 'wx' });

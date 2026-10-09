@@ -164,11 +164,16 @@ for (const role of ['check', 'repair', 'review', 'capture'] as const) {
           expect(await readFile(`${prefix}.stdout`, 'utf8')).toContain('actor started');
           expect(await readFile(`${prefix}.stderr`, 'utf8')).toContain('actor diagnostic');
         }
-        expect(await readFile(stateFile, 'utf8')).toBe(before);
+        const terminal = await readFile(stateFile, 'utf8');
+        if (signal === 'SIGKILL') {
+          expect(terminal).toBe(before);
+        } else {
+          expect(JSON.parse(terminal)).toEqual({ ...state, result: 'interrupted' });
+        }
         const retry = t.execute();
         expect(retry.status).toBe(1);
         expect(retry.stderr).toContain(signal === 'SIGKILL' ? 'EEXIST' : 'Interrupted execution');
-        expect(await readFile(stateFile, 'utf8')).toBe(before);
+        expect(await readFile(stateFile, 'utf8')).toBe(terminal);
       } finally {
         child.kill('SIGKILL');
         if (group !== undefined && Number.isSafeInteger(group) && group > 1) {
