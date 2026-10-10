@@ -304,6 +304,8 @@ PR作成・添付・CIの登録と成功の確認はCLI、PR内の表示確認�
 
 方針の正本は[開発方針](../docs/wiki/development-policy.md#実装とテストの整理)です。通常開発はsetup・対象照合の後、実装前のcheckoutをrun内の`test-baseline/`へ複製し、隣接する`test-baseline.json`へpath・mode・内容のhashを保存します。各テスト工程は、この固定版と前回の独立テスト成果物を新しい`test-N-workspace/`へ渡します。初回はrun直下、追加修正は`verification/`内です。既存PR修正でも新runの実装前の版を基準にし、旧runを変換・再開しません。
 
+初回実装・追加修正・既存PR修正のテスト担当、実装・修正担当、独立評価は、信頼するハーネスの[設計・選定手順](../skills/implement/references/testing.md#検証命題とケースの設計手順)と対象repoの方針を読みます。テスト担当は命題・必要条件と実際のケースの対応、判定根拠、選定理由、未充足・未確認事項を既存のfindingsへ残します。独立評価はその主張を要求・ケース・対象版と実行証拠へ照合し、assessments.testsへ渡します。参照する指示の追加であり、下記の入力境界・保存形式・停止条件は変えません。
+
 [test-author.ts](implement/test-author.ts)が入力、作業場所、応答と転送を管理します。`codex-actor.ts test`は新しい`codex exec`を起動し、実装セッションの履歴を継承しません。入力にはIssue全文、基準commit、既存のsetup・check、固定した必要資料の参照を含め、実装のfindings、修正要求の会話、独立評価の説明、新実装のコードをコピーしません。既存PR修正では、人が採用した固定の修正要求も初回と追加修正のテスト工程へ渡し、`revisionRequest`として入力記録と`targetId`の算出に含めます。PR本文や実装担当の説明は、この要求入力に含めません。修正前の接続・仕様は固定版で確認します。追加修正ではホストが記録したcheckのコマンド・対象識別値・終了・stdout/stderrも診断証拠として渡し、テスト担当がIssueと前回テストへ照合します。実際の出力は期待値の根拠にしません。
 
 `test-N.target.json`はIssue・版・入力manifest・コマンドと`targetId`、`.prompt`は実際の入力、`.stdout`・`.stderr`は原応答、`.execution.json`は終了・実行時間、`.json`は判断と成果物hashを保存します。`test`応答は`targetId`、`status: prepared | unnecessary | needs_human | needs_host`、空白以外の`findings`、変更したrepo相対`files`を持ちます。形・余分な項目・対象ID・変更manifestを検査し、`unnecessary`は変更なしで正常完了します。テスト不要の判断でもモデルによる判断工程は行うため、呼出し費用がなくなるという意味ではありません。
