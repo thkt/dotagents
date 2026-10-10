@@ -1,4 +1,5 @@
 import { authorTests, prepareTestBaseline, verifyTestArtifacts } from './test-author.ts';
+import { testDiagnostics } from './test-diagnostics.ts';
 import assert from 'node:assert/strict';
 import {
   hostPreparationRecord,
@@ -884,6 +885,11 @@ async function performRepair(
 ): Promise<StopReason | RepairReference[]> {
   const prompt = [
     `独立テストの記録: ${JSON.stringify(state.testRecords ?? [])}。対応する.jsonのfindingsと成果物を読んでください。修正前の狙った失敗と修正後の成功・正常動作を区別してください。`,
+    ...(config.test && state.test
+      ? [
+          `テスト診断の振り分け記録: ${resolve(config.runDir, `test-${state.test}.routing.json`)}。対応不明・評価後の版変更によって診断から除外した必須指摘も通常修正で調べ、理由を残してください。保護対象への変更が必要なら別の独立テスト工程へ戻し、要求変更は人へ戻してください。`,
+        ]
+      : []),
     'これらの合意済み要求の範囲内だけで修正してください。現在のファイルを読み、根本原因を直してください。',
     '指摘が再発した場合は、既存の評価記録と過去の修正結果を現在の成果物と比較し、原因と修正方法を見直して、合意範囲内で必要な修正を続けてください。範囲外の改善や好みを完了条件にしないでください。',
     revisionContext(config.revision),
@@ -984,6 +990,17 @@ async function testBeforeRepair(
   state.active = { role: 'test', prefix };
   await persist();
   try {
+    const evidence = await testCheckEvidence(config, state);
+    let observedManifest: Record<string, string> | undefined;
+    const diagnostics = await testDiagnostics(
+      state,
+      async () => {
+        // 診断照合とテスト開始は同じ準備境界の観測を共有します。
+        observedManifest = {};
+        return sourceFiles(config.cwd, undefined, observedManifest);
+      },
+      prefix,
+    );
     const tests = await authorTests({
       cwd: config.cwd,
       baseline: config.testBaseline,
@@ -996,7 +1013,9 @@ async function testBeforeRepair(
       reports: config.reports,
       actor: config.test,
       previous: state.testRecords ?? [],
-      evidence: await testCheckEvidence(config, state),
+      evidence,
+      diagnostics,
+      observedManifest,
       completed: async (result) => {
         state.active = null;
         state.modelMs += result.ms;
