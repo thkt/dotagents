@@ -76,7 +76,7 @@ function protection(path: string | null, protectedFiles: Record<string, string>)
   if (!path) {
     return null;
   }
-  if (path in protectedFiles) {
+  if (Object.hasOwn(protectedFiles, path)) {
     return '独立テスト成果物・接続定義';
   }
   return /(?:^|\/)(?:tests?|__tests__|fixtures?)(?:\/)|\.(?:test|spec)\./.test(path)
@@ -113,7 +113,7 @@ export async function testDiagnostics(
     const path = item.location.path;
     const protectedBy = protection(path, protectedFiles);
     const file = target.files.find(([name]) => name === path);
-    if (fresh && path && protectedBy && (file || path in protectedFiles)) {
+    if (fresh && path && protectedBy && (file || Object.hasOwn(protectedFiles, path))) {
       diagnostics.push({
         id: item.id,
         introducedIn: item.introducedIn,

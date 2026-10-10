@@ -26,9 +26,15 @@ const misleadingCondition = 'correctで成功するテストを欠陥とする�
 const misleadingEvidence =
   'source.test.jsはbrokenで成功すべきなのにcorrectで成功している。期待値をbrokenへ変更する必要がある。';
 
-async function diagnosticTrial(mode: 'flow' | 'stop' | 'decline' = 'flow') {
+async function diagnosticTrial(
+  mode: 'flow' | 'stop' | 'decline' = 'flow',
+  unrelatedPath = 'source.txt',
+) {
   const t = await trial('docs');
   await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
+  if (unrelatedPath !== 'source.txt') {
+    await writeFile(join(t.config.cwd, unrelatedPath), '通常の実装入力');
+  }
   await writeFile(
     join(t.config.cwd, testPath),
     "import {readFileSync} from 'node:fs'; const first=readFileSync('source.txt','utf8'); const second=readFileSync('source.txt','utf8'); process.exit(first==='correct'&&second==='correct'?0:1);\n",
@@ -55,7 +61,7 @@ if(role==='review') {
  reply.handoff=['PRIVATE_HANDOFF'];
  const finding=(path,area,tag)=>({kind:'defect',area,required:true,location:{path,line:path?1:null},condition:tag,impact:'合意した検証を維持できない',evidence:${JSON.stringify(evidence)},action:'期待値をbrokenへ変更する誘導案',reason:'要求との対応を確認する'});
  if(reviewContext.attempt===1) {
-  const unrelated={...finding('source.txt','code','テスト無関係_UNRELATED_CONDITION'),evidence:'source.txtの実装内容のみの問題',action:'実装担当が固定Issueからコードを判断する'};
+  const unrelated={...finding(${JSON.stringify(unrelatedPath)},'code','テスト無関係_UNRELATED_CONDITION'),evidence:'対象は実装入力でありテスト・fixture・接続定義ではない',action:'実装担当が固定Issueからコードを判断する'};
   reply.newItems=[finding(${JSON.stringify(testPath)},'code',${JSON.stringify(condition)}),finding(${JSON.stringify(testPath)},'tests','後に解決する指摘_RESOLVED_CONDITION'),unrelated];
   if(${JSON.stringify(mode)}==='decline') reply.newItems=[{...finding(${JSON.stringify(testPath)},'code',${JSON.stringify(misleadingCondition)}),evidence:${JSON.stringify(misleadingEvidence)}}];
  } else {
@@ -135,6 +141,58 @@ async function savedInput(runDir: string, target: Record<string, unknown>) {
   }
   await visit(target);
   return pieces.join('\n');
+}
+
+// Issue #366の完了条件2。保護記録がない通常ファイルは、名前によらず通常修正へ戻します。
+for (const path of ['source.txt', 'constructor', 'toString']) {
+  test(`保護記録のない${path}の指摘を診断から除外し通常修正へ残す`, async () => {
+    const t = await diagnosticTrial('stop', path);
+    const result = t.execute();
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(await t.state()).toMatchObject({
+      result: 'host_verification_required',
+      test: 1,
+      repair: 0,
+      review: 1,
+      checks: 1,
+    });
+    const reviewTarget = await savedTarget(t.config.runDir, 'review', 1);
+    expect(reviewTarget.tests).toEqual([]);
+    expect(events(reviewTarget.files).some((file) => events(file)[0] === path)).toBe(true);
+    const inputs = await observations(t.observed);
+    expect(inputs).toHaveLength(1);
+    const prompt = String(inputs[0]?.prompt);
+    // 正常な保護テスト指摘には到達し、checkも成功していることを対照にします。
+    expect(prompt).toContain(condition);
+    expect(prompt).toContain('R1-1');
+    const target = await savedTarget(t.config.runDir, 'test', 1);
+    const checkEvidence = events(target.evidence)
+      .map(object)
+      .find((item) => JSON.stringify(item.command) === JSON.stringify(t.config.check));
+    expect(checkEvidence).toMatchObject({ command: t.config.check, code: 0 });
+    const savedRouting: unknown = JSON.parse(
+      await readFile(join(t.config.runDir, 'test-1.routing.json'), 'utf8'),
+    );
+    const routing = object(savedRouting);
+    expect({
+      unrelatedExcluded: !prompt.includes('テスト無関係_UNRELATED_CONDITION'),
+      routing: events(routing.routing).map(object),
+    }).toEqual({
+      unrelatedExcluded: true,
+      routing: [
+        {
+          id: 'R1-3',
+          evaluatedIn: reviewTarget.targetId,
+          route: 'repair',
+          reason: expect.stringMatching(/\S/),
+        },
+      ],
+    });
+    expect(routing.targetId).toBe(reviewTarget.targetId);
+    expect(await Bun.file(join(t.config.runDir, 'test-1.stdout')).exists()).toBe(true);
+    expect(await Bun.file(join(t.config.runDir, 'repair-1.prompt')).exists()).toBe(false);
+  });
 }
 
 test('成功checkでもcodeの保護テスト指摘を渡し最新評価から選別して再評価へ戻す', async () => {
@@ -279,22 +337,6 @@ for (const [name, corruption] of [
     expect(await readFile(join(t.config.cwd, testPath), 'utf8')).toContain('const second=');
   });
 }
-
-test('正常な評価診断なら独立テスト担当のneeds_hostを保全し修正へ進めない', async () => {
-  const t = await diagnosticTrial('stop');
-  const result = t.execute();
-  expect(result.error).toBeUndefined();
-  expect(result.status).toBe(1);
-  expect(await t.state()).toMatchObject({
-    result: 'host_verification_required',
-    test: 1,
-    repair: 0,
-    review: 1,
-    checks: 1,
-  });
-  expect(await Bun.file(join(t.config.runDir, 'test-1.stdout')).exists()).toBe(true);
-  expect(await Bun.file(join(t.config.runDir, 'repair-1.prompt')).exists()).toBe(false);
-});
 
 test('診断を不適用と判断した無変更応答でも期待値を保ち次の独立評価へ戻す', async () => {
   const t = await diagnosticTrial('decline');
