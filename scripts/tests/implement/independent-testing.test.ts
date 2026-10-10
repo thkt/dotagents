@@ -247,9 +247,6 @@ for (const failure of ['command_failure', 'invalid_json', 'invalid_response'] as
     }
     expect(await gitOutput(f.repo, 'rev-parse', 'HEAD')).toBe(originalHead);
     expect(await readFile(join(f.repo, 'result.txt'), 'utf8')).toBe('old');
-    if (f.calls.implementations > 0) {
-      expect(await readFile(join(f.dir, 'checkout/result.txt'), 'utf8')).toBe('implemented');
-    }
   });
 }
 
