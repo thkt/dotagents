@@ -236,6 +236,8 @@ export const testRecordsShape = z.array(
     targetId: z.string(),
     stdoutHash: z.string(),
     files: z.record(z.string(), z.string()),
+    inputHash: z.string().optional(),
+    promptHash: z.string().optional(),
   }),
 );
 const savedState = z.object({

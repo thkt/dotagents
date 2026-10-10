@@ -304,9 +304,13 @@ PR作成・添付・CIの登録と成功の確認はCLI、PR内の表示確認�
 
 方針の正本は[開発方針](../docs/wiki/development-policy.md#実装とテストの整理)です。通常開発はsetup・対象照合の後、実装前のcheckoutをrun内の`test-baseline/`へ複製し、隣接する`test-baseline.json`へpath・mode・内容のhashを保存します。各テスト工程は、この固定版と前回の独立テスト成果物を新しい`test-N-workspace/`へ渡します。初回はrun直下、追加修正は`verification/`内です。既存PR修正でも新runの実装前の版を基準にし、旧runを変換・再開しません。
 
-[test-author.ts](implement/test-author.ts)が入力、作業場所、応答と転送を管理します。`codex-actor.ts test`は新しい`codex exec`を起動し、実装セッションの履歴を継承しません。入力にはIssue全文、基準commit、既存のsetup・check、固定した必要資料の参照を含め、実装のfindings、修正要求の会話、独立評価の説明、新実装のコードをコピーしません。既存PR修正では、人が採用した固定の修正要求も初回と追加修正のテスト工程へ渡し、`revisionRequest`として入力記録と`targetId`の算出に含めます。PR本文や実装担当の説明は、この要求入力に含めません。修正前の接続・仕様は固定版で確認します。追加修正ではホストが記録したcheckのコマンド・対象識別値・終了・stdout/stderrも診断証拠として渡し、テスト担当がIssueと前回テストへ照合します。実際の出力は期待値の根拠にしません。
+[test-author.ts](implement/test-author.ts)が入力、作業場所、応答と転送を管理します。`codex-actor.ts test`は新しい`codex exec`を起動し、実装セッションの履歴を継承しません。入力にはIssue全文、基準commit、既存のsetup・check、固定した必要資料の参照を含め、実装のfindings、修正要求の会話、独立評価全文、新実装のコードをコピーしません。既存PR修正では、人が採用した固定の修正要求も初回と追加修正のテスト工程へ渡し、`revisionRequest`として入力記録と`targetId`の算出に含めます。PR本文や実装担当の説明は、この要求入力に含めません。修正前の接続・仕様は固定版で確認します。追加修正ではホストが記録したcheckのコマンド・対象識別値・終了・stdout/stderrも診断証拠として渡し、テスト担当がIssueと前回テストへ照合します。実際の出力は期待値の根拠にしません。
 
-`test-N.target.json`はIssue・版・入力manifest・コマンドと`targetId`、`.prompt`は実際の入力、`.stdout`・`.stderr`は原応答、`.execution.json`は終了・実行時間、`.json`は判断と成果物hashを保存します。`test`応答は`targetId`、`status: prepared | unnecessary | needs_human | needs_host`、空白以外の`findings`、変更したrepo相対`files`を持ちます。形・余分な項目・対象ID・変更manifestを検査し、`unnecessary`は変更なしで正常完了します。テスト不要の判断でもモデルによる判断工程は行うため、呼出し費用がなくなるという意味ではありません。
+追加修正と既存PRの追加修正では、[test-diagnostics.ts](implement/test-diagnostics.ts)が最新評価に残る未解決指摘と保護対象の対応を確認し、条件・根拠だけを`diagnostics`として渡します。`area: code`でも保護テストを指す指摘は対象です。指摘ID、初出対象`introducedIn`、最新評価対象`evaluatedIn`、評価したファイルの内容hash・mode、固定Issueのhashを保存します。テスト担当が要求との意味上の対応を独立して判断するため、評価の修正案・全文や任意のパッチは渡しません。初回工程の要求入力は変えません。解決済みとテストに無関係な指摘は診断に入れません。
+
+ホストは保存対象のhash・要求・評価イベントと、原応答から再構成した指摘履歴を照合します。現在版と同じ評価ならファイルmanifestも照合し、由来不明・保存対象の改変では停止します。評価後に対象版が変わった場合は古い診断を渡さず、対応不明の必須指摘とともに`test-N.routing.json`へ通常修正に残す理由を記録します。修正担当は対応を調べ、必要なら既存のホスト・人への引き継ぎへ戻します。評価対象と、新しい作業コピーへ渡す修正前baseline・前回テストは別々に照合します。診断は期待値の正本ではなく、テスト担当は固定Issueへ照合した修正・変更不要・人の判断が必要な理由を指摘IDに対応させて返します。処置の合否は修正後checkと次の独立評価が確認します。
+
+`test-N.target.json`はIssue・版・入力manifest・コマンド・診断と`targetId`、`.prompt`は実際の入力、`.stdout`・`.stderr`は原応答、`.execution.json`は終了・実行時間、`.json`は判断と成果物hashを保存します。新しく作る記録では保存入力と指示のhashも保持し、応答採用前と後続の成果物照合時に改変を拒否します。診断は`targetId`の算出にも含めます。`test`応答は`targetId`、`status: prepared | unnecessary | needs_human | needs_host`、空白以外の`findings`、変更したrepo相対`files`を持ちます。形・余分な項目・対象ID・変更manifestを検査し、`unnecessary`は変更なしで正常完了します。テスト不要の判断でもモデルによる判断工程は行うため、呼出し費用がなくなるという意味ではありません。
 
 ホストは独立担当が変更したファイルと、一般的な`test/`・`tests/`・`__tests__/`・`fixture/`・`fixtures/`内や`.test.`・`.spec.`を含む既存ファイルのhashを保ち、実装による変更では停止します。テスト成果物の転送は通常ファイルに限ります。独自命名の未変更テストやテストの意味、テスト担当が申告したファイルの役割を自動で判別する保証はありません。これらは指示と既存の独立評価でIssueへ照合します。worktree分離と新規セッションは入力管理であり、read権限を隔離するセキュリティ境界ではありません。作業場所外の会話・新実装・ログを読まない指示の遵守やモデル品質・費用の改善は未実証です。
 
