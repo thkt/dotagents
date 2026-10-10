@@ -5,6 +5,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { classifyWidth, widthSweep } from '../../ui/width-sweep.ts';
+import { completeSweep } from '../../ui/records.ts';
 
 const reportShape = z.object({
   status: z.string(),
@@ -115,6 +116,11 @@ test('all integer widths and states are measured, including a narrow overflow an
     assert(normalState);
     expect(report.status).toBe('failed');
     expect(ready).toHaveLength(15);
+    for (const state of ['normal', 'narrow', 'local']) {
+      expect(
+        report.samples.filter((sample) => sample.state === state).map((sample) => sample.width),
+      ).toEqual([848, 849, 850, 851, 852]);
+    }
     expect(
       report.samples
         .filter((sample: { pageOverflow: boolean }) => sample.pageOverflow)
@@ -125,18 +131,25 @@ test('all integer widths and states are measured, including a narrow overflow an
         .filter((sample: { state: string }) => sample.state === 'local')
         .every((sample: { candidates: unknown[] }) => sample.candidates.length === 1),
     ).toBe(true);
-    const before = await readFile(output, 'utf8');
     await assert.rejects(widthSweep(page, options), /EEXIST/);
-    expect(await readFile(output, 'utf8')).toBe(before);
+    expect(await readFile(output, 'utf8')).toBe(saved);
     expect(ready).toHaveLength(15);
     await widthSweep(page, {
       ...options,
       output: join(root, 'passed.json'),
       states: [normalState],
     });
-    expect(
-      reportShape.parse(JSON.parse(await readFile(join(root, 'passed.json'), 'utf8'))).status,
-    ).toBe('passed');
+    const passed: unknown = JSON.parse(await readFile(join(root, 'passed.json'), 'utf8'));
+    const passedReport = reportShape.parse(passed);
+    expect(passedReport.status).toBe('passed');
+    expect(passedReport.samples.map((sample) => sample.width)).toEqual([848, 849, 850, 851, 852]);
+    expect(completeSweep(passed)).toEqual({
+      projectName: '',
+      file: options.testInfo.file,
+      line: 1,
+      column: 0,
+      title: 'states',
+    });
     await assert.rejects(
       widthSweep(page, { ...options, output: join(root, 'empty.json'), states: [] }),
       /No display states/,
