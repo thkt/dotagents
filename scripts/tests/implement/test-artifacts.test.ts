@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from 'bun:test';
@@ -53,7 +53,7 @@ test('保護対象が空ならcheckoutを走査せず全記録の保存済み応
   }
 });
 
-test('保護対象があれば成功後も新しいcheckout観測から変更と削除を拒否する', async () => {
+test('保護対象があれば成功後も新しいcheckout観測から内容・権限の変更と削除を拒否する', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'test-artifacts-')));
   try {
     const checkout = join(root, 'checkout');
@@ -82,6 +82,7 @@ test('保護対象があれば成功後も新しいcheckout観測から変更と
         const context: unknown = JSON.parse(match[1]);
         assert(typeof context === 'object' && context !== null && 'targetId' in context);
         await writeFile(join(cwd, 'pending.test.js'), source);
+        await chmod(join(cwd, 'pending.test.js'), 0o755);
         const response = ok(
           JSON.stringify({
             targetId: context.targetId,
@@ -102,6 +103,13 @@ test('保護対象があれば成功後も新しいcheckout観測から変更と
     assert(prepared.record);
     const records = [prepared.record];
     const file = join(checkout, 'pending.test.js');
+    await verifyTestArtifacts(checkout, records);
+    expect((await stat(file)).mode & 0o777).toBe(0o755);
+    await chmod(file, 0o644);
+    await assert.rejects(verifyTestArtifacts(checkout, records), /実装側でテスト成果物が変更/);
+    expect((await stat(file)).mode & 0o777).toBe(0o644);
+    expect(await readFile(file, 'utf8')).toBe(source);
+    await chmod(file, 0o755);
     await verifyTestArtifacts(checkout, records);
     await writeFile(file, 'process.exit(0);\n');
     await assert.rejects(verifyTestArtifacts(checkout, records), /実装側でテスト成果物が変更/);
