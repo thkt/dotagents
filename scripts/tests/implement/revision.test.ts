@@ -938,9 +938,31 @@ for (const failure of [
   });
 }
 
-testRevision('追加修正の独立テスト入力にも採用済み要求を渡す', async (f) => {
+testRevision('既存PRの追加テストへ固定要求とcodeの保護テスト指摘を渡す', async (f) => {
   const script = join(f.dir, 'additional-test-actor.js');
   const observed = join(f.dir, 'additional-test-prompt.txt');
+  const original = f.io.command;
+  f.io.command = async (argv, cwd, input, timeout, prefix) => {
+    if (!argv.includes('test')) {
+      return original(argv, cwd, input, timeout, prefix);
+    }
+    const match = input.match(/入力: (\{[^\n]+\})/);
+    assert(match?.[1] && prefix);
+    const context: unknown = JSON.parse(match[1]);
+    assert(isRecord(context));
+    await writeFile(join(cwd, 'result.test.js'), 'process.exit(0);\n');
+    const response = ok(
+      JSON.stringify({
+        targetId: context.targetId,
+        status: 'prepared',
+        findings: 'PR修正工程で保護テストに対応する指摘の受け渡しを確認するfixtureです。',
+        files: ['result.test.js'],
+      }),
+    );
+    await writeFile(`${prefix}.stdout`, response.stdout);
+    await writeFile(`${prefix}.stderr`, response.stderr);
+    return response;
+  };
   let state: State | undefined;
   f.io.verify = async (config) => {
     await writeFile(
@@ -950,7 +972,9 @@ import {readFileSync,writeFileSync} from 'node:fs';
 const role=process.argv[2];
 ${reviewReplySource}
 if(role==='review') {
- console.log(JSON.stringify(reviewReply('needs_changes','PRIVATE_REVIEW_360')));
+ const reply=reviewReply('needs_changes','PRIVATE_REVIEW_360');
+ reply.newItems=[{kind:'defect',area:'code',required:true,location:{path:'result.test.js',line:1},condition:'PR_TEST_DIAGNOSTIC: 成果物が不正でも終了0になる',impact:'固定要求の結果を検出できない',evidence:'result.test.jsは無条件で終了0になる',action:'固定Issueから期待結果を再判断する',reason:'保護テストに対する指摘'}];
+ console.log(JSON.stringify(reply));
 } else {
  const prompt=readFileSync(0,'utf8');
  writeFileSync(${JSON.stringify(observed)},prompt);
@@ -985,6 +1009,8 @@ if(role==='review') {
   const prompt = await readFile(observed, 'utf8');
   expect(prompt).toContain('Keep result visible');
   expect(prompt).toContain(await readFile(f.request, 'utf8'));
+  expect(prompt).toContain('PR_TEST_DIAGNOSTIC');
+  expect(prompt).toContain('R1-1');
   expect(prompt).not.toContain('PRIVATE_REVIEW_360');
   expect(prompt).not.toContain('Changed requested behavior');
   expect(prompt).not.toContain('Verified current output');

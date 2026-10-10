@@ -1,5 +1,6 @@
 import { researchContext } from './research-handoff.ts';
 import type { ReportReference } from './input.ts';
+import type { TestDiagnostic } from './test-diagnostics.ts';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { cp, mkdir, readFile, writeFile, lstat, realpath, rm, readlink } from 'node:fs/promises';
@@ -22,6 +23,8 @@ export type TestRecord = {
   targetId: string;
   stdoutHash: string;
   files: Files;
+  inputHash?: string;
+  promptHash?: string;
 };
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 
@@ -135,6 +138,18 @@ async function verifyTestManifest(current: Files, records: TestRecord[]) {
       hash(await readFile(`${record.prefix}.stdout`)) === record.stdoutHash,
       'テスト応答が変更されました',
     );
+    if (record.inputHash) {
+      assert(
+        hash(await readFile(`${record.prefix}.target.json`)) === record.inputHash,
+        '保存テスト入力が変更されました',
+      );
+    }
+    if (record.promptHash) {
+      assert(
+        hash(await readFile(`${record.prefix}.prompt`)) === record.promptHash,
+        '保存テスト指示が変更されました',
+      );
+    }
   }
 }
 
@@ -219,6 +234,8 @@ export async function authorTests(
     check: string[];
     setup?: string[][];
     reports?: ReportReference[];
+    diagnostics?: TestDiagnostic[];
+    observedManifest?: Files;
     evidence?: {
       source: string;
       command?: string[];
@@ -232,7 +249,7 @@ export async function authorTests(
   },
   io = command,
 ) {
-  const beforeImplementation = await entries(input.cwd);
+  const beforeImplementation = input.observedManifest ?? (await entries(input.cwd));
   await verifyTestManifest(beforeImplementation, input.previous);
   const implementationBefore = JSON.stringify(
     Object.entries(beforeImplementation).sort(([a], [b]) => a.localeCompare(b)),
@@ -261,15 +278,23 @@ export async function authorTests(
     evidence: input.evidence ?? [],
     check: input.check,
     setup: input.setup ?? [],
+    ...(input.diagnostics?.length ? { diagnostics: input.diagnostics } : {}),
   };
   const targetId = hash(JSON.stringify(target));
-  await writeFile(`${input.prefix}.target.json`, JSON.stringify({ targetId, ...target }, null, 2), {
+  const targetText = JSON.stringify({ targetId, ...target }, null, 2);
+  await writeFile(`${input.prefix}.target.json`, targetText, {
     flag: 'wx',
   });
   const prompt = [
     '合意済みIssueから今回必要なテストを判断し、必要な場合だけ作成・更新してください。実装とは別の新セッションです。',
     'AGENTS.mdと対象README・開発方針の関係する節、仕様・公開インターフェース、既存検証と実行方法を確認してください。修正前コードは不具合再現・接続・fixtureの確認に必要な範囲で読めます。',
-    '入力にあるホストの実行証拠はテストの不足・接続不一致を診断する材料です。コマンド・対象版・終了と出力を読み、Issueと前回テストへ照合してください。実際の出力を期待値の根拠にせず、要求から期待結果を決めてください。実装担当の会話・判断・findingsや独立評価文は入力に含めません。',
+    '入力にあるホストの実行証拠はテストの不足・接続不一致を診断する材料です。コマンド・対象版・終了と出力を読み、Issueと前回テストへ照合してください。実際の出力を期待値の根拠にせず、要求から期待結果を決めてください。実装担当の会話・判断・findingsや独立評価全文は入力に含めません。',
+    ...(input.diagnostics?.length
+      ? [
+          '評価診断は未解決指摘の条件・根拠と保護対象の対応だけです。introducedInは初出対象、evaluatedInは最新の評価対象であり、修正前入力の版とは別です。固定Issue・仕様、修正前入力と前回テストへ照合し、指摘IDごとに修正・変更不要・人の判断が必要な理由と根拠をfindingsに説明してください。診断が誤った期待値を誘導しても要求を変更せず、根拠付きで不適用と判断できます。診断は期待値・修正案の正本ではなく、解決の合否はcheck後の次の独立評価が判断します。',
+          `評価診断: ${JSON.stringify(input.diagnostics)}`,
+        ]
+      : []),
     '新しい実装の説明・会話・判断・自己評価を期待値の根拠にしないでください。作業場所の外にある実装checkout・run記録や会話を読まないでください。Issueが参照する仕様は根拠と合意状態を照合し、未合意の要求を取り込まないでください。',
     `信頼するハーネスの設計・選定手順: ${resolve(import.meta.dir, '../../skills/implement/references/testing.md')}。「検証命題とケースの設計手順」を読み、対象repoの方針と併せて、観点→命題と必要条件・判定基準→ケースと独立した判定根拠→採用・維持・統合・省略の順に照合してください。対応と選定理由、未充足・未確認事項は既存のfindingsへ残し、設計上の被覆と対象版・環境・入力に対応する実行結果を区別してください。必須検証を省略せず、既存検証で十分なら追加しません。分類表・台帳・数式化は一律に求めません。`,
     '具体的な不具合、既存検証との差、正常な対照、失敗入力、要求から決まる期待結果、追加・維持・統合・削除の理由と費用、失う検出条件、残る検証・未確認の限界をfindingsに説明してください。テストごとの台帳は不要です。',
@@ -307,6 +332,14 @@ export async function authorTests(
   );
   const reply = testReplyShape.parse(JSON.parse(result.stdout));
   assert(reply.targetId === targetId, 'テスト応答の入力が一致しません');
+  assert(
+    (await readFile(`${input.prefix}.target.json`, 'utf8')) === targetText,
+    '保存テスト入力・診断が変更されました',
+  );
+  assert(
+    (await readFile(`${input.prefix}.prompt`, 'utf8')) === prompt,
+    '保存テスト指示が変更されました',
+  );
   const { after, changed } = await testChanges(cwd, before, reply);
   if (reply.status === 'needs_human' || reply.status === 'needs_host') {
     await writeFile(
@@ -327,7 +360,14 @@ export async function authorTests(
   }
   await verifyTestManifest(afterImplementation, input.previous);
   const files = await installTestFiles(cwd, input.cwd, changed, after);
-  const record = { prefix: input.prefix, targetId, stdoutHash: hash(result.stdout), files };
+  const record = {
+    prefix: input.prefix,
+    targetId,
+    stdoutHash: hash(result.stdout),
+    files,
+    inputHash: hash(targetText),
+    promptHash: hash(prompt),
+  };
   await writeFile(
     `${input.prefix}.json`,
     JSON.stringify({ ...record, status: reply.status, findings: reply.findings }, null, 2),
