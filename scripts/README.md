@@ -7,7 +7,7 @@
 - ハーネスの導入や検証は[READMEのセットアップと検証](../README.md#セットアップと検証)、変更とレビューの方針は[開発方針](../docs/wiki/development-policy.md)を参照してください。制御CLIや実モデルの起動は不要です。
 - 何を変更するか未確定の相談は[scoping](../skills/scoping/SKILL.md)で要求を整理し、[対話と方針の決定](../docs/wiki/development-policy.md#対話と方針の決定)に従って合意済みIssueへつなぎます。
 
-中断後の確認は[結果と再実行](#結果と再実行)、公開担当の操作は[PRの公開](#prの公開)、PRと人のレビュー・承認は[レビューを助ける説明](../docs/wiki/development-policy.md#レビューを助ける説明)を参照してください。公開の許可と範囲は[implement](../skills/implement/SKILL.md)と[IssueからPR作成](#issueからpr作成)で確認します。共通check内の制御テストは模擬コマンドを使いますが、ここで説明するCLI試行は実モデルを呼びます。
+初回不正評価からの検証は[初回不正評価後の新しい検証](#初回不正評価後の新しい検証)、中断後の確認は[結果と再実行](#結果と再実行)、公開担当の操作は[PRの公開](#prの公開)、PRと人のレビュー・承認は[レビューを助ける説明](../docs/wiki/development-policy.md#レビューを助ける説明)を参照してください。公開の許可と範囲は[implement](../skills/implement/SKILL.md)と[IssueからPR作成](#issueからpr作成)で確認します。共通check内の制御テストは模擬コマンドを使いますが、ここで説明するCLI試行は実モデルを呼びます。
 
 ## IssueからPR作成
 
@@ -286,6 +286,8 @@ bun /absolute/path/to/trusted/scripts/ui/run.ts \
 
 ホストは以前の全指摘の内容と判断を評価担当へ渡し、元の指摘内容と初出対象を保持します。評価担当は現在の成果物と必要な検証を確認し、過去の各IDに対して`id`・`disposition`・`reason`だけを持つ判断を`updates`へちょうど1件ずつ返します。解決済みの指摘も対象です。初回の`updates`は空配列にします。`disposition`は`open`・`fixed`・`not_applicable`のいずれかにします。`reason`へは未解決、修正済み、根拠付き非該当の判断理由を記します。修正担当の自己申告だけでは解決と扱いません。再発時は`open`へ戻します。
 
+評価担当は応答前に、ウォークスルーに使う最終対象ファイルを`nl -ba`などで番号付きで読み、空行を含む末尾行と各`path/start/end`の内容を照合します。1始まりの正の整数と`start <= end`を使い、終端改行の後を余分な行として数えません。未確認の範囲を推測で埋めないでください。ホストは対象ファイルの同一性・通常UTF-8ファイル・実在する行範囲を引き続き検査し、範囲の切詰めや自動補正はしません。
+
 ホストは形式と必須項目、対象ID、更新IDの欠落・重複・未知IDを検査します。新規指摘に`id`・`introducedIn`・`disposition`などの余分な項目があれば拒否します。過去指摘はIDを指定した`updates`で更新し、欠落を解決済みに読み替えません。不正な応答は`invalid_review`で停止します。ホストは過去の本文に現在の判断と新規指摘を合わせ、必須かつ`open`の指摘があれば`needs_changes`、それ以外は`accepted`を算出します。必須対応でない懸念はacceptedにも残せます。指摘の真偽や判断理由の十分性まで形式検査で保証するものではありません。欠落、不正、実行失敗時は停止し、指摘なしや成功には読み替えません。
 
 付属のCodex呼び出しは `gpt-6.1-sol` を使います。テスト作成（role=`test`）と通常の初回実装・追加修正（role=`repair`）は `medium`、独立評価と付属actorを使う手動review probe（role=`review`）は `high` です。[codex-actor.ts](implement/codex-actor.ts)でroleから選んだ同じ設定を、起動引数とactor記録へ渡します。独立評価の設定とreview target記録は[review.ts](implement/review.ts)の `reviewModel` を使い、highを維持します。チャットで選んだモデルでは子CLIの設定は変わりません。テスト作成・初回実装と修正はworkspace-write、評価はread-onlyで新しい実行を開始します。評価者はコード、テスト、文書を読み、ホスト側のcheck結果と分けて評価します。実行前にCodexへログインし、対象モデルが利用できるCLIを用意してください。GitHubの書き込みtokenを成果物やプロンプトへ埋め込まないでください。
@@ -354,6 +356,26 @@ PR本文のdraft公開・CI・公開後確認・ready切替は本文作成時点
 
 この応答契約は`state.json`の`reviewFormat: 4`で識別する新規実行に適用します。`reviewFormat: 1`・`2`・`3`や識別のない旧形式の保存状態は変換・再開・削除せず、その版の記録として保全します。保存済みの完全なReviewの項目構成は変更せず、引き続き`id`・`introducedIn`・`disposition`を必須とし、空のID・導入対象や不正な状態を拒否します。独自のreviewコマンドは新規実行前に`newItems[].id`の出力を外してください。`updates[].id`にはホストから渡された過去指摘のIDをそのまま返します。旧応答のIDは取り込まず、不正応答として停止します。repairは[修正・独立評価の担当](#修正独立評価の担当)で示す応答契約を使います。停止理由とログを保持し、回数や時間枠をリセットしません。対象変更、不正応答、評価失敗時に以前のacceptedへ戻す処理はありません。
 
+## 初回不正評価後の新しい検証
+
+未公開の初回独立評価が`invalid_review`で終端停止した場合、担当AIは原応答と評価対象・応答契約を照合し、信頼するハーネスの応答生成側を修正します。修正後のハーネスから旧runを明示して、同じ未コミット成果物を新しいrunで検証します。旧runを再開・変換・上書きせず、不正応答のJSONや行番号を人・ホストが編集して再投入する入口にはしません。
+
+```sh
+bun /absolute/path/to/fixed-trusted/scripts/implement/development.ts 99 \
+  --repo /absolute/path/to/stopped-checkout \
+  --review-run /absolute/path/to/old-run \
+  --run-dir /absolute/path/to/new-run \
+  --no-publish
+```
+
+`--run-dir`は旧runと同じ親ディレクトリの未使用保存先です。同じ保存先・旧run内・checkout内・Git保存領域内への保存を拒否します。`--review-run`は`--host-run`・`--host-evidence`・`--previous-run`・`--request-file`・`--start-commit`・`--report`と併用しません。通常初回実装のworktree作成、ホスト追加検証後の復帰、公開済みPRの修正は、それぞれの既存入口を使います。
+
+旧runの上位結果と検証stateはともに終端の`invalid_review`で、未公開、評価1回、有効な評価履歴なし、追加修正なし、active予約・lock・稼働プロセスなしである必要があります。有効な評価履歴や消費済みの追加修正を含む復帰履歴、公開済みPR修正のrun、別の停止理由、必要記録の欠落・不一致は拒否します。現在の形式の設定・stateを読み取り、旧形式へ変換しません。同じIssue本文、checkout、repository ID、実効主体、設定原文、HEAD・branch、元の差分基準、停止時成果物と独立テストの内容・モードを照合します。新しい結果には`localOnly`を保存し、旧runがローカル限定なら`--no-publish`を維持します。この項目のない旧記録も、公開権限を判別できないため`--no-publish`に限定します。
+
+新runは設定済みsetup後にも成果物を照合し、初回実装と初回テスト作成を繰り返さず、新しいcheckと独立評価を実行します。旧check・captureの成功、評価の申告、受入を移しません。新しい有効な指摘は通常の独立テスト・修正・再評価へ渡し、独立テストの修正前入力と保護対象を引き継ぎます。応答生成側のハーネス修正は対象設定のsetup・check・capture契約の変更とは別で、契約や停止ガードを緩めません。回数・時間枠を自動的に広げたり、復帰を自動で繰り返したりしません。
+
+`review-return.json`と新しい`verification-config.json`から旧runの絶対パス、記録のSHA-256、停止成果物・HEAD・branchを辿れます。不正な旧応答は診断資料として保持し、有効な評価履歴には入れません。実行中も旧証拠記録・テストの修正前入力・HEAD・branch・並行実行を照合し、旧記録の変更や照合不能では受入・公開へ進みません。公開が許可されたrunでも、評価中は停止時HEADを維持します。評価完了後にホストがcommitした場合は、そのcommitを指定して、停止時HEADを親に持つこと、検証済み成果物との一致、未コミット差分がないことを公開前に照合します。任意のHEAD変更を許可するものではありません。check・評価の境界で旧記録の変更を検出した場合は`host_evidence_changed`で停止します。プロセス一覧を取得できない環境では開始できないため、権限のあるホストで照合してください。旧記録を修復・上書きして条件を満たさないでください。
+
 ## ホスト検証後の再評価
 
 検証をホストから担当AIへ引き継ぎ、新しい記録で再評価します。通常check・captureに含まれない受入検証が残る場合、初回実装・追加修正は`needs_host`を返します。`findings`には必要な検証、設定済み経路では不足する理由、対象版、期待する証拠を説明します。空文字・空白だけの説明は不正応答です。CLIは`host_verification_required`で停止し、同じ未解決条件のcheck・レビュー・修正を続けず、公開へも進みません。通常検証待ちの`repaired`や、有効な反証を伴う無変更応答は従来どおり評価できます。
@@ -374,6 +396,10 @@ developmentの停止runには`host-stop.json`を保存します。元の差分�
 ```
 
 同じハーネス版の`correction.ts`が提供する`snapshot`で識別値を取得します。例のハーネスとcheckoutは実際の絶対パスへ置き換えます。この読取りで検証コマンドは実行しません。
+
+初回テスト工程の停止後、別の独立テスト工程で資産を準備した場合は、任意項目`testRecords`へその工程の`test-N.json`の絶対パスとSHA-256を指定できます。同じ参照を`logs`にも含めます。`prepared`または`unnecessary`の原記録だけが対象です。原応答・入力・指示のhash、固定Issue、現在のテスト内容とモードを照合し、新しいテスト担当へ資産だけを渡します。`needs_host`の保留記録を準備完了へ変換したり、実装担当の判断をテスト入力へ混ぜたりしません。
+
+テスト担当のstatusは資産の準備状態を示します。設定済みcheckやIssue全体の受入が実行待ちであることだけでは停止しません。準備に必要な未解決のホスト作業・入力は`needs_host`で返し、受入条件の未確認事項は`findings`へ残します。ホストの成功申告や準備記録によって、後続のcheck・独立評価を省略しません。
 
 ```sh
 bun -e 'import { snapshot } from "/absolute/path/to/trusted/scripts/implement/correction.ts"; console.log(await snapshot("/absolute/path/to/stopped-checkout"));'
@@ -442,13 +468,14 @@ bun scripts/implement/run-report.ts /absolute/path/to/run --output /absolute/pat
 | 検証の`reasonCode` | 対応と再判定に必要な条件 |
 | --- | --- |
 | `interrupted` | 検証中のSIGINT・SIGTERMによる中断。担当AIがプロセス・active予約・lock・公開状態を照合し、旧runを再開せず新しいrunで検証する。 |
-| `invalid_review`・`invalid_repair` | 担当AIが生応答と応答契約を照合する。レビューでは対象と文書参照も確認し、応答元の修正後に検証・評価を行う。 |
+| `invalid_review` | 担当AIが原応答と対象・文書参照・実在行範囲・応答契約を照合する。応答生成側を修正し、対応する初回停止だけ[新しい検証](#初回不正評価後の新しい検証)へ進む。履歴のある評価の停止はこの入口へ転用しない。 |
+| `invalid_repair` | 担当AIが生応答と修正の応答契約を照合し、応答元を修正する。`--review-run`の対象にはしない。 |
 | `review_storage_failed` | レビュー応答の検査後に`review-N.json`の保存が失敗した。担当AIが`findings`の元のエラー、保存先、生応答を調べ、ホストが許可範囲で保存環境を解消する。以前の完全な`reviewHistory`は残るが、今回の受入には使わない。 |
 | `repair_failed`・`review_failed` | 担当AIがコマンドの終了結果とstdout・stderrから実行環境を調べ、原因を解消してから再判定する。 |
 | `check_unavailable`・`capture_unavailable`・`capture_timeout` | 担当AIが起動失敗や時間切れ、撮影環境をログで調べる。ホストが必要な依存・ブラウザー・表示環境などを解消し、必要な検証・撮影を行う。上限の変更は人が判断する。 |
 | `requirements_changed` | 担当AIが保存した要求と現在のIssueを比較し、要求・範囲の変更は人の合意へ戻す。 |
 | `source_changed`・`target_changed_after_stop` | 担当AIが対象差分と同時更新の有無を照合し、意図した成果物への検証を確認する。古い成功で変更後の対象を受け入れない。 |
-| `host_evidence_changed` | 復帰後のcheck・評価中に参照証拠が変化・欠落した。担当AIが原因を照合し、新しい証拠と保存先を使って元の`--host-run`から再評価する。失敗runも終端記録として保全する。 |
+| `host_evidence_changed` | 復帰後のcheck・評価中に参照証拠が変化・欠落、または照合不能となった。担当AIが原因を照合し、`--host-run`では新しい証拠と保存先で元のホスト引き継ぎから再評価する。`--review-run`では旧記録を変更せず保全し、不一致の原因を調べる。失敗runも終端記録として保全する。 |
 | `host_verification_required` | 担当AIが通常経路に含まれない検証を実行し、[ホスト検証後の再評価](#ホスト検証後の再評価)へ進む。停止run・未コミット成果物と元の差分基準を保つ。 |
 | `human_decision_required` | findingsを確認し、要求・範囲・許可など必要な選択を人へ戻す。 |
 | `execution_limit` | 旧runで有限の回数・モデル累計時間の上限に到達した記録。新規runでは返しません。指摘と消費量を確認し、旧runの停止理由と上限は書き換えません。 |
@@ -459,7 +486,7 @@ bun scripts/implement/run-report.ts /absolute/path/to/run --output /absolute/pat
 
 レビューの保存に失敗した場合は終端結果を保存して後続修正・公開を止めます。終端stateも保存できない場合は元の停止理由と保存先・保存エラーを例外へ残し、直前の完全なstateとレビューのactive予約を保持して再実行を拒否します。生応答・以前の完全な評価・履歴は削除しません。保存環境全体が使えない場合まで新しい証拠の永続保存は保証できないため、stderr／例外と保存できた記録を併せて調べます。
 
-`repository`・`issue`・`startCommit`・`branch`・`checkout`は今回の対象、`evidence`は保存先です。保存済みの要求は`issue.json`、設定・主体は`target.json`にあります。準備失敗などでは参照先がまだ存在しない場合があります。検証の履歴・予算・activeの正本は下位stateのままで、上位結果へ複製しません。終端再照合で返された`target_changed_after_stop`などは、その呼び出しの結果を保持します。保存stateに以前の成功があっても上位の停止を取り消しません。
+`localOnly`は今回の公開しない指定です。`repository`・`issue`・`startCommit`・`branch`・`checkout`は今回の対象、`evidence`は保存先です。保存済みの要求は`issue.json`、設定・主体は`target.json`にあります。準備失敗などでは参照先がまだ存在しない場合があります。検証の履歴・予算・activeの正本は下位stateのままで、上位結果へ複製しません。終端再照合で返された`target_changed_after_stop`などは、その呼び出しの結果を保持します。保存stateに以前の成功があっても上位の停止を取り消しません。
 
 | `publication` | 意味と確認先 |
 | --- | --- |

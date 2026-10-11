@@ -1218,3 +1218,48 @@ if (!fixed) writeFileSync(${JSON.stringify(join(t.root, 'reviewed'))},'yes');
     object(JSON.parse(await readFile(join(t.config.runDir, 'review-2.json'), 'utf8'))).walkthrough,
   ).toEqual(saved);
 });
+
+// 末尾直上の拒否は、遠く離れた範囲の拒否だけでは守れない境界である。
+for (const [end, accepted, trailingNewline] of [
+  [3, true, false],
+  [4, false, false],
+  [3, true, true],
+  [4, false, true],
+] as const) {
+  test(`ウォークスルーの実在する末尾3行目と直上の境界: end=${end}, 終端改行=${trailingNewline}`, async () => {
+    const t = await trial('normal');
+    const content = '最初\n途中\n末尾' + (trailingNewline ? '\n' : '');
+    await writeFile(join(t.config.cwd, 'source.txt'), content);
+    await reviewer(
+      t,
+      `const reply=reviewReply('accepted','末尾の要求を確認'); reply.walkthrough[0].code=[{path:'source.txt',start:3,end:${end}}];`,
+    );
+    const result = t.execute();
+    expect(result.status).toBe(accepted ? 0 : 1);
+    const state = await t.state();
+    expect(state).toMatchObject({
+      checks: 1,
+      review: 1,
+      repair: 0,
+      result: accepted ? 'ready_for_human_review' : 'invalid_review',
+    });
+    const raw = object(
+      JSON.parse(await readFile(join(t.config.runDir, 'review-1.stdout'), 'utf8')),
+    );
+    expect(object(events(object(events(raw.walkthrough)[0]).code)[0]).end).toBe(end);
+    if (accepted) {
+      const record = object(
+        JSON.parse(await readFile(join(t.config.runDir, 'review-1.json'), 'utf8')),
+      );
+      expect(events(object(record.walkthrough).files)).toMatchObject([
+        { path: 'source.txt', content },
+      ]);
+      expect(events(state.reviewHistory)).toHaveLength(1);
+    } else {
+      expect(state.findings).toContain('コード行範囲を確認できません');
+      expect(state.reviewHistory).toEqual([]);
+      expect(await Bun.file(join(t.config.runDir, 'review-1.json')).exists()).toBe(false);
+      expect(await Bun.file(join(t.config.runDir, 'repair-1.prompt')).exists()).toBe(false);
+    }
+  });
+}

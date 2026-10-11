@@ -19,11 +19,20 @@ export const hostReturnShape = z.strictObject({
   evidence: reference,
 });
 export type HostReturn = z.infer<typeof hostReturnShape>;
+export const reviewReturnShape = z.strictObject({
+  previousRun: absolutePath,
+  records: z.array(reference).min(1),
+  source: z.string().regex(/^[a-f0-9]{64}$/),
+  head: nonblank,
+  branch: nonblank,
+});
+export type ReviewReturn = z.infer<typeof reviewReturnShape>;
 export const hostEvidenceShape = z.strictObject({
   status: z.enum(['passed', 'failed', 'unavailable']),
   source: z.string().regex(/^[a-f0-9]{64}$/),
   findings: nonblank,
   logs: z.array(reference).min(1),
+  testRecords: z.array(reference).min(1).optional(),
 });
 export const hostPreparationRecord = z.strictObject({
   sourceBefore: z.string().regex(/^[a-f0-9]{64}$/),
@@ -76,16 +85,30 @@ export async function verifyHostReturn(input: HostReturn, cwd: string) {
       }
     }
     const evidence = hostEvidenceShape.parse(JSON.parse(await readReference(current.evidence)));
+    for (const ref of evidence.testRecords ?? []) {
+      assert(
+        evidence.logs.some((log) => log.path === ref.path && log.sha256 === ref.sha256),
+        '準備済みテストの参照は同じhashのホスト証拠ログに含めてください',
+      );
+    }
+    const logs = new Map<string, string>();
     for (const ref of evidence.logs) {
       assert(outside(cwd, await realpath(ref.path)), 'Host logs must be outside checkout');
-      await readReference(ref);
+      logs.set(`${ref.sha256}:${ref.path}`, await readReference(ref));
     }
     assert(
       evidence.status === 'passed',
       `Host verification ${evidence.status}: ${evidence.findings}. Assigned AI: repair the defect or resolve the environment within existing authority, repeat required verification and use a new evidence file and run. Request human decisions only for changed requirements or authority.`,
     );
     history.push({ previousRun: current.previousRun, records, evidence });
-    latest ??= evidence;
+    latest ??= {
+      ...evidence,
+      testRecordContents: (evidence.testRecords ?? []).map((ref) => {
+        const content = logs.get(`${ref.sha256}:${ref.path}`);
+        assert(content !== undefined, '準備済みテストの検証済み本文がありません');
+        return content;
+      }),
+    };
     current = precedingReturn(configContent);
   }
   assert(latest);
