@@ -736,7 +736,7 @@ for (const [name, reply, reason] of [
 
 for (const [result, nextAction] of [
   ['review_storage_failed', 'writable evidence storage'],
-  ['invalid_review', 'raw review response'],
+  ['invalid_review', null],
   ['check_unavailable', 'check startup or timeout'],
   ['capture_unavailable', 'capture logs and configured runtime'],
   ['human_decision_required', 'human decision described in the repair findings'],
@@ -746,7 +746,24 @@ for (const [result, nextAction] of [
     f.verify = async (config) => ({ ...(await verify(config)), result });
     const saved = await stopped(f, new RegExp(`Verification stopped: ${result}`));
     expect(saved.reasonCode).toBe(result);
-    expect(saved.nextAction).toContain(nextAction);
+    if (result === 'invalid_review') {
+      // Issue要求5: 表現の綴りではなく、診断・生成側の修正と限定した新runの入口を守る。
+      expect(saved.nextAction).toMatch(/原応答|raw review response/i);
+      expect(saved.nextAction).toMatch(/応答生成|response producer|response generat/i);
+      expect(saved.nextAction).toContain('--review-run');
+      expect(saved.nextAction).toContain('--run-dir');
+      expect(saved.nextAction).toMatch(/初回|first|initial/i);
+      expect(saved.nextAction).toMatch(/未公開|unpublished/i);
+      expect(saved.nextAction).toMatch(
+        /履歴なし|no (?:valid )?(?:review )?history|without.*history/i,
+      );
+      expect(saved.nextAction).toMatch(/追加修正なし|no (?:additional )?repairs?|without.*repair/i);
+      expect(saved.nextAction).toMatch(
+        /旧応答.*編集.*再投入.*ない|(?:do not|never).*edit.*re.?submit/i,
+      );
+    } else {
+      expect(saved.nextAction).toContain(nextAction);
+    }
     expect(saved.nextAction).toContain('Evidence: ' + join(f.dir, 'verification/state.json'));
     expect(saved.nextAction).toContain(
       'reconfirm target, evidence, authorization and verification',

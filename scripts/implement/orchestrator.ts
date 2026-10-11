@@ -1,4 +1,9 @@
-import { authorTests, prepareTestBaseline, verifyTestArtifacts } from './test-author.ts';
+import {
+  authorTests,
+  prepareTestBaseline,
+  readPreparedTestRecord,
+  verifyTestArtifacts,
+} from './test-author.ts';
 import assert from 'node:assert/strict';
 import { reviewModel } from './review.ts';
 import { issueText } from './issue.ts';
@@ -8,8 +13,10 @@ import { resolve, join } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { parseArgs } from 'node:util';
+import { previousReviewRun } from './review-recovery.ts';
+import { verifyReviewReturn } from './review-recovery-records.ts';
 import { previousHostRun, saveHostStop } from './host-handoff.ts';
-import { hostLocalRoots, hash, verifyHostReturn } from './host-records.ts';
+import { hostLocalRoots, hostReturnContext, hash, verifyHostReturn } from './host-records.ts';
 import { run, snapshot, recordArtifacts } from './correction.ts';
 import { previousRun, checkRevision, revisionContext } from './revision.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
@@ -31,7 +38,7 @@ import { writeRunReport } from './run-report.ts';
 
 const runtime: {
   command: typeof command;
-  verify: (config: Config) => Promise<State>;
+  verify: (config: Config, publicationHead?: string) => Promise<State>;
   publish: typeof publish;
 } = { command, verify: run, publish };
 // Applied separately to each local verification command.
@@ -57,6 +64,7 @@ type DevelopmentResult = {
   evidence: string;
   details: string;
   publication: 'not_attempted' | 'unconfirmed' | 'published';
+  localOnly: boolean;
   url?: string;
   commit?: string;
   requiredChecks: string[];
@@ -233,13 +241,14 @@ function parseStart(args: string[]) {
       report: { type: 'string', multiple: true },
       'previous-run': { type: 'string' },
       'request-file': { type: 'string' },
+      'review-run': { type: 'string' },
       'host-run': { type: 'string' },
       'host-evidence': { type: 'string' },
     },
   });
   assert(
     parsed.positionals.length === 1,
-    'Usage: bun scripts/implement/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report docs/research/NAME.md=BLOB] [--previous-run DIRECTORY --request-file PATH] [--host-run DIRECTORY --host-evidence PATH]',
+    'Usage: bun scripts/implement/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report docs/research/NAME.md=BLOB] [--previous-run DIRECTORY --request-file PATH] [--host-run DIRECTORY --host-evidence PATH] [--review-run DIRECTORY --run-dir DIRECTORY]',
   );
   assert(
     Boolean(parsed.values['previous-run']) === Boolean(parsed.values['request-file']),
@@ -260,6 +269,15 @@ function parseStart(args: string[]) {
         !parsed.values['start-commit'] &&
         !parsed.values.report),
     'Host return requires a new --run-dir and inherits its original references',
+  );
+  assert(
+    !parsed.values['review-run'] ||
+      (parsed.values['run-dir'] &&
+        !parsed.values['host-run'] &&
+        !parsed.values['previous-run'] &&
+        !parsed.values['start-commit'] &&
+        !parsed.values.report),
+    '不正評価からの復帰は新しい--run-dirを使い、他の復帰入口・参照指定と混在できません',
   );
   return parsed;
 }
@@ -306,8 +324,21 @@ async function selectStart(args: string[], io: typeof runtime) {
     target,
     localOnly,
   });
+  const reviewPrior = parsed.values['review-run']
+    ? await previousReviewRun({
+        directory: parsed.values['review-run'],
+        runDirectory: parsed.values['run-dir'],
+        cwd: repo,
+        issue: number,
+        original,
+        head: base,
+        branch: await git('branch', '--show-current'),
+        target,
+        localOnly,
+      })
+    : undefined;
+  reports = reviewPrior?.config.reports ?? hostPrior?.config.reports ?? reports;
   if (hostPrior) {
-    reports = hostPrior.config.reports ?? [];
     assert(
       (await git('branch', '--show-current')) === hostPrior.branch,
       'Host handoff branch changed',
@@ -332,12 +363,12 @@ async function selectStart(args: string[], io: typeof runtime) {
       localOnly,
     };
   }
-  const inheritedBase = hostPrior?.baseCommit ?? prior?.state.baseCommit;
+  const inheritedBase = reviewPrior?.baseCommit ?? hostPrior?.baseCommit ?? prior?.state.baseCommit;
   if (inheritedBase) {
     // Keep the original PR-wide base when handing off already implemented work.
     await verifyReportBase(inheritedBase, reports, git);
   }
-  const inputs = prior || hostPrior ? [] : reports;
+  const inputs = reusesCheckout(prior, hostPrior, reviewPrior) ? [] : reports;
   const localTarget = await verifyStartInputs(repo, base, target.text, inputs, io);
   return {
     parsed,
@@ -350,6 +381,7 @@ async function selectStart(args: string[], io: typeof runtime) {
     number,
     prior,
     hostPrior,
+    reviewPrior,
     reports,
     revision,
     issue,
@@ -358,6 +390,10 @@ async function selectStart(args: string[], io: typeof runtime) {
     requirements,
     inputs,
   };
+}
+
+function reusesCheckout(prior: unknown, hostPrior: unknown, reviewPrior: unknown) {
+  return Boolean(prior || hostPrior || reviewPrior);
 }
 
 async function allocateDirectory(repo: string, common: string, dir: string, previous?: string) {
@@ -396,6 +432,7 @@ async function prepare(
     number,
     prior,
     hostPrior,
+    reviewPrior,
     reports,
     revision,
     issue,
@@ -412,9 +449,15 @@ async function prepare(
   const dir = resolve(
     parsed.values['run-dir'] ?? join(homedir(), '.local/share/dotagents/development', key, number),
   );
-  const canonical = await allocateDirectory(repo, common, dir, hostPrior?.dir ?? prior?.dir);
-  const cwd = prior || hostPrior ? repo : join(canonical, 'checkout');
-  const branch = hostPrior?.branch ?? prior?.branch ?? `codex/development-${number}`;
+  const canonical = await allocateDirectory(
+    repo,
+    common,
+    dir,
+    reviewPrior?.dir ?? hostPrior?.dir ?? prior?.dir,
+  );
+  const cwd = reusesCheckout(prior, hostPrior, reviewPrior) ? repo : join(canonical, 'checkout');
+  const branch =
+    reviewPrior?.branch ?? hostPrior?.branch ?? prior?.branch ?? `codex/development-${number}`;
   const result: DevelopmentResult = {
     startedAt,
     status: 'stopped',
@@ -431,6 +474,7 @@ async function prepare(
     evidence: canonical,
     details: canonical,
     publication: 'not_attempted',
+    localOnly,
     ...(revision ? { url: revision.url } : {}),
     requiredChecks: target.config.ciChecks,
     remaining: [
@@ -446,7 +490,7 @@ async function prepare(
   if (revision) {
     revision.runDirectory = canonical;
   }
-  if (revision || hostPrior) {
+  if (revision || hostPrior || reviewPrior) {
     await saveResult(result, undefined);
   }
   const remote = await git('remote', 'get-url', target.config.remote);
@@ -456,7 +500,7 @@ async function prepare(
   assert((await git('rev-parse', 'HEAD')) === base, 'Start HEAD changed during preparation');
   if (revision) {
     await writeFile(join(dir, 'revision-request.md'), revision.request);
-  } else if (!hostPrior) {
+  } else if (!hostPrior && !reviewPrior) {
     await git('worktree', 'add', '-b', branch, cwd, base);
     if (localTarget) {
       await writeFile(join(cwd, '.dotagents.json'), target.text, { flag: 'wx' });
@@ -481,7 +525,9 @@ async function prepare(
     inputs,
     revision,
     hostReturn: hostPrior?.hostReturn,
-    reviewBase: hostPrior?.baseCommit ?? prior?.state.baseCommit ?? base,
+    reviewPrior,
+    reviewReturn: reviewPrior?.reviewReturn,
+    reviewBase: reviewPrior?.baseCommit ?? hostPrior?.baseCommit ?? prior?.state.baseCommit ?? base,
   };
 }
 type Context = Awaited<ReturnType<typeof prepare>>;
@@ -526,6 +572,7 @@ function verificationConfig(context: Context): Config {
     reports: context.reports,
     targetText: context.target.text,
     ...(context.hostReturn ? { hostReturn: context.hostReturn } : {}),
+    ...(context.reviewReturn ? { reviewReturn: context.reviewReturn } : {}),
     reviewModel,
     cwd,
     runDir: join(dir, 'verification'),
@@ -584,6 +631,14 @@ async function stopForHost(
   throw Error(`Host verification required: ${findings}`);
 }
 
+async function preparedHostTests(context: Context, contents: string[]) {
+  return Promise.all(
+    contents.map((content) =>
+      readPreparedTestRecord(content, issueText(context.original), context.cwd),
+    ),
+  );
+}
+
 async function returnedTests(context: Context) {
   const verified = context.hostReturn
     ? await verifyHostReturn(context.hostReturn, context.cwd)
@@ -593,10 +648,11 @@ async function returnedTests(context: Context) {
     !verified || verified.source === sourceBefore,
     'Host evidence does not match current deliverables',
   );
-  const records = [];
+  const records = await preparedHostTests(context, verified?.testRecordContents ?? []);
   const evidence = [];
   let pendingImplementation = true;
   let baseline: string | undefined;
+  // 明示した最新の準備記録がある場合、古い記録で上書きしません。
   for (const entry of verified?.history ?? []) {
     const previousRun = entry.previousRun;
     const content = entry.records.get(join(previousRun, 'verification-config.json'));
@@ -681,16 +737,20 @@ async function prepareIndependentTests(context: Context, testConfig: Config, io:
   return returned;
 }
 
+async function setup(context: Context, io: typeof runtime) {
+  for (const [index, argv] of context.target.config.setup.entries()) {
+    context.result.operation = `setup-${index + 1}`;
+    context.result.details = join(context.dir, context.result.operation);
+    await checked(io, targetCommand(argv), context.cwd, context.result.details);
+  }
+}
+
 async function implement(context: Context, io: typeof runtime) {
   const { cwd, dir, original, result: outcome } = context;
   outcome.phase = 'implementation';
   outcome.operation = 'check revision before setup';
   await revisionUnchanged(context, io);
-  for (const [index, argv] of context.target.config.setup.entries()) {
-    outcome.operation = `setup-${index + 1}`;
-    outcome.details = join(dir, outcome.operation);
-    await checked(io, targetCommand(argv), cwd, outcome.details);
-  }
+  await setup(context, io);
   outcome.operation = 'check implementation inputs';
   outcome.details = join(dir, 'target.json');
   const target = await unchangedTarget(context, io);
@@ -720,6 +780,21 @@ async function implement(context: Context, io: typeof runtime) {
     );
   }
   const testConfig = verificationConfig(context);
+  if (context.reviewPrior) {
+    const prior = context.reviewPrior;
+    assert(prior.config.testBaseline);
+    testConfig.testBaseline = prior.config.testBaseline;
+    await verifyReviewReturn(prior.reviewReturn, cwd, testConfig.runDir);
+    assert((await snapshot(cwd)) === prior.reviewReturn.source, '復帰前に成果物が変わりました');
+    await verifyTestArtifacts(cwd, prior.tests);
+    await writeFile(join(dir, 'review-return.json'), JSON.stringify(prior.reviewReturn, null, 2), {
+      flag: 'wx',
+    });
+    await writeFile(join(dir, 'test-records.json'), JSON.stringify(prior.tests), { flag: 'wx' });
+    await writeFile(join(dir, 'verification-config.json'), JSON.stringify(testConfig, null, 2));
+    await verify(context, testConfig, io);
+    return testConfig;
+  }
   assert(testConfig.test && testConfig.testBaseline);
   const returned = await prepareIndependentTests(context, testConfig, io);
   outcome.operation = 'independent test authoring';
@@ -784,6 +859,7 @@ async function implement(context: Context, io: typeof runtime) {
     'このcheckoutの外にある制御スクリプトや認証情報を編集しないでください。',
     `要求:\n${original}`,
     revisionContext(context.revision),
+    hostReturnContext(context.hostReturn),
     `Issue: https://github.com/${context.target.config.repository}/issues/${context.number}`,
     researchContext(context.reviewBase, context.reports),
   ].join('\n');
@@ -841,7 +917,7 @@ const verificationActions: Record<Exclude<StopReason, 'ready_for_human_review'>,
   interrupted:
     '担当AI: 中断したプロセス・active予約・lock・公開状態を照合し、原記録を保持してください。旧runは再開せず、新しいrunで検証・評価してください。',
   host_evidence_changed:
-    'Assigned AI: preserve the failed evidence and findings, reconcile changed or unavailable evidence, and obtain fresh verification evidence. Return from the original --host-run handoff using a new evidence file and run directory; never overwrite old records.',
+    '担当AI: 旧記録と失敗runを保全し、証拠の変化・欠落・照合不能の原因を調べてください。--host-runからの復帰では元のホスト引き継ぎから新しい証拠と保存先で再評価します。--review-runからの復帰では旧記録を編集して条件を満たさず、初回不正評価の復帰条件へ照合してください。',
   host_verification_required:
     'Assigned AI: execute the requested host verification within existing authority, preserve evidence and return via --host-run with a new record.',
   review_completed:
@@ -870,7 +946,7 @@ const verificationActions: Record<Exclude<StopReason, 'ready_for_human_review'>,
   capture_timeout:
     'Assigned AI: investigate capture timeout using retained logs and processes; the host must address environment problems within authorization. A human must decide any changed time limit.',
   invalid_review:
-    'Assigned AI: compare the raw review response with its target, document references and response contract; correct the response producer before new independent evaluation.',
+    '担当AI: 原応答・対象・行範囲・応答契約を照合し、信頼するハーネスの応答生成側を修正してください。未公開・履歴なし・追加修正なしの初回停止だけは--review-runと新しい--run-dirで検証できます。旧応答を編集・補正・再投入しないでください。',
   review_storage_failed:
     'Assigned AI: inspect the failed review save path, original error and raw response in state findings; the host must restore writable evidence storage. Previous complete reviewHistory is historical, not acceptance of this attempt.',
   invalid_repair:
@@ -889,7 +965,7 @@ async function verify(context: Context, config: Config, io: typeof runtime) {
   result.details = join(config.runDir, 'state.json');
   result.nextAction =
     'Inspect verification/state.json and its referenced findings and logs; reconcile the stop without changing active reservations or limits, and obtain any required human decision.';
-  const state: State = await io.verify(config);
+  const state: State = await io.verify(config, context.result.commit);
   const target = await readTarget(
     context.cwd,
     (argv, cwd) => checked(io, argv, cwd),
@@ -903,12 +979,26 @@ async function verify(context: Context, config: Config, io: typeof runtime) {
   if (state.result !== 'ready_for_human_review') {
     result.reasonCode = state.result ?? undefined;
     if (state.result) {
-      result.nextAction = `${verificationActions[state.result]} Evidence: ${result.details} and its referenced findings, history and logs. Obtain permission for host environment changes outside existing authorization. After assistance, reconfirm target, evidence, authorization and verification. Do not resume this run or change old runs, locks, active reservations or limits; the current entry point cannot resume a stopped run. Do not retry uncertain publication automatically.`;
+      result.nextAction = `${verificationActions[state.result]} Evidence: ${result.details} and its referenced findings, history and logs. Obtain permission for host environment changes outside existing authorization. After assistance, reconfirm target, evidence, authorization and verification. Do not resume this run or change old runs, locks, active reservations or limits; use only the documented new-run return path for the matching stop conditions. Do not retry uncertain publication automatically.`;
     }
     if (!result.remaining.includes('local_verification')) {
       result.remaining.unshift('local_verification');
     }
     throw Error(`Verification stopped: ${state.result}. ${state.findings ?? ''}`);
+  }
+  if (context.reviewReturn) {
+    try {
+      await verifyReviewReturn(
+        context.reviewReturn,
+        context.cwd,
+        config.runDir,
+        context.result.commit,
+      );
+    } catch (error) {
+      result.reasonCode = 'host_evidence_changed';
+      result.nextAction = verificationActions.host_evidence_changed;
+      throw error;
+    }
   }
   return { state, target };
 }
@@ -1009,6 +1099,7 @@ async function ship(
     dir,
     ...(context.revision ? [context.revision.previousRun] : []),
     ...(await hostLocalRoots(context.hostReturn)),
+    ...(context.reviewReturn ? [context.reviewReturn.previousRun] : []),
   ];
   await writeFile(
     body,

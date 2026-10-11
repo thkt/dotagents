@@ -7,6 +7,7 @@ import {
   hostReturnContext,
   verifyHostReturn,
 } from './host-records.ts';
+import { verifyReviewReturn, reviewReturnContext } from './review-recovery-records.ts';
 import { checkRevision, revisionContext } from './revision.ts';
 import { issueText } from './issue.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
@@ -647,6 +648,7 @@ async function reviewTarget(
     reports: config.reports ?? [],
     revision: config.revision,
     hostReturn: config.hostReturn,
+    reviewReturn: config.reviewReturn,
     hostPreparation: config.hostPreparation,
     source: state.source,
     latestRepair: repairsSinceReview.at(-1) ?? null,
@@ -719,6 +721,7 @@ async function evaluate(
     reviewInstructions,
     revisionContext(config.revision),
     hostReturnContext(config.hostReturn),
+    reviewReturnContext(config.reviewReturn),
     ...(config.hostPreparation
       ? [
           `復帰入口の照合後に許可された変更の版記録: ${JSON.stringify(config.hostPreparation)}。変更前・テスト転送後・初回実装後の版と差分を照合し、追加証拠の成立条件に影響する変更ならneeds_changesで必要な再検証へ戻してください。現在版へのホスト検証成功や受入の自動継承ではありません。`,
@@ -894,6 +897,7 @@ async function performRepair(
     '指摘が再発した場合は、既存の評価記録と過去の修正結果を現在の成果物と比較し、原因と修正方法を見直して、合意範囲内で必要な修正を続けてください。範囲外の改善や好みを完了条件にしないでください。',
     revisionContext(config.revision),
     hostReturnContext(config.hostReturn),
+    reviewReturnContext(config.reviewReturn),
     '文書内容の欠陥は修正へ戻し、影響するcheckと独立評価を更新してください。',
     '合意済みの受入基準と必要な振る舞いの検証を保ち、checkを通すために現実的な退行を隠さないでください。',
     '修正の診断や妥当性の確認に必要な範囲のcheckだけを実行してください。',
@@ -929,7 +933,7 @@ async function targetChange(config: ReviewConfig, state: State): Promise<StopRea
   if ((await snapshot(config.cwd)) !== state.source) {
     return 'source_changed';
   }
-  if (config.hostReturn) {
+  if (config.hostReturn || config.reviewReturn) {
     try {
       await verifyHostEntry(config, state);
     } catch (error) {
@@ -1052,16 +1056,20 @@ async function testBeforeRepair(
 
 type Verification = (state: State, issue: string, persist: Persist) => Promise<StopReason>;
 
-export async function run(config: unknown) {
+export async function run(config: unknown, publicationHead?: string) {
   assertConfig(config);
-  return lockedRun(config, async (state, issue, persist) => {
-    // 今回完了した修正だけを次の評価へ渡し、別runの説明を混ぜない。
-    let result: StopReason | RepairReference[] = [];
-    while (typeof result !== 'string') {
-      result = await cycle(config, state, issue, persist, result);
-    }
-    return result;
-  });
+  return lockedRun(
+    config,
+    async (state, issue, persist) => {
+      // 今回完了した修正だけを次の評価へ渡し、別runの説明を混ぜない。
+      let result: StopReason | RepairReference[] = [];
+      while (typeof result !== 'string') {
+        result = await cycle(config, state, issue, persist, result);
+      }
+      return result;
+    },
+    publicationHead,
+  );
 }
 
 export async function reviewOnce(config: unknown) {
@@ -1080,7 +1088,11 @@ export async function reviewOnce(config: unknown) {
   });
 }
 
-async function lockedRun(config: Config | ProbeConfig, verify: Verification) {
+async function lockedRun(
+  config: Config | ProbeConfig,
+  verify: Verification,
+  publicationHead?: string,
+) {
   await validate(config);
   const lock = resolve(config.runDir, 'lock');
   await mkdir(lock); // 既存lockは照合が必要であり、自動で引き継がない。
@@ -1089,10 +1101,14 @@ async function lockedRun(config: Config | ProbeConfig, verify: Verification) {
   let state: State | undefined;
   let failure: { error: unknown } | undefined;
   try {
-    state = await execute(config, (...args) => {
-      current = args[0]; // 既存の終端読取り・開始拒否では原記録を更新しない。
-      return verify(...args);
-    });
+    state = await execute(
+      config,
+      (...args) => {
+        current = args[0]; // 既存の終端読取り・開始拒否では原記録を更新しない。
+        return verify(...args);
+      },
+      publicationHead,
+    );
     assertRunning();
   } catch (error) {
     failure = { error: await interruptionError(path, current, error) };
@@ -1170,7 +1186,44 @@ async function initialTestRecords(config: Config | ProbeConfig, state: State) {
   }
 }
 
-async function verifyHostEntry(config: ReviewConfig, state: State | undefined) {
+async function verifyHostEntry(
+  config: ReviewConfig,
+  state: State | undefined,
+  publicationHead?: string,
+) {
+  if (config.reviewReturn) {
+    if (publicationHead) {
+      assert(
+        state?.result === 'ready_for_human_review' && state.source === (await snapshot(config.cwd)),
+        '公開commitには同じ成果物の有効な検証が必要です',
+      );
+      const parent = await command(
+        ['git', 'rev-parse', `${publicationHead}^`],
+        config.cwd,
+        '',
+        10000,
+      );
+      assert(
+        parent.code === 0 && !parent.timedOut && parent.stdout.trim() === config.reviewReturn.head,
+        '公開commitの親が停止時HEADと一致しません',
+      );
+      const changes = await command(
+        ['git', 'status', '--porcelain', '--', '.', ':(top,exclude).dotagents.json'],
+        config.cwd,
+        '',
+        10000,
+      );
+      assert(
+        changes.code === 0 && !changes.timedOut && changes.stdout.trim() === '',
+        '公開commitと検証済み成果物が一致しません',
+      );
+    }
+    await verifyReviewReturn(config.reviewReturn, config.cwd, config.runDir, publicationHead);
+    assert(
+      state || config.reviewReturn.source === (await snapshot(config.cwd)),
+      '復帰成果物が変わりました',
+    );
+  }
   if (config.hostReturn) {
     const evidence = await verifyHostReturn(config.hostReturn, config.cwd);
     const preparation = config.hostPreparation
@@ -1187,7 +1240,11 @@ async function verifyHostEntry(config: ReviewConfig, state: State | undefined) {
   }
 }
 
-async function execute(config: Config | ProbeConfig, verify: Verification): Promise<State> {
+async function execute(
+  config: Config | ProbeConfig,
+  verify: Verification,
+  publicationHead?: string,
+): Promise<State> {
   const path = resolve(config.runDir, 'state.json');
   let state: State | undefined;
   try {
@@ -1218,7 +1275,7 @@ async function execute(config: Config | ProbeConfig, verify: Verification): Prom
     return result.stdout.trim();
   };
   await verifyReportBase(base, config.reports ?? [], git);
-  await verifyHostEntry(config, state);
+  await verifyHostEntry(config, state, publicationHead);
   if (state?.result) {
     const unchanged =
       state.issueHash === digest(issue) && state.source === (await snapshot(config.cwd));

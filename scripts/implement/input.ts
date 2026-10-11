@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { hostPreparationShape, hostReturnShape } from './host-records.ts';
-import type { HostReturn } from './host-records.ts';
+import { hostPreparationShape, hostReturnShape, reviewReturnShape } from './host-records.ts';
+import type { HostReturn, ReviewReturn } from './host-records.ts';
 import { reviewRecord } from './review.ts';
 import { isArray, isCommandArray, isRecord, relativeDirectory } from '../shared/values.ts';
 
@@ -94,6 +94,7 @@ export interface ReviewConfig {
   targetText?: string;
   baseCommit?: string;
   hostReturn?: HostReturn;
+  reviewReturn?: ReviewReturn;
   hostPreparation?: { path: string; sha256: string };
   revision?: Revision;
   reports?: ReportReference[];
@@ -166,6 +167,7 @@ function assertReviewConfig(value: unknown, fields: string[]): asserts value is 
         'baseCommit',
         'targetText',
         'hostReturn',
+        'reviewReturn',
         'hostPreparation',
         'revision',
         'reports',
@@ -187,6 +189,13 @@ function assertReviewConfig(value: unknown, fields: string[]): asserts value is 
   assert(optionalString(value.targetText), '対象設定原文が不正です');
   assert(optionalString(value.baseCommit), 'Invalid base commit');
   assertRevision(value.revision);
+  if (value.reviewReturn !== undefined) {
+    reviewReturnShape.parse(value.reviewReturn);
+    assert(
+      value.hostReturn === undefined && value.revision === undefined,
+      '復帰入口を混在できません',
+    );
+  }
   if (value.hostReturn !== undefined) {
     hostReturnShape.parse(value.hostReturn);
   }

@@ -64,7 +64,11 @@ export function validateWalkthrough(
       file.sha256 === target[2] && hash(file.content) === file.sha256,
       'ウォークスルーのファイル識別値が一致しません',
     );
-    linesByPath.set(file.path, file.content.split('\n'));
+    const lines = file.content === '' ? [] : file.content.split('\n');
+    if (file.content.endsWith('\n')) {
+      lines.pop();
+    }
+    linesByPath.set(file.path, lines);
   }
   for (const step of steps) {
     for (const ref of step.code) {

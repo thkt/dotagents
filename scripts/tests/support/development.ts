@@ -246,7 +246,7 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
         }
       }
     },
-    async verify(this: void, config: Config): Promise<State> {
+    async verify(this: void, config: Config, _publicationHead?: string): Promise<State> {
       if (calls.verificationEntries === 1) {
         await mkdir(config.runDir, { recursive: true });
         await writeFile(join(config.runDir, 'review-2.stdout'), rawReview);
@@ -338,10 +338,10 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
       calls.implementations++;
       return fixture.implement(argv, cwd, input, timeout, prefix);
     },
-    verify: async (config: Config) => {
+    verify: async (config: Config, publicationHead?: string) => {
       expect(config.checkTimeMs).toBe(540000);
       calls.verificationEntries++;
-      const state = await fixture.verify(config);
+      const state = await fixture.verify(config, publicationHead);
       if (calls.verificationEntries === 1) {
         await writeFile(join(config.runDir, 'state.json'), JSON.stringify(state));
       }
@@ -360,14 +360,19 @@ export function testDevelopment(
   name: string,
   run: (fixture: DevelopmentFixture) => Promise<void>,
   settings: Partial<typeof targetConfig> = {},
+  timeout?: number,
 ) {
-  test(`development ${name}`, async () => {
-    const root = await realpath(await mkdtemp(join(tmpdir(), 'development run-')));
-    try {
-      await run(await developmentFixture(root, settings));
-    } finally {
-      await withInterrupts(async () => {});
-      await rm(root, { recursive: true, force: true });
-    }
-  });
+  test(
+    `development ${name}`,
+    async () => {
+      const root = await realpath(await mkdtemp(join(tmpdir(), 'development run-')));
+      try {
+        await run(await developmentFixture(root, settings));
+      } finally {
+        await withInterrupts(async () => {});
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+    timeout,
+  );
 }
