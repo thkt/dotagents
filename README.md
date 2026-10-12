@@ -24,7 +24,7 @@
 | 指示変更のeval | 関連する改善作業で、バージョン・ケース・モデル・有限の上限を固定して比較します。[実行条件と報告](scripts/README.md#指示変更時の同条件eval)から手動で開始します。定期実行や全PRの必須ゲートにはしません |
 | 実行結果 | developmentのrun保存先にある `result.json` から、理由・次の対応・証拠を辿ります。`report.html`は保存結果の表示です。下位state・生ログと、生成できない条件は[結果と再実行](scripts/README.md#結果と再実行)で確認します |
 
-共通登録されたスキルが、信頼する同じハーネス実体を参照することが前提です。利用するハーネスの commit と実体パスを確認し、そのバージョンの手順と lockfile を使います。必要なのは Bun 1.4.2、Git、gh、Codex CLI で、対応環境は macOS ホストと github.com です。Git・gh・Codex CLI の最低バージョンは定めていません。必要な機能と既存の認証は[CLI手順](scripts/README.md#issueからpr作成)で確認します。登録を変更するときは[保全と登録変更の方針](docs/wiki/development-policy.md#旧資産の保全と登録変更)に従います。
+共通登録されたスキルが、信頼する同じハーネス実体を参照することが前提です。利用するハーネスの commit と実体パスを確認し、そのバージョンの手順と lockfile を使います。必要なのは Bun 1.4.3、Git、gh、Codex CLI で、対応環境は macOS ホストと github.com です。Git・gh・Codex CLI の最低バージョンは定めていません。必要な機能と既存の認証は[CLI手順](scripts/README.md#issueからpr作成)で確認します。登録を変更するときは[保全と登録変更の方針](docs/wiki/development-policy.md#旧資産の保全と登録変更)に従います。
 
 内部の TypeScript export、参照されているだけのファイル、fallow の`entry`全体は、公開契約にしません。repo 外から内部 export を使う実例は未確認です。利用が見つかったら、対象と必要な保証を明示し、合意する範囲を見直します。
 
@@ -35,7 +35,7 @@ bun install --frozen-lockfile --ignore-scripts
 bun run check
 ```
 
-Bun 1.4.2 を使います。check は次の順に実行します。ツールごとに検査する対象を分けています。fallow 3.31.0 もバージョンを固定した開発依存で、上記の setup で導入します。
+Bun 1.4.3 を使います。check は次の順に実行します。ツールごとに検査する対象を分けています。fallow 3.32.0 もバージョンを固定した開発依存で、上記の setup で導入します。
 
 | 順 | package script | ツール | 検査する対象 |
 | --- | --- | --- | --- |

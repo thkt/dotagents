@@ -189,7 +189,7 @@ export async function previousHostRun(input: {
     const path = await realpath(ref.path);
     assert(
       outside(input.cwd, path) && outside(dir, path),
-      'New host logs must be outside checkout and previous run',
+      `host-evidence.logsの参照を拒否しました: ${ref.path}（realpath: ${path}）。禁止された保存領域: checkout ${input.cwd}、旧run ${dir}。両領域の外部に新しいログと証拠ファイルを保存し、新しいrunで復帰してください。旧actor原記録はruntimeRecordsとして自動で読み取り参照されるため、新規ホストログへの再登録は不要です。旧記録を変更・自動コピーして条件を満たさないでください。`,
     );
     await readReference(ref);
   }
