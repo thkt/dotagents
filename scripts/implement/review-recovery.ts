@@ -5,15 +5,16 @@ import type { Config, State } from './input.ts';
 import { assertConfig, assertState, testRecordsShape } from './input.ts';
 import { hash, verifyHostReturn } from './host-records.ts';
 import { reviewRecoveryRecords, verifyReviewReturn } from './review-recovery-records.ts';
+import { RecordObservation } from './record-observation.ts';
 import { snapshot } from './correction.ts';
 import { verifyTestArtifacts } from './test-author.ts';
 import { isRecord, outside } from '../shared/values.ts';
 import { targetCommand } from '../shared/target.ts';
 import type { readTarget } from '../shared/target.ts';
 
-async function verifyInitialHistory(config: Config, cwd: string) {
+async function verifyInitialHistory(config: Config, cwd: string, observation: RecordObservation) {
   if (config.hostReturn) {
-    const history = await verifyHostReturn(config.hostReturn, cwd);
+    const history = await verifyHostReturn(config.hostReturn, cwd, observation);
     for (const entry of history.history) {
       const content = entry.records.get(join(entry.previousRun, 'verification/state.json'));
       if (content) {
@@ -69,10 +70,15 @@ export async function previousReviewRun(input: {
   assert(input.runDirectory, '不正評価からの復帰には新しい--run-dirが必要です');
   const dir = await realpath(input.directory);
   assert(outside(dir, resolve(input.runDirectory)), '新runは旧runの外に保存してください');
+  const observation = new RecordObservation();
   const contents = new Map<string, Buffer>();
-  const saved = await reviewRecoveryRecords(dir, (path, content) => {
-    contents.set(path, content);
-  });
+  const saved = await reviewRecoveryRecords(
+    dir,
+    (path, content) => {
+      contents.set(path, content);
+    },
+    observation,
+  );
   const text = async (name: string) => {
     const content = contents.get(join(dir, name));
     assert(content, `復帰に必要な旧記録がありません: ${name}`);
@@ -188,7 +194,7 @@ export async function previousReviewRun(input: {
     state.source && state.source === (await snapshot(input.cwd)),
     '停止時の成果物が変わりました',
   );
-  await verifyInitialHistory(config, input.cwd);
+  await verifyInitialHistory(config, input.cwd, observation);
   assert(config.testBaseline, '旧独立テストの修正前入力がありません');
   await text('test-baseline.json');
   assert(
@@ -208,6 +214,9 @@ export async function previousReviewRun(input: {
     reviewReturn,
     input.cwd,
     join(resolve(input.runDirectory), 'verification'),
+    undefined,
+    new Set<string>(),
+    observation,
   );
   return { dir, config, tests, reviewReturn, branch: input.branch, baseCommit: state.baseCommit };
 }

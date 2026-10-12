@@ -60,6 +60,11 @@ export async function saveHostStop(input: {
   if (entries.some((entry) => entry.name === 'verification')) {
     files.push(...(await recordFiles(join(dir, 'verification'))));
   }
+  for (const entry of entries) {
+    if (entry.isDirectory() && /^(repair|review|test)-codex-/.test(entry.name)) {
+      files.push(...(await recordFiles(join(dir, entry.name))));
+    }
+  }
   const records = await Promise.all(files.map(reference));
   await writeFile(
     join(dir, 'host-stop.json'),
