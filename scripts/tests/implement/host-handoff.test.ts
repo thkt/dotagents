@@ -10,6 +10,11 @@ import { testDevelopment, gitOutput, issue, ok } from '../support/development.ts
 import type { DevelopmentFixture } from '../support/development.ts';
 import { object, reviewReplySource } from '../support/correction.ts';
 import { expectTestStage } from '../support/test-stage.ts';
+import {
+  expectActorAssociation,
+  expectActorReference,
+  saveActorRecord,
+} from '../support/actor-records.ts';
 
 const findings =
   'Run the agreed host measurement for current result.txt; configured check verifies local behavior only. Retain output and update the verification summary.';
@@ -867,6 +872,105 @@ testDevelopment('ホスト復帰の版記録がcheck中に変わったらreview�
   expect(await runRecords(f.dir)).toEqual(original);
   expect(await readFile(join(cwd, 'result.txt'), 'utf8')).toBe('implemented');
   expect(await gitOutput(cwd, 'status', '--porcelain')).toContain('verification.md');
+  expect(f.calls.implementations).toBe(1);
+  expect(f.calls.publications).toBe(0);
+  expect(f.calls.pushes).toBe(0);
+});
+
+for (const stage of ['initial', 'repair'] as const) {
+  testDevelopment(`ホスト停止は${stage}のrun直下actor記録を保全し復帰評価へ渡す`, async (f) => {
+    const implementation = f.implement;
+    let path = '';
+    f.implement = async (...args) => {
+      const response = await implementation(...args);
+      assert(args[4]);
+      path = await saveActorRecord(f.dir, args[4], 'repair', 'host-stop');
+      return response;
+    };
+    const cwd = await prepareStop(f, stage);
+    const stop = object(JSON.parse(await readFile(join(f.dir, 'host-stop.json'), 'utf8')));
+    const original = await runRecords(f.dir);
+    const m = await measurement(f, cwd);
+    expect((await develop(m.args, f.io)).status).toBe('verified_local');
+    const target: unknown = JSON.parse(
+      await readFile(join(m.dir, 'verification/review-1.target.json'), 'utf8'),
+    );
+    await expectActorReference(stop, path);
+    await expectActorReference(target, path);
+    expectActorAssociation(target, path, f.dir, 'implementation', 'repair');
+    expect(await readFile(join(m.dir, 'verification/review-1.prompt'), 'utf8')).toContain(m.dir);
+    expect(await runRecords(f.dir)).toEqual(original);
+    expect(f.calls.publications).toBe(0);
+    expect(f.calls.pushes).toBe(0);
+  });
+}
+
+testDevelopment('run直下のruntime原記録が停止後に変われば復帰を拒否する', async (f) => {
+  const implementation = f.implement;
+  let path = '';
+  f.implement = async (...args) => {
+    const response = await implementation(...args);
+    assert(args[4]);
+    path = await saveActorRecord(f.dir, args[4], 'repair', 'host-stop');
+    return response;
+  };
+  const cwd = await prepareStop(f);
+  const m = await measurement(f, cwd);
+  await writeFile(path, 'changed after host stop');
+  const original = await runRecords(f.dir);
+  const outcome: unknown = await develop(m.args, f.io).catch((error: unknown) => error);
+  expect(outcome).toBeInstanceOf(Error);
+  expect(String(outcome)).toMatch(/changed|変化|変更|hash|不一致/i);
+  expect(f.calls.verificationEntries).toBe(0);
+  expect(f.calls.implementations).toBe(1);
+  expect(await runRecords(f.dir)).toEqual(original);
+  expect(f.calls.publications).toBe(0);
+  expect(f.calls.pushes).toBe(0);
+});
+
+testDevelopment('複数回のホスト復帰は祖先と検証工程の原記録を評価へ引き継ぐ', async (f) => {
+  const implementation = f.implement;
+  let ancestor = '';
+  f.implement = async (...args) => {
+    const response = await implementation(...args);
+    assert(args[4]);
+    ancestor = await saveActorRecord(f.dir, args[4], 'repair', 'ancestor');
+    return response;
+  };
+  const cwd = await prepareStop(f);
+  const original = await runRecords(f.dir);
+  await writeFile(join(cwd, 'host-pending.txt'), 'Additional host measurement required');
+  const first = await measurement(f, cwd);
+  const verify = f.verify;
+  let intermediate = '';
+  f.verify = async (config) => {
+    const state = await verify(config);
+    if (config.runDir === join(first.dir, 'verification')) {
+      intermediate = await saveActorRecord(
+        config.runDir,
+        join(config.runDir, 'repair-1'),
+        'repair',
+        'intermediate',
+      );
+    }
+    return state;
+  };
+  await assert.rejects(() => develop(first.args, f.io), /Host verification required/);
+  const firstRecords = await runRecords(first.dir);
+  await rm(join(cwd, 'host-pending.txt'));
+  const m = await measurement(f, cwd, first.dir);
+  expect((await develop(m.args, f.io)).status).toBe('verified_local');
+  const target = object(
+    JSON.parse(await readFile(join(m.dir, 'verification/review-1.target.json'), 'utf8')),
+  );
+  await expectActorReference(target, ancestor);
+  await expectActorReference(target, intermediate);
+  expectActorAssociation(target, ancestor, f.dir, 'implementation', 'repair');
+  expectActorAssociation(target, intermediate, first.dir, 'verification/repair-1', 'repair');
+  expect(object(target.hostReturn).previousRun).toBe(first.dir);
+  expect(await readFile(join(m.dir, 'verification/review-1.prompt'), 'utf8')).toContain(first.dir);
+  expect(await runRecords(f.dir)).toEqual(original);
+  expect(await runRecords(first.dir)).toEqual(firstRecords);
   expect(f.calls.implementations).toBe(1);
   expect(f.calls.publications).toBe(0);
   expect(f.calls.pushes).toBe(0);

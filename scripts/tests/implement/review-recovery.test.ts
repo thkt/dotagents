@@ -9,6 +9,11 @@ import { develop } from '../../implement/orchestrator.ts';
 import { gitOutput, issue } from '../support/development.ts';
 import { events, object } from '../support/correction.ts';
 import {
+  expectActorAssociation,
+  expectActorReference,
+  saveActorRecord,
+} from '../support/actor-records.ts';
+import {
   records,
   recoveryCli,
   contractRecoveryCli,
@@ -541,4 +546,57 @@ testDevelopment('公開CLIは旧runの稼働プロセスを拒否し、終了後
   const saved = object(JSON.parse(await readFile(join(t.dir, 'result.json'), 'utf8')));
   expect(saved).toMatchObject({ status: 'verified_local', publication: 'not_attempted' });
   expect(await records(f.dir)).toEqual(original);
+});
+
+testDevelopment('不正評価からの新runは旧actor原記録をpromptから辿れ保全する', async (f) => {
+  const implementation = f.implement;
+  let path = '';
+  f.implement = async (...args) => {
+    const response = await implementation(...args);
+    assert(args[4]);
+    path = await saveActorRecord(f.dir, args[4], 'repair', 'invalid-review');
+    return response;
+  };
+  const t = await recoveryFixture(f);
+  const original = await records(f.dir);
+  const result = await develop(t.args, f.io);
+  expect(result.status).toBe('verified_local');
+  const prefix = join(t.dir, 'verification/review-1');
+  const target = object(JSON.parse(await readFile(`${prefix}.target.json`, 'utf8')));
+  await expectActorReference(target, path);
+  expectActorAssociation(target, path, f.dir, 'implementation', 'repair');
+  expect(await readFile(`${prefix}.prompt`, 'utf8')).toContain(`${prefix}.target.json`);
+  expect(target.reviewReturn).toMatchObject({ previousRun: f.dir });
+  expect(await records(f.dir)).toEqual(original);
+  expect(f.calls.implementations).toBe(1);
+  expect(f.calls.pushes).toBe(0);
+  expect(f.calls.publications).toBe(0);
+});
+
+testDevelopment('不正評価の停止後に旧actor原記録が変われば新runの検証を起動しない', async (f) => {
+  const implementation = f.implement;
+  let path = '';
+  f.implement = async (...args) => {
+    const response = await implementation(...args);
+    assert(args[4]);
+    path = await saveActorRecord(f.dir, args[4], 'repair', 'invalid-review');
+    return response;
+  };
+  const t = await recoveryFixture(f);
+  const record = object(JSON.parse(await readFile(path, 'utf8')));
+  const runtime = object(record.runtime);
+  // 同じ形式・role・prefixを保ち、観測値の内容だけを停止後に変えます。
+  object(runtime.cli).version = { value: 'changed-after-stop', reason: null };
+  await writeFile(path, JSON.stringify(record));
+  const original = await records(f.dir);
+  const executions = await readFile(t.executions, 'utf8');
+  const outcome: unknown = await develop(t.args, f.io).catch((error: unknown) => error);
+  expect(outcome).toBeInstanceOf(Error);
+  expect(String(outcome)).toMatch(/runtime|actor|原記録/i);
+  expect(String(outcome)).toMatch(/chang|hash|変更|変化|不一致/i);
+  expect(await readFile(t.executions, 'utf8')).toBe(executions);
+  expect(await records(f.dir)).toEqual(original);
+  expect(f.calls.implementations).toBe(1);
+  expect(f.calls.pushes).toBe(0);
+  expect(f.calls.publications).toBe(0);
 });

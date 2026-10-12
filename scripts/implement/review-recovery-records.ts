@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFile, readdir } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { assertConfig } from './input.ts';
-import { hash, verifyHostReturn } from './host-records.ts';
+import { assertConfig, assertState } from './input.ts';
+import { verifyReviewedRuntime } from './runtime-records.ts';
+import { RecordObservation } from './record-observation.ts';
+import { verifyHostReturn } from './host-records.ts';
 import type { ReviewReturn } from './host-records.ts';
 import { verifyTestBaseline } from './test-author.ts';
 import { reconcileExecutions } from './revision.ts';
@@ -12,20 +14,21 @@ import { command } from '../shared/process.ts';
 export async function reviewRecoveryRecords(
   dir: string,
   observed?: (path: string, content: Buffer) => void,
+  observation = new RecordObservation(),
 ): Promise<{ path: string; sha256: string }[]> {
   const result = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isFile()) {
-      const content = await readFile(path);
+      const { content, sha256 } = await observation.read(path, true);
       observed?.(path, content);
-      result.push({ path, sha256: hash(content) });
+      result.push({ path, sha256 });
     } else if (entry.isDirectory()) {
       if (
         !['checkout', 'test-baseline'].includes(entry.name) &&
         !entry.name.endsWith('-workspace')
       ) {
-        result.push(...(await reviewRecoveryRecords(path, observed)));
+        result.push(...(await reviewRecoveryRecords(path, observed, observation)));
       }
     } else {
       assert.fail(`旧runの記録は通常ファイルである必要があります: ${path}`);
@@ -76,29 +79,49 @@ export async function verifyReviewReturn(
   runDir: string,
   publicationHead?: string,
   visited = new Set<string>(),
+  observation = new RecordObservation(),
 ) {
   assert(!visited.has(input.previousRun), '不正評価の復帰履歴が循環しています');
   visited.add(input.previousRun);
   const configuration: { path: string; content?: Buffer } = {
     path: join(input.previousRun, 'verification-config.json'),
   };
-  const current = await reviewRecoveryRecords(input.previousRun, (path, content) => {
-    if (configuration.path === path) {
-      configuration.content = content;
-    }
-  });
+  let stateContent: Buffer | undefined;
+  const current = await reviewRecoveryRecords(
+    input.previousRun,
+    (path, content) => {
+      if (path === join(input.previousRun, 'verification/state.json')) {
+        stateContent = content;
+      }
+      if (configuration.path === path) {
+        configuration.content = content;
+      }
+    },
+    observation,
+  );
   assert(
     JSON.stringify(current) === JSON.stringify(input.records),
     '旧不正評価runの記録が変わりました',
   );
+  assert(stateContent, '旧不正評価のstate記録がありません');
+  const state: unknown = JSON.parse(stateContent.toString('utf8'));
+  assertState(state);
+  await verifyReviewedRuntime(state, observation);
   assert(configuration.content);
   const config: unknown = JSON.parse(configuration.content.toString('utf8'));
   assertConfig(config);
   if (config.reviewReturn) {
-    await verifyReviewReturn(config.reviewReturn, cwd, runDir, publicationHead, visited);
+    await verifyReviewReturn(
+      config.reviewReturn,
+      cwd,
+      runDir,
+      publicationHead,
+      visited,
+      observation,
+    );
   }
   if (config.hostReturn) {
-    await verifyHostReturn(config.hostReturn, cwd);
+    await verifyHostReturn(config.hostReturn, cwd, observation, visited);
   }
   assert(config.testBaseline);
   await verifyTestBaseline(config.testBaseline);

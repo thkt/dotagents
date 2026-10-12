@@ -66,7 +66,9 @@ if(role==='test') {
 }
 if(role==='repair') {
  writeFileSync('README.md','要求した操作説明');
- console.log(JSON.stringify({status:'repaired',findings:'操作説明を追加'}));
+ console.log(JSON.stringify(control.hostRequired
+  ? {status:'needs_host',findings:'合意したホスト検証の追加証拠が必要です。'}
+  : {status:'repaired',findings:'操作説明を追加'}));
 }
 if(role==='review') {
  if(control.change) writeFileSync(control.change.path,control.change.content);

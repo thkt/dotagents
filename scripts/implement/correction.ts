@@ -1,3 +1,5 @@
+import { RecordObservation } from './record-observation.ts';
+import { runtimeRecords, verifyReviewedRuntime, runtimeInstructions } from './runtime-records.ts';
 import { authorTests, prepareTestBaseline, verifyTestArtifacts } from './test-author.ts';
 import { testDiagnostics } from './test-diagnostics.ts';
 import assert from 'node:assert/strict';
@@ -643,6 +645,7 @@ async function reviewTarget(
     }
   }
   const target = {
+    runtimeRecords: await runtimeRecords(config),
     issue: { hash: state.issueHash, content: issue },
     baseCommit: state.baseCommit,
     reports: config.reports ?? [],
@@ -688,7 +691,7 @@ async function reviewTarget(
   assert(diff.code === 0, 'Cannot record review diff');
   await writeFile(`${prefix}.diff`, diff.stdout, { flag: 'wx' });
   await writeFile(`${prefix}.additions.json`, JSON.stringify(additions, null, 2), { flag: 'wx' });
-  return { prefix, targetId, files };
+  return { prefix, targetId, files, runtimeRecords: target.runtimeRecords };
 }
 
 function documentVersions(review: Review, files: [string, number, string][]) {
@@ -719,6 +722,7 @@ async function evaluate(
   const history = state.reviewHistory;
   const prompt = [
     reviewInstructions,
+    runtimeInstructions,
     revisionContext(config.revision),
     hostReturnContext(config.hostReturn),
     reviewReturnContext(config.reviewReturn),
@@ -731,7 +735,7 @@ async function evaluate(
     `要求:\n${issue}`,
     researchContext(state.baseCommit, config.reports),
   ].join('\n');
-  const before = await targetChange(config, state);
+  const before = await targetChange(config, state, target.runtimeRecords);
   if (before) {
     return before;
   }
@@ -924,7 +928,11 @@ async function performRepair(
   return repairOutcome(config, state, repaired.stdout, repairsSinceReview, changedTests.files);
 }
 
-async function targetChange(config: ReviewConfig, state: State): Promise<StopReason | null> {
+async function targetChange(
+  config: ReviewConfig,
+  state: State,
+  currentRuntime: unknown[] = [],
+): Promise<StopReason | null> {
   const issue = await readIssue(config);
   await revisionUnchanged(config, issue);
   if (digest(issue) !== state.issueHash) {
@@ -933,9 +941,16 @@ async function targetChange(config: ReviewConfig, state: State): Promise<StopRea
   if ((await snapshot(config.cwd)) !== state.source) {
     return 'source_changed';
   }
+  const observation = new RecordObservation();
+  try {
+    await verifyReviewedRuntime(state, observation, currentRuntime);
+  } catch (error) {
+    state.findings = String(error);
+    return 'host_evidence_changed';
+  }
   if (config.hostReturn || config.reviewReturn) {
     try {
-      await verifyHostEntry(config, state);
+      await verifyHostEntry(config, state, undefined, observation);
     } catch (error) {
       state.findings = error instanceof Error ? error.message : String(error);
       return 'host_evidence_changed';
@@ -1191,6 +1206,7 @@ async function verifyHostEntry(
   config: ReviewConfig,
   state: State | undefined,
   publicationHead?: string,
+  observation = new RecordObservation(),
 ) {
   if (config.reviewReturn) {
     if (publicationHead) {
@@ -1219,14 +1235,21 @@ async function verifyHostEntry(
         '公開commitと検証済み成果物が一致しません',
       );
     }
-    await verifyReviewReturn(config.reviewReturn, config.cwd, config.runDir, publicationHead);
+    await verifyReviewReturn(
+      config.reviewReturn,
+      config.cwd,
+      config.runDir,
+      publicationHead,
+      undefined,
+      observation,
+    );
     assert(
       state || config.reviewReturn.source === (await snapshot(config.cwd)),
       '復帰成果物が変わりました',
     );
   }
   if (config.hostReturn) {
-    const evidence = await verifyHostReturn(config.hostReturn, config.cwd);
+    const evidence = await verifyHostReturn(config.hostReturn, config.cwd, observation);
     const preparation = config.hostPreparation
       ? hostPreparationRecord.parse(JSON.parse(await readReference(config.hostPreparation)))
       : undefined;
@@ -1276,7 +1299,11 @@ async function execute(
     return result.stdout.trim();
   };
   await verifyReportBase(base, config.reports ?? [], git);
-  await verifyHostEntry(config, state, publicationHead);
+  const observation = new RecordObservation();
+  await verifyHostEntry(config, state, publicationHead, observation);
+  if (state) {
+    await verifyReviewedRuntime(state, observation);
+  }
   if (state?.result) {
     const unchanged =
       state.issueHash === digest(issue) && state.source === (await snapshot(config.cwd));
