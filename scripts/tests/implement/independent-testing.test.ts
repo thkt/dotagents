@@ -10,6 +10,7 @@ import { correctionFixture, events, object, reviewReplySource } from '../support
 import { run } from '../../implement/correction.ts';
 import { aggregateUsage } from '../../implement/usage.ts';
 import { randomUUID } from 'node:crypto';
+import { expectTestStage } from '../support/test-stage.ts';
 
 const { trial, cleanup } = correctionFixture();
 afterEach(cleanup);
@@ -31,6 +32,8 @@ testDevelopment('不要な独立テスト判定でも正常にローカル検証
     expect(args[2]).toContain('Show the requested result.');
     expect(args[2]).not.toContain('Implementation claim, not verification');
     expect(args[2]).not.toContain('RAW_LOG_ONLY');
+    assert(args[4]);
+    await expectTestStage(args[2], args[4], 'initial');
     return prepare(...args);
   };
   const result = await develop(f.args, f.io);
@@ -268,7 +271,7 @@ const match=prompt.match(/入力: (\\{[^\\n]+\\})/);
 if(!match) throw Error('テスト作成入力が必要');
 const input=JSON.parse(match[1]);
 const prior=existsSync(${JSON.stringify(testFile)});
-appendFileSync(${JSON.stringify(observations)},JSON.stringify({cwd:process.cwd(),source:readFileSync('source.txt','utf8'),docs:existsSync('README.md'),prior,prompt})+'\\n');
+appendFileSync(${JSON.stringify(observations)},JSON.stringify({cwd:process.cwd(),source:readFileSync('source.txt','utf8'),docs:existsSync('README.md'),prior,prompt,stage:input.stage})+'\\n');
 if(!prior) writeFileSync(${JSON.stringify(testFile)},${JSON.stringify(testSource)});
 console.log(JSON.stringify({targetId:input.targetId,status:prior?'unnecessary':'prepared',findings:'修正前のsourceがbrokenなら終了1、要求どおりcorrectなら終了0となる期待値を保持します。',files:prior?[]:[${JSON.stringify(testFile)}]}));
 `,
@@ -317,6 +320,15 @@ console.log(JSON.stringify({targetId:input.targetId,status:prior?'unnecessary':'
       expect(observed).toHaveLength(2);
       expect(new Set(observed.map((item) => item.cwd)).size).toBe(2);
       expect(observed.map((item) => item.prior)).toEqual([false, true]);
+      expect(observed.map((item) => item.stage)).toEqual(['correction', 'correction']);
+      for (const [index, observation] of observed.entries()) {
+        assert(typeof observation.prompt === 'string');
+        await expectTestStage(
+          observation.prompt,
+          join(t.config.runDir, `test-${index + 1}`),
+          'correction',
+        );
+      }
       expect(await readFile(join(t.config.cwd, testFile), 'utf8')).toBe(testSource);
       const history = events(state.reviewHistory).map(object);
       expect(history.at(-1)?.status).toBe('accepted');

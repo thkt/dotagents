@@ -8,6 +8,7 @@ import { object } from '../support/correction.ts';
 import { asset, assetSource, hostTestFixture } from '../support/host-test-records.ts';
 import { issue } from '../support/development.ts';
 import { records, testReviewRecovery } from '../support/review-recovery.ts';
+import { expectTestStage } from '../support/test-stage.ts';
 
 // Issue #373 要求2～4と採用済み修正要求: 外部準備記録の境界は旧run内の保全では代替できない。
 // 正常なprepared/unnecessaryを対照とし、状態・要求・対象・由来・hash・資産を個別に壊す。
@@ -38,6 +39,8 @@ for (const status of ['prepared', 'unnecessary']) {
     });
     expect(observations[0]?.prompt).not.toContain('EXTERNAL_PRIVATE_SENTINEL');
     expect(observations[0]?.prompt).not.toContain('IMPLEMENTATION_PRIVATE_SENTINEL');
+    assert(typeof observations[0]?.prompt === 'string');
+    await expectTestStage(observations[0].prompt, join(t.dir, 'test-1'), 'host_return');
     const state = object(
       JSON.parse(await readFile(join(t.dir, 'verification/state.json'), 'utf8')),
     );

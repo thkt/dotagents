@@ -30,8 +30,11 @@ const control=JSON.parse(readFileSync(${JSON.stringify(control)},'utf8'));
 if(role==='test') {
  const prompt=readFileSync(0,'utf8');
  const input=JSON.parse(prompt.split('入力: ')[1].split('\\n')[0]);
+ // 初回限定の弱い対照は明示された通常初回にだけ適用する。
+ const weaken=!control.pending && input.stage==='initial';
+ if(weaken) writeFileSync(${JSON.stringify(asset)},'process.exit(0);\\n');
  appendFileSync(${JSON.stringify(observations)},JSON.stringify({role,prompt,asset:existsSync(${JSON.stringify(asset)})?readFileSync(${JSON.stringify(asset)},'utf8'):null,result:readFileSync('result.txt','utf8')})+'\\n');
- console.log(JSON.stringify({targetId:input.targetId,status:control.pending?'needs_host':'unnecessary',findings:'模擬工程。固定した要求からテスト資産を再判定する。',files:[]}));
+ console.log(JSON.stringify({targetId:input.targetId,status:control.pending?'needs_host':weaken?'prepared':'unnecessary',findings:'模擬工程。固定した要求からテスト資産を再判定する。',files:weaken?[${JSON.stringify(asset)}]:[]}));
 }
 if(role==='repair') {
  appendFileSync(${JSON.stringify(observations)},JSON.stringify({role})+'\\n');
@@ -94,38 +97,37 @@ mock.module(${JSON.stringify(processPath)},()=>({...original,command:async(argv,
   await mkdir(external);
   const prefix = join(external, 'test-1');
   assert(typeof config.testBaseline === 'string' && typeof config.baseCommit === 'string');
-  const prepared = await authorTests(
-    {
-      cwd,
-      baseline: config.testBaseline,
-      prefix,
-      issue,
-      baseCommit: config.baseCommit,
-      check: f.settings.check,
-      setup: f.settings.setup,
-      actor: ['external-test-fixture'],
-      previous: [],
-    },
-    async (argv, work, prompt, timeout, output) => {
-      if (argv[0] !== 'external-test-fixture') {
-        return command(argv, work, prompt, timeout, output);
-      }
-      const input = object(JSON.parse(prompt.split('入力: ')[1]?.split('\n')[0] ?? ''));
-      if (status === 'prepared') {
-        await writeFile(join(work, asset), assetSource, { mode: 0o755 });
-      }
-      const stdout = JSON.stringify({
-        targetId: input.targetId,
-        status,
-        findings: 'EXTERNAL_PRIVATE_SENTINEL: 要求したresult値を確認する独立資産。',
-        files: status === 'prepared' ? [asset] : [],
-      });
-      assert(output);
-      await writeFile(`${output}.stdout`, stdout);
-      await writeFile(`${output}.stderr`, '');
-      return { code: 0, stdout, stderr: '', timedOut: false, ms: 1 };
-    },
-  );
+  const request = {
+    cwd,
+    baseline: config.testBaseline,
+    prefix,
+    issue,
+    baseCommit: config.baseCommit,
+    check: f.settings.check,
+    setup: f.settings.setup,
+    actor: ['external-test-fixture'],
+    previous: [],
+    stage: 'host_return' as const,
+  };
+  const prepared = await authorTests(request, async (argv, work, prompt, timeout, output) => {
+    if (argv[0] !== 'external-test-fixture') {
+      return command(argv, work, prompt, timeout, output);
+    }
+    const input = object(JSON.parse(prompt.split('入力: ')[1]?.split('\n')[0] ?? ''));
+    if (status === 'prepared') {
+      await writeFile(join(work, asset), assetSource, { mode: 0o755 });
+    }
+    const stdout = JSON.stringify({
+      targetId: input.targetId,
+      status,
+      findings: 'EXTERNAL_PRIVATE_SENTINEL: 要求したresult値を確認する独立資産。',
+      files: status === 'prepared' ? [asset] : [],
+    });
+    assert(output);
+    await writeFile(`${output}.stdout`, stdout);
+    await writeFile(`${output}.stderr`, '');
+    return { code: 0, stdout, stderr: '', timedOut: false, ms: 1 };
+  });
   const recordPath = `${prefix}.json`;
   const record = object(JSON.parse(await readFile(recordPath, 'utf8')));
   const ref = { path: recordPath, sha256: hash(await readFile(recordPath)) };
