@@ -1010,6 +1010,7 @@ async function testBeforeRepair(
       baseline: config.testBaseline,
       prefix,
       issue,
+      stage: 'correction',
       baseCommit: state.baseCommit,
       revisionRequest: config.revision?.request,
       check: config.check,

@@ -62,39 +62,38 @@ test('保護対象があれば成功後も新しいcheckout観測から内容・
     const baseline = join(root, 'baseline');
     await prepareTestBaseline(checkout, baseline);
     const source = 'process.exit(1);\n';
-    const prepared = await authorTests(
-      {
-        cwd: checkout,
-        baseline,
-        prefix: join(root, 'test-1'),
-        issue: '要求から定めた独立テスト成果物と保存応答を実装側で変更しない。',
-        baseCommit: '修正前',
-        check: ['bun', 'test'],
-        actor: ['独立テスト担当'],
-        previous: [],
-      },
-      async (argv, cwd, input, timeout, prefix) => {
-        if (argv[0] === 'git') {
-          return command(argv, cwd, input, timeout, prefix);
-        }
-        const match = input.match(/入力: (\{[^\n]+\})/);
-        assert(match?.[1] && prefix);
-        const context: unknown = JSON.parse(match[1]);
-        assert(typeof context === 'object' && context !== null && 'targetId' in context);
-        await writeFile(join(cwd, 'pending.test.js'), source);
-        await chmod(join(cwd, 'pending.test.js'), 0o755);
-        const response = ok(
-          JSON.stringify({
-            targetId: context.targetId,
-            status: 'prepared',
-            findings: '保存済み成果物を変更・削除した場合に拒否する条件を確認します。',
-            files: ['pending.test.js'],
-          }),
-        );
-        await writeFile(`${prefix}.stdout`, response.stdout);
-        return response;
-      },
-    );
+    const request = {
+      cwd: checkout,
+      baseline,
+      prefix: join(root, 'test-1'),
+      issue: '要求から定めた独立テスト成果物と保存応答を実装側で変更しない。',
+      baseCommit: '修正前',
+      check: ['bun', 'test'],
+      actor: ['独立テスト担当'],
+      previous: [],
+      stage: 'initial' as const,
+    };
+    const prepared = await authorTests(request, async (argv, cwd, input, timeout, prefix) => {
+      if (argv[0] === 'git') {
+        return command(argv, cwd, input, timeout, prefix);
+      }
+      const match = input.match(/入力: (\{[^\n]+\})/);
+      assert(match?.[1] && prefix);
+      const context: unknown = JSON.parse(match[1]);
+      assert(typeof context === 'object' && context !== null && 'targetId' in context);
+      await writeFile(join(cwd, 'pending.test.js'), source);
+      await chmod(join(cwd, 'pending.test.js'), 0o755);
+      const response = ok(
+        JSON.stringify({
+          targetId: context.targetId,
+          status: 'prepared',
+          findings: '保存済み成果物を変更・削除した場合に拒否する条件を確認します。',
+          files: ['pending.test.js'],
+        }),
+      );
+      await writeFile(`${prefix}.stdout`, response.stdout);
+      return response;
+    });
     expect(prepared.reply).toMatchObject({
       status: 'prepared',
       findings: '保存済み成果物を変更・削除した場合に拒否する条件を確認します。',

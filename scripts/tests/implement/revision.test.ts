@@ -28,6 +28,7 @@ import type { Config, State, Revision } from '../../implement/input.ts';
 import { isRecord } from '../../shared/values.ts';
 import { initializeTarget, githubTarget, git, targetConfig } from '../support/target.ts';
 import { testDevelopment } from '../support/development.ts';
+import { expectTestStage } from '../support/test-stage.ts';
 
 const shellLiteral = (value: string) => `'${value.replaceAll("'", "'\"'\"'")}'`;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -714,6 +715,7 @@ async function successfulRevision(
     expect(entry.prompt).toContain(await readFile(f.request, 'utf8'));
     expect(entry.prompt).not.toContain('Changed requested behavior');
     expect(entry.prompt).not.toContain('Verified current output');
+    await expectTestStage(entry.prompt, join(f.dir, 'test-1'), 'revision');
   }
   const config = await readObject(join(f.dir, 'verification-config.json'));
   expect(config.baseCommit).toBe(f.initialBase);

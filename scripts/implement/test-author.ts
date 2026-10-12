@@ -299,6 +299,7 @@ export async function authorTests(
     baseline: string;
     prefix: string;
     issue: string;
+    stage: 'initial' | 'revision' | 'correction' | 'host_return';
     revisionRequest?: string;
     baseCommit: string;
     check: string[];
@@ -331,6 +332,7 @@ export async function authorTests(
   const before = await copyPreviousTests(input.cwd, cwd, input.previous, prepared);
   const target = {
     issue: input.issue,
+    stage: input.stage,
     revisionRequest: input.revisionRequest ?? null,
     baseCommit: input.baseCommit,
     baseline: baselineRecord.files,
@@ -348,6 +350,7 @@ export async function authorTests(
   });
   const prompt = [
     '合意済みIssueから今回必要なテストを判断し、必要な場合だけ作成・更新してください。実装とは別の新セッションです。',
+    '入力のstageはホストが実行経路から定めた工程の段階です。initialは通常開発の初回テスト準備、revisionは既存PRの採用済み修正要求のテスト準備、correctionはcheck失敗または独立評価後の追加修正に先立つテスト準備、host_returnはホスト検証からの復帰時のテスト再判断です。host_returnは初回実装が未実行でも復帰です。新セッション、test-1という名前、前回テストの件数、診断の有無から初回と推測しないでください。',
     'AGENTS.mdと対象README・開発方針の関係する節、仕様・公開インターフェース、既存検証と実行方法を確認してください。修正前コードは不具合再現・接続・fixtureの確認に必要な範囲で読めます。',
     '入力にあるホストの実行証拠はテストの不足・接続不一致を診断する材料です。コマンド・対象版・終了と出力を読み、Issueと前回テストへ照合してください。実際の出力を期待値の根拠にせず、要求から期待結果を決めてください。実装担当の会話・判断・findingsや独立評価全文は入力に含めません。',
     ...(input.diagnostics?.length
@@ -363,7 +366,7 @@ export async function authorTests(
     '実装コードを変更しないでください。必要なテスト・fixture・接続定義の変更だけをfilesへ列挙してください。期待値と機械的な接続変更は区別し、期待値はIssueへ照合してください。前回テストの不足・誤りもこの別セッションで判断し、通すためだけに期待値を変更しないでください。',
     'commit・push・公開、ブラウザー・サーバー起動は禁止です。statusは独立テストの準備状態です。必要な資産が準備できればprepared、既存検証で十分ならunnecessaryです。設定済み全体checkとIssue全体の受入は後でホストと独立評価が確認します。その実行待ちだけでneeds_hostにしないでください。テストの準備に必要な未解決のホスト作業・入力がある場合はneeds_hostとして不足を具体的に示してください。要求・範囲・権限の変更は質問・選択肢・影響をfindingsに示してneeds_humanで止めてください。未確認の受入条件と限界はfindingsへ残し、成功扱いしないでください。',
     'targetIdをそのまま返し、status: prepared | unnecessary | needs_human | needs_host、空白以外のfindings、変更したfilesの配列を含むJSONだけを返してください。unnecessaryではfilesは空配列です。',
-    `入力: ${JSON.stringify({ targetId, baseCommit: input.baseCommit, check: input.check, setup: input.setup ?? [] })}`,
+    `入力: ${JSON.stringify({ targetId, stage: input.stage, baseCommit: input.baseCommit, check: input.check, setup: input.setup ?? [] })}`,
     `ホスト実行証拠: ${JSON.stringify(input.evidence ?? [])}`,
     `要求:\n${input.issue}`,
     ...(input.revisionRequest ? [`人が採用した固定の修正要求:\n${input.revisionRequest}`] : []),

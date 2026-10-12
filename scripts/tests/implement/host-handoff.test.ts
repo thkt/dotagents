@@ -9,6 +9,7 @@ import { command } from '../../shared/process.ts';
 import { testDevelopment, gitOutput, issue, ok } from '../support/development.ts';
 import type { DevelopmentFixture } from '../support/development.ts';
 import { object, reviewReplySource } from '../support/correction.ts';
+import { expectTestStage } from '../support/test-stage.ts';
 
 const findings =
   'Run the agreed host measurement for current result.txt; configured check verifies local behavior only. Retain output and update the verification summary.';
@@ -175,6 +176,8 @@ testDevelopment('初回テストのホスト支援後に新しい独立判定と
     expect(await readFile(join(args[1], 'result.txt'), 'utf8')).toBe('old');
     expect(await Bun.file(join(args[1], 'unfinished.test.js')).exists()).toBe(false);
     expect(args[2]).not.toContain('HOST_PRIVATE_TEST_360');
+    assert(args[4]);
+    await expectTestStage(args[2], args[4], 'host_return');
     expect(args[2]).not.toContain('Implementation claim, not verification');
     const input = object(JSON.parse(args[2].split('入力: ')[1]?.split('\n')[0] ?? ''));
     await writeFile(join(args[1], testFile), testSource);
@@ -395,6 +398,12 @@ for (const ignored of [false, true]) {
     const text = await readFile(join(cwd, '.dotagents.json'), 'utf8');
     const records = await runRecords(f.dir);
     const m = await measurement(f, cwd);
+    const prepare = f.test;
+    f.test = async (...args) => {
+      assert(args[4]);
+      await expectTestStage(args[2], args[4], 'host_return');
+      return prepare(...args);
+    };
     const result = await develop(m.args, f.io);
     expect(result.status).toBe('verified_local');
     expect(await readFile(join(cwd, '.dotagents.json'), 'utf8')).toBe(text);

@@ -745,6 +745,10 @@ async function setup(context: Context, io: typeof runtime) {
   }
 }
 
+function testStage(context: Context) {
+  return context.hostReturn ? 'host_return' : context.revision ? 'revision' : 'initial';
+}
+
 async function implement(context: Context, io: typeof runtime) {
   const { cwd, dir, original, result: outcome } = context;
   outcome.phase = 'implementation';
@@ -805,6 +809,7 @@ async function implement(context: Context, io: typeof runtime) {
       baseline: testConfig.testBaseline,
       prefix: join(dir, 'test-1'),
       issue: issueText(original),
+      stage: testStage(context),
       revisionRequest: context.revision?.request,
       baseCommit: context.reviewBase,
       check: testConfig.check,
