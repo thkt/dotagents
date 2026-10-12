@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { expect } from 'bun:test';
-import { readFile, writeFile, readdir, rm } from 'node:fs/promises';
+import { readFile, writeFile, readdir, rm, chmod, stat, symlink } from 'node:fs/promises';
 import { join, dirname, basename } from 'node:path';
 import { develop } from '../../implement/orchestrator.ts';
 import { run, snapshot } from '../../implement/correction.ts';
@@ -631,6 +631,100 @@ for (const boundary of ['return', 'publication'] as const) {
         expect(f.calls.implementations).toBe(1);
         expect(f.calls.publications).toBe(0);
         expect(f.calls.pushes).toBe(0);
+      },
+    );
+  }
+}
+
+for (const location of ['external', 'checkout', 'previous_run'] as const) {
+  for (const linked of location === 'external' ? [false] : [false, true]) {
+    testDevelopment(
+      `ホストログ保存先の診断と原記録保全: ${location} symlink=${linked}`,
+      async (f) => {
+        const implement = f.implement;
+        let actorPath = '';
+        f.implement = async (...args) => {
+          const response = await implement(...args);
+          assert(args[4]);
+          actorPath = await saveActorRecord(f.dir, args[4], 'repair', 'log-boundary');
+          await chmod(actorPath, 0o440);
+          return response;
+        };
+        const cwd = await prepareStop(f);
+        const checkoutLog = join(cwd, 'host-measurement.stdout');
+        await writeFile(checkoutLog, 'checkoutに置かれた測定ログ');
+        await chmod(checkoutLog, 0o640);
+        const m = await measurement(f, cwd);
+        const original = await runRecords(f.dir);
+        const modes = await Promise.all(
+          Object.keys(original).map(async (path) => [path, (await stat(path)).mode]),
+        );
+        const checkoutBefore = await readFile(checkoutLog);
+        const calls = { ...f.calls };
+        let setups = 0;
+        const localCommand = f.localCommand;
+        f.localCommand = async (...args) => {
+          if (args[0][0] === 'sh') {
+            setups++;
+          }
+          return localCommand(...args);
+        };
+        const externalLog = m.evidence.logs[0];
+        assert(externalLog);
+        const log =
+          location === 'checkout'
+            ? checkoutLog
+            : location === 'previous_run'
+              ? actorPath
+              : externalLog.path;
+        const path = linked ? join(dirname(f.dir), 'host-log-link.stdout') : log;
+        if (linked) {
+          await symlink(log, path);
+        }
+        m.evidence.logs = [{ path, sha256: hash(await readFile(path)) }];
+        await writeFile(m.evidenceFile, JSON.stringify(m.evidence));
+
+        const outcome: unknown = await develop(m.args, f.io).catch((error: unknown) => error);
+        // 先に保全を検査し、診断不足だけを修正前の失敗として区別します。
+        expect(await runRecords(f.dir)).toEqual(original);
+        expect(
+          await Promise.all(
+            Object.keys(original).map(async (file) => [file, (await stat(file)).mode]),
+          ),
+        ).toEqual(modes);
+        expect(await readFile(checkoutLog)).toEqual(checkoutBefore);
+        expect((await stat(checkoutLog)).mode & 0o777).toBe(0o640);
+        expect(f.calls.publications).toBe(0);
+        expect(f.calls.pushes).toBe(0);
+        if (location === 'external') {
+          expect(outcome).toMatchObject({ status: 'verified_local' });
+          expect(setups).toBeGreaterThan(0);
+          const target: unknown = JSON.parse(
+            await readFile(join(m.dir, 'verification/review-1.target.json'), 'utf8'),
+          );
+          await expectActorReference(target, actorPath);
+          expectActorAssociation(target, actorPath, f.dir, 'implementation', 'repair');
+          expect(m.evidence.logs.map((ref) => ref.path)).not.toContain(actorPath);
+        } else {
+          expect(outcome).toBeInstanceOf(Error);
+          expect(await stat(m.dir).catch(() => null)).toBeNull();
+          expect(setups).toBe(0);
+          expect(f.calls).toEqual(calls);
+          const diagnostic = String(outcome);
+          expect(diagnostic).toContain(path);
+          expect(diagnostic).toContain(location === 'checkout' ? cwd : f.dir);
+          expect(diagnostic).toMatch(/外部|outside|external/i);
+          expect(diagnostic).toMatch(/新し[いく]|新規|new|fresh/i);
+          expect(diagnostic).toMatch(/ログ|logs?/i);
+          expect(diagnostic).toMatch(/証拠|evidence/i);
+          expect(diagnostic).toMatch(/run|実行記録|実行ディレクトリ/i);
+          expect(diagnostic).toContain('runtimeRecords');
+          expect(diagnostic).toMatch(/自動|automatic/i);
+          expect(diagnostic).toMatch(/読[み取]|read/i);
+          expect(diagnostic).toMatch(
+            /再登録.*(?:不要|必要.{0,6}(?:ない|ありません))|(?:不要|必要.{0,6}(?:ない|ありません)).*再登録|(?:no need|need not|do not|without).*re.?register/i,
+          );
+        }
       },
     );
   }

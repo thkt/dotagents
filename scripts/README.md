@@ -406,6 +406,28 @@ developmentの停止runには`host-stop.json`を保存します。元の差分�
 
 担当AIは停止理由と参照記録を読み、要求・対象版・実行主体と既存権限を照合して検証します。応答や証拠に書かれたコマンドをそのまま自動実行する機構はありません。生ログと検証結果JSONはcheckoutと旧runの外へ、新しいファイルとして保存します。検証に失敗したら通常の不具合修正へ、実行不能なら既存権限内で環境の解消へ戻します。要求・権限・許容範囲の変更が必要な場合だけ、人に具体的な選択と影響を示します。引き継ぎだけで作業を完了としません。
 
+`host-evidence.logs`がcheckoutや旧run内を直接指す場合も、外部のsymlinkから同じ領域を指す場合も、realpathで照合して復帰前に拒否します。診断に示された参照パスと禁止領域を確認し、両領域の外に新しいログ・証拠ファイルを保存し、新しいrunを使ってください。旧actor原記録は`runtimeRecords`として自動で読み取り参照されるため、新規`logs`への再登録は不要です。旧記録への自動書込み・自動コピーや保存先ガードの緩和は行いません。
+
+担当AIは起動入口の版、実際に動いた測定コマンド・子ツールの版、生ログ、結果要約を照合します。actor runtimeはCLI／ハーネスの観測であり、任意の測定コマンドやpackage script内の子Bunの版を証明しません。argv、必要な環境条件、観測した版と対象を要約し、秘密値やPATH全文の無条件保存は求めません。版が観測できない場合は未確認とし、親の版で補完しません。不一致や未観測を成功へ読み替えず、原因を解消して新しい証拠で再評価します。ログ内容の真実性を機械的に保証する仕組みではありません。
+
+**Bunを使う試行の環境指定**
+
+固定Bunの絶対パスで起動しても、package script内の子`bun`はPATHから別の版を選ぶ場合があります。固定実体のディレクトリをPATH先頭へ加えた同じ環境で、入口確認とpackage scriptを起動します。このrepoの実行版はBun 1.4.3です。例のパスは利用する固定実体へ置き換えてください。対象repoのコマンドや環境を共通ハーネスが自動補正するものではありません。
+
+```sh
+(
+  trial_bun=/absolute/path/to/bun-1.4.3/bin/bun
+  export PATH="$(dirname "$trial_bun"):$PATH"
+  "$trial_bun" --version
+  "$trial_bun" install --frozen-lockfile --ignore-scripts
+  "$trial_bun" run check
+)
+```
+
+入口確認だけでは子ツールの版の確認は完了しません。Bunのテスト起動ログなどで実際の子の版を読み、要約へ照合します。試行準備の小さな対照では、外部の一時fixtureのpackage scriptから`bun -e 'console.log(JSON.stringify({version:Bun.version,execPath:process.execPath}))'`を実行できます。親とPATH先頭の子Bunが異なる条件、親子が同じ固定環境を使う条件を比べ、実出力の版・実体を観測してください。親の版だけの要約が子の出力と矛盾する場合は、適切な証拠として扱いません。これはホスト側の準備実験であり、全対象repoへBunや版監視を要求する共通テストではありません。
+
+特別な追加証拠として旧ログのコピーが必要な場合だけ、原記録を変更せず、checkoutと旧runの外にある新規保存先へコピーします。原本とコピーの対応を記録し、内容のhashとファイルモードの一致を確認してください。コピーを新しい測定結果として扱わず、旧ログの対象版・条件・未確認事項を維持します。
+
 成果物に必要な検証要約と文書の待機表記を、通常checkの前に更新します。測定対象から変更した内容と証拠の適用条件を説明し、動作に影響する修正なら必要な測定も更新してください。検証結果JSONは次の形式です。`source`は説明更新後の成果物の識別値、`logs`は生ログの絶対パスとSHA-256です。担当AIが測定対象・方法・条件・実行結果、更新内容と証拠の適用理由・未確認事項を`findings`に記します。実行失敗は`failed`、実行不能は`unavailable`とし、成功へ読み替えません。
 
 ```json
@@ -597,13 +619,13 @@ SIGKILLのテストでは残存プロセスをテスト側で後片付けして�
 
 循環の検出は、同じ fallow 実行の`--circular-deps`で行います。保証するのは、fallow が解析できる実行時 import の循環に限ります。型のみの参照は循環として拒否しません。循環していない逆向きの依存や、責務境界のすべては検査しません。これらは調査とレビューで判断します。実行時の権限・鮮度・停止・データ保全は、既存の制御テストと独立評価で確認します。循環検査のために追加する適用除外は設けません。
 
-[.fallowrc.json](../.fallowrc.json)の`entry`には、外部から起動する CLI を、自動発見への追加の入口として指定します。バージョンを固定した fallow 3.31.0 では、`scripts/tests/**/*.test.ts`を Bun プラグインが、Oxlint が読み込む[ローカルプラグイン](lint/local/index.ts)を Oxlint プラグインが自動で検出します。`includeEntryExports`で入口の export も検査します。カスタム`framework`の`usedExports`と`enablers`では、Oxlint が有効なときの`default` export の利用を宣言します。この export の利用は、通常の lint の実行テストでも確認します。未使用のファイル・export・型と通常の依存には既定の`error`を使い、既定が`warn`の dev・optional 依存は明示的に`error`にします。他の export と、ファイル・依存の未使用検査も維持します。fallow のバージョンを更新するときは、既定の重大度と入口の自動検出を再確認してください。使用判定を調べるには、入口を`bunx --no-install fallow list`で、export の参照を`bunx --no-install fallow dead-code --trace scripts/shared/values.ts:isRecord`で確認してください。
+[.fallowrc.json](../.fallowrc.json)の`entry`には、外部から起動する CLI を、自動発見への追加の入口として指定します。バージョンを固定した fallow 3.32.0 では、`scripts/tests/**/*.test.ts`を Bun プラグインが、Oxlint が読み込む[ローカルプラグイン](lint/local/index.ts)を Oxlint プラグインが自動で検出します。`includeEntryExports`で入口の export も検査します。カスタム`framework`の`usedExports`と`enablers`では、Oxlint が有効なときの`default` export の利用を宣言します。この export の利用は、通常の lint の実行テストでも確認します。未使用のファイル・export・型と通常の依存には既定の`error`を使い、既定が`warn`の dev・optional 依存は明示的に`error`にします。他の export と、ファイル・依存の未使用検査も維持します。fallow のバージョンを更新するときは、既定の重大度と入口の自動検出を再確認してください。使用判定を調べるには、入口を`bunx --no-install fallow list`で、export の参照を`bunx --no-install fallow dead-code --trace scripts/shared/values.ts:isRecord`で確認してください。
 
 整形は`bun run format`、書式の確認は`bun run format:check`を使います。Oxfmt には`scripts`を渡し、[.oxfmtrc.json](../.oxfmtrc.json)の ignore 指定で、従来どおり`scripts/**/*.ts`だけを対象にします。package script に TS の glob を渡すと、fallow が整形対象を入口として追加し、未参照のファイルを見逃すためです。CLI・テストや format 設定を変えたときは、入口と検出条件も確認してください。
 
 静的解析の参照と推定 coverage は、実行時の利用やテストの網羅を証明しません。CRAP の推定値や類似コードだけで、自動削除や強制分割はしません。呼び出し元、実際の利用条件、既存のテストと突き合わせて判断します。追加調査で指摘がなくても、除外対象を含む全コードの健全性は保証されません。fallow の認知的複雑度と Biome の判定が常に一致するとは扱いません。
 
-ツールの詳細は[公式設定](https://fallow.tools/docs/configuration/overview/)と[重複検査](https://docs.fallow.tools/analysis/duplication)を参照してください。この repo で使うオプションは、導入済みの 3.31.0 の`--help`でも確認してください。
+ツールの詳細は[公式設定](https://fallow.tools/docs/configuration/overview/)と[重複検査](https://docs.fallow.tools/analysis/duplication)を参照してください。この repo で使うオプションは、導入済みの fallow 3.32.0 の`--help`でも確認してください。
 
 runtime の正常系・異常系は制御テストで確認します。撮影は、共通 check とは別に[撮影の実検証](#検証)で確認します。
 
@@ -791,7 +813,7 @@ gh pr edit PR_NUMBER --repo OWNER/REPO \
   "model": "利用するモデルID",
   "reasoning": "high",
   "cliVersion": "codex --versionの実出力",
-  "bunVersion": "1.4.2",
+  "bunVersion": "1.4.3",
   "gitVersion": "git --versionの実出力",
   "caseTimeMs": 300000,
   "totalTimeMs": 3000000,
