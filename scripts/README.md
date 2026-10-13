@@ -400,6 +400,8 @@ bun /absolute/path/to/fixed-trusted/scripts/implement/development.ts 99 \
 
 ## ホスト検証後の再評価
 
+対象repoで合意したe2e（TesterArmy）の追加検証も、この既存経路で扱います。[条件付き採用の手順](../skills/implement/references/testing.md#対象repoでのe2eの条件付き採用)で選択対象・実行完了・コードによる結果確認と必要な証拠を照合してください。既存setup・checkで実行される場合はその契約を使い、通常経路に含まれない受入検証が残る場合だけ以下へ引き継ぎます。撮影は[対象repoの設定](#対象repoの設定)と既存capture契約に従い、e2eのtraceを撮影媒体へ自動的に流用しません。
+
 検証をホストから担当AIへ引き継ぎ、新しい記録で再評価します。通常check・captureに含まれない受入検証が残る場合、初回実装・追加修正は`needs_host`を返します。`findings`には必要な検証、設定済み経路では不足する理由、対象版、期待する証拠を説明します。空文字・空白だけの説明は不正応答です。CLIは`host_verification_required`で停止し、同じ未解決条件のcheck・レビュー・修正を続けず、公開へも進みません。通常検証待ちの`repaired`や、有効な反証を伴う無変更応答は従来どおり評価できます。
 
 developmentの停止runには`host-stop.json`を保存します。元の差分基準commit、停止時HEAD・branch、成果物の識別値、応答と指摘履歴などの参照・SHA-256を保持します。`host-artifacts.json`には追跡差分、未追跡ファイルの内容・モード・symlink情報と対象ファイル一覧が残ります。元の`issue.json`、`target.json`、`verification-config.json`、実施済みなら`verification/state.json`から要求・設定・主体・報告と指摘へ辿れます。この形式のdevelopment停止runだけが復帰対象で、単独correctionや旧run、公開結果が不明なrunを転用しません。
