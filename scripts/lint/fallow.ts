@@ -24,7 +24,6 @@ try {
   if (result.error) {
     throw result.error;
   }
-  // Keep findings and error envelopes visible, including when the child fails.
   process.stdout.write(result.stdout);
   assert(result.status === 0, `fallow failed (${result.signal ?? result.status})`);
   const report: unknown = JSON.parse(result.stdout);

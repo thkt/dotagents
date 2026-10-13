@@ -36,3 +36,5 @@ Issueの記述と出典リンクで足りる場合は報告を作りません。
 過去の調査（当時のarchive仕様を含み、現行手順ではありません）: [scopingの調査成果を共有する保存先](https://github.com/thkt/dotagents/blob/78a8ccee4829ac0bfe61bed5fdb9d0efdd62b772/research/scoping-research-storage.md)。
 
 現在の手順は[wiki](../wiki/README.md)、重要な選択理由は[decisions](../decisions/README.md)へ残します。検証結果の現在の扱いは[検証結果を観測した範囲で使う](../wiki/evidence-scope.md)、実装・修正・独立評価への根拠の引き継ぎは[判断に使う根拠を同じ版で引き継ぐ](../wiki/reference-handoff.md)を参照してください。[共通手順](../../skills/references/documents.md)で原本と現行説明を分担してください。
+
+[Issue #382](https://github.com/thkt/dotagents/issues/382)の整理では、公開本文と同等または包含され、完了・見送りとなった草案73件と移行時の一覧・記録を現行ツリーから外しました。未合意・保留、公開本文との差が残る草案16件は保持しています。分類と本文照合の当時の根拠は[削除前の一覧](https://github.com/thkt/dotagents/blob/c539a26030b9ee575bdbce8b0ba6a66e888a9e3f/docs/research/documentation-inventory.json)から辿れます。削除は要求の変更や、過去の検証結果の再評価を意味しません。

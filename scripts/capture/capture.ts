@@ -1,7 +1,7 @@
+import { writeCaptureConfig } from './write-config.ts';
 import assert from 'node:assert/strict';
-import { access, writeFile, readFile, realpath, readdir, lstat } from 'node:fs/promises';
+import { access, readFile, realpath, readdir, lstat } from 'node:fs/promises';
 import { resolve, isAbsolute } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { isRecord, outside } from '../shared/values.ts';
@@ -120,14 +120,7 @@ async function capture() {
   }
   const report = `${outputPath}.report.json`;
   const config = `${outputPath}.config.mjs`;
-  await writeFile(
-    config,
-    `import base from ${JSON.stringify(pathToFileURL(configFile).href)};
-import { captureConfig } from ${JSON.stringify(pathToFileURL(resolve(import.meta.dir, 'config.ts')).href)};
-export default captureConfig(base, ${JSON.stringify(configFile)}, ${JSON.stringify(spec)}, ${JSON.stringify(outputPath)});
-`,
-    { flag: 'wx' },
-  );
+  await writeCaptureConfig(config, configFile, spec, outputPath);
   const child = spawn(process.execPath, [cli, 'test', '--config', config], {
     cwd,
     env: { ...process.env, CAPTURE_OUTPUT: outputPath },

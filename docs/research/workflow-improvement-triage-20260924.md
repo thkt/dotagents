@@ -35,7 +35,7 @@
 
 [#197](https://github.com/thkt/dotagents/issues/197)は調査を終えてCLOSED。成功checkの再利用は現状維持で、同じ成果物snapshotでも依存や環境の変更により結果が変わる。限定したcheckの入力・環境と削減できる実行頻度が具体化したときに再検討する。[#204](https://github.com/thkt/dotagents/issues/204)・[#207](https://github.com/thkt/dotagents/issues/207)も調査済みでCLOSED。図の追加集約や公開順序の新しい仕組みを、結果の確認なく提案し直さない。
 
-[TeamAIの試行](teamai-recall-evaluation.md)、[CodeGraphの評価案](issue-codegraph-evaluation.md)、[Portlessの試行](portless-worktree-trial-20260923.md)、[tantekiの試行](tanteki-evaluation-20260924.md)などは参照資料として保つ。必要資料の見落とし、repo外知識の探索負担、UI操作の保守負担など、対象とする困り事が実際に出た場合にその問いへ必要な比較を行う。既に採用した実行ログHTML、同条件eval入口、テストカタログ、日本語lint、fallowは新規Issueの候補から外す。
+[TeamAIの試行](teamai-recall-evaluation.md)、[CodeGraphの評価案](https://github.com/thkt/dotagents/blob/c539a26030b9ee575bdbce8b0ba6a66e888a9e3f/docs/research/issue-codegraph-evaluation.md)、[Portlessの試行](portless-worktree-trial-20260923.md)、[tantekiの試行](tanteki-evaluation-20260924.md)などは参照資料として保つ。必要資料の見落とし、repo外知識の探索負担、UI操作の保守負担など、対象とする困り事が実際に出た場合にその問いへ必要な比較を行う。既に採用した実行ログHTML、同条件eval入口、テストカタログ、日本語lint、fallowは新規Issueの候補から外す。
 
 原因調査で既存記録から答えられない問いが出た場合は、その問いに必要な記録だけ補う。記録量や定期実行を先に増やさない。
 
