@@ -1344,7 +1344,7 @@ function recordInterruption(result: DevelopmentResult) {
 async function saveResult(result: DevelopmentResult, failure: unknown) {
   const path = join(result.evidence, 'result.json');
   const save = async () => {
-    // Like correction state, only complete JSON is renamed into the result entry point.
+    // 完成したJSONだけを結果の入口へrenameする。
     await writeFile(`${path}.tmp`, JSON.stringify(result, null, 2), { flag: 'wx' });
     await rename(`${path}.tmp`, path);
   };

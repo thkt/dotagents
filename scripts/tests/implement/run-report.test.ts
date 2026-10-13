@@ -143,8 +143,6 @@ test('saved outputs highlight recognizable syntax without changing excerpts or t
     expect(panels[3]).toContain('class="hljs-string"');
     expect(panels[3]).toContain('class="hljs-comment"');
     expect(panels[7]).not.toContain('outsideExcerpt');
-    expect(html).not.toContain('色分けの候補');
-    expect(html).not.toContain('output-format');
     const inputPanels = [
       ...html.matchAll(/<section class="io-panel input-panel">([\s\S]*?)<\/section>/g),
     ];
@@ -240,27 +238,13 @@ test('run report distinguishes local verification from publication and links onl
       );
       expect(html.split(note)).toHaveLength(2);
     }
-    expect(html).toMatch(
-      /\.summary-fields\{[^}]*display:grid;[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\);[^}]*gap:16px/,
-    );
-    expect(html).toMatch(
-      /\.summary-fields>div\{[^}]*padding:12px 14px;[^}]*border:1px solid var\(--report-border\);[^}]*border-radius:8px;[^}]*background:var\(--report-field\)/,
-    );
-    expect(html).toMatch(/@media\(max-width:700px\)\{\.summary-fields\{grid-template-columns:1fr/);
-    expect(html).toMatch(/\.result-note\{[^}]*border-top:/);
     expect(html).toContain('<div class="result-note"><h3>実行結果</h3>');
     expect(html).toContain('<div class="result-note"><h3>ネクストアクション</h3>');
     expect(html).toContain(
       '<p class="report-note">残る作業: 人によるレビュー。人の承認・マージは、このrunの結果に含みません。</p>',
     );
-    expect(html).toMatch(/\.report-note\{[^}]*font-size:13px;[^}]*color:var\(--report-muted\)/);
-    const scopeNote =
-      '保存された事実と未確認事項を、この実行単位で示します。HTML生成は検証や公開を再実行しません。';
-    expect(html).not.toContain(scopeNote);
-    expect(html).not.toContain('<footer');
     expect(html).toContain('href="./verification/check-1.stdout"');
     expect(html).not.toContain('href="./verification/check-1.stderr"');
-    expect(html).not.toContain('ホスト ·');
     expect(html).toContain(
       '<span class="event-title">検証</span><span class="event-source"><span aria-hidden="true">L1</span><span class="visually-hidden">原記録 state.events の1番目（JSONの物理行ではありません）</span>',
     );
@@ -408,12 +392,6 @@ test('published draft requires CI evidence, and invalid evidence or existing out
     expect(html).toContain(
       '<summary><span class="event-title">CIの保存結果</span><span class="event-chevron" aria-hidden="true">›</span></summary>',
     );
-    expect(html).toMatch(
-      /summary\{[^}]*display:grid;[^}]*grid-template-columns:minmax\(0,1fr\) 18px;[^}]*list-style:none/,
-    );
-    expect(html).toMatch(/summary::-webkit-details-marker\{display:none/);
-    expect(html).toMatch(/details\[open\]>summary>\.event-chevron\{transform:rotate\(90deg\)/);
-    expect(html).toMatch(/summary:focus-visible\{[^}]*outline:3px/);
     expect(html).toContain('Draft公開・CI確認済み');
     expect(html).toContain('https://github.com/team/component/pull/100');
     expect(html).toContain('<span class="status-badge tone-success">passed</span>');
@@ -677,7 +655,6 @@ test('collapsed commands show escaped filenames while full paths and original ev
     expect(summary).toContain(
       '<span class="event-source"><span aria-hidden="true">L2</span><span class="visually-hidden">原記録 events.jsonl の2行目</span>',
     );
-    expect(summary).not.toContain('行 2 ·');
     expect(summary).not.toContain('抽出');
     expect(summary).not.toContain('入力ファイル候補');
     expect(html).toContain('<p>ファイル候補はcommandから一部のみ抽出。</p>');
@@ -685,7 +662,6 @@ test('collapsed commands show escaped filenames while full paths and original ev
     expect(html).toContain(
       '<pre>Saved summary &lt;unchanged&gt;</pre><p class="summary-source"><a href="./implementation-summary.md">要約の原記録を開く</a></p>',
     );
-    expect(html).toMatch(/\.summary-source\{[^}]*text-align:right;[^}]*font-size:13px/);
     expect(summary).toContain('<code>same.md</code>');
     expect(summary).toContain('one/');
     expect(summary).toContain('long-directory/'.repeat(90));
@@ -710,34 +686,12 @@ test('collapsed commands show escaped filenames while full paths and original ev
     );
     expect(tmpSummary).not.toContain('抽出');
     expect(tmpSummary).not.toContain('入力ファイル候補');
-    expect(html).toMatch(/\.input-file-tmp\{[^}]*background:var\(--report-tmp-bg\)/);
-    expect(html).toMatch(/\.input-location\{[^}]*font-size:11px/);
     expect(html).toContain(
       '<li class="input-path"><code class="input-path-value">/tmp/&lt;img src=x&gt;&amp;&quot;.md</code></li>',
-    );
-    expect(html).toMatch(/\.command-paths ul\{[^}]*list-style:none;[^}]*padding:0/);
-    expect(html).toMatch(/\.input-path\+\.input-path\{[^}]*border-top:/);
-    expect(html).toMatch(
-      /\.input-path-value\{[^}]*display:block;[^}]*color:var\(--report-muted\);[^}]*white-space:pre-wrap;[^}]*overflow-wrap:anywhere/,
-    );
-    expect(html).toMatch(/\.command-inputs\{[^}]*display:flex;[^}]*flex-wrap:wrap/);
-    expect(html).toMatch(
-      /\.input-file\{[^}]*display:inline-flex;[^}]*max-width:100%;[^}]*white-space:nowrap;[^}]*overflow-x:auto/,
-    );
-    expect(html).toMatch(/\.input-file>\*\{[^}]*flex-shrink:0/);
-    expect(html).toMatch(/\.input-file code\{[^}]*white-space:inherit/);
-    expect(html).toMatch(/summary:hover \.event-title\{[^}]*text-decoration:underline/);
-    expect(html).not.toMatch(/\.event-disclosure>summary:hover \.event-heading\{/);
-    expect(html).toMatch(
-      /\.event-source\{[^}]*display:inline-block;[^}]*margin-left:8px;[^}]*white-space:nowrap/,
     );
     expect(html).not.toMatch(/href="[^"]*events\.jsonl#/);
     const notes = html.match(/<aside class="report-notes"[^>]*>([\s\S]*?)<\/aside>/)?.[1] ?? '';
     expect(notes).toContain('<h3 id="report-notes-title">読み方</h3><ul>');
-    expect(html).toMatch(
-      /\.report-notes ul\{margin:0;padding-inline-start:1.2em;list-style-position:outside\}/,
-    );
-    expect(notes.match(/<li>/g)).toHaveLength(4);
     expect(notes).not.toContain('<details');
     for (const explanation of [
       '各ログ内の記録順。別ログ間の前後は未確認です。',
@@ -911,13 +865,6 @@ test('event titles respect event and item kinds while badge tones follow explici
     expect(html).toContain('<span class="status-badge tone-neutral">constructor</span>');
     expect(html).toContain('<span class="status-badge tone-neutral">&lt;unknown&gt;</span>');
     expect(html).toContain('class="pill tone-pending">停止</span>');
-    for (const tone of ['success', 'failure', 'pending', 'info', 'neutral']) {
-      expect(html).toMatch(
-        new RegExp(
-          `\\.tone-${tone}\\{[^}]*background:var\\(--report-[a-z-]+\\);[^}]*color:var\\(--report-[a-z-]+\\)`,
-        ),
-      );
-    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

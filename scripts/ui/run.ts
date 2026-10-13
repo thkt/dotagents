@@ -1,16 +1,7 @@
+import { writeCaptureConfig } from '../capture/write-config.ts';
 import assert from 'node:assert/strict';
-import {
-  access,
-  open,
-  lstat,
-  mkdir,
-  realpath,
-  readdir,
-  readFile,
-  writeFile,
-} from 'node:fs/promises';
+import { access, open, lstat, mkdir, realpath, readdir, readFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { capturePassed, captureUnavailable } from '../capture/capture.ts';
@@ -51,14 +42,7 @@ async function run() {
   await mkdir(`${outputPath}.artifacts`);
   const reportFile = await open(reportPath, 'wx');
   await reportFile.close();
-  await writeFile(
-    config,
-    `import base from ${JSON.stringify(pathToFileURL(configFile).href)};
-import { captureConfig } from ${JSON.stringify(pathToFileURL(resolve(import.meta.dir, '../capture/config.ts')).href)};
-export default captureConfig(base, ${JSON.stringify(configFile)}, ${JSON.stringify(spec)}, ${JSON.stringify(outputPath)});
-`,
-    { flag: 'wx' },
-  );
+  await writeCaptureConfig(config, configFile, spec, outputPath);
   const child = spawn(process.execPath, [cli, 'test', '--config', config], {
     cwd,
     env: { ...process.env, WIDTH_SWEEP_OUTPUT: outputPath },

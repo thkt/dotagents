@@ -109,6 +109,6 @@ Issue作成とPR作成を基本の区切りとします。実行の区切りや�
 
 ## 2026-09-23の参考メモ：PDLCスキル
 
-[pdlc-skills](https://github.com/kanfu-panda/pdlc-skills)は、段階ごとの文書と状態ファイル、実行コマンドの終了コード、Red→Green、自己確認を組み合わせる。Issueを要求の正本とし、ホストが検証・停止を担う現行フローへ一括導入すると、正本と進行管理が重なる。Red→Greenは[テスト設計案](issue-test-design-catalog.md)に既に含まれ、全変更への必須化や新しいゲートは合意していない。
+[pdlc-skills](https://github.com/kanfu-panda/pdlc-skills)は、段階ごとの文書と状態ファイル、実行コマンドの終了コード、Red→Green、自己確認を組み合わせる。Issueを要求の正本とし、ホストが検証・停止を担う現行フローへ一括導入すると、正本と進行管理が重なる。Red→Greenは[テスト設計案](https://github.com/thkt/dotagents/blob/c539a26030b9ee575bdbce8b0ba6a66e888a9e3f/docs/research/issue-test-design-catalog.md)に既に含まれ、全変更への必須化や新しいゲートは合意していない。
 
 固有の参考観点は、主要フローとE2Eテストの対応表が緑でも、主要フローの一覧自体が古ければ見落としが残る点。対象プロダクトで実際にその見落としが出た場合に、要求の変更・フロー一覧・実行したテストを照合し、局所的な対応の要否を検討する。現時点ではこのハーネスの共通Issueや必須マトリクスにせず、改善効果は未測定として残す。

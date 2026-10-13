@@ -6,6 +6,8 @@
 
 [前回のTLA+試行](formal-state-trial-20260921.md)は予約・中断・再起動を扱い、追加の検出力を確認できなかった。今回は対象版と送信を扱う。前回の結果を覆す比較実験ではない。
 
+モデルと実測JSON・再現スクリプトは固定Git版から参照します。下記の再実行コマンドは当時の配置を対象とした記録で、現行ツリーの操作説明ではありません。この調査用反例は通常checkの回帰テストではありません。
+
 ## 問いと対象版
 
 問いは「実装前に状態と守る条件を明示し、モデル検査すると、公開前の対象確認で省いている前提を具体化できるか」。試行前の仮説は、確認と外部操作を別の遷移にすると、間に入る変更の影響を観測できる、というものだった。
@@ -21,7 +23,7 @@
 
 守る条件は「そのrunが送信したcommitは、そのrunで検証したcommitと一致する」。送信後のブランチが永久に同じであることは要求しない。
 
-[publication.qnt](quint-publication-trial/publication.qnt)の状態は、現在の版、検証済み版、工程、送信済み版の4項目。初期版0と変更後の版1だけを扱い、検証後から送信前までに外部主体が一度だけブランチを更新できる。停止したrunは再開しない。変更は実運用で観測した事故ではなく、実行順序を調べるための注入である。
+[publication.qnt](https://github.com/thkt/dotagents/blob/c539a26030b9ee575bdbce8b0ba6a66e888a9e3f/docs/research/quint-publication-trial/publication.qnt)の状態は、現在の版、検証済み版、工程、送信済み版の4項目。初期版0と変更後の版1だけを扱い、検証後から送信前までに外部主体が一度だけブランチを更新できる。停止したrunは再開しない。変更は実運用で観測した事故ではなく、実行順序を調べるための注入である。
 
 | 操作 | 意味と実装との対応 |
 | --- | --- |
@@ -35,7 +37,7 @@
 
 ## モデルの粒度によって結果が変わった
 
-[results.json](quint-publication-trial/results.json)は4条件の実測。TLCで有限状態を探索した。反例ありの条件は発見時に停止しているため、その状態数を全探索の規模として比較しない。
+[results.json](https://github.com/thkt/dotagents/blob/c539a26030b9ee575bdbce8b0ba6a66e888a9e3f/docs/research/quint-publication-trial/results.json)は4条件の実測。TLCで有限状態を探索した。反例ありの条件は発見時に停止しているため、その状態数を全探索の規模として比較しない。
 
 | 条件 | 結果 | 異なる状態数 | CLI経過秒 |
 | --- | --- | ---: | ---: |
@@ -50,7 +52,7 @@
 
 ## 実行入口とローカルGitで反例を再現した
 
-[push-race.test.ts](quint-publication-trial/push-race.test.ts)で現行の `develop` を呼び、pushコマンドの実行直前に別のcommitを作った。送信先だけを一時bare repoへ置き換え、file転送を許可した。その他のpush引数は現行コードが生成したものを使った。実際に受信したcommitと `result.txt` の内容を確認した。検証成功の応答はfixtureで模擬しており、実モデルによる評価を経た公開試行ではない。
+[push-race.test.ts](https://github.com/thkt/dotagents/blob/c539a26030b9ee575bdbce8b0ba6a66e888a9e3f/docs/research/quint-publication-trial/push-race.test.ts)で現行の `develop` を呼び、pushコマンドの実行直前に別のcommitを作った。送信先だけを一時bare repoへ置き換え、file転送を許可した。その他のpush引数は現行コードが生成したものを使った。実際に受信したcommitと `result.txt` の内容を確認した。検証成功の応答はfixtureで模擬しており、実モデルによる評価を経た公開試行ではない。
 
 | 条件 | 受信した内容 | 送信後の観測 |
 | --- | --- | --- |
@@ -58,7 +60,7 @@
 | 照合後に変更 | 未検証版、`unverified` | 模擬公開の呼出し後、対象不一致で `stopped` |
 | SHA固定案で同じ変更 | 検証済み版、`implemented` | 送信内容だけを評価。以降の公開フローは未検証 |
 
-最終実行は3件成功、0件失敗、1.441秒。[probe-results.json](quint-publication-trial/probe-results.json)にcommitの対応を保存した。これらは反例を再現したことを成功とする調査用テストであり、現行処理が競合を防いだという意味ではない。
+最終実行は3件成功、0件失敗、1.441秒。[probe-results.json](https://github.com/thkt/dotagents/blob/c539a26030b9ee575bdbce8b0ba6a66e888a9e3f/docs/research/quint-publication-trial/probe-results.json)にcommitの対応を保存した。これらは反例を再現したことを成功とする調査用テストであり、現行処理が競合を防いだという意味ではない。
 
 Gitの送信は実操作だが、GitHubと実モデルは呼んでいない。SHA固定案では既存fixtureのPR応答がローカルHEADを返すため、実remoteと一致しない。この条件の送信後の停止は、比較案の実GitHub挙動の証拠に使わない。今回は `publish` 自体もfixtureの模擬関数であり、実PRが作られることを再現した結果ではない。
 

@@ -1,4 +1,3 @@
-// Synthetic history and host-only mutation checks for the optional test-review scenario.
 import assert from 'node:assert/strict';
 import { cp, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';

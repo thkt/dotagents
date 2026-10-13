@@ -15,8 +15,7 @@ const newItem = z.strictObject({
       path: text.nullable(),
       line: z.number().int().min(1).nullable(),
     })
-    // Cross-field validation remains a runtime check; JSON Schema conversion
-    // does not encode this refinement (the previous output schema did not either).
+    // 項目間の条件はJSON Schemaへ変換されないため、実行時に検証する。
     .refine((value) => value.line === null || value.path !== null),
   condition: text,
   impact: text,

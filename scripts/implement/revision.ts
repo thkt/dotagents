@@ -240,7 +240,6 @@ export function revisionContext(revision?: Revision) {
     : '';
 }
 
-// Existing result.json is the execution entry point; no separate retry ledger.
 export async function reconcileExecutions(
   revision: Pick<Revision, 'previousRun' | 'runDirectory'>,
   cwd: string,
