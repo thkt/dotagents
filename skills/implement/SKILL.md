@@ -17,6 +17,8 @@ description: 合意済みGitHub Issueの実装依頼で、文書変更を含め�
 
 信頼するスキル実体から[実装CLI](../../scripts/implement/development.ts)を解決し、対象repoを指定する。対象repoにBunやPlaywrightの構成を推測で追加しない。
 
+変更の安全性が未確認の前提に依存する場合は、[前提の検証](../references/premise-validation.md)で導入版の実装・契約と成立条件へ照合し、必要な境界と最小の証拠を選ぶ。実装・修正の確認結果と適用限界はfindingsへ残す。修正が停滞して原因仮説を見直す場合は同参照の共通前提の見直しを使う。独立評価は差分・対象版・成立条件・証拠を独立して照合し、既存の検証・停止経路と担当境界を維持する。
+
 対象repoのIssueでe2e（TesterArmy）の部分導入を合意している場合は、[条件付き採用と検証の手順](references/testing.md#対象repoでのe2eの条件付き採用)を読み、合意した導入・コードによる結果確認・対象repo側の実行判定を通常checkまたは既存のホスト検証経路と独立評価へつなぐ。未採用repoの依存・設定・検証工程は増やさない。
 
 ```sh
