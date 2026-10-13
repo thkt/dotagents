@@ -17,6 +17,8 @@ description: 合意済みGitHub Issueの実装依頼で、文書変更を含め�
 
 信頼するスキル実体から[実装CLI](../../scripts/implement/development.ts)を解決し、対象repoを指定する。対象repoにBunやPlaywrightの構成を推測で追加しない。
 
+対象repoのIssueでe2e（TesterArmy）の部分導入を合意している場合は、[条件付き採用と検証の手順](references/testing.md#対象repoでのe2eの条件付き採用)を読み、合意した導入・コードによる結果確認・対象repo側の実行判定を通常checkまたは既存のホスト検証経路と独立評価へつなぐ。未採用repoの依存・設定・検証工程は増やさない。
+
 ```sh
 bun /absolute/path/to/trusted/scripts/implement/development.ts 99 --repo /absolute/path/to/target-checkout
 ```

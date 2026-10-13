@@ -47,6 +47,8 @@ Bun 1.4.3 を使います。check は次の順に実行します。ツールご�
 | 6 | `test:control` | Bun | ハーネスの制御テスト |
 対象 repo では、その repo の検証を指定してください。
 
+対象repoでUI操作の検証方法を選ぶ必要がある場合は、[e2eの条件付き採用](skills/implement/references/testing.md#対象repoでのe2eの条件付き採用)を使います。必要な少数フローの導入はそのrepoのIssueで合意し、実行は既存のsetup・checkまたはホスト検証経路で扱います。dotagents自身へのe2e・モデルprovider・ブラウザー依存の追加や、共通check・必須CIでのAI E2E実行は行いません。
+
 [biome.json](biome.json)は、バージョンを固定した Biome 2.5.15 の既定値（linter の有効化と認知的複雑度の上限 15）を使い、`noExcessiveCognitiveComplexity`を`error`にしています。Biome のバージョンを更新するときは、この既定値と、上限を超えたときに error で拒否されることを再確認してください。
 
 ### 未使用コード検査とコードベース調査

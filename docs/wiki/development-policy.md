@@ -136,6 +136,8 @@ dotagentsの実装開始の条件は[wiki](implementation-start.md)で説明し�
 
 UI E2Eテストを作成・更新する場合の待機とデータ独立性は、必要時に[テスト設計資料](../../skills/implement/references/testing.md#ui-e2eの待機と独立性)を参照します。
 
+[Issue #351](https://github.com/thkt/dotagents/issues/351)で合意した対象repoのe2e（TesterArmy）の条件付き採用は、[テスト設計資料](../../skills/implement/references/testing.md#対象repoでのe2eの条件付き採用)で判断と引き継ぎを扱います。既存検証で十分なら工程を追加せず、採用時も結果・必須操作・既存テスト・撮影の保証を照合します。依存・設定・実行判定は対象repo側で担い、要求・許可の変更はそのrepoのIssueで合意します。
+
 判断の中心は「このテストを削除すると、どんな現実的な不具合を見逃すか」です。必要な保証を得られる小さい実行範囲を選び、次の観点で追加・維持・統合・削除を判断します。
 
 | 観点 | 確認すること |
