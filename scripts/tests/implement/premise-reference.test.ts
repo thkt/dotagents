@@ -27,6 +27,12 @@ testDevelopment('初回実装の実際の担当入力から前提検証の参照
   f.args.push('--no-publish');
   const implement = f.implement;
   let prompt = '';
+  const prepare = f.test;
+  let testPrompt = '';
+  f.test = async (...args) => {
+    testPrompt = args[2];
+    return prepare(...args);
+  };
   f.implement = async (...args) => {
     prompt = args[2];
     return implement(...args);
@@ -37,6 +43,7 @@ testDevelopment('初回実装の実際の担当入力から前提検証の参照
   await expectSharedPremiseReferences([prompt, reviewInstructions]);
   await expectSharedPremiseReferences([prompt, reviewInstructions], '設計理由');
   await expectSharedPremiseReferences([prompt, reviewInstructions], '利用例');
+  await expectSharedPremiseReferences([prompt, testPrompt, reviewInstructions], '機械化');
 });
 
 test('check後の追加修正と独立評価の実際の入力が共通の前提検証へ到達する', async () => {
@@ -50,4 +57,5 @@ test('check後の追加修正と独立評価の実際の入力が共通の前提
   await expectSharedPremiseReferences([repair, review]);
   await expectSharedPremiseReferences([repair, review], '設計理由');
   await expectSharedPremiseReferences([repair, review], '利用例');
+  await expectSharedPremiseReferences([repair, review], '機械化');
 });
