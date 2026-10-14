@@ -272,6 +272,8 @@ bun /absolute/path/to/trusted/scripts/ui/run.ts \
 
 初回実装と修正は[repair.ts](implement/repair.ts)の共通指示と応答検査を使います。文書・独立テストの利用・撮影・公開禁止の指示を共有し、初回はIssue全体の実装とホスト検証の準備、修正は失敗の根拠に沿う原因診断・修正確認を担当します。初回のsetup後照合と結果保存はdevelopment、修正の起動前予約・回数・中断状態の保持はcorrectionが担当します。初回実装は追加修正のカウンタに数えず、修正後のcheckと独立評価はホストが実行します。
 
+利用例が型・API・責任の境界の選択を左右する場合は、[共通手順](../skills/references/caller-first-design.md)を使います。`repair.ts`と`review.ts`は信頼するハーネス実体から同じ参照を絶対パスへ解決し、初回実装・追加修正・既存PR修正・独立評価へ渡します。実装側は利用例から構造を導き、評価側はIssue・仕様・実際の呼出元と実装へ独立して照合します。例と実装の不一致は通常の指摘へ、検証資産の変更は独立テスト経路へ戻し、テスト担当の入力・応答Schema・run形式は変えません。
+
 テスト作成・初回実装・追加修正・独立評価へ渡す固定の説明文・指示文・見出しは日本語です。報告参照、既存PRの修正要求、ホスト検証からの復帰に添える固定説明も含みます。JSONキー・status・CLI引数・設定値・schema・ファイル名・モデルIDは変更せず、Issue本文、修正要求、過去の評価やログなどの入力は原文のまま渡します。指示の言語から、実モデルの品質や費用の改善を保証するものではありません。
 
 `repair`と`review`は、要求と失敗の根拠を標準入力で受け取り、結果のJSONだけを標準出力へ返します。`repair`は`status: repaired | needs_host | needs_human`と文字列`findings`を返します。`review`は[review.ts](implement/review.ts)の専用schemaに従います。独自のreviewコマンドにも同じ形式が必要です。
