@@ -673,6 +673,8 @@ bun scripts/implement/review-probe.ts --scenario test-review
 
 ## scopingの切替と手順確認
 
+過去の設計理由が今回の判断に関係する場合は、[設計理由の根拠と確度](../skills/references/documents.md#設計理由の根拠と確度)を使います。scopingの入口と十分性判断から同じ手順へ辿り、理由・出典・適用条件・不明点だけを既存のIssueまたは下書きへ引き継ぎます。初回実装・追加修正・既存PR修正には共通の`repairInstructions`から、独立評価には`reviewInstructions`から、信頼するハーネス実体の`skills/references/documents.md`を絶対パスで渡します。対象repoの同名ファイルへ解決せず、呼出元ごとに指示全文を重複追加しません。公開用の評価説明・文書の参照理由・指摘への回答でも、出典と推論・条件・否定・合意状態・未確認を保ちます。参照接続の制御テストは実モデルの調査・説明の正しさや効果を証明しません。
+
 要求整理は[scoping](../skills/scoping/SKILL.md)から会話、Issue・下書き、必要なGit管理文書で進めます。[十分性の判断](../skills/scoping/references/sufficiency.md)は担当AIが行い、重要な判断と権限は人へ戻します。実装入口のIssue・必要報告の版・公開対象の照合と最終独立評価は継続します。
 
 共通登録の切替・復帰は[保全方針](../docs/wiki/development-policy.md#旧資産の保全と登録変更)に従い、人がマージした採用commitを対象にします。進行中のタスクは内容と所有者を確認し、途中で実行コードを差し替えません。

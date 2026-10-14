@@ -2161,6 +2161,7 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
         premisePrompts.push(prompt);
       }
       await expectSharedPremiseReferences(premisePrompts);
+      await expectSharedPremiseReferences(premisePrompts, '設計理由');
       expect(
         await Promise.all(priorFiles.map((path) => readFile(join(f.prior, path), 'utf8'))),
       ).toEqual(priorEvidence);
