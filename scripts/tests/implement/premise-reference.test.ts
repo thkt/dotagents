@@ -15,6 +15,10 @@ test('既存の設計手順は対象repoによらず信頼するハーネスへ�
   await expectSharedPremiseReferences([repairInstructions(null), reviewInstructions], '設計・選定');
 });
 
+test('実装・修正と独立評価へ同じ設計理由の手順を信頼するハーネスから渡す', async () => {
+  await expectSharedPremiseReferences([repairInstructions(null), reviewInstructions], '設計理由');
+});
+
 testDevelopment('初回実装の実際の担当入力から前提検証の参照へ到達する', async (f) => {
   f.args.push('--no-publish');
   const implement = f.implement;
@@ -27,6 +31,7 @@ testDevelopment('初回実装の実際の担当入力から前提検証の参照
   expect(result.status).toBe('verified_local');
   expect(prompt).toBe(await readFile(join(f.dir, 'implementation.prompt'), 'utf8'));
   await expectSharedPremiseReferences([prompt, reviewInstructions]);
+  await expectSharedPremiseReferences([prompt, reviewInstructions], '設計理由');
 });
 
 test('check後の追加修正と独立評価の実際の入力が共通の前提検証へ到達する', async () => {
@@ -38,4 +43,5 @@ test('check後の追加修正と独立評価の実際の入力が共通の前提
   const repair = await readFile(join(t.config.runDir, 'repair-1.prompt'), 'utf8');
   const review = await readFile(join(t.config.runDir, 'review-1.prompt'), 'utf8');
   await expectSharedPremiseReferences([repair, review]);
+  await expectSharedPremiseReferences([repair, review], '設計理由');
 });
