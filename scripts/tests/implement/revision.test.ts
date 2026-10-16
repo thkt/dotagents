@@ -29,6 +29,7 @@ import { isRecord } from '../../shared/values.ts';
 import { initializeTarget, githubTarget, git, targetConfig } from '../support/target.ts';
 import { testDevelopment } from '../support/development.ts';
 import { expectTestStage } from '../support/test-stage.ts';
+import { expectSharedPremiseReferences } from '../support/premise-reference.ts';
 
 const shellLiteral = (value: string) => `'${value.replaceAll("'", "'\"'\"'")}'`;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -2146,6 +2147,7 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
       expect(await readFile(join(f.dir, 'issue.json'), 'utf8')).toBe(currentIssue);
       const referenceBlob = git(f.cwd, 'rev-parse', `${f.initialBase}:${reportPath}`);
       expect(git(f.cwd, 'rev-parse', `${f.oldHead}:${reportPath}`)).not.toBe(referenceBlob);
+      const premisePrompts: string[] = [];
       for (const promptFile of [
         join(f.dir, 'implementation.prompt'),
         join(verification, 'repair-1.prompt'),
@@ -2156,7 +2158,15 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
         expect(prompt).toContain(`"startCommit":"${f.initialBase}"`);
         expect(prompt).toContain(JSON.stringify({ path: reportPath, blob: referenceBlob }));
         expect(prompt).not.toContain('"knowledge":');
+        premisePrompts.push(prompt);
       }
+      await expectSharedPremiseReferences(premisePrompts);
+      await expectSharedPremiseReferences(premisePrompts, '設計理由');
+      await expectSharedPremiseReferences(premisePrompts, '利用例');
+      await expectSharedPremiseReferences(
+        [...premisePrompts, ...f.independentTests.map((entry) => entry.prompt)],
+        '機械化',
+      );
       expect(
         await Promise.all(priorFiles.map((path) => readFile(join(f.prior, path), 'utf8'))),
       ).toEqual(priorEvidence);
