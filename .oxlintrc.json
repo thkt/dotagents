@@ -21,6 +21,23 @@
         "scripts/**/*.ts"
       ],
       "rules": {
+        "no-restricted-globals": [
+          "error",
+          {
+            "globals": [
+              "document",
+              "window",
+              "getComputedStyle",
+              "requestAnimationFrame",
+              "cancelAnimationFrame",
+              "HTMLElement",
+              "Element",
+              "Document"
+            ],
+            "checkGlobalObject": true,
+            "globalObjects": ["global"]
+          }
+        ],
         "prefer-const": "error",
         "no-var": "error",
         "eqeqeq": "error",
@@ -44,6 +61,14 @@
         "typescript/no-unsafe-type-assertion": "error",
         "oxc/no-accumulating-spread": "error",
         "local/no-reduce-accumulator-copy": "error"
+      }
+    },
+    {
+      "files": [
+        "scripts/ui/width-sweep-browser.ts"
+      ],
+      "rules": {
+        "no-restricted-globals": "off"
       }
     }
   ]

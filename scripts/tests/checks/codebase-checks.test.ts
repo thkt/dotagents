@@ -39,6 +39,86 @@ function run(cwd: string, script: string, ...args: string[]) {
   return result;
 }
 
+test('CLIの通常入力と同名のローカル変数を許可し、ブラウザー処理もlintできる', async () => {
+  const cwd = await fixture('graph');
+  try {
+    await writeFile(
+      join(cwd, 'scripts/trial-dom-allowed.ts'),
+      `export function local(document: string, window: string, getComputedStyle: string,
+        requestAnimationFrame: string, cancelAnimationFrame: string,
+        HTMLElement: string, Element: string, Document: string) {
+        return [document, window, getComputedStyle, requestAnimationFrame,
+          cancelAnimationFrame, HTMLElement, Element, Document];
+      }
+      export const text = 'document.title; window.innerWidth';
+      export const runtime = [Bun.version, process.platform, fetch, URL, AbortController];
+      export type BrowserDocument = Document;
+      `,
+    );
+    const types = run(cwd, 'typecheck');
+    expect(types.status, types.stdout + types.stderr).toBe(0);
+    const result = run(cwd, 'lint');
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('importされないCLIでもDOMグローバルの直接参照と静的プロパティ参照を指定診断で拒否する', async () => {
+  const cwd = await fixture('graph');
+  try {
+    const expressions = [
+      'document',
+      'window',
+      'getComputedStyle',
+      'requestAnimationFrame',
+      'cancelAnimationFrame',
+      'HTMLElement',
+      'Element',
+      'Document',
+      'globalThis.document',
+      'globalThis["document"]',
+      'self.document',
+      'self["document"]',
+      'window.document',
+      'window["document"]',
+      'global.document',
+      'global["document"]',
+    ];
+    const directories = ['scripts', 'scripts/ui', 'scripts/tests'];
+    const cases = expressions.map((expression, index) => ({
+      path: `${directories[index % directories.length]}/trial-dom-${index}.ts`,
+      source: `export const probe = ${expression};\n`,
+    }));
+    for (const { path, source } of cases) {
+      await writeFile(join(cwd, path), source);
+    }
+    // 公開入口そのものを例外にする誤りも、通常のCLI入力として検出する。
+    const entry = 'scripts/ui/width-sweep.ts';
+    await appendFile(join(cwd, entry), '\nexport const trialDOM = globalThis.document;\n');
+    // DOM型が共有されていてもlintが拒否する。型エラーを拒否の代用にしない。
+    const types = run(cwd, 'typecheck');
+    expect(types.status, types.stdout + types.stderr).toBe(0);
+    const result = run(cwd, 'lint', '--format', 'json');
+    expect(result.status, result.stdout + result.stderr).toBe(1);
+    const report: unknown = JSON.parse(result.stdout);
+    expect(report).toHaveProperty(
+      'diagnostics',
+      expect.arrayContaining(
+        [...cases.map(({ path }) => path), entry].map((filename): unknown =>
+          expect.objectContaining({
+            filename,
+            code: 'eslint(no-restricted-globals)',
+            severity: 'error',
+          }),
+        ),
+      ),
+    );
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test('lint rejects unsafe assertions and accumulator copies while preserving checked inputs and local mutation', async () => {
   const cwd = await fixture('lint');
   try {
