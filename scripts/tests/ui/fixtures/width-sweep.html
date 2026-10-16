@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="ja">
+  <meta charset="utf-8">
+  <title>幅掃引の正常対照と狭い幅でのはみ出し</title>
+  <style>
+    html, body { margin: 0; }
+    #content { width: 100%; height: 40px; }
+    @media (min-width: 849px) and (max-width: 851px) {
+      html.narrow #content { width: calc(100vw + 2px); }
+    }
+  </style>
+  <body>
+    <main id="content">幅掃引の検証用表示</main>
+  </body>
+</html>

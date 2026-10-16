@@ -230,6 +230,18 @@ CIの`checks`は依存を固定して導入し、このハーネスの`bun run c
 
 `reduce`の蓄積値をspread・concat・`Object.assign`で反復コピーしません。標準ルールが扱わないケースは[ローカルルール](../../scripts/lint/local/index.ts)で検出します。更新時は固定した原版とローカル差分を照合し、必要な処理を妨げる場合は具体例から適用範囲を見直します。出典と許諾は[LICENSE](../../scripts/lint/local/LICENSE)に残します。
 
+### CLIとブラウザー内処理の検証境界
+
+[Issue #396](https://github.com/thkt/dotagents/issues/396)で合意した範囲では、CLIのDOMグローバル誤利用は`bun run lint`（総合検証`bun run check`にも含む）のOxlint `no-restricted-globals`で拒否します。[#236](https://github.com/thkt/dotagents/issues/236)の「型検査でDOMグローバルを拒否する」という保証とは異なります。highlight.jsの型定義とブラウザー用モジュールのlib参照によりDOM型宣言は共有され、`lib: ["ESNext"]`・`types: ["bun"]`・`skipLibCheck`でCLIから見えなくなるわけではありません。
+
+`scripts/**/*.ts`では、`document`・`window`・`getComputedStyle`・`requestAnimationFrame`・`cancelAnimationFrame`・`HTMLElement`・`Element`・`Document`の直接参照を制限します。`checkGlobalObject`により、`globalThis`・`self`・`window`と、追加指定した`global`経由の静的プロパティ参照（ドットと文字列リテラル添字）も検査します。同名のローカル変数、文字列内のコード、型だけの参照は拒否しません。Bunでも使える`fetch`・`URL`・`AbortController`・`process`などはこの禁止対象に含めません。
+
+例外は、`page.evaluate`へ渡す関数を置く[scripts/ui/width-sweep-browser.ts](../../scripts/ui/width-sweep-browser.ts)の当該ルールだけです。関数本体はシリアライズ先で動くため、外部の実行時変数に依存させません。CLIのオプション検証・保存・幅の反復と公開入口は[scripts/ui/width-sweep.ts](../../scripts/ui/width-sweep.ts)に置き、通常のlint対象とします。他のlint規則と既存の検証対象は維持します。
+
+この規則は完全なDOM型隔離や任意の参照経路の検出を保証しません。`const { document } = globalThis`による分割代入、`const root = globalThis`を経由する別名参照、動的プロパティ、文字列内のコードは検出を保証しない範囲です。`export type BrowserDocument = Document`も利用可能なままです。
+
+幅掃引の制御テストは失敗判定・記録・公開入口を、レポートの既存テストは色分け・エスケープ・抜粋保存を確認します。模擬pageの成功はDOM計測・描画待ち・関数シリアライズの証明にはなりません。関数を移動・変更するときは、対象の既存Playwright環境で正常な対照と狭い幅だけはみ出す例を比較し、[ホスト検証後の再評価](../../scripts/README.md#ホスト検証後の再評価)へ実測の証拠を渡します。共通ハーネスにブラウザー依存を追加せず、通常checkと実ブラウザー検証を区別します。
+
 ## テストの実行完了
 
 `bun run test:control`はBunの実行成功に加え、JUnit集計でテスト0件、skip等の未実行、集計の欠落・不正、切れたレポートを失敗とします。`CI=true`ではonlyも拒否します。集計が拒否された場合は理由と保持したJUnitのパスを表示し、元の記録を残します。一時領域なので恒久保存は保証しません。レポート未生成・読取り失敗では保存を案内しません。
