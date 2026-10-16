@@ -6,7 +6,7 @@
   "scripts": {
     "test:control": "bun scripts/tests/runner.ts bun",
     "lint:docs": "textlint --config .textlintrc.json",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "bun --check",
     "format": "oxfmt --write scripts",
     "format:check": "oxfmt --check scripts",
     "lint": "oxlint --deny-warnings scripts",
