@@ -867,6 +867,47 @@ bun scripts/eval/eval.ts report /absolute/path/outside-checkout/new-eval
 
 `run` は同じ計画を保存し、ケース・時間・モデル要求数・公開範囲を表示してから、beforeの全ケース、afterの全ケースを各1回実行します。ケースの順序と集合は両条件で同じです。モデルには現在のケースの依頼文と入力ファイルだけが見えます。スキルは新しいコンテナーのホームから、その条件の実体へ登録します。既存の登録や進行中タスクは変更しません。
 
+### 8課題の行動比較を準備する（#393）
+
+[#393](https://github.com/thkt/dotagents/issues/393)の準備変更は、実モデル比較の実行許可を含みません。モデルを使わずに入力・有限上限・経路を確認し、実行コード、corpus、workspaceを共有済みcommitへ固定してから、依頼者の別の実行指示を受けます。現在の準備を実モデルの行動改善、APIの利用可能性、imageの実稼働確認として報告しません。
+
+追加した課題は公開の合成例です。実際に観測した失敗の再現でも、全工程の網羅でもありません。既存5課題はそのまま残し、追加8課題と混在させません。モデルへは現在の依頼と通常の仕様・コード・独立検証・合成履歴だけを渡します。下表のC番号、criteria、Issue #393本文、対照の分類、他条件の回答、ホストの参照解・反例は渡しません。
+
+| ホスト用ID | corpusのID | 担当 | 事前の順序 |
+| --- | --- | --- | --- |
+| C01 | `storage-fields` | scoping、下書きまで | A→B |
+| C02 | `completion-message` | 初回実装 | B→A |
+| C03 | `retry-limit` | scoping、下書きまで | A→B |
+| C04 | `guide-link` | 初回実装 | B→A |
+| C05 | `work-area` | 初回実装 | A→B |
+| C06 | `cli-description` | scoping、下書きまで | B→A |
+| C07 | `history-record` | scoping、下書きまで | A→B |
+| C08 | `save-diagnostics` | 初回実装 | B→A |
+
+`cases`はこの8件だけ、`maxTrials`は16です。`trialOrder`へ、表の順に各組の`before-ID`と`after-ID`を並べた16要素を明示します。重複・欠落・別課題・組の分離と、A先行/B先行が4組ずつでない計画を拒否します。`trialOrder`のない旧ケースの既定順序は、従来のA全件→B全件です。
+
+指示版はA=`fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092`、B=`6181233d17a29c711a84f20549f78507c5c3e5fb`に固定します。`premise-validation.md`、`caller-first-design.md`、`mechanization.md`はAの`ls-tree`で不存在を確認し、`absentInstructions`へ対象commitと由来を残します。空ファイルを作ったりBから補ったりしません。Bでの不存在、他の必須資料の欠落、取得失敗、symlinkは拒否します。
+
+`workspaceFiles`には、独立テスト担当が用意した`fixtures/workspace/`の通常Git blobをファイルごとに明示します。`specs.md`、README、`docs/`、`data/`、`src/`、`tests/`を同じworkspace commitから取り、両条件で同じ本文・hashを使います。`scripts/tests/eval/task-fixtures.test.ts`の参照解・反例はホスト用であり、入力に指定できません。課題用の検証資産を実装モデルが変更することは許可しません。不足はfindingsへ戻します。
+
+共通workspaceへの`scripts/implement/`配下のTSの指定も拒否します。担当指示を含む信頼版コードを課題側へ移して、指示比較を迂回することを防ぎます。担当入力の生成元は、固定した指示版から別途取得します。
+
+`instructionFiles`にはAGENTS、README、CLIガイド、開発方針、両SKILL、scopingの4参照（sufficiency・experiment・session・issue）、testing参照、共通の5参照（documents・natural-japanese・premise-validation・caller-first-design・mechanization）を指定します。共通文書から必要になる場合は`skills/templates/wiki.md`と`skills/templates/decision.md`も指定できます。必要な参照の判断は本文と用途へ照合し、ファイル存在や`missingReferences`だけで十分としません。任意のTSを指示として許可しません。
+
+初回実装の4件は、[入力生成](eval/initial-input.ts)が上記の固定commitにある`orchestrator.ts`の初回prompt式と`repair.ts`の`repairInstructions`を使います。対象workspaceの同名TS、別版、手書きの類似promptでは代用しません。通常CLIを再帰起動せず、`repair`役割・`initial`工程の担当単位で起動します。`codex-actor.ts`のrepair応答schemaを起動へ接続し、固定版の役割・起動設定の出典もplanに残します。絶対参照は隔離環境の`/work/repo/skills/`へ解決し、ホストのパスを持ち込みません。
+
+`actorInputs`には実際のprompt本文とhash、repair指示本文とhash、出典の本文とhash、必要な参照、応答schema、起動設定、共通の評価条件への変更を保存します。setupなし・課題別check・captureなしの契約と、独立準備記録を両条件に渡します。準備記録は、その試行の修正前・修正後の成功を主張しません。A/Bのpromptはrepair指示を除く部分と応答schemaが同じか照合します。配置によるパスの差を行動指示の差と数えません。`runner`は実行コードのcommit、未commit変更の有無とソースhashを記録します。初回担当を含むrunは、runner・共通実装・package/lockfileに未commit変更があれば起動を拒否します。モデル起動前に共有版と、同じcorpus/workspaceのcommit・hashを確定してください。
+
+初回の推奨値は`gpt-6.1-sol` / `medium`、`caseTimeMs: 600000`、`totalTimeMs: 9600000`、`maxModelRequestsPerCase: 20`、`maxOutputTokens: 8000`です。この8件の計画では推奨時間・要求数・出力を上限として検査します。全体時間は計画の保存後から、待機・停止処理も含めて共有します。最大320要求、成功までの再試行0で、要求数は金額や合計tokenの保証ではありません。終了確認の既存猶予は1件最大65秒、16件で追加最大17分20秒です。準備と手動裁定は別に記録します。
+
+probeはactorと同じ固定環境で子CLI・Bun・Gitの版を観測し、入口Bunと子Bunの一致も確認します。これは任意の測定コマンドの版を証明するものではなく、その実出力も照合します。実行時に、利用可能なモデル・API利用と資格情報、Bun 1.4.3を含む実効CLI/Bun/Git版、確認済みdigest固定imageと事前導入した依存、checkout外の新しい保存先、公開先・費用・送信範囲を別途確定します。未確定のimageや版を仮の実測値として保存しません。送信先は既存中継の`https://api.openai.com/v1/responses`、rawはlocal-only、summaryは合意したIssue/PRへ手動共有です。ChatGPTログインの認証は流用しません。
+
+裁定は既存のcriteria・reasonと、その試行のファイル・内容hash・行範囲を使います。条件名を表示しない成果物と完全な行動記録を裁定者へ渡し、ホストは原記録との対応を保持します。指示内容から条件を推測できるため、完全な盲検とは呼びません。発見・参照だけで適用成功にせず、判断・操作・成果物がどう変わったかを確認します。C05の順序は時系列の操作記録で判定し、非公開の思考を推測しません。
+
+必要な行動の確認、見落とし・不適切な適用、記録不足を理由と証拠で区別します。不要な調査・規則・承認待ちと、適切な見送りも区別します。初回担当の4件はスキル選択の採点外とし、全16試行の実行状態と`fulfilled` / `unfulfilled` / `indeterminate`を別に集計します。各課題の改善・悪化・差が確認できない理由を残し、失敗・時間切れ・採点不能を分母から消しません。モデル終了0、スキル選択、検証件数を要求充足へ変換しません。課題・検証・基準・ログの不足も原因候補に含めます。
+
+実行と採点の費用、取得できた使用量・ツール操作を分け、未取得の子モデル使用量や請求額をゼロにしません。両条件の成功だけで改善とせず、少数例から一般的な精度・安定性・費用改善、4件それぞれの独立した寄与、通常implement全体の効果を断定しません。新しい採点基盤・総合点・定期実行は追加しません。
+
 ### 隔離・上限・停止
 
 ホストの `OPENAI_API_KEY` はモデル中継コンテナーだけへ渡します。評価側にはAPI key・gh認証・ホスト環境を渡しません。中継は隔離網側だけで待ち受け、固定の `https://api.openai.com/v1/responses` へPOSTする機能だけを持ちます。URL・認証・任意headerの転送、redirect、ホストされた検索等のremote toolを許さず、モデル・推論設定・出力上限を固定します。通常のChatGPTログインの認証ファイルを流用する経路はありません。API利用条件が今回の合意に含まれなければ `run` を開始しません。

@@ -12,6 +12,7 @@ async function fixture(scope: 'graph' | 'lint' | 'format') {
     // Fallow needs the real reference graph, entry points and tool configuration.
     graph: [
       'scripts',
+      'fixtures/workspace',
       '.fallowrc.json',
       '.oxfmtrc.json',
       '.oxlintrc.json',

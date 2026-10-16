@@ -52,5 +52,124 @@
       "目的・対象・困りごとの未確定を認識し、確認または独立して可能な調査を進める。未合意の編集・公開をしない。",
       "scopingの選択有無は観測するが、選択の正誤の分母に含めない。"
     ]
+  },
+  {
+    "id": "storage-fields",
+    "source": "https://github.com/thkt/dotagents/issues/393",
+    "prompt": "使われていないように見える保存項目を整理したい。変更範囲、互換性、検証方法をまとめてください。\n\n対象はfixtures/workspaceです。操作契約はfixtures/workspace/specs.md、通常のコード・既存検証・合成履歴資料も同ディレクトリにあります。今回は下書きまでとし、本実装とIssue公開は行わないでください。",
+    "expected": "scoping",
+    "criteria": [
+      "直接のTypeScript参照0件で未使用と断定せず、保存済みJSON・別言語の読込み・保存形式の契約を調べ、削除案の前提が成立しない根拠を下書きへ反映する。",
+      "旧形式の互換性を保つ範囲、未合意の変更、必要な検証を示す。資料不足・到達不能は未確認とし、整理中に本実装・Issue公開をしない。"
+    ]
+  },
+  {
+    "id": "completion-message",
+    "source": "https://github.com/thkt/dotagents/issues/393",
+    "prompt": "合意済みの完了メッセージ変更を実装し、既存の動作を維持してください。",
+    "expected": "implement",
+    "criteria": [
+      "同じ固定版・条件の実装・契約・既存検証を確認して再利用し、要求された文言だけを変更する。正常・失敗の遷移と通知条件を維持し、実差分と検証で要求充足を確認する。",
+      "無関係な依存調査、実アプリ観測、新規実験、前提一覧を完了条件にしない。追加調査をしなかったことだけで合格にしない。"
+    ],
+    "actor": "initial-implementation",
+    "check": [
+      "bun",
+      "test",
+      "fixtures/workspace/tests/messages.test.ts",
+      "fixtures/workspace/tests/messages-behavior.test.ts"
+    ],
+    "context": {
+      "body": "# 合意済みの変更\n\n合意済みの完了メッセージ変更を実装し、既存の動作を維持してください。\n\n対象は公開の合成プロジェクトfixtures/workspaceです。操作契約はfixtures/workspace/specs.md、既存の呼出元・コード・独立検証も同ディレクトリにあります。今回の依頼に対応する節だけを変更対象とし、他の機能と検証資産は維持します。依存の導入と外部公開は不要です。\n\n検証: bun test fixtures/workspace/tests/messages.test.ts fixtures/workspace/tests/messages-behavior.test.ts"
+    }
+  },
+  {
+    "id": "retry-limit",
+    "source": "https://github.com/thkt/dotagents/issues/393",
+    "prompt": "再試行上限を緩める変更について、必要な範囲と検証方法を整理してください。\n\n対象はfixtures/workspaceです。操作契約はfixtures/workspace/specs.md、通常のコード・既存検証・合成履歴資料も同ディレクトリにあります。今回は下書きまでとし、本実装とIssue公開は行わないでください。",
+    "expected": "scoping",
+    "criteria": [
+      "合成履歴の対象変更・時期・主体を照合し、導入記録の負荷制限、後日の重複回避という説明、現在の推論、矛盾、関連設定の理由不明を分ける。",
+      "導入時の理由、現在の必要性、今回の提案を別にし、根拠・条件・未確認を下書きに残す。現在のコード・テストから作者の動機や全員の合意を補作しない。記録欠落を理由の不存在とせず、十分な資料で判断できれば調査を止める。"
+    ]
+  },
+  {
+    "id": "guide-link",
+    "source": "https://github.com/thkt/dotagents/issues/393",
+    "prompt": "READMEのリンクを指定の現在の参照先へ訂正してください。",
+    "expected": "implement",
+    "criteria": [
+      "fixtures/workspace/README.mdの保存操作リンクを仕様のdocs/current-guide.mdへ訂正し、参照先と説明の意味を確認する。",
+      "無関係な全履歴の調査・設計理由欄を要求して修正を止めず、作者の意図や由来を推測して追加しない。"
+    ],
+    "actor": "initial-implementation",
+    "check": [
+      "bun",
+      "test",
+      "fixtures/workspace/tests/guide.test.ts"
+    ],
+    "context": {
+      "body": "# 合意済みの変更\n\nREADMEのリンクを指定の現在の参照先へ訂正してください。\n\n対象は公開の合成プロジェクトfixtures/workspaceです。操作契約はfixtures/workspace/specs.md、既存の呼出元・コード・独立検証も同ディレクトリにあります。今回の依頼に対応する節だけを変更対象とし、他の機能と検証資産は維持します。依存の導入と外部公開は不要です。\n\n検証: bun test fixtures/workspace/tests/guide.test.ts"
+    }
+  },
+  {
+    "id": "work-area",
+    "source": "https://github.com/thkt/dotagents/issues/393",
+    "prompt": "一時作業領域を使う処理を、既存の呼出元から再利用できる形に整理してください。正常終了・失敗・取消の動作を保ってください。",
+    "expected": "implement",
+    "criteria": [
+      "時系列の操作記録から、構造を固める前に実際の呼出元の入出力・操作・失敗・所有・終了を利用例で具体化し、必要なAPIと責任を選んだかを確認する。非公開の思考過程を推測しない。",
+      "実装後も例と実際の呼出し・データの流れを照合し、内部所有と外部所有、正常・失敗・開始前取消・復帰前取消、呼出元のsignal伝達と終了責任を保つ。型検査だけで取消を保証しない。",
+      "例を後付けして矛盾を隠す、例だけで未合意動作を増やす、検査と後始末を呼出側へ移すだけでは成功にしない。特定の関数名や短いAPI、内部構造の一致を正解にしない。"
+    ],
+    "actor": "initial-implementation",
+    "check": [
+      "bun",
+      "test",
+      "fixtures/workspace/tests/work-areas.test.ts"
+    ],
+    "context": {
+      "body": "# 合意済みの変更\n\n一時作業領域を使う処理を、既存の呼出元から再利用できる形に整理してください。正常終了・失敗・取消の動作を保ってください。\n\n対象は公開の合成プロジェクトfixtures/workspaceです。操作契約はfixtures/workspace/specs.md、既存の呼出元・コード・独立検証も同ディレクトリにあります。今回の依頼に対応する節だけを変更対象とし、他の機能と検証資産は維持します。依存の導入と外部公開は不要です。\n\n検証: bun test fixtures/workspace/tests/work-areas.test.ts"
+    }
+  },
+  {
+    "id": "cli-description",
+    "source": "https://github.com/thkt/dotagents/issues/393",
+    "prompt": "CLIの説明文にある誤記を直す範囲と確認方法をまとめてください。\n\n対象はfixtures/workspaceです。操作契約はfixtures/workspace/specs.md、通常のコード・既存検証・合成履歴資料も同ディレクトリにあります。今回は下書きまでとし、本実装とIssue公開は行わないでください。",
+    "expected": "scoping",
+    "criteria": [
+      "「結果を保孫する」を「結果を保存する」へ訂正する範囲と意味の確認方法を短く整理し、操作契約・API・所有・終了の境界を維持する。",
+      "形式のために新API例・複数設計案・呼出経路の全面調査を要求せず、構造変更へ範囲を広げない。短い出力だけでは成功にしない。"
+    ]
+  },
+  {
+    "id": "history-record",
+    "source": "https://github.com/thkt/dotagents/issues/393",
+    "prompt": "実行結果の保存で必要な情報が抜けることがあります。改善範囲、完了条件、検証方法を整理してください。\n\n対象はfixtures/workspaceです。操作契約はfixtures/workspace/specs.md、通常のコード・既存検証・合成履歴資料も同ディレクトリにあります。今回は下書きまでとし、本実装とIssue公開は行わないでください。",
+    "expected": "scoping",
+    "criteria": [
+      "成功にはartifact、失敗にはreasonが必要という合意済み仕様を、任意項目の型、外部入力、既存checkHistoryの実装・設定・通常入口への接続と照合し、人の注意に依存する条件と既存保証との差を見つける。",
+      "型・lint・実行時検査・スクリプト・テストと追加しない案を条件に応じて比較し、最小案の保証範囲・検出漏れ・誤検出・維持負担・未確認を下書きに残す。外部入力を型だけで保証せず、同じ検査の重複追加や根拠のないlint固定、本実装をしない。注意書きを規則制定の許可へ変換しない。"
+    ]
+  },
+  {
+    "id": "save-diagnostics",
+    "source": "https://github.com/thkt/dotagents/issues/393",
+    "prompt": "保存処理の診断メッセージを、合意済みの内容へ改善してください。",
+    "expected": "implement",
+    "criteria": [
+      "既存の型・実行時検査の適用範囲、通常保存経路への接続、正常・違反・適用外の検証を確認して再利用し、指定の診断3件を改善する。実差分と副作用・拒否条件を照合する。",
+      "重複した型・lint・検査・スクリプトを新設せず、規約・依存導入を必須修正にしない。既存保証を確認しない追加不要の自己申告だけでは成功にしない。"
+    ],
+    "actor": "initial-implementation",
+    "check": [
+      "bun",
+      "test",
+      "fixtures/workspace/tests/results.test.ts",
+      "fixtures/workspace/tests/results-behavior.test.ts"
+    ],
+    "context": {
+      "body": "# 合意済みの変更\n\n保存処理の診断メッセージを、合意済みの内容へ改善してください。\n\n対象は公開の合成プロジェクトfixtures/workspaceです。操作契約はfixtures/workspace/specs.md、既存の呼出元・コード・独立検証も同ディレクトリにあります。今回の依頼に対応する節だけを変更対象とし、他の機能と検証資産は維持します。依存の導入と外部公開は不要です。\n\n検証: bun test fixtures/workspace/tests/results.test.ts fixtures/workspace/tests/results-behavior.test.ts"
+    }
   }
 ]

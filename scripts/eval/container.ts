@@ -234,8 +234,18 @@ export function providerGateway(
   };
 }
 
+function actorEnvironment() {
+  return {
+    PATH: '/usr/local/bin:/usr/bin:/bin',
+    HOME: '/work/home',
+    CODEX_HOME: '/work/home/.codex',
+    TMPDIR: '/tmp',
+    LANG: 'C.UTF-8',
+  };
+}
+
 async function version(argv: string[]) {
-  const child = Bun.spawn(argv, { stdout: 'pipe', stderr: 'pipe' });
+  const child = Bun.spawn(argv, { stdout: 'pipe', stderr: 'pipe', env: actorEnvironment() });
   const result = (await new Response(child.stdout).text()).trim();
   assert((await child.exited) === 0, 'Tool version unavailable');
   return result;
@@ -293,10 +303,13 @@ async function probe() {
   const blocked = await fetch('http://gateway:8080/github', { signal: AbortSignal.timeout(3000) });
   assert(blocked.status === 403, 'General proxy available');
   spawn('sh', ['-c', 'sleep 600'], { detached: true, stdio: 'ignore' }).unref();
+  const childBun = await version(['bun', '--version']);
+  assert(childBun === Bun.version, 'Entry and child Bun versions differ');
   console.log(
     JSON.stringify({
       cli: await version(['codex', '--version']),
-      bun: Bun.version,
+      bun: childBun,
+      entryBun: Bun.version,
       git: await version(['git', '--version']),
       safety: 'probe-passed',
     }),
@@ -346,7 +359,7 @@ async function relay(
   }
 }
 
-async function actor(settings: Limits & { prompt: string }) {
+async function actor(settings: Limits & { prompt: string; responseSchema?: unknown }) {
   await prepare();
   const config = [
     'model_provider="eval"',
@@ -360,6 +373,12 @@ async function actor(settings: Limits & { prompt: string }) {
     'web_search="disabled"',
     `model_reasoning_effort=${JSON.stringify(settings.reasoning)}`,
   ];
+  if (settings.responseSchema) {
+    await writeFile(
+      '/work/home/.codex/response-schema.json',
+      JSON.stringify(settings.responseSchema),
+    );
+  }
   const child = Bun.spawn(
     [
       'codex',
@@ -374,6 +393,14 @@ async function actor(settings: Limits & { prompt: string }) {
       '-m',
       settings.model,
       ...config.flatMap((value) => ['-c', value]),
+      ...(settings.responseSchema
+        ? [
+            '--output-schema',
+            '/work/home/.codex/response-schema.json',
+            '-o',
+            '/work/repo/actor-records/final.json',
+          ]
+        : []),
       '-',
     ],
     {
@@ -381,13 +408,7 @@ async function actor(settings: Limits & { prompt: string }) {
       stdin: Buffer.from(settings.prompt),
       stdout: 'pipe',
       stderr: 'pipe',
-      env: {
-        PATH: '/usr/local/bin:/usr/bin:/bin',
-        HOME: '/work/home',
-        CODEX_HOME: '/work/home/.codex',
-        TMPDIR: '/tmp',
-        LANG: 'C.UTF-8',
-      },
+      env: actorEnvironment(),
     },
   );
   const budget = { bytes: 0 };
@@ -447,7 +468,11 @@ if (import.meta.main) {
         await new Promise(() => {});
       } else {
         assert(mode === 'actor' && typeof settings.prompt === 'string', 'Unknown container role');
-        await actor({ ...limits, prompt: settings.prompt });
+        await actor({
+          ...limits,
+          prompt: settings.prompt,
+          responseSchema: settings.responseSchema,
+        });
       }
     }
   } finally {

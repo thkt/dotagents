@@ -285,7 +285,8 @@ export async function writeComparison(directory: string, assessmentFile?: string
     `ケース版: ${evaluation.config.corpusCommit} / 共通課題版: ${evaluation.config.workspaceCommit}`,
     `モデル: ${evaluation.config.model} / ${evaluation.config.reasoning}; CLI: ${evaluation.config.cliVersion}; image: ${evaluation.config.image}`,
     '',
-    '同条件: ケース集合・課題・モデル・設定・コンテナー・ツール。指示ファイルだけを前後のcommitから配置。実ファイルの版・変更した指示はローカル plan.json、実効ツール版・停止理由は evaluation.json。',
+    '同条件: ケース集合・課題・モデル・設定・コンテナー・ツール。指示・参照と指定時の初回担当入力だけを前後のcommitから配置。実ファイルの版・変更した指示はローカル plan.json、実効ツール版・停止理由は evaluation.json。',
+    '初回担当の試行はスキル選択の採点外。行動の発見・適用・見落とし・過剰適用・記録不足は各reasonと同じ試行の証拠で判定し、選択成功や終了0で代替しない。',
     '本比較と#183のmacOS登録環境は異なる。GitHub・外部依存へのアクセスは遮断。単回差・ケース変更を改善率に換算しない。',
     '',
     '| ケース | 条件 | 選択（正誤） | 成果 | 実行・理由 | 安全 | 秒 | input / cached / output |',
@@ -338,7 +339,7 @@ export async function writeComparison(directory: string, assessmentFile?: string
     const missing = evaluation.config.cases.length - rows.length;
     lines.push(
       '',
-      `${side}: 記録欠落${missing}（未評価、選択分母の構成は未確認）。 予定${evaluation.config.cases.length}試行、記録${rows.length}、起動${rows.filter((row) => row.launched).length}、実行失敗・時間切れ${rows.filter((row) => ['failed', 'timeout'].includes(row.execution)).length}、未評価${rows.filter((row) => row.execution === 'unevaluated').length}。選択は採点可能${scored.length}/${denominator}（境界${rows.length - denominator}を除く）、正${scored.filter((row) => row.correct).length}、選択漏れ${misses}、誤発動${falseActivations}（採点可能な行だけ）。要求充足${rows.filter((row) => row.outcome === 'fulfilled').length}/${evaluation.config.cases.length}、未充足${rows.filter((row) => row.outcome === 'unfulfilled').length}、判定不能${rows.filter((row) => row.outcome === 'indeterminate').length}。`,
+      `${side}: 記録欠落${missing}（未評価、選択分母の構成は未確認）。 予定${evaluation.config.cases.length}試行、記録${rows.length}、起動${rows.filter((row) => row.launched).length}、実行失敗・時間切れ${rows.filter((row) => ['failed', 'timeout'].includes(row.execution)).length}、未評価${rows.filter((row) => row.execution === 'unevaluated').length}。選択は採点可能${scored.length}/${denominator}（選択採点外${rows.length - denominator}を除く）、正${scored.filter((row) => row.correct).length}、選択漏れ${misses}、誤発動${falseActivations}（採点可能な行だけ）。要求充足${rows.filter((row) => row.outcome === 'fulfilled').length}/${evaluation.config.cases.length}、未充足${rows.filter((row) => row.outcome === 'unfulfilled').length}、判定不能${rows.filter((row) => row.outcome === 'indeterminate').length}。`,
     );
   }
   lines.push(
