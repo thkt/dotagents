@@ -42,9 +42,12 @@ Bun 1.4.3 を使います。check は次の順に実行します。ツールご�
 | 1 | `lint` | oxlint | 型情報を使う正しさの検査と、[ローカルプラグイン](scripts/lint/local/index.ts)の規則。警告も失敗にします |
 | 2 | `format:check` | oxfmt | `scripts/**/*.ts`の書式だけ |
 | 3 | `complexity` | Biome | 認知的複雑度の上限 15 だけ。formatter と他の規則は無効です |
-| 4 | `typecheck` | tsc | 型の整合 |
+| 4 | `typecheck` | `bun --check` | `tsconfig.json`に従う`scripts/**/*.ts`全体の型の整合。テストからimportされないCLIも含みます |
 | 5 | `check:unused` | fallow | 未使用のファイル・export・型・依存と、実行時 import の循環 |
 | 6 | `test:control` | Bun | ハーネスの制御テスト |
+
+型検査だけを実行する場合は`bun run typecheck`を使います。直接呼び出す場合は`bun --check`と指定します。このrepoには`check`スクリプトがあるため、`bun check`は総合検証を実行します。
+
 対象 repo では、その repo の検証を指定してください。
 
 対象repoでUI操作の検証方法を選ぶ必要がある場合は、[e2eの条件付き採用](skills/implement/references/testing.md#対象repoでのe2eの条件付き採用)を使います。必要な少数フローの導入はそのrepoのIssueで合意し、実行は既存のsetup・checkまたはホスト検証経路で扱います。dotagents自身へのe2e・モデルprovider・ブラウザー依存の追加や、共通check・必須CIでのAI E2E実行は行いません。
