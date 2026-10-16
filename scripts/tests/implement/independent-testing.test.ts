@@ -11,6 +11,9 @@ import { run } from '../../implement/correction.ts';
 import { aggregateUsage } from '../../implement/usage.ts';
 import { randomUUID } from 'node:crypto';
 import { expectTestStage } from '../support/test-stage.ts';
+import { expectSharedPremiseReferences } from '../support/premise-reference.ts';
+import { repairInstructions } from '../../implement/repair.ts';
+import { reviewInstructions } from '../../implement/review.ts';
 
 const { trial, cleanup } = correctionFixture();
 afterEach(cleanup);
@@ -306,6 +309,11 @@ console.log(JSON.stringify({targetId:input.targetId,status:prior?'unnecessary':'
       expect(observation.docs).toBe(false);
       expect(observation.prompt).not.toContain('IMPLEMENTATION_PRIVATE_360');
       expect(observation.prompt).not.toContain('README missing');
+      assert(typeof observation.prompt === 'string');
+      await expectSharedPremiseReferences(
+        [observation.prompt, repairInstructions(null), reviewInstructions],
+        '機械化',
+      );
     }
     if (changeExpectation) {
       expect(result.status).toBe(1);
