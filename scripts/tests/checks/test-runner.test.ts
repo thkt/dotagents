@@ -1,19 +1,104 @@
 import { test, expect } from 'bun:test';
+import assert from 'node:assert/strict';
 import { checkReport } from '../runner.ts';
-import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from 'node:fs/promises';
+import { isRecord } from '../../shared/values.ts';
+import { cp, mkdtemp, mkdir, writeFile, readFile, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const entry = resolve(import.meta.dir, '../runner.ts');
 
+// 実際のpackage入口とJUnit runnerを使い、無関係な静的検査だけを模擬する。
+async function commandFixture() {
+  const cwd = await mkdtemp(join(tmpdir(), 'test-commands-'));
+  const repo = resolve(import.meta.dir, '../../..');
+  for (const directory of ['scripts/tests', 'scripts/shared', 'eval/tests']) {
+    await mkdir(join(cwd, directory), { recursive: true });
+  }
+  for (const path of ['scripts/tests/runner.ts', 'scripts/shared/values.ts']) {
+    await cp(join(repo, path), join(cwd, path));
+  }
+  const manifest: unknown = await Bun.file(join(repo, 'package.json')).json();
+  assert(isRecord(manifest) && isRecord(manifest.scripts));
+  for (const name of ['lint', 'format:check', 'complexity', 'typecheck', 'check:unused']) {
+    manifest.scripts[name] = `${process.execPath} -e 'console.log("STATIC_GATE")'`;
+  }
+  await writeFile(join(cwd, 'package.json'), JSON.stringify(manifest));
+  return cwd;
+}
+
+async function commandProbe(cwd: string, directory: string, marker: string, valid: boolean) {
+  await writeFile(
+    join(cwd, directory, 'probe.test.js'),
+    `import { test, expect } from 'bun:test';
+test('probe', () => { console.log('${marker}'); expect(${valid}).toBe(true); });`,
+  );
+}
+
+function runCommand(cwd: string, name: string) {
+  const result = spawnSync(process.execPath, ['run', name], {
+    cwd,
+    encoding: 'utf8',
+    timeout: 15000,
+    env: { ...process.env, CI: 'true' },
+  });
+  expect(result.error).toBeUndefined();
+  expect(result.signal).toBeNull();
+  return { code: result.status, output: result.stdout + result.stderr };
+}
+
+test('通常とevalのpackage入口はそれぞれのテストだけをJUnit runnerで実行する', async () => {
+  const cwd = await commandFixture();
+  try {
+    for (const [name, selected, other] of [
+      ['test:control', 'scripts/tests', 'eval/tests'],
+      ['test:eval', 'eval/tests', 'scripts/tests'],
+    ] as const) {
+      await commandProbe(cwd, selected, 'SELECTED_SUITE', true);
+      await commandProbe(cwd, other, 'OTHER_SUITE', false);
+      const normal = runCommand(cwd, name);
+      expect(normal.code, normal.output).toBe(0);
+      expect(normal.output).toContain('SELECTED_SUITE');
+      expect(normal.output).not.toContain('OTHER_SUITE');
+      expect(normal.output).toContain('All tests executed.');
+      await commandProbe(cwd, selected, 'SELECTED_SUITE', false);
+      const failure = runCommand(cwd, name);
+      expect(failure.code, failure.output).toBe(1);
+      expect(failure.output).toContain('SELECTED_SUITE');
+      expect(failure.output).not.toContain('All tests executed.');
+    }
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('総合checkは通常とevalを実行し、evalの失敗を成功へ変換しない', async () => {
+  const cwd = await commandFixture();
+  try {
+    await commandProbe(cwd, 'scripts/tests', 'CONTROL_SUITE', true);
+    await commandProbe(cwd, 'eval/tests', 'EVAL_SUITE', true);
+    const normal = runCommand(cwd, 'check');
+    expect(normal.code, normal.output).toBe(0);
+    expect(normal.output).toContain('CONTROL_SUITE');
+    expect(normal.output).toContain('EVAL_SUITE');
+    await commandProbe(cwd, 'eval/tests', 'EVAL_SUITE', false);
+    const failure = runCommand(cwd, 'check');
+    expect(failure.code, failure.output).toBe(1);
+    expect(failure.output).toContain('EVAL_SUITE');
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 async function runnerFixture(
   cwd: string,
   scenario: 'normal' | 'only' | 'skip' | 'failure' | 'syntax' | 'empty',
+  directory = 'scripts/tests',
 ) {
   const temporaryReports = join(cwd, 'temporary-reports');
   await mkdir(temporaryReports);
-  const dir = join(cwd, 'scripts/tests');
+  const dir = join(cwd, directory);
   await mkdir(dir, { recursive: true });
   const bodies = {
     normal: "test('second', () => { console.log('application output'); expect(1).toBe(1); });",
@@ -41,12 +126,22 @@ const diagnostics = {
   empty: [/ENOENT/, /results\.xml/],
 };
 
-for (const scenario of ['normal', 'only', 'skip', 'failure', 'syntax', 'empty'] as const) {
-  test(`bun runner: ${scenario}`, async () => {
+const selections = [
+  ...(['normal', 'only', 'skip', 'failure', 'syntax', 'empty'] as const).map((scenario) => ({
+    scenario,
+    directory: 'scripts/tests',
+  })),
+  ...(['normal', 'skip', 'empty'] as const).map((scenario) => ({
+    scenario,
+    directory: 'eval/tests',
+  })),
+];
+for (const { scenario, directory } of selections) {
+  test(`bun runner: ${directory} ${scenario}`, async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'test-completion-'));
     try {
-      const temporaryReports = await runnerFixture(cwd, scenario);
-      const result = spawnSync(process.execPath, [entry, 'bun'], {
+      const temporaryReports = await runnerFixture(cwd, scenario, directory);
+      const result = spawnSync(process.execPath, [entry, 'bun', directory], {
         cwd,
         encoding: 'utf8',
         timeout: 15000,
@@ -68,7 +163,7 @@ for (const scenario of ['normal', 'only', 'skip', 'failure', 'syntax', 'empty'] 
         expect(report).toBeDefined();
         const xml = await readFile(report ?? '', 'utf8');
         expect(xml).toMatch(/<testcase\b[^>]*name="second"[^>]*>[\s\S]*?<skipped\b/);
-        expect(xml).toContain('file="scripts/tests/probe.test.js"');
+        expect(xml).toContain(`file="${directory}/probe.test.js"`);
       } else {
         expect(await readdir(temporaryReports)).toEqual([]);
         expect(output).not.toContain('JUnit report retained:');

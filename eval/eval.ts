@@ -3,11 +3,12 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, posix, relative, resolve } from 'node:path';
 import { z } from 'zod';
-import { command, withInterrupts, assertRunning } from '../shared/process.ts';
+import { command, withInterrupts, assertRunning } from '../scripts/shared/process.ts';
 import { evalCase, evalConfig, validatePlan } from './data.ts';
-import type { EvalConfig } from './data.ts';
+import type { EvalConfig, EvalCase } from './data.ts';
+import { prepareInitialActorInput, initialActorSources } from './initial-input.ts';
 import { sandboxTrial } from './sandbox.ts';
-import { isRecord } from '../shared/values.ts';
+import { isRecord } from '../scripts/shared/values.ts';
 import { writeComparison } from './report.ts';
 
 async function git(repo: string, args: string[]) {
@@ -23,8 +24,18 @@ async function git(repo: string, args: string[]) {
   return result.stdout;
 }
 
-async function blob(repo: string, commit: string, path: string) {
+function blob(repo: string, commit: string, path: string): Promise<string>;
+function blob(
+  repo: string,
+  commit: string,
+  path: string,
+  allowAbsent: boolean,
+): Promise<string | null>;
+async function blob(repo: string, commit: string, path: string, allowAbsent = false) {
   const entry = await git(repo, ['ls-tree', commit, '--', path]);
+  if (allowAbsent && entry === '') {
+    return null;
+  }
   assert(
     /^100(644|755) blob [a-f0-9]{40}\t/.test(entry) && entry.trimEnd().endsWith(`\t${path}`),
     `Expected regular committed file: ${path}`,
@@ -59,6 +70,22 @@ function missingReferences(instructions: string[], files: Record<string, string>
   return missing;
 }
 
+function compareActorInputs(
+  before: ReturnType<ReturnType<typeof prepareInitialActorInput>>[],
+  after: ReturnType<ReturnType<typeof prepareInitialActorInput>>[],
+) {
+  for (const input of before) {
+    const next = after.find((candidate) => candidate.case === input.case);
+    assert(
+      next &&
+        input.prompt.replace(input.repairInstructions, '<repairInstructions>') ===
+          next.prompt.replace(next.repairInstructions, '<repairInstructions>') &&
+        JSON.stringify(input.schema) === JSON.stringify(next.schema),
+      'Initial actor differs outside the compared repair instructions',
+    );
+  }
+}
+
 export async function preparePlan(repo: string, config: EvalConfig) {
   const remote = (await git(repo, ['remote', 'get-url', 'origin'])).trim();
   assert(
@@ -76,12 +103,56 @@ export async function preparePlan(repo: string, config: EvalConfig) {
       'Pinned input must be a commit',
     );
   }
+  const runnerRoot = resolve(import.meta.dir, '..');
+  const runnerFiles = [
+    'data.ts',
+    'eval.ts',
+    'initial-input.ts',
+    'container.ts',
+    'sandbox.ts',
+    'report.ts',
+    '../scripts/shared/process.ts',
+    '../scripts/shared/values.ts',
+    '../scripts/shared/token-usage.ts',
+    '../package.json',
+    '../bun.lock',
+  ];
   const runtimeSource = await readFile(resolve(import.meta.dir, 'container.ts'), 'utf8');
   const runtimeHash = createHash('sha256').update(runtimeSource).digest('hex');
+  const runner = {
+    commit: (await git(runnerRoot, ['rev-parse', 'HEAD'])).trim(),
+    uncommitted:
+      (
+        await git(runnerRoot, [
+          'status',
+          '--porcelain',
+          '--',
+          'eval',
+          'scripts/shared',
+          'package.json',
+          'bun.lock',
+        ])
+      ).length > 0,
+    sourceHashes: Object.fromEntries(
+      await Promise.all(
+        runnerFiles.map(
+          async (path) =>
+            [
+              path,
+              path === 'container.ts'
+                ? runtimeHash
+                : createHash('sha256')
+                    .update(await readFile(resolve(import.meta.dir, path)))
+                    .digest('hex'),
+            ] as const,
+        ),
+      ),
+    ),
+  };
   const cases = z
     .array(evalCase)
-    .parse(JSON.parse(await blob(repo, config.corpusCommit, 'scripts/eval/corpus/cases.json')));
-  const selected = [];
+    .parse(JSON.parse(await blob(repo, config.corpusCommit, 'eval/corpus/cases.json')));
+  const selected: (Omit<EvalCase, 'context'> & { contextBody: string | null })[] = [];
   for (const { context, ...item } of validatePlan(config, cases)) {
     const contextBody = context ? `${JSON.stringify(context, null, 2)}\n` : null;
     selected.push({ ...item, contextBody });
@@ -96,20 +167,59 @@ export async function preparePlan(repo: string, config: EvalConfig) {
   for (const side of ['before', 'after'] as const) {
     const files = { ...workspaceFiles };
     const versions = { ...workspaceVersions };
+    const absentInstructions: { path: string; commit: string; reason: string }[] = [];
     for (const path of config.instructionFiles) {
-      files[path] = await blob(repo, config[side], path);
+      const text = await blob(
+        repo,
+        config[side],
+        path,
+        side === 'before' &&
+          [
+            'skills/references/premise-validation.md',
+            'skills/references/caller-first-design.md',
+            'skills/references/mechanization.md',
+          ].includes(path),
+      );
+      if (text === null) {
+        absentInstructions.push({
+          path,
+          commit: config[side],
+          reason: 'ls-tree confirmed absent; no content substituted',
+        });
+        continue;
+      }
+      files[path] = text;
       versions[path] = createHash('sha256').update(files[path]).digest('hex');
     }
+    const initialCases = selected.filter((item) => item.actor === 'initial-implementation');
+    // 同じ条件の計画準備内だけで、検査済みの固定ソース本文とhashを共有する。
+    const inputForCase = initialCases.length
+      ? prepareInitialActorInput(
+          config,
+          files,
+          await initialActorSources(config, (path) => blob(repo, config[side], path)),
+        )
+      : null;
+    const actorInputs = initialCases.map((item) => {
+      assert(
+        inputForCase && item.contextBody && item.check,
+        'Initial actor requires agreed specification and check',
+      );
+      return inputForCase(item);
+    });
     variants.push({
       side,
       commit: config[side],
       files,
       versions,
+      absentInstructions,
+      actorInputs,
       missingReferences: missingReferences(config.instructionFiles, files),
     });
   }
   const [before, after] = variants;
   assert(before && after, 'Both variants required');
+  compareActorInputs(before.actorInputs, after.actorInputs);
   const changedInstructions = config.instructionFiles.filter(
     (path) => before.versions[path] !== after.versions[path],
   );
@@ -121,6 +231,7 @@ export async function preparePlan(repo: string, config: EvalConfig) {
     changedInstructions,
     runtimeSource,
     runtimeHash,
+    runner,
     corpusHash: createHash('sha256').update(JSON.stringify(cases)).digest('hex'),
   };
 }
@@ -159,6 +270,7 @@ async function executeCase(
   remaining: number,
   contextBody: string | null,
   runtimeSource: string,
+  responseSchema?: Record<string, unknown>,
 ) {
   assertRunning();
   const started = performance.now();
@@ -181,10 +293,56 @@ async function executeCase(
       maxOutputTokens: config.maxOutputTokens,
       expiresAt,
       prompt,
+      responseSchema,
     }),
   );
   const result = await sandboxTrial(config, runtime, input, expiresAt);
   return { ...result, elapsedMs: performance.now() - started };
+}
+
+async function executePlannedCase(
+  config: EvalConfig,
+  dir: string,
+  variant: Awaited<ReturnType<typeof preparePlan>>['variants'][number],
+  item: Awaited<ReturnType<typeof preparePlan>>['selected'][number],
+  remaining: number,
+  runtimeSource: string,
+) {
+  const actor = variant.actorInputs.find((input) => input.case === item.id);
+  return executeCase(
+    config,
+    dir,
+    actor ? { ...variant.files, ...actor.files } : variant.files,
+    actor?.prompt ?? item.prompt,
+    remaining,
+    actor ? null : item.contextBody,
+    runtimeSource,
+    actor?.schema,
+  );
+}
+
+function selectionExpectation(item: { actor?: string; expected: string }) {
+  return item.actor ? 'boundary' : item.expected;
+}
+
+function requireCommittedRunner(plan: Awaited<ReturnType<typeof preparePlan>>) {
+  assert(
+    !plan.selected.some((item) => item.actor) || !plan.runner.uncommitted,
+    'Behavior evaluation requires a committed runner before model launch',
+  );
+}
+
+function orderedTasks(plan: Awaited<ReturnType<typeof preparePlan>>) {
+  const tasks = plan.variants.flatMap((variant) =>
+    plan.selected.map((item) => ({ variant, item })),
+  );
+  return (
+    plan.config.trialOrder?.map((trial) => {
+      const task = tasks.find(({ variant, item }) => trial === `${variant.side}-${item.id}`);
+      assert(task, 'Invalid planned trial');
+      return task;
+    }) ?? tasks
+  );
 }
 
 export async function runEvaluation(repo: string, config: EvalConfig) {
@@ -198,6 +356,7 @@ export async function runEvaluation(repo: string, config: EvalConfig) {
   try {
     const plan = await preparePlan(repo, config);
     await writeFile(resolve(directory, 'plan.json'), JSON.stringify(plan, null, 2));
+    requireCommittedRunner(plan);
     preparationMs = performance.now() - started;
     evaluationStarted = performance.now();
     // All case IDs, limits and disclosure are printed before any model can start.
@@ -213,9 +372,7 @@ export async function runEvaluation(repo: string, config: EvalConfig) {
         disclosure: config.disclosure,
       }),
     );
-    const tasks = plan.variants.flatMap((variant) =>
-      plan.selected.map((item) => ({ variant, item })),
-    );
+    const tasks = orderedTasks(plan);
     for (const { variant, item } of tasks) {
       const trial = `${variant.side}-${item.id}`;
       const dir = resolve(directory, trial);
@@ -224,7 +381,8 @@ export async function runEvaluation(repo: string, config: EvalConfig) {
         trial,
         side: variant.side,
         case: item.id,
-        expected: item.expected,
+        expected: selectionExpectation(item),
+        actor: item.actor,
         selection: 'unknown',
         outcome: 'indeterminate',
         execution: 'unevaluated',
@@ -244,13 +402,12 @@ export async function runEvaluation(repo: string, config: EvalConfig) {
         continue;
       }
       try {
-        const result = await executeCase(
+        const result = await executePlannedCase(
           config,
           dir,
-          variant.files,
-          item.prompt,
+          variant,
+          item,
           remaining,
-          item.contextBody,
           plan.runtimeSource,
         );
         Object.assign(pending, result);
@@ -285,10 +442,7 @@ export async function runEvaluation(repo: string, config: EvalConfig) {
 if (import.meta.main) {
   try {
     const [mode, file, extra] = process.argv.slice(2);
-    assert(
-      file,
-      'Usage: bun scripts/eval/eval.ts plan|run CONFIG | report RUN_DIRECTORY [JUDGMENTS_JSON]',
-    );
+    assert(file, 'Usage: bun eval/eval.ts plan|run CONFIG | report RUN_DIRECTORY [JUDGMENTS_JSON]');
     if (mode === 'report') {
       await writeComparison(resolve(file), extra ? resolve(extra) : undefined);
     } else {

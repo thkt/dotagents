@@ -7,7 +7,8 @@
     "typeAware": true
   },
   "ignorePatterns": [
-    "node_modules/**"
+    "node_modules/**",
+    "eval/fixtures/**"
   ],
   "jsPlugins": [
     {
@@ -18,7 +19,8 @@
   "overrides": [
     {
       "files": [
-        "scripts/**/*.ts"
+        "scripts/**/*.ts",
+        "eval/**/*.ts"
       ],
       "rules": {
         "no-restricted-globals": [
@@ -35,7 +37,9 @@
               "Document"
             ],
             "checkGlobalObject": true,
-            "globalObjects": ["global"]
+            "globalObjects": [
+              "global"
+            ]
           }
         ],
         "prefer-const": "error",
