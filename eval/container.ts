@@ -6,12 +6,17 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { networkInterfaces } from 'node:os';
+import { randomUUID } from 'node:crypto';
+import type { BudgetLedger } from './budget.ts';
+import { runtimeBudget } from './budget-runtime.ts';
 
 interface Limits {
   model: string;
   reasoning: string;
   maxRequests: number;
   maxOutputTokens: number;
+  expiresAt?: number;
+  budget?: Pick<BudgetLedger, 'reserve' | 'sent' | 'settle' | 'abandon'>;
 }
 
 interface RuntimeVersions {
@@ -372,34 +377,70 @@ export function providerBody(value: unknown, limits: Limits) {
         value.include.every((entry) => entry === 'reasoning.encrypted_content')),
     'Unsupported inclusion',
   );
-  return { ...value, store: false, max_output_tokens: limits.maxOutputTokens };
+  return {
+    ...value,
+    store: false,
+    max_output_tokens: limits.maxOutputTokens,
+    ...(limits.budget ? { service_tier: 'default' } : {}),
+  };
 }
 
 function completionFailed(event: Record<string, unknown>) {
   return !record(event.response) || event.response.status !== 'completed';
 }
 
-function monitorResponse(body: ReadableStream<Uint8Array>, fail: () => void) {
+async function completeStream(
+  terminal: Record<string, unknown> | undefined,
+  fail: () => Promise<void>,
+  settle: (response: unknown) => Promise<void>,
+) {
+  if (terminal) {
+    await settle(terminal);
+  } else {
+    await fail();
+  }
+}
+
+function monitorResponse(
+  body: ReadableStream<Uint8Array>,
+  fail: () => Promise<void>,
+  settle: (response: unknown) => Promise<void>,
+) {
   const reader = body.getReader();
+  let cancelled = false;
+  let upstreamComplete = false;
   return new ReadableStream<Uint8Array>({
     async start(controller) {
-      let pending = '',
-        completed = false;
-      const decoder = new TextDecoder();
+      let pending = '';
+      let terminal: Record<string, unknown> | undefined;
+      let responseId: string | undefined;
+      let sawDone = false;
+      const decoder = new TextDecoder('utf-8', { fatal: true });
       const observe = (line: string) => {
-        if (!line.startsWith('data:') || line.slice(5).trim() === '[DONE]') {
+        if (!line.startsWith('data:')) {
           return;
         }
-        const event: unknown = JSON.parse(line.slice(5));
-        assert(record(event), 'Invalid provider event');
-        if (event.type === 'response.completed') {
-          completed = true;
-          if (completionFailed(event)) {
-            fail();
-          }
+        const data = line.slice(5).trim();
+        if (data === '[DONE]') {
+          assert(terminal, 'Premature stream end');
+          assert(!sawDone, 'Duplicate stream end');
+          sawDone = true;
+          return;
         }
-        if (['error', 'response.failed', 'response.incomplete'].includes(String(event.type))) {
-          fail();
+        const event: unknown = JSON.parse(data);
+        assert(record(event), 'Invalid provider event');
+        assert(!terminal, 'Event after terminal response');
+        if (record(event.response) && typeof event.response.id === 'string') {
+          assert(!responseId || responseId === event.response.id, 'Response ID mismatch');
+          responseId = event.response.id;
+        }
+        assert(
+          !['error', 'response.failed', 'response.incomplete'].includes(String(event.type)),
+          'Provider failed',
+        );
+        if (event.type === 'response.completed') {
+          assert(!completionFailed(event) && record(event.response), 'Incomplete response');
+          terminal = event.response;
         }
       };
       try {
@@ -413,26 +454,43 @@ function monitorResponse(body: ReadableStream<Uint8Array>, fail: () => void) {
           const lines = pending.split('\n');
           pending = lines.pop() ?? '';
           lines.forEach(observe);
-          controller.enqueue(value);
+          if (!cancelled) {
+            controller.enqueue(value);
+          }
         }
-        if (pending.trim()) {
-          observe(pending);
-        }
-        if (!completed) {
-          fail();
-        }
-        controller.close();
+        pending += decoder.decode();
+        observe(pending);
+        assert(!cancelled, 'Stream cancelled');
+        // EOFと一意な終端を確認済みなら、ホストの精算確認中の下流切断で
+        // 確定済みのusageを不明額へ戻さない。精算自体の失敗はcatchで止める。
+        upstreamComplete = Boolean(terminal);
+        await completeStream(terminal, fail, settle);
+        closeResponse(controller, cancelled);
       } catch (error) {
-        fail();
-        controller.error(error);
+        await fail();
+        if (!cancelled) {
+          controller.error(error);
+        }
         await reader.cancel().catch(() => {});
       }
     },
-    cancel() {
-      fail();
-      return reader.cancel();
+    async cancel() {
+      cancelled = true;
+      if (!upstreamComplete) {
+        await fail();
+      }
+      await reader.cancel();
     },
   });
+}
+
+function closeResponse(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  cancelled: boolean,
+) {
+  if (!cancelled) {
+    controller.close();
+  }
 }
 
 function gatewayInfo(
@@ -450,6 +508,24 @@ function gatewayInfo(
     return Response.json({ ready: true });
   }
   return null;
+}
+
+function requestDeadline(limits: Limits) {
+  assert(!limits.expiresAt || Date.now() < limits.expiresAt, 'Request deadline expired');
+}
+async function abandonRequest(
+  limits: Limits,
+  id?: string,
+  reason = 'Provider request failed or interrupted',
+) {
+  if (id) {
+    await limits.budget?.abandon(id, reason);
+  }
+}
+async function settleRequest(limits: Limits, id: string | undefined, response: unknown) {
+  if (id) {
+    await limits.budget?.settle(id, response);
+  }
 }
 
 // A narrow gateway, not a general proxy. No forwarded URL, auth, headers or redirects.
@@ -471,6 +547,11 @@ export function providerGateway(
       if (info) {
         return info;
       }
+      let requestId: string | undefined;
+      const fail = async (reason?: string) => {
+        failed = true;
+        await abandonRequest(limits, requestId, reason);
+      };
       try {
         assert(
           request.method === 'POST' &&
@@ -478,6 +559,7 @@ export function providerGateway(
             !new URL(request.url).search,
           'Endpoint forbidden',
         );
+        requestDeadline(limits);
         assert(
           !failed && requests < limits.maxRequests,
           'Model budget exhausted or previous request failed',
@@ -490,6 +572,13 @@ export function providerGateway(
         assert(!hashes.has(hash), 'Request retry forbidden');
         hashes.add(hash);
         requests++;
+        if (limits.budget) {
+          const id = randomUUID();
+          assert(await limits.budget.reserve(id), 'Money reservation refused');
+          requestId = id;
+          await limits.budget.sent(id);
+        }
+        requestDeadline(limits);
         const response = await send('https://api.openai.com/v1/responses', {
           method: 'POST',
           redirect: 'error',
@@ -501,7 +590,7 @@ export function providerGateway(
           throw error;
         });
         if (!response.ok) {
-          failed = true;
+          await fail(`Provider HTTP ${response.status}`);
           // Never echo upstream authentication diagnostics into actor logs.
           await response.body?.cancel();
           return new Response('Model provider failed; no retry', { status: 502 });
@@ -514,8 +603,8 @@ export function providerGateway(
           throw Error('Missing provider stream');
         }
         return new Response(
-          monitorResponse(response.body, () => {
-            failed = true;
+          monitorResponse(response.body, fail, async (response) => {
+            await settleRequest(limits, requestId, response);
           }),
           {
             headers: {
@@ -524,6 +613,7 @@ export function providerGateway(
           },
         );
       } catch {
+        await abandonRequest(limits, requestId).catch(() => {});
         rejected++;
         return new Response('Request refused', { status: 403 });
       }
@@ -538,6 +628,7 @@ function actorEnvironment() {
     CODEX_HOME: '/work/home/.codex',
     TMPDIR: '/tmp',
     LANG: 'C.UTF-8',
+    BUN_JSC_numberOfGCMarkers: '1',
   };
 }
 
@@ -576,6 +667,13 @@ async function boundary() {
     'Credentials or proxy environment present',
   );
   assert(!(await Bun.file('/var/run/docker.sock').exists()), 'Docker socket visible');
+  for (const path of [
+    '/runtime/delegation.json',
+    '/work/budget-message.json',
+    '/work/budget-ack.json',
+  ]) {
+    assert(!(await Bun.file(path).exists()), 'Gateway budget state visible');
+  }
   const mounts = (await readFile('/proc/self/mountinfo', 'utf8')).split('\n');
   for (const target of ['/', '/input', '/runtime']) {
     assert(
@@ -713,6 +811,7 @@ async function actor(
   settings: Limits & { prompt: string; responseSchema?: unknown },
   observed: RuntimeVersions,
 ) {
+  assert(process.env.BUN_JSC_numberOfGCMarkers === '1', 'Actor GC concurrency differs');
   await prepare();
   const config = [
     'model_provider="eval"',
@@ -807,11 +906,15 @@ if (import.meta.main) {
           typeof settings.maxOutputTokens === 'number',
         'Missing model settings',
       );
-      const limits = {
+      const limits: Limits = {
         model: settings.model,
         reasoning: settings.reasoning,
         maxRequests: settings.maxRequests,
         maxOutputTokens: settings.maxOutputTokens,
+        expiresAt:
+          typeof settings.requestExpiresAt === 'number'
+            ? settings.requestExpiresAt
+            : settings.expiresAt,
       };
       if (mode === 'gateway') {
         assert(process.env.OPENAI_API_KEY, 'Model authentication missing');
@@ -819,6 +922,8 @@ if (import.meta.main) {
           (await readFile('/proc/sys/net/ipv4/ip_forward', 'utf8')).trim() === '0',
           'Gateway forwarding enabled',
         );
+        limits.budget = await runtimeBudget();
+        assert(!settings.budgetRequired || limits.budget, 'Gateway money delegation missing');
         const gateway = providerGateway(limits, process.env.OPENAI_API_KEY);
         Bun.serve({
           port: 8080,

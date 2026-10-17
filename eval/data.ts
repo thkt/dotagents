@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { z } from 'zod';
+import { budgetConfig, priceProfile } from './budget.ts';
 
 const sha = z.string().regex(/^[a-f0-9]{40}$/);
 const name = z.string().regex(/^[a-z0-9][a-z0-9-]*$/);
@@ -35,6 +36,7 @@ export const evalConfig = z.strictObject({
   maxOutputTokens: positive.max(100000),
   maxTrials: positive,
   outputDirectory: z.string().min(1),
+  budget: budgetConfig.optional(),
   preflightDirectory: z.string().min(1).optional(),
   trialOrder: z.array(z.string().regex(/^(before|after)-[a-z0-9-]+$/)).optional(),
   disclosure: z.strictObject({
@@ -80,6 +82,7 @@ function validateBehaviorSuite(config: EvalConfig, selected: EvalCase[]) {
     'Behavior cases must remain separate from the five selection cases',
   );
   assert(config.trialOrder, 'Behavior cases require the fixed paired order');
+  assert(config.budget, 'Behavior evaluation requires money conditions and price profile');
   for (const path of [
     'AGENTS.md',
     'README.md',
@@ -122,7 +125,19 @@ function validateBehaviorSuite(config: EvalConfig, selected: EvalCase[]) {
   }
 }
 
+function validateMoneyPlan(config: EvalConfig) {
+  if (config.budget) {
+    assert(
+      config.model === priceProfile.model &&
+        config.reasoning === priceProfile.reasoning &&
+        config.maxOutputTokens <= priceProfile.maxOutput,
+      'Price assumptions differ',
+    );
+  }
+}
+
 export function validatePlan(config: EvalConfig, cases: EvalCase[]) {
+  validateMoneyPlan(config);
   assert(new Set(config.cases).size === config.cases.length, 'Duplicate case');
   assert(new Set(cases.map((item) => item.id)).size === cases.length, 'Duplicate corpus case');
   const selected = config.cases.map((id) => {

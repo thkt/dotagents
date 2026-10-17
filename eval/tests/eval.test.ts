@@ -1,11 +1,22 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { expect, test } from 'bun:test';
 import { writePreflightEvidence } from './preflight-evidence.ts';
+import { budgetConfig } from './budget-contract.ts';
 import { instructionFiles, installTrustedInputs } from './trusted-inputs.ts';
 import { providerGateway, providerBody } from '../container.ts';
 import { evalConfig, validatePlan } from '../data.ts';
@@ -759,7 +770,29 @@ if(args[0]==='start'&&args.at(-1).endsWith('-actor')) {
  if(process.env.EVAL_TEST_FAILURE==='interrupt') {writeFileSync(join(root,'interrupt-ready'),'ready');await Bun.sleep(5000);}
  console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:12,cached_input_tokens:5,output_tokens:3}}));
 }
-if(args[0]==='exec') console.log(JSON.stringify({requests:1,rejected:1,failed:false}));
+if(args[0]==='exec'&&args.at(-1)==='/runtime/budget-runtime.ts') {
+ const name=args[args.indexOf('-i')+1];
+ const saved=JSON.parse(readFileSync(join(root,name+'.json')));
+ const delegation=JSON.parse(readFileSync(join(saved.runtime,'delegation.json')));
+ // モデルを要求しない模擬actorなので、金額はinitialから変化しない。
+ // 保存・ack・closeはホスト提示の接続形式で、実台帳の代用品にはしない。
+ let sequence=1, closed=false, pending='';
+ const emit=kind=>console.log(JSON.stringify({delegation:kind==='closed'&&process.env.EVAL_TEST_FAILURE==='budget-wrong-delegation'?'00000000-0000-4000-8000-000000000000':delegation.id,sequence,kind,snapshot:delegation.initial}));
+ emit('save');
+ for await(const chunk of Bun.stdin.stream()) {
+  pending+=new TextDecoder().decode(chunk);
+  let end;
+  while((end=pending.indexOf('\\n'))>=0) {
+   const line=pending.slice(0,end);pending=pending.slice(end+1);
+   if(line==='close') {
+    if(process.env.EVAL_TEST_FAILURE==='budget-missing-close') process.exit(0);
+    closed=true;sequence++;emit('closed');
+   }
+   else if(Number(line)!==sequence) throw new Error('金額観測のackが一致しない');
+   else if(closed) process.exit(0);
+  }
+ }
+} else if(args[0]==='exec') console.log(JSON.stringify({requests:1,rejected:1,failed:false}));
 if(args[0]==='rm'&&process.env.EVAL_TEST_FAILURE==='cleanup') process.exit(1);
 `;
 
@@ -1078,6 +1111,9 @@ async function initialActorFixture(context: Awaited<ReturnType<typeof fixture>>)
       maxModelRequestsPerCase: 20,
       maxOutputTokens: 8000,
       bunVersion: '1.4.3',
+      model: 'gpt-6.1-sol',
+      reasoning: 'medium',
+      budget: budgetConfig,
       instructionFiles,
     }),
   };
@@ -1231,6 +1267,126 @@ async function assertCommonWorkspace(repo: string, paths: string[], variants: un
   }
 }
 
+// 委譲の入力分離とホスト観測への接続を、担当入力の転送と併せて確認する。
+async function assertBudgetTransfer(root: string, outputDirectory: string, trialOrder: string[]) {
+  const calls: unknown[] = (await readFile(join(root, 'calls.jsonl'), 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line): unknown => JSON.parse(line));
+  expect(
+    calls.filter(
+      (call) =>
+        Array.isArray(call) && call[0] === 'exec' && call.at(-1) === '/runtime/budget-runtime.ts',
+    ).length,
+  ).toBeGreaterThanOrEqual(16);
+  // 実行入口は出力先をrealpathで固定する。別名の綴りをmount漏れと扱わない。
+  const actualOutput = await realpath(outputDirectory);
+  for (const trial of trialOrder) {
+    const dir = join(actualOutput, trial);
+    expect(existsSync(join(dir, 'runtime/delegation.json'))).toBe(false);
+    expect(existsSync(join(dir, 'gateway-runtime/delegation.json'))).toBe(true);
+    expect(existsSync(join(dir, 'budget-closed.json'))).toBe(true);
+    const gatewayInput = join(dir, 'gateway-runtime');
+    const delegation = await readFile(join(gatewayInput, 'delegation.json'), 'utf8');
+    const launches = calls.filter(
+      (call): call is string[] =>
+        Array.isArray(call) &&
+        call[0] === 'create' &&
+        call.some((arg: unknown) =>
+          typeof arg === 'string' ? arg.includes(`src=${gatewayInput},`) : false,
+        ),
+    );
+    // 専用ディレクトリがあるだけでなく、gatewayだけにreadonlyで渡ること。
+    expect(launches).toHaveLength(1);
+    const gateway = launches[0];
+    assert(gateway);
+    expect(gateway[gateway.indexOf('--name') + 1]).toMatch(/-gateway$/);
+    expect(gateway).toContain(`type=bind,src=${gatewayInput},dst=/runtime,readonly`);
+    const trialCalls = calls.filter(
+      (call): call is string[] =>
+        Array.isArray(call) &&
+        call[0] === 'create' &&
+        call.includes(`type=bind,src=${join(dir, 'runtime')},dst=/runtime,readonly`),
+    );
+    expect(trialCalls).toHaveLength(2);
+    for (const call of trialCalls) {
+      const name = call[call.indexOf('--name') + 1];
+      expect(name).toMatch(/-(actor|probe)$/);
+      // 実際のmount元を読む。共有settingsへコピーされた金額履歴も検出する。
+      for (const mount of call.filter((arg) => arg.startsWith('type=bind,'))) {
+        const source = mount
+          .split(',')
+          .find((part) => part.startsWith('src='))
+          ?.slice(4);
+        assert(source);
+        expect(source === gatewayInput || gatewayInput.startsWith(`${source}/`)).toBe(false);
+        const files = await readdir(source, { recursive: true, withFileTypes: true });
+        for (const file of files.filter(
+          (entry) => entry.isFile() && entry.name.endsWith('.json'),
+        )) {
+          const text = await readFile(join(file.parentPath, file.name), 'utf8');
+          expect(text).not.toBe(delegation);
+          expect(text).not.toMatch(/"(?:settled|unrecoverable|accounted|profileHash)"\s*:/);
+        }
+      }
+    }
+  }
+}
+
+// 出力先の別名は同じ実体として扱うが、mountの権限と共有先は緩めない。
+test('金額転送の検査は出力先の実体と別名を照合し、書込みmountを拒否する', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'budget-transfer-path-'));
+  try {
+    const output = join(root, 'output');
+    const alias = join(root, 'alias');
+    const trial = 'before-positive';
+    const dir = join(output, trial);
+    await mkdir(join(dir, 'gateway-runtime'), { recursive: true });
+    await mkdir(join(dir, 'runtime'));
+    await symlink(output, alias);
+    await writeFile(join(dir, 'gateway-runtime/delegation.json'), '{"id":"synthetic"}');
+    await writeFile(join(dir, 'budget-closed.json'), '{}');
+    // 製品と同じく、mount元には実体のパスを使う。
+    const actual = await realpath(dir);
+    const calls = [
+      ...Array.from({ length: 16 }, () => ['exec', '/runtime/budget-runtime.ts']),
+      ...['gateway', 'actor', 'probe'].map((role) => [
+        'create',
+        '--name',
+        `synthetic-${role}`,
+        '--mount',
+        `type=bind,src=${join(actual, role === 'gateway' ? 'gateway-runtime' : 'runtime')},dst=/runtime,readonly`,
+      ]),
+    ];
+    const save = () =>
+      writeFile(join(root, 'calls.jsonl'), calls.map((call) => JSON.stringify(call)).join('\n'));
+    await save();
+    await assertBudgetTransfer(root, await realpath(output), [trial]);
+    await assertBudgetTransfer(root, alias, [trial]);
+    const gateway = calls[16];
+    assert(gateway);
+    assert(typeof gateway[4] === 'string');
+    gateway[4] = gateway[4].replace(',readonly', '');
+    await save();
+    await assert.rejects(() => assertBudgetTransfer(root, alias, [trial]));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+async function assertRunnerSources(repo: string, plan: unknown) {
+  assert(isRecord(plan) && isRecord(plan.runner) && isRecord(plan.runner.sourceHashes));
+  // 既存のidentity不一致検査だけでは、金額用に追加したソースの列挙漏れを防げない。
+  const directory = join(repo, 'eval');
+  const sources = (await readdir(directory)).filter((name) => name.endsWith('.ts'));
+  for (const source of sources) {
+    const hash = createHash('sha256')
+      .update(await readFile(join(directory, source)))
+      .digest('hex');
+    expect(plan.runner.sourceHashes[source], `runnerの識別値に欠落: ${source}`).toBe(hash);
+  }
+}
+
 test.serial(
   '初回4課題の信頼版担当入力と応答契約をplanから実行設定へ転送する',
   async () => {
@@ -1245,6 +1401,7 @@ test.serial(
         10000,
       );
       expect(planning.code, planning.stdout + planning.stderr).toBe(0);
+      await assertRunnerSources(context.repo, JSON.parse(planning.stdout));
       const preflightDirectory = join(context.root, 'synthetic-preflight');
       await writePreflightEvidence(preflightDirectory, JSON.parse(planning.stdout));
       await writeFile(configPath, JSON.stringify({ ...plan, preflightDirectory }));
@@ -1275,6 +1432,8 @@ test.serial(
       const savedPlan = await readFile(join(plan.outputDirectory, 'plan.json'), 'utf8');
       const parsedPlan: unknown = JSON.parse(savedPlan);
       assert(isRecord(parsedPlan) && Array.isArray(parsedPlan.variants));
+      expect(parsedPlan.config).toMatchObject({ budget: budgetConfig });
+      await assertBudgetTransfer(context.root, plan.outputDirectory, trialOrder);
       const variants: unknown[] = parsedPlan.variants;
       await assertCommonWorkspace(context.repo, plan.workspaceFiles, variants);
       const compactPlan = JSON.stringify(parsedPlan);
@@ -1282,6 +1441,9 @@ test.serial(
       for (const [index, launch] of launches.entries()) {
         assert(isRecord(launch) && isRecord(launch.settings));
         const settings = launch.settings;
+        expect(JSON.stringify(settings)).not.toMatch(
+          /"(?:settled|unrecoverable|reserved|accounted|delegation)"\s*:/,
+        );
         const trial = trialOrder[index];
         assert(trial);
         expect(JSON.stringify(launch)).not.toMatch(
@@ -1344,6 +1506,62 @@ test.serial(
   },
   30000,
 );
+
+for (const failure of ['budget-missing-close', 'budget-wrong-delegation']) {
+  test.serial(
+    `金額委譲の終了確認が${failure}なら次の試行を起動しない`,
+    async () => {
+      await withEvaluationFixture(async (context) => {
+        const { plan } = await initialActorFixture(context);
+        const planPath = join(context.root, 'budget-config.json');
+        await writeFile(planPath, JSON.stringify(plan));
+        const prepared = await command(
+          [process.execPath, 'eval/eval.ts', 'plan', planPath],
+          context.repo,
+          '',
+          10000,
+        );
+        // 設定・plan失敗を金額受渡しの停止と取り違えない。
+        expect(prepared.code, prepared.stdout + prepared.stderr).toBe(0);
+        const preflightDirectory = join(context.root, 'synthetic-preflight');
+        await writePreflightEvidence(preflightDirectory, JSON.parse(prepared.stdout));
+        const configPath = join(context.root, 'budget-run.json');
+        await writeFile(configPath, JSON.stringify({ ...plan, preflightDirectory }));
+        process.env.EVAL_TEST_FAILURE = failure;
+        const execution = await command(
+          [process.execPath, 'eval/eval.ts', 'run', configPath],
+          context.repo,
+          '',
+          25000,
+        );
+        expect(execution.timedOut).toBe(false);
+        const result: unknown = JSON.parse(
+          await readFile(join(plan.outputDirectory, 'evaluation.json'), 'utf8'),
+        );
+        assert(isRecord(result) && Array.isArray(result.records));
+        expect(typeof result.error).toBe('string');
+        expect(await actorStarts(context.root)).toHaveLength(1);
+        expect(result.records).toHaveLength(16);
+        expect(
+          result.records
+            .slice(1)
+            .every(
+              (record: unknown) =>
+                isRecord(record) && record.launched === false && record.execution === 'unevaluated',
+            ),
+        ).toBe(true);
+        const first: unknown = result.records[0];
+        assert(isRecord(first) && typeof first.trial === 'string');
+        expect(
+          JSON.parse(
+            await readFile(join(plan.outputDirectory, first.trial, 'safety.json'), 'utf8'),
+          ),
+        ).toEqual({ containersRemoved: true, networkRemoved: true });
+      });
+    },
+    30000,
+  );
+}
 
 test.serial(
   '明示した16試行は4組ずつの順序と有限上限をplan・実行へ渡す',
