@@ -89,6 +89,12 @@ export function prepareInitialActorInput(
   );
   const researchText = expression(research, { startCommit: config.workspaceCommit, reports: [] });
   assert(typeof researchText === 'string', 'Invalid research context');
+  assert(
+    source('review').includes(
+      "export const reviewModel = { model: 'gpt-6.1-sol', reasoningEffort: 'high' };",
+    ),
+    'Unsupported source model',
+  );
   const actor = source('codex-actor');
   assert(
     actor.includes(
@@ -163,11 +169,22 @@ export function prepareInitialActorInput(
       repairInstructions: instructions,
       repairInstructionsHash: instructionsHash,
       references: absoluteReferences,
-      launch: { model: config.model, reasoning: config.reasoning, sandbox: 'workspace-write' },
+      sourceLaunch: {
+        model: 'gpt-6.1-sol',
+        reasoning: 'medium',
+        sandbox: 'workspace-write',
+      },
+      launch: {
+        model: config.model,
+        reasoning: config.reasoning,
+        sandbox: 'danger-full-access',
+        approvalPolicy: 'never',
+        isolation: 'verified-eval-docker',
+      },
       commonDifferences: [
         '通常CLIを再帰起動せず、隔離evalの同一runnerから初回repair担当だけを起動する。',
         '公開の合成Issue・setupなし・課題別check・captureなし・独立準備記録を両条件へ同じ形で渡す。',
-        'eval共通のephemeral・ignore-rules・中継・有限上限を使う。独立評価と公開は行わない。',
+        'eval専用Dockerを隔離境界とし、danger-full-access・承認never・ephemeral・ignore-rules・中継・有限上限をA/B共通で使う。通常のworkspace境界は保証せず、独立評価と公開は行わない。',
         '通常repairの候補はgpt-6.1-sol / medium。実行時は別途合意したconfigのmodel / reasoningで全試行を固定する。',
       ],
     };

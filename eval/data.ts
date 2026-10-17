@@ -35,6 +35,7 @@ export const evalConfig = z.strictObject({
   maxOutputTokens: positive.max(100000),
   maxTrials: positive,
   outputDirectory: z.string().min(1),
+  preflightDirectory: z.string().min(1).optional(),
   trialOrder: z.array(z.string().regex(/^(before|after)-[a-z0-9-]+$/)).optional(),
   disclosure: z.strictObject({
     inputs: z.literal('reviewed-public-committed-files-only'),

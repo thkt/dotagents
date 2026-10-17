@@ -7,6 +7,7 @@ import { command, withInterrupts, assertRunning } from '../scripts/shared/proces
 import { evalCase, evalConfig, validatePlan } from './data.ts';
 import type { EvalConfig, EvalCase } from './data.ts';
 import { prepareInitialActorInput, initialActorSources } from './initial-input.ts';
+import { preflight, requireCompatibilityProof } from './preflight.ts';
 import { sandboxTrial } from './sandbox.ts';
 import { isRecord } from '../scripts/shared/values.ts';
 import { writeComparison } from './report.ts';
@@ -111,6 +112,9 @@ export async function preparePlan(repo: string, config: EvalConfig) {
     'container.ts',
     'sandbox.ts',
     'report.ts',
+    'preflight.ts',
+    'preflight-container.ts',
+    'preflight-worker.ts',
     '../scripts/shared/process.ts',
     '../scripts/shared/values.ts',
     '../scripts/shared/token-usage.ts',
@@ -226,6 +230,20 @@ export async function preparePlan(repo: string, config: EvalConfig) {
   assert(changedInstructions.length > 0, 'No relevant instruction changes; evaluation not started');
   return {
     config,
+    effectiveLaunch: {
+      isolation: 'verified-eval-docker',
+      sandbox: 'danger-full-access',
+      approvalPolicy: 'never',
+      webSearch: 'disabled',
+      multiAgent: false,
+      ignoreUserConfig: true,
+      ignoreRules: true,
+      ephemeral: true,
+      network: 'isolated-gateway-only',
+      writable: ['/work', '/tmp'],
+      cliVersion: config.cliVersion,
+      image: config.image,
+    },
     selected,
     variants,
     changedInstructions,
@@ -294,6 +312,9 @@ async function executeCase(
       expiresAt,
       prompt,
       responseSchema,
+      cliVersion: config.cliVersion,
+      bunVersion: config.bunVersion,
+      gitVersion: config.gitVersion,
     }),
   );
   const result = await sandboxTrial(config, runtime, input, expiresAt);
@@ -357,6 +378,7 @@ export async function runEvaluation(repo: string, config: EvalConfig) {
     const plan = await preparePlan(repo, config);
     await writeFile(resolve(directory, 'plan.json'), JSON.stringify(plan, null, 2));
     requireCommittedRunner(plan);
+    await requireCompatibilityProof(plan);
     preparationMs = performance.now() - started;
     evaluationStarted = performance.now();
     // All case IDs, limits and disclosure are printed before any model can start.
@@ -442,14 +464,42 @@ export async function runEvaluation(repo: string, config: EvalConfig) {
 if (import.meta.main) {
   try {
     const [mode, file, extra] = process.argv.slice(2);
-    assert(file, 'Usage: bun eval/eval.ts plan|run CONFIG | report RUN_DIRECTORY [JUDGMENTS_JSON]');
+    assert(
+      file,
+      'Usage: bun eval/eval.ts plan|preflight|run CONFIG | report RUN_DIRECTORY [JUDGMENTS_JSON]',
+    );
     if (mode === 'report') {
       await writeComparison(resolve(file), extra ? resolve(extra) : undefined);
     } else {
-      assert(mode === 'plan' || mode === 'run', 'Unknown evaluation mode');
+      assert(mode === 'plan' || mode === 'preflight' || mode === 'run', 'Unknown evaluation mode');
       const config = evalConfig.parse(JSON.parse(await readFile(resolve(file), 'utf8')));
       if (mode === 'plan') {
         console.log(JSON.stringify(await preparePlan(process.cwd(), config), null, 2));
+      } else if (mode === 'preflight') {
+        const plan = await preparePlan(process.cwd(), config);
+        const directory = await outputDirectory(process.cwd(), config.outputDirectory);
+        try {
+          const result = await preflight(config, plan, directory);
+          if (result.error) {
+            process.exitCode = 1;
+          }
+        } catch (cause) {
+          await writeFile(
+            resolve(directory, 'preflight.json'),
+            JSON.stringify(
+              {
+                status: 'unavailable',
+                error: cause instanceof Error ? cause.message : 'Preflight unavailable',
+                records: [],
+                runner: plan.runner,
+                runtimeHash: plan.runtimeHash,
+              },
+              null,
+              2,
+            ),
+          );
+          throw cause;
+        }
       } else {
         const result = await withInterrupts(() => runEvaluation(process.cwd(), config));
         if (
