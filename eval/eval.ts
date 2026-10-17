@@ -3,12 +3,12 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, posix, relative, resolve } from 'node:path';
 import { z } from 'zod';
-import { command, withInterrupts, assertRunning } from '../shared/process.ts';
+import { command, withInterrupts, assertRunning } from '../scripts/shared/process.ts';
 import { evalCase, evalConfig, validatePlan } from './data.ts';
 import type { EvalConfig, EvalCase } from './data.ts';
 import { prepareInitialActorInput, initialActorSources } from './initial-input.ts';
 import { sandboxTrial } from './sandbox.ts';
-import { isRecord } from '../shared/values.ts';
+import { isRecord } from '../scripts/shared/values.ts';
 import { writeComparison } from './report.ts';
 
 async function git(repo: string, args: string[]) {
@@ -103,7 +103,7 @@ export async function preparePlan(repo: string, config: EvalConfig) {
       'Pinned input must be a commit',
     );
   }
-  const runnerRoot = resolve(import.meta.dir, '../..');
+  const runnerRoot = resolve(import.meta.dir, '..');
   const runnerFiles = [
     'data.ts',
     'eval.ts',
@@ -111,11 +111,11 @@ export async function preparePlan(repo: string, config: EvalConfig) {
     'container.ts',
     'sandbox.ts',
     'report.ts',
-    '../shared/process.ts',
-    '../shared/values.ts',
-    '../shared/token-usage.ts',
-    '../../package.json',
-    '../../bun.lock',
+    '../scripts/shared/process.ts',
+    '../scripts/shared/values.ts',
+    '../scripts/shared/token-usage.ts',
+    '../package.json',
+    '../bun.lock',
   ];
   const runtimeSource = await readFile(resolve(import.meta.dir, 'container.ts'), 'utf8');
   const runtimeHash = createHash('sha256').update(runtimeSource).digest('hex');
@@ -127,7 +127,7 @@ export async function preparePlan(repo: string, config: EvalConfig) {
           'status',
           '--porcelain',
           '--',
-          'scripts/eval',
+          'eval',
           'scripts/shared',
           'package.json',
           'bun.lock',
@@ -151,7 +151,7 @@ export async function preparePlan(repo: string, config: EvalConfig) {
   };
   const cases = z
     .array(evalCase)
-    .parse(JSON.parse(await blob(repo, config.corpusCommit, 'scripts/eval/corpus/cases.json')));
+    .parse(JSON.parse(await blob(repo, config.corpusCommit, 'eval/corpus/cases.json')));
   const selected: (Omit<EvalCase, 'context'> & { contextBody: string | null })[] = [];
   for (const { context, ...item } of validatePlan(config, cases)) {
     const contextBody = context ? `${JSON.stringify(context, null, 2)}\n` : null;
@@ -442,10 +442,7 @@ export async function runEvaluation(repo: string, config: EvalConfig) {
 if (import.meta.main) {
   try {
     const [mode, file, extra] = process.argv.slice(2);
-    assert(
-      file,
-      'Usage: bun scripts/eval/eval.ts plan|run CONFIG | report RUN_DIRECTORY [JUDGMENTS_JSON]',
-    );
+    assert(file, 'Usage: bun eval/eval.ts plan|run CONFIG | report RUN_DIRECTORY [JUDGMENTS_JSON]');
     if (mode === 'report') {
       await writeComparison(resolve(file), extra ? resolve(extra) : undefined);
     } else {

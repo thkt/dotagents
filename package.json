@@ -7,15 +7,16 @@
     "test:control": "bun scripts/tests/runner.ts bun",
     "lint:docs": "textlint --config .textlintrc.json",
     "typecheck": "bun --check",
-    "format": "oxfmt --write scripts",
-    "format:check": "oxfmt --check scripts",
-    "lint": "oxlint --deny-warnings scripts",
-    "complexity": "biome lint scripts",
+    "format": "oxfmt --write scripts eval",
+    "format:check": "oxfmt --check scripts eval",
+    "lint": "oxlint --deny-warnings scripts eval",
+    "complexity": "biome lint scripts eval",
     "check:unused": "bun scripts/lint/fallow.ts",
     "analyze:duplicates": "fallow dupes",
     "analyze:complexity": "fallow health --complexity --sort cognitive --report-only",
     "analyze:cycles": "fallow dead-code --circular-deps",
-    "check": "bun run lint && bun run format:check && bun run complexity && bun run typecheck && bun run check:unused && bun run test:control"
+    "check": "bun run lint && bun run format:check && bun run complexity && bun run typecheck && bun run check:unused && bun run test:control && bun run test:eval",
+    "test:eval": "bun scripts/tests/runner.ts bun eval/tests"
   },
   "dependencies": {
     "highlight.js": "11.12.0",

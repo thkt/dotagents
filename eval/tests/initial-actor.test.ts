@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from 'bun:test';
-import { isRecord } from '../../shared/values.ts';
+import { isRecord } from '../../scripts/shared/values.ts';
 
 // 通常actorのrepair応答契約。モデルの返答やevalの実出力から期待値を作らない。
 const responseSchema = {
@@ -40,7 +40,7 @@ console.log(JSON.stringify({type:'turn.completed'}));
     );
     // コンテナー用の絶対配置と実CLIだけを一時領域へ付け替える。
     // actor関数・引数構築・設定読取りは製品のコードをそのまま実行する。
-    const source = await readFile(resolve(import.meta.dir, '../../eval/container.ts'), 'utf8');
+    const source = await readFile(resolve(import.meta.dir, '../container.ts'), 'utf8');
     const runtime = source
       .replaceAll('/work', join(root, 'work'))
       .replaceAll('/input', join(root, 'input'))

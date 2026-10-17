@@ -463,7 +463,7 @@ bun run check
 <p>親turnの入力・キャッシュ入力・出力を区別し、キャッシュ入力は入力の内数として扱います。子モデルを含む総量と要求充足1課題当たりの総量は未確定の<code>null</code>に保ちます。工程時間と全体時間、欠損範囲を示し、金額へ換算しません。公開時は必要な集計と限界に絞り、私的なパス・生ログは含めません。</p>
 <p>操作と制約は<a data-source="scripts/README.md#実モデルによるレビューの確認">レビュー試験</a>と<a data-source="scripts/README.md#選択したimplement-runの使用量集計">使用量集計</a>を参照してください。</p>
 <p>通常の<code>implement</code>の<code>report.html</code>は1実行の行動・評価を読む資料です。この比較evalのケース別記録とは形式も判断単位も異なり、どちらかをもう一方の成功証拠へ読み替えません。</p>
-</div><section class="accordion guide-accordion evidence" data-multiple><details><summary><span class="accordion-title">この補足の根拠</span><svg class="accordion-chevron" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></summary><section><p><a data-source="scripts/README.md#指示変更時の同条件eval">比較evalの手順</a> · <a data-source="scripts/eval/eval.ts">eval.ts</a> · <a data-source="scripts/eval/report.ts">report.ts</a> · <a data-source="scripts/implement/run-report.ts">run-report.ts</a></p></section></details></section></section>
+</div><section class="accordion guide-accordion evidence" data-multiple><details><summary><span class="accordion-title">この補足の根拠</span><svg class="accordion-chevron" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></summary><section><p><a data-source="scripts/README.md#指示変更時の同条件eval">比較evalの手順</a> · <a data-source="eval/eval.ts">eval.ts</a> · <a data-source="eval/report.ts">report.ts</a> · <a data-source="scripts/implement/run-report.ts">run-report.ts</a></p></section></details></section></section>
 <section id="questions" class="chapter card" data-size="sm"><header class="chapter-heading"><span class="chapter-index" aria-hidden="true">17</span><h2>自動化の範囲と、アプリごとの判断</h2></header><div class="chapter-body"><p>CLIは、合意済みIssueから実装・検証・独立評価・draft PRの作成や更新・CI確認までを進めます。公開後の本文・必要媒体の確認とreadyへの切替は担当AIが、承認とマージは人が担います。</p>
 <p>関係者向けの確認ガイド、アプリの本番公開、監視、復旧は、対象アプリの担当者・手順・権限に沿って進めます。ハーネスへの実装依頼だけで、本番公開や関係者への送信が許可されたとは扱いません。</p>
 <p>公開する版と環境、担当者、必要な確認、合格条件、問題時の対応を対象アプリで定めます。不明な点は調べるか判断する人に戻し、合意した範囲で進めます。</p>
@@ -488,7 +488,7 @@ bun run check
 <li><a data-source="scripts/implement/usage.ts">保存runの使用量集計</a></li>
 <li><a data-source="skills/references/natural-japanese.md">日本語の推敲手順</a></li>
 <li><a data-source="scripts/implement/run-report.ts">実装runのローカルHTML表示</a></li>
-<li><a data-source="scripts/eval/eval.ts">指示変更時の同条件eval入口</a></li>
+<li><a data-source="eval/eval.ts">指示変更時の同条件eval入口</a></li>
 </ul>
 </div></section></main></div>
 </div>

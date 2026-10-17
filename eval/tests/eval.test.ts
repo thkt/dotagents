@@ -6,14 +6,14 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { expect, test } from 'bun:test';
 import { instructionFiles, installTrustedInputs } from './trusted-inputs.ts';
-import { providerGateway, providerBody } from '../../eval/container.ts';
-import { evalConfig, validatePlan } from '../../eval/data.ts';
-import { preparePlan, runEvaluation } from '../../eval/eval.ts';
-import { assessTrial, readUsage, writeComparison } from '../../eval/report.ts';
-import { containerArgs, verifyImage, verifyNetwork } from '../../eval/sandbox.ts';
-import { command, withInterrupts } from '../../shared/process.ts';
-import { isRecord } from '../../shared/values.ts';
-import { initializeTarget, git, targetConfig } from '../support/target.ts';
+import { providerGateway, providerBody } from '../container.ts';
+import { evalConfig, validatePlan } from '../data.ts';
+import { preparePlan, runEvaluation } from '../eval.ts';
+import { assessTrial, readUsage, writeComparison } from '../report.ts';
+import { containerArgs, verifyImage, verifyNetwork } from '../sandbox.ts';
+import { command, withInterrupts } from '../../scripts/shared/process.ts';
+import { isRecord } from '../../scripts/shared/values.ts';
+import { initializeTarget, git, targetConfig } from '../../scripts/tests/support/target.ts';
 
 const config = evalConfig.parse({
   repository: 'thkt/dotagents',
@@ -63,7 +63,7 @@ test('planning rejects unknown cases, insufficient budgets and hidden answer fil
   expect(() => validatePlan({ ...config, cases: ['missing'] }, cases)).toThrow('case');
   expect(() => validatePlan({ ...config, maxTrials: 1 }, cases)).toThrow('trial');
   expect(() =>
-    validatePlan({ ...config, workspaceFiles: ['scripts/eval/corpus/cases.json'] }, cases),
+    validatePlan({ ...config, workspaceFiles: ['eval/corpus/cases.json'] }, cases),
   ).toThrow('host-only');
   expect(
     validatePlan(
@@ -108,6 +108,8 @@ test('共通指示の許可は文書に限定し、課題・評価情報・秘�
     expect(validatePlan(instructions(path), cases)).toEqual(cases);
   }
   for (const path of [
+    'eval/eval.ts',
+    'eval/corpus/cases.json',
     'scripts/eval/eval.ts',
     'scripts/eval/corpus/cases.json',
     'evals/answers.md',
@@ -166,7 +168,7 @@ const request = (input: unknown = body, path = '/v1/responses') =>
 
 test('8課題の追加集合を既存5課題と分離し、採点指示を通常依頼へ混ぜない', async () => {
   const corpus: unknown = JSON.parse(
-    await readFile(resolve(import.meta.dir, '../../eval/corpus/cases.json'), 'utf8'),
+    await readFile(resolve(import.meta.dir, '../corpus/cases.json'), 'utf8'),
   );
   assert(Array.isArray(corpus));
   const oldIds = ['requirements', 'implementation', 'question', 'review', 'ambiguous'];
@@ -190,19 +192,36 @@ test('8課題の追加集合を既存5課題と分離し、採点指示を通常
   }
 });
 
-test('課題の独立テストは入力にできるが、ホストの参照解・反例は入力にできない', () => {
+test('新配置でも課題の通常入力だけを許可し、ホスト用コード・採点情報を拒否する', () => {
   expect(
     validatePlan(
-      { ...config, workspaceFiles: ['fixtures/workspace/tests/work-areas.test.ts'] },
+      { ...config, workspaceFiles: ['eval/fixtures/workspace/tests/work-areas.test.ts'] },
       cases,
     ),
   ).toEqual(cases);
+  for (const path of [
+    'eval/eval.ts',
+    'eval/README.md',
+    'eval/corpus/cases.json',
+    'eval/tests/task-fixtures.test.ts',
+    'eval/tests/fixtures/trusted-inputs.json',
+    'scripts/tests/eval/task-fixtures.test.ts',
+  ]) {
+    expect(() => validatePlan({ ...config, workspaceFiles: [path] }, cases)).toThrow('host-only');
+    expect(() =>
+      validatePlan({ ...config, instructionFiles: [...config.instructionFiles, path] }, cases),
+    ).toThrow('host-only');
+  }
+  // 課題用の通常資料でも指示側へ移してA/Bの差に混ぜない。
   expect(() =>
     validatePlan(
-      { ...config, workspaceFiles: ['scripts/tests/eval/task-fixtures.test.ts'] },
+      {
+        ...config,
+        instructionFiles: [...config.instructionFiles, 'eval/fixtures/workspace/specs.md'],
+      },
       cases,
     ),
-  ).toThrow('host-only');
+  ).toThrow();
 });
 
 test('20要求を共通中継で数え、21番目を拒否し、要求ごとの出力上限を渡す', async () => {
@@ -238,8 +257,8 @@ test('20要求を共通中継で数え、21番目を拒否し、要求ごとの�
 
 test('canonical paths cannot smuggle answer files or collide with effective instructions', () => {
   for (const path of [
-    './scripts/eval/corpus/cases.json',
-    'docs/../scripts/eval/corpus/cases.json',
+    './eval/corpus/cases.json',
+    'docs/../eval/corpus/cases.json',
     './README.md',
   ]) {
     expect(() => evalConfig.parse({ ...config, workspaceFiles: [path] })).toThrow();
@@ -443,7 +462,7 @@ async function fixture(
   const repo = join(root, 'repo');
   await mkdir(repo);
   await initializeTarget(repo, { ...targetConfig, repository: 'thkt/dotagents', remote: 'origin' });
-  for (const path of ['scripts/eval/corpus', 'skills/scoping', 'skills/implement']) {
+  for (const path of ['eval/corpus', 'skills/scoping', 'skills/implement']) {
     await mkdir(join(repo, path), { recursive: true });
   }
   await writeFile(join(repo, 'README.md'), 'Public task context');
@@ -457,7 +476,7 @@ async function fixture(
     }
   }
   await writeFile(
-    join(repo, 'scripts/eval/corpus/cases.json'),
+    join(repo, 'eval/corpus/cases.json'),
     JSON.stringify([
       { ...cases[0], criteria: ['HOST_ONLY_EXPECTED_CANARY'], context: caseContext },
     ]),
@@ -782,10 +801,10 @@ async function orderedFixture(context: Awaited<ReturnType<typeof fixture>>) {
     (index % 2 === 0 ? ['before', 'after'] : ['after', 'before']).map((side) => `${side}-${id}`),
   );
   await writeFile(
-    join(context.repo, 'scripts/eval/corpus/cases.json'),
+    join(context.repo, 'eval/corpus/cases.json'),
     JSON.stringify(ids.map((id) => ({ ...cases[0], id, context: caseContext }))),
   );
-  git(context.repo, 'add', 'scripts/eval/corpus/cases.json');
+  git(context.repo, 'add', 'eval/corpus/cases.json');
   git(context.repo, 'commit', '-qm', 'eight public control inputs');
   const input = {
     ...context.plan,
@@ -822,9 +841,9 @@ test.serial(
 );
 
 async function initialActorFixture(context: Awaited<ReturnType<typeof fixture>>) {
-  const source = resolve(import.meta.dir, '../../..');
+  const source = resolve(import.meta.dir, '../..');
   const corpus: unknown = JSON.parse(
-    await readFile(join(source, 'scripts/eval/corpus/cases.json'), 'utf8'),
+    await readFile(join(source, 'eval/corpus/cases.json'), 'utf8'),
   );
   assert(Array.isArray(corpus));
   const oldIds = new Set(['requirements', 'implementation', 'question', 'review', 'ambiguous']);
@@ -837,14 +856,11 @@ async function initialActorFixture(context: Awaited<ReturnType<typeof fixture>>)
   expect(selected).toHaveLength(4);
   // A/Bは公開固定版。runnerとcorpus/workspaceは同じ共有commitへ固定する。
   const { before, after } = await installTrustedInputs(context.repo);
-  for (const path of ['scripts', 'package.json', 'bun.lock']) {
+  for (const path of ['scripts', 'eval', 'package.json', 'bun.lock']) {
     await cp(join(source, path), join(context.repo, path), { recursive: true });
   }
-  await cp(join(source, 'fixtures/workspace'), join(context.repo, 'fixtures/workspace'), {
-    recursive: true,
-  });
   await writeFile(
-    join(context.repo, 'scripts/eval/corpus/cases.json'),
+    join(context.repo, 'eval/corpus/cases.json'),
     JSON.stringify(
       corpus.map((item) => {
         assert(isRecord(item));
@@ -858,9 +874,11 @@ async function initialActorFixture(context: Awaited<ReturnType<typeof fixture>>)
   // 実行コードは共有commitの実体から起動する。依存リンクは公開入力へ含めない。
   await writeFile(join(context.repo, '.git/info/exclude'), 'node_modules\n');
   await symlink(join(source, 'node_modules'), join(context.repo, 'node_modules'), 'dir');
-  const workspaceFiles = (await readdir(join(source, 'fixtures/workspace'), { recursive: true }))
+  const workspaceFiles = (
+    await readdir(join(source, 'eval/fixtures/workspace'), { recursive: true })
+  )
     .filter((path) => /\.(?:ts|js|json|md)$/.test(path))
-    .map((path) => `fixtures/workspace/${path}`);
+    .map((path) => `eval/fixtures/workspace/${path}`);
   process.env.EVAL_TEST_BUN = '1.4.3';
   // Issueの8課題を旧5課題と分離して選び、A→BとB→Aを4組ずつ固定する。
   // 初回担当4課題だけへの切出しでは、比較計画の正常な対照にならない。
@@ -943,8 +961,8 @@ function assertTaskTestRecord(
 test('独立テスト記録を同じ計画内の別課題・別版と取り違えない', () => {
   const path = '/runtime/test-1.json';
   const prompt = `独立テストの記録: ${path}。`;
-  const guide = 'fixtures/workspace/tests/guide.test.ts';
-  const messages = 'fixtures/workspace/tests/messages.test.ts';
+  const guide = 'eval/fixtures/workspace/tests/guide.test.ts';
+  const messages = 'eval/fixtures/workspace/tests/messages.test.ts';
   const workspace = { [guide]: '現在のリンクを検証', [messages]: '完了メッセージを検証' };
   const check = ['bun', 'test', guide];
   const files = { [guide]: createHash('sha256').update(workspace[guide]).digest('hex') };
@@ -1026,6 +1044,20 @@ test.serial('模擬起動は同じ案内でも記録ファイルの転送あり�
   });
 });
 
+// repoと隔離環境で同じ相対配置を使い、両条件へ共通blobの本文とhashを渡す。
+async function assertCommonWorkspace(repo: string, paths: string[], variants: unknown[]) {
+  for (const path of paths) {
+    const expected = await readFile(join(repo, path), 'utf8');
+    const expectedSha256 = createHash('sha256').update(expected).digest('hex');
+    for (const variant of variants) {
+      assert(isRecord(variant) && isRecord(variant.files) && isRecord(variant.versions));
+      const content = variant.files[path];
+      expect(content, `共通workspaceの入力が異なる: ${path}`).toBe(expected);
+      expect(variant.versions[path]).toBe(expectedSha256);
+    }
+  }
+}
+
 test.serial(
   '初回4課題の信頼版担当入力と応答契約をplanから実行設定へ転送する',
   async () => {
@@ -1034,7 +1066,7 @@ test.serial(
       const configPath = join(context.root, 'initial-eval-config.json');
       await writeFile(configPath, JSON.stringify(plan));
       const execution = await command(
-        [process.execPath, 'scripts/eval/eval.ts', 'run', configPath],
+        [process.execPath, 'eval/eval.ts', 'run', configPath],
         context.repo,
         '',
         25000,
@@ -1061,6 +1093,7 @@ test.serial(
       const parsedPlan: unknown = JSON.parse(savedPlan);
       assert(isRecord(parsedPlan) && Array.isArray(parsedPlan.variants));
       const variants: unknown[] = parsedPlan.variants;
+      await assertCommonWorkspace(context.repo, plan.workspaceFiles, variants);
       const compactPlan = JSON.stringify(parsedPlan);
       let initialLaunches = 0;
       for (const [index, launch] of launches.entries()) {
@@ -1213,8 +1246,8 @@ for (const failure of ['provider', 'timeout', 'cleanup']) {
 
 test.serial('contextファイルのないscoping入力も模擬actorへ渡せる', async () => {
   await withEvaluationFixture(async (context) => {
-    await writeFile(join(context.repo, 'scripts/eval/corpus/cases.json'), JSON.stringify(cases));
-    git(context.repo, 'add', 'scripts/eval/corpus/cases.json');
+    await writeFile(join(context.repo, 'eval/corpus/cases.json'), JSON.stringify(cases));
+    git(context.repo, 'add', 'eval/corpus/cases.json');
     git(context.repo, 'commit', '-qm', 'public scoping input without issue context');
     const plan = { ...context.plan, corpusCommit: git(context.repo, 'rev-parse', 'HEAD') };
     const result = await runEvaluation(context.repo, plan);

@@ -21,7 +21,7 @@
 | `implement` | 合意済みIssueを受け取り、テスト作成と実装を別セッションで扱います。方針は[開発方針](docs/wiki/development-policy.md#実装とテストの整理)に従います。信頼するスキル実体からCLIを解決し、対象repoを指定します。[スキル](skills/implement/SKILL.md)、[通常起動](scripts/README.md#issueからpr作成)、[既存PR修正](scripts/README.md#既存prの修正)に従います |
 | 対象repoの `.dotagents.json` | checkoutルートの設定は必須です。commit・pushは任意で、リポジトリへの登録による共有を推奨します。repo・remote・base branch、setup・check・CI、必要な媒体を明示します。[設定形式と拒否条件](scripts/README.md#対象repoの設定)が正本です |
 | 文書で案内するCLI・package script | 呼び出し方と用途は[CLI手順](scripts/README.md)、導入とcheckは[セットアップと検証](#セットアップと検証)で確認します。通常の開発と、担当者向けの1回レビュー試行は区別します |
-| 指示変更のeval | 関連する改善作業で、バージョン・ケース・モデル・有限の上限を固定して比較します。[実行条件と報告](scripts/README.md#指示変更時の同条件eval)から手動で開始します。定期実行や全PRの必須ゲートにはしません |
+| 指示変更のeval | 関連する改善作業で、バージョン・ケース・モデル・有限の上限を固定して比較します。[実行条件と報告](eval/README.md)から手動で開始します。定期実行や全PRの必須ゲートにはしません |
 | 実行結果 | developmentのrun保存先にある `result.json` から、理由・次の対応・証拠を辿ります。`report.html`は保存結果の表示です。下位state・生ログと、生成できない条件は[結果と再実行](scripts/README.md#結果と再実行)で確認します |
 
 共通登録されたスキルが、信頼する同じハーネス実体を参照することが前提です。利用するハーネスの commit と実体パスを確認し、そのバージョンの手順と lockfile を使います。必要なのは Bun 1.4.3、Git、gh、Codex CLI で、対応環境は macOS ホストと github.com です。Git・gh・Codex CLI の最低バージョンは定めていません。必要な機能と既存の認証は[CLI手順](scripts/README.md#issueからpr作成)で確認します。登録を変更するときは[保全と登録変更の方針](docs/wiki/development-policy.md#旧資産の保全と登録変更)に従います。
@@ -40,11 +40,12 @@ Bun 1.4.3 を使います。check は次の順に実行します。ツールご�
 | 順 | package script | ツール | 検査する対象 |
 | --- | --- | --- | --- |
 | 1 | `lint` | oxlint | 型情報を使う正しさの検査と、[ローカルプラグイン](scripts/lint/local/index.ts)の規則。警告も失敗にします |
-| 2 | `format:check` | oxfmt | `scripts/**/*.ts`の書式だけ |
+| 2 | `format:check` | oxfmt | `scripts/`と`eval/`のTypeScriptの書式（合成課題fixtureを除く） |
 | 3 | `complexity` | Biome | 認知的複雑度の上限 15 だけ。formatter と他の規則は無効です |
-| 4 | `typecheck` | `bun --check` | `tsconfig.json`に従う`scripts/**/*.ts`全体の型の整合。テストからimportされないCLIも含みます |
+| 4 | `typecheck` | `bun --check` | `tsconfig.json`に従う通常ハーネスとeval実行コード・模擬テストの型の整合。テストからimportされないCLIも含みます |
 | 5 | `check:unused` | fallow | 未使用のファイル・export・型・依存と、実行時 import の循環 |
-| 6 | `test:control` | Bun | ハーネスの制御テスト |
+| 6 | `test:control` | Bun | 通常ハーネスの制御テスト |
+| 7 | `test:eval` | Bun | eval専用の模擬テスト |
 
 型検査だけを実行する場合は`bun run typecheck`を使います。直接呼び出す場合は`bun --check`と指定します。このrepoには`check`スクリプトがあるため、`bun check`は総合検証を実行します。
 

@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { appendFile, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -12,7 +13,9 @@ async function fixture(scope: 'graph' | 'lint' | 'format') {
     // Fallow needs the real reference graph, entry points and tool configuration.
     graph: [
       'scripts',
-      'fixtures/workspace',
+      'eval',
+      // 移動前の接続も再現できるよう、現在のrepoに残るfixtureを含める。
+      ...(existsSync(join(repo, 'fixtures/workspace')) ? ['fixtures/workspace'] : []),
       '.fallowrc.json',
       '.oxfmtrc.json',
       '.oxlintrc.json',
@@ -26,6 +29,7 @@ async function fixture(scope: 'graph' | 'lint' | 'format') {
   for (const path of ['package.json', '.gitignore', ...inputs[scope]]) {
     await cp(join(repo, path), join(cwd, path), { recursive: true });
   }
+  await mkdir(join(cwd, 'eval/tests'), { recursive: true });
   await symlink(join(repo, 'node_modules'), join(cwd, 'node_modules'), 'dir');
   return cwd;
 }
@@ -86,7 +90,7 @@ test('importされないCLIでもDOMグローバルの直接参照と静的プ�
       'global.document',
       'global["document"]',
     ];
-    const directories = ['scripts', 'scripts/ui', 'scripts/tests'];
+    const directories = ['scripts', 'scripts/ui', 'scripts/tests', 'eval', 'eval/tests'];
     const cases = expressions.map((expression, index) => ({
       path: `${directories[index % directories.length]}/trial-dom-${index}.ts`,
       source: `export const probe = ${expression};\n`,
@@ -125,7 +129,7 @@ test('lint rejects unsafe assertions and accumulator copies while preserving che
   try {
     await mkdir(join(cwd, 'scripts/tests'), { recursive: true });
     await writeFile(
-      join(cwd, 'scripts/tests/trial-allowed.ts'),
+      join(cwd, 'eval/tests/trial-allowed.ts'),
       `export function checked(input: unknown) {
         if (typeof input !== 'string') { throw new Error('Expected string'); }
         return input.toUpperCase();
@@ -224,6 +228,13 @@ test('lint rejects unsafe assertions and accumulator copies while preserving che
         code: 'local(no-reduce-accumulator-copy)',
       },
     ];
+    for (const path of ['eval/trial-chain.ts', 'eval/tests/trial-widen.ts']) {
+      cases.push({
+        path,
+        source: 'const value: unknown = { id: 1 }; export const result = value as { id: number };',
+        code: 'typescript(no-unsafe-type-assertion)',
+      });
+    }
     for (const { path, source } of cases) {
       await writeFile(join(cwd, path), source);
     }
@@ -252,6 +263,7 @@ test('unused check detects unreachable code but preserves real entries and impor
   try {
     expect(run(cwd, 'check:unused').status).toBe(0);
     await writeFile(join(cwd, 'scripts/trial-unused.ts'), 'export const trialUnusedFile = 712;\n');
+    await writeFile(join(cwd, 'eval/trial-unused.ts'), 'export const trialUnusedFile = 712;\n');
     await writeFile(join(cwd, 'scripts/trial-used.ts'), 'export const trialUsedExport = 421;\n');
     await appendFile(
       join(cwd, 'scripts/shared/values.ts'),
@@ -266,10 +278,16 @@ test('unused check detects unreachable code but preserves real entries and impor
     expect(result.status).toBe(1);
     const report: unknown = JSON.parse(result.stdout);
     expect(report).toMatchObject({
-      total_issues: 4,
-      unused_files: [{ path: 'scripts/trial-unused.ts' }],
+      total_issues: 5,
       unused_types: [{ path: 'scripts/shared/values.ts', export_name: 'TrialUnusedType' }],
     });
+    expect(report).toHaveProperty(
+      'unused_files',
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'scripts/trial-unused.ts' }),
+        expect.objectContaining({ path: 'eval/trial-unused.ts' }),
+      ]),
+    );
     expect(report).toHaveProperty(
       'unused_exports',
       expect.arrayContaining([
@@ -381,8 +399,18 @@ test('format checks and writes root and nested TS without changing other scripts
   const cwd = await fixture('format');
   try {
     await mkdir(join(cwd, 'scripts/nested'), { recursive: true });
-    const typescript = ['scripts/trial-format.ts', 'scripts/nested/trial-format.ts'];
-    const excluded = ['scripts/trial-format.md', 'scripts/nested/trial-format.js'];
+    await mkdir(join(cwd, 'eval/fixtures/workspace'), { recursive: true });
+    const typescript = [
+      'scripts/trial-format.ts',
+      'scripts/nested/trial-format.ts',
+      'eval/trial-format.ts',
+      'eval/tests/trial-format.ts',
+    ];
+    const excluded = [
+      'scripts/trial-format.md',
+      'scripts/nested/trial-format.js',
+      'eval/fixtures/workspace/trial-format.ts',
+    ];
     const source = 'const probe={value:"unformatted"}\n';
     for (const path of [...typescript, ...excluded]) {
       await writeFile(join(cwd, path), source);

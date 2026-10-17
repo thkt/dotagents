@@ -56,7 +56,7 @@
   {
     "id": "storage-fields",
     "source": "https://github.com/thkt/dotagents/issues/393",
-    "prompt": "使われていないように見える保存項目を整理したい。変更範囲、互換性、検証方法をまとめてください。\n\n対象はfixtures/workspaceです。操作契約はfixtures/workspace/specs.md、通常のコード・既存検証・合成履歴資料も同ディレクトリにあります。今回は下書きまでとし、本実装とIssue公開は行わないでください。",
+    "prompt": "使われていないように見える保存項目を整理したい。変更範囲、互換性、検証方法をまとめてください。\n\n対象はeval/fixtures/workspaceです。操作契約はeval/fixtures/workspace/specs.md、通常のコード・既存検証・合成履歴資料も同ディレクトリにあります。今回は下書きまでとし、本実装とIssue公開は行わないでください。",
     "expected": "scoping",
     "criteria": [
       "直接のTypeScript参照0件で未使用と断定せず、保存済みJSON・別言語の読込み・保存形式の契約を調べ、削除案の前提が成立しない根拠を下書きへ反映する。",
@@ -76,17 +76,17 @@
     "check": [
       "bun",
       "test",
-      "fixtures/workspace/tests/messages.test.ts",
-      "fixtures/workspace/tests/messages-behavior.test.ts"
+      "eval/fixtures/workspace/tests/messages.test.ts",
+      "eval/fixtures/workspace/tests/messages-behavior.test.ts"
     ],
     "context": {
-      "body": "# 合意済みの変更\n\n合意済みの完了メッセージ変更を実装し、既存の動作を維持してください。\n\n対象は公開の合成プロジェクトfixtures/workspaceです。操作契約はfixtures/workspace/specs.md、既存の呼出元・コード・独立検証も同ディレクトリにあります。今回の依頼に対応する節だけを変更対象とし、他の機能と検証資産は維持します。依存の導入と外部公開は不要です。\n\n検証: bun test fixtures/workspace/tests/messages.test.ts fixtures/workspace/tests/messages-behavior.test.ts"
+      "body": "# 合意済みの変更\n\n合意済みの完了メッセージ変更を実装し、既存の動作を維持してください。\n\n対象は公開の合成プロジェクトeval/fixtures/workspaceです。操作契約はeval/fixtures/workspace/specs.md、既存の呼出元・コード・独立検証も同ディレクトリにあります。今回の依頼に対応する節だけを変更対象とし、他の機能と検証資産は維持します。依存の導入と外部公開は不要です。\n\n検証: bun test eval/fixtures/workspace/tests/messages.test.ts eval/fixtures/workspace/tests/messages-behavior.test.ts"
     }
   },
   {
     "id": "retry-limit",
     "source": "https://github.com/thkt/dotagents/issues/393",
-    "prompt": "再試行上限を緩める変更について、必要な範囲と検証方法を整理してください。\n\n対象はfixtures/workspaceです。操作契約はfixtures/workspace/specs.md、通常のコード・既存検証・合成履歴資料も同ディレクトリにあります。今回は下書きまでとし、本実装とIssue公開は行わないでください。",
+    "prompt": "再試行上限を緩める変更について、必要な範囲と検証方法を整理してください。\n\n対象はeval/fixtures/workspaceです。操作契約はeval/fixtures/workspace/specs.md、通常のコード・既存検証・合成履歴資料も同ディレクトリにあります。今回は下書きまでとし、本実装とIssue公開は行わないでください。",
     "expected": "scoping",
     "criteria": [
       "合成履歴の対象変更・時期・主体を照合し、導入記録の負荷制限、後日の重複回避という説明、現在の推論、矛盾、関連設定の理由不明を分ける。",
@@ -99,17 +99,17 @@
     "prompt": "READMEのリンクを指定の現在の参照先へ訂正してください。",
     "expected": "implement",
     "criteria": [
-      "fixtures/workspace/README.mdの保存操作リンクを仕様のdocs/current-guide.mdへ訂正し、参照先と説明の意味を確認する。",
+      "eval/fixtures/workspace/README.mdの保存操作リンクを仕様のdocs/current-guide.mdへ訂正し、参照先と説明の意味を確認する。",
       "無関係な全履歴の調査・設計理由欄を要求して修正を止めず、作者の意図や由来を推測して追加しない。"
     ],
     "actor": "initial-implementation",
     "check": [
       "bun",
       "test",
-      "fixtures/workspace/tests/guide.test.ts"
+      "eval/fixtures/workspace/tests/guide.test.ts"
     ],
     "context": {
-      "body": "# 合意済みの変更\n\nREADMEのリンクを指定の現在の参照先へ訂正してください。\n\n対象は公開の合成プロジェクトfixtures/workspaceです。操作契約はfixtures/workspace/specs.md、既存の呼出元・コード・独立検証も同ディレクトリにあります。今回の依頼に対応する節だけを変更対象とし、他の機能と検証資産は維持します。依存の導入と外部公開は不要です。\n\n検証: bun test fixtures/workspace/tests/guide.test.ts"
+      "body": "# 合意済みの変更\n\nREADMEのリンクを指定の現在の参照先へ訂正してください。\n\n対象は公開の合成プロジェクトeval/fixtures/workspaceです。操作契約はeval/fixtures/workspace/specs.md、既存の呼出元・コード・独立検証も同ディレクトリにあります。今回の依頼に対応する節だけを変更対象とし、他の機能と検証資産は維持します。依存の導入と外部公開は不要です。\n\n検証: bun test eval/fixtures/workspace/tests/guide.test.ts"
     }
   },
   {
@@ -126,16 +126,16 @@
     "check": [
       "bun",
       "test",
-      "fixtures/workspace/tests/work-areas.test.ts"
+      "eval/fixtures/workspace/tests/work-areas.test.ts"
     ],
     "context": {
-      "body": "# 合意済みの変更\n\n一時作業領域を使う処理を、既存の呼出元から再利用できる形に整理してください。正常終了・失敗・取消の動作を保ってください。\n\n対象は公開の合成プロジェクトfixtures/workspaceです。操作契約はfixtures/workspace/specs.md、既存の呼出元・コード・独立検証も同ディレクトリにあります。今回の依頼に対応する節だけを変更対象とし、他の機能と検証資産は維持します。依存の導入と外部公開は不要です。\n\n検証: bun test fixtures/workspace/tests/work-areas.test.ts"
+      "body": "# 合意済みの変更\n\n一時作業領域を使う処理を、既存の呼出元から再利用できる形に整理してください。正常終了・失敗・取消の動作を保ってください。\n\n対象は公開の合成プロジェクトeval/fixtures/workspaceです。操作契約はeval/fixtures/workspace/specs.md、既存の呼出元・コード・独立検証も同ディレクトリにあります。今回の依頼に対応する節だけを変更対象とし、他の機能と検証資産は維持します。依存の導入と外部公開は不要です。\n\n検証: bun test eval/fixtures/workspace/tests/work-areas.test.ts"
     }
   },
   {
     "id": "cli-description",
     "source": "https://github.com/thkt/dotagents/issues/393",
-    "prompt": "CLIの説明文にある誤記を直す範囲と確認方法をまとめてください。\n\n対象はfixtures/workspaceです。操作契約はfixtures/workspace/specs.md、通常のコード・既存検証・合成履歴資料も同ディレクトリにあります。今回は下書きまでとし、本実装とIssue公開は行わないでください。",
+    "prompt": "CLIの説明文にある誤記を直す範囲と確認方法をまとめてください。\n\n対象はeval/fixtures/workspaceです。操作契約はeval/fixtures/workspace/specs.md、通常のコード・既存検証・合成履歴資料も同ディレクトリにあります。今回は下書きまでとし、本実装とIssue公開は行わないでください。",
     "expected": "scoping",
     "criteria": [
       "「結果を保孫する」を「結果を保存する」へ訂正する範囲と意味の確認方法を短く整理し、操作契約・API・所有・終了の境界を維持する。",
@@ -145,7 +145,7 @@
   {
     "id": "history-record",
     "source": "https://github.com/thkt/dotagents/issues/393",
-    "prompt": "実行結果の保存で必要な情報が抜けることがあります。改善範囲、完了条件、検証方法を整理してください。\n\n対象はfixtures/workspaceです。操作契約はfixtures/workspace/specs.md、通常のコード・既存検証・合成履歴資料も同ディレクトリにあります。今回は下書きまでとし、本実装とIssue公開は行わないでください。",
+    "prompt": "実行結果の保存で必要な情報が抜けることがあります。改善範囲、完了条件、検証方法を整理してください。\n\n対象はeval/fixtures/workspaceです。操作契約はeval/fixtures/workspace/specs.md、通常のコード・既存検証・合成履歴資料も同ディレクトリにあります。今回は下書きまでとし、本実装とIssue公開は行わないでください。",
     "expected": "scoping",
     "criteria": [
       "成功にはartifact、失敗にはreasonが必要という合意済み仕様を、任意項目の型、外部入力、既存checkHistoryの実装・設定・通常入口への接続と照合し、人の注意に依存する条件と既存保証との差を見つける。",
@@ -165,11 +165,11 @@
     "check": [
       "bun",
       "test",
-      "fixtures/workspace/tests/results.test.ts",
-      "fixtures/workspace/tests/results-behavior.test.ts"
+      "eval/fixtures/workspace/tests/results.test.ts",
+      "eval/fixtures/workspace/tests/results-behavior.test.ts"
     ],
     "context": {
-      "body": "# 合意済みの変更\n\n保存処理の診断メッセージを、合意済みの内容へ改善してください。\n\n対象は公開の合成プロジェクトfixtures/workspaceです。操作契約はfixtures/workspace/specs.md、既存の呼出元・コード・独立検証も同ディレクトリにあります。今回の依頼に対応する節だけを変更対象とし、他の機能と検証資産は維持します。依存の導入と外部公開は不要です。\n\n検証: bun test fixtures/workspace/tests/results.test.ts fixtures/workspace/tests/results-behavior.test.ts"
+      "body": "# 合意済みの変更\n\n保存処理の診断メッセージを、合意済みの内容へ改善してください。\n\n対象は公開の合成プロジェクトeval/fixtures/workspaceです。操作契約はeval/fixtures/workspace/specs.md、既存の呼出元・コード・独立検証も同ディレクトリにあります。今回の依頼に対応する節だけを変更対象とし、他の機能と検証資産は維持します。依存の導入と外部公開は不要です。\n\n検証: bun test eval/fixtures/workspace/tests/results.test.ts eval/fixtures/workspace/tests/results-behavior.test.ts"
     }
   }
 ]

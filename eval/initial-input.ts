@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
 import { runInNewContext } from 'node:vm';
-import { isRecord } from '../shared/values.ts';
+import { isRecord } from '../scripts/shared/values.ts';
 import type { EvalConfig } from './data.ts';
 
 const trusted = {
@@ -104,7 +104,7 @@ export function prepareInitialActorInput(
   const schema = expression(schemaExpression, {});
   assert(isRecord(schema), 'Invalid repair response contract');
   const tests = Object.entries(files).filter(([path]) =>
-    path.startsWith('fixtures/workspace/tests/'),
+    path.startsWith('eval/fixtures/workspace/tests/'),
   );
   assert(tests.length > 0, 'Independent task tests required');
   const promptExpression = between(

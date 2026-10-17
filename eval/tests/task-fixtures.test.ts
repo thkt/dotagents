@@ -4,12 +4,12 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { expect, test } from 'bun:test';
-import { appendHistory, importHistory } from '../../../fixtures/workspace/src/history.ts';
-import { help } from '../../../fixtures/workspace/src/help.ts';
-import { saveProfile } from '../../../fixtures/workspace/src/profile.ts';
-import { retryLimit, batchWindowMs } from '../../../fixtures/workspace/src/retry.ts';
+import { appendHistory, importHistory } from '../fixtures/workspace/src/history.ts';
+import { help } from '../fixtures/workspace/src/help.ts';
+import { saveProfile } from '../fixtures/workspace/src/profile.ts';
+import { retryLimit, batchWindowMs } from '../fixtures/workspace/src/retry.ts';
 
-const fixture = resolve(import.meta.dir, '../../../fixtures/workspace');
+const fixture = resolve(import.meta.dir, '../fixtures/workspace');
 const behavior = [
   'messages-behavior.test.ts',
   'results-behavior.test.ts',
@@ -45,7 +45,7 @@ test('scoping課題の資料は保存形式・設定・誤記と既存保証の�
 function check(root: string, files: string[]) {
   const result = spawnSync(
     process.execPath,
-    ['test', ...files.map((file) => `fixtures/workspace/tests/${file}`)],
+    ['test', ...files.map((file) => `eval/fixtures/workspace/tests/${file}`)],
     { cwd: root, encoding: 'utf8', timeout: 10000 },
   );
   assert(!result.error, String(result.error));
@@ -55,7 +55,7 @@ function check(root: string, files: string[]) {
 
 async function withWorkspace(action: (root: string, workspace: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), 'public-task-fixtures-'));
-  const workspace = join(root, 'fixtures/workspace');
+  const workspace = join(root, 'eval/fixtures/workspace');
   try {
     await mkdir(dirname(workspace), { recursive: true });
     await cp(fixture, workspace, { recursive: true });

@@ -6,13 +6,13 @@
 
 `src/messages.ts`の`advance`は、queuedからstartでrunningへ、runningからcompleteでcompletedへ、runningからfailでfailedへ移ります。それ以外は状態を維持します。通知はrunningからcompletedへ移るときだけ1回送ります。完了メッセージを「保存が完了しました。」へ変更することが合意済みです。状態遷移、通知回数、失敗時の非通知は維持します。
 
-確認は`bun test fixtures/workspace/tests/messages*.test.ts`です。
+確認は`bun test eval/fixtures/workspace/tests/messages*.test.ts`です。
 
 ## READMEの参照先
 
 READMEの保存操作の参照先は、同じディレクトリの`docs/current-guide.md`へ訂正します。現在の操作説明を案内するリンクです。
 
-確認は`bun test fixtures/workspace/tests/guide.test.ts`です。
+確認は`bun test eval/fixtures/workspace/tests/guide.test.ts`です。
 
 ## 一時作業領域
 
@@ -20,7 +20,7 @@ READMEの保存操作の参照先は、同じディレクトリの`docs/current-
 
 共通化しても既存の呼出元の引数、結果、終了責任を維持します。共通部分の関数名・API形は指定しません。
 
-確認は`bun test fixtures/workspace/tests/work-areas.test.ts`です。
+確認は`bun test eval/fixtures/workspace/tests/work-areas.test.ts`です。
 
 ## 保存結果の診断
 
@@ -28,7 +28,7 @@ READMEの保存操作の参照先は、同じディレクトリの`docs/current-
 
 変更する診断は、artifact不足を「成功結果には成果物参照が必要です。」、reason不足を「失敗結果には理由が必要です。」、不正statusを「結果の状態が不正です。」とする3件です。その他の診断と条件は維持します。
 
-確認は`bun test fixtures/workspace/tests/results*.test.ts`です。
+確認は`bun test eval/fixtures/workspace/tests/results*.test.ts`です。
 
 ## 過去の保存形式と実行履歴
 

@@ -105,7 +105,7 @@ function validateBehaviorSuite(config: EvalConfig, selected: EvalCase[]) {
     'Behavior instruction versions are fixed',
   );
   assert(
-    config.workspaceFiles.every((path) => path.startsWith('fixtures/workspace/')),
+    config.workspaceFiles.every((path) => path.startsWith('eval/fixtures/workspace/')),
     'Behavior workspace must contain only the public task files',
   );
   assert(config.bunVersion === '1.4.3', 'Behavior evaluation requires Bun 1.4.3');
@@ -173,14 +173,19 @@ export function validatePlan(config: EvalConfig, cases: EvalCase[]) {
     assert(!path.startsWith('actor-records/'), 'Reserved actor record path');
     assert(path !== 'evaluation-issue.json', 'Reserved case context path');
     assert(
-      !(config.workspaceFiles.includes(path) && path.startsWith('scripts/tests/')),
-      'Cannot expose host-only tests or answers',
+      !path.startsWith('scripts/tests/'),
+      'Unsupported instruction or workspace file: host-only tests or answers',
     );
     assert(
       !(config.workspaceFiles.includes(path) && /^scripts\/implement\/.+\.ts$/.test(path)),
       'Cannot move trusted actor code into the task workspace',
     );
     assert(!path.startsWith('scripts/eval/'), 'Cannot expose host-only evaluation files');
+    assert(
+      !path.startsWith('eval/') ||
+        (config.workspaceFiles.includes(path) && path.startsWith('eval/fixtures/workspace/')),
+      'Cannot expose host-only evaluation files',
+    );
     assert(!/^(evals|\.git|\.agents)(\/|$)/.test(path), 'Cannot expose host-only files');
     assert(
       !/(^|\/)(auth\.json|config\.toml|\.env[^/]*|credentials)(\/|$)/.test(path),

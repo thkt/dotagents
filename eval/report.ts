@@ -4,8 +4,8 @@ import { readFile, writeFile, lstat, realpath } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
 import { z } from 'zod';
 import { evalConfig } from './data.ts';
-import { isRecord } from '../shared/values.ts';
-import { addTokenUsage, parseTokenUsage } from '../shared/token-usage.ts';
+import { isRecord } from '../scripts/shared/values.ts';
+import { addTokenUsage, parseTokenUsage } from '../scripts/shared/token-usage.ts';
 
 const reference = z.strictObject({
   file: z.string().regex(/^[a-zA-Z0-9_.-]+$/),

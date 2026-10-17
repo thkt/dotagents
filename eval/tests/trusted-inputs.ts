@@ -3,8 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isRecord } from '../../shared/values.ts';
-import { git } from '../support/target.ts';
+import { isRecord } from '../../scripts/shared/values.ts';
+import { git } from '../../scripts/tests/support/target.ts';
 
 export const instructionFiles = [
   'AGENTS.md',

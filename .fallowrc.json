@@ -7,7 +7,7 @@
     "scripts/implement/codex-actor.ts",
     "scripts/implement/development.ts",
     "scripts/implement/publish.ts",
-    "scripts/eval/eval.ts",
+    "eval/eval.ts",
     "scripts/scoping/target.ts",
     "scripts/tests/runner.ts",
     "scripts/capture/verify.ts",
