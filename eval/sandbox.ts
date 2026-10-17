@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { command, assertRunning } from '../scripts/shared/process.ts';
 import type { EvalConfig } from './data.ts';
 import { isRecord } from '../scripts/shared/values.ts';
+import { gatewayRuntime, observeBudget } from './budget-host.ts';
 
 export function containerArgs(
   name: string,
@@ -74,6 +75,10 @@ export function containerArgs(
   }
   if (input) {
     args.push('--mount', `type=bind,src=${input},dst=/input,readonly`);
+  }
+  if (role === 'actor') {
+    // PID上限を増やさず、actorのGC helperの並列数を固定する。
+    args.push('--env', 'BUN_JSC_numberOfGCMarkers=1');
   }
   if (role === 'gateway') {
     args.push('--env', 'OPENAI_API_KEY', '--sysctl', 'net.ipv4.ip_forward=0');
@@ -538,6 +543,31 @@ function actorOutcome(result: { timedOut: boolean; code: number | null }) {
     : { execution: 'failed', reason: 'Actor failed; no retry' };
 }
 
+async function finishBudgetSession(
+  observer: Awaited<ReturnType<typeof observeBudget>>,
+  deadline: number,
+  finish: () => Promise<{ containersRemoved: boolean; networkRemoved: boolean }>,
+) {
+  let error: string | null = null;
+  let safety: { containersRemoved: boolean; networkRemoved: boolean };
+  try {
+    await observer?.close(deadline);
+  } catch (cause) {
+    error = cause instanceof Error ? cause.message : 'Budget close failed';
+  } finally {
+    try {
+      await observer?.stop(deadline);
+    } finally {
+      safety = await finish();
+    }
+  }
+  return { error, safety };
+}
+
+function budgetOutcome(error: string | null, reason: string, execution: string) {
+  return error ? { reason: error, execution: 'failed' } : { reason, execution };
+}
+
 async function sandboxSession(
   config: EvalConfig,
   runtime: string,
@@ -553,6 +583,8 @@ async function sandboxSession(
     probe = `${id}-probe`,
     actor = `${id}-actor`;
   const dir = resolve(runtime, '..');
+  const gatewaySource = await gatewayRuntime(runtime);
+  let budgetObserver: Awaited<ReturnType<typeof observeBudget>>;
   let launched = false;
   let execution = 'unevaluated';
   let reason = 'Isolation preflight incomplete';
@@ -606,7 +638,7 @@ async function sandboxSession(
     }
     created.push(gateway);
     await bounded(
-      containerArgs(gateway, config.image, gatewayMode.network, runtime, gatewayMode.role),
+      containerArgs(gateway, config.image, gatewayMode.network, gatewaySource, gatewayMode.role),
     );
     if (!preflight) {
       await bounded(['network', 'connect', '--alias', 'gateway', id, gateway]);
@@ -614,13 +646,14 @@ async function sandboxSession(
     verifyContainer(
       JSON.parse(await bounded(['inspect', gateway])),
       gatewayMode.network,
-      runtime,
+      gatewaySource,
       undefined,
       config.image,
       imageId,
       gatewayMode.networks,
     );
     await bounded(['start', gateway]);
+    budgetObserver = await observeBudget(gateway, gatewaySource, dir, expiresAt + 5000);
     const address = (
       await bounded([
         'inspect',
@@ -637,7 +670,7 @@ async function sandboxSession(
     verifyContainer(
       JSON.parse(await bounded(['inspect', gateway])),
       gatewayMode.network,
-      runtime,
+      gatewaySource,
       undefined,
       config.image,
       imageId,
@@ -733,7 +766,12 @@ async function sandboxSession(
     execution = launched ? 'failed' : 'unevaluated';
     reason = error instanceof Error ? error.message : 'Execution failed';
   } finally {
-    safety = await finishSession(networks, created, gateway, dir, observationDeadline);
+    observationDeadline ??= performance.now() + 5000;
+    const finished = await finishBudgetSession(budgetObserver, observationDeadline, () =>
+      finishSession(networks, created, gateway, dir, observationDeadline),
+    );
+    safety = finished.safety;
+    ({ reason, execution } = budgetOutcome(finished.error, reason, execution));
   }
   return {
     mode: preflight ? 'model-free-preflight' : 'evaluation',

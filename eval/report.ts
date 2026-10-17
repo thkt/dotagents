@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto';
 import { readFile, writeFile, lstat, realpath } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
 import { z } from 'zod';
-import { evalConfig } from './data.ts';
+import { evalConfig, type EvalConfig } from './data.ts';
+import { budgetSnapshot } from './budget.ts';
 import { isRecord } from '../scripts/shared/values.ts';
 import { addTokenUsage, parseTokenUsage } from '../scripts/shared/token-usage.ts';
 
@@ -241,6 +242,27 @@ async function summarizeTrial(
   return { ...record, ...result, usage, line, decision: item };
 }
 
+async function moneySummary(directory: string, config: EvalConfig) {
+  if (!config.budget) {
+    return [];
+  }
+  const state = z
+    .object({
+      snapshot: budgetSnapshot,
+      held: z.number().int().nonnegative(),
+      error: z.string().nullable(),
+    })
+    .parse(JSON.parse(await readFile(resolve(directory, 'budget.json'), 'utf8')));
+  const usd = (n: number) => `$${(n / 10_000_000).toFixed(7)}`;
+  return [
+    '',
+    `金額条件（USD・税抜token利用料）: 予算$600 / 停止$500 / 通知$400。profile: ${config.budget.profile} / SHA-256 ${config.budget.profileHash}。`,
+    `ホスト回収済み台帳: 精算${usd(state.snapshot.settled)} / 返却不能${usd(state.snapshot.unrecoverable)} / 要求予約${usd(state.snapshot.reserved)}。未回収委譲枠${usd(state.held)}は別枠の保留で、要求予約と二重加算しない。`,
+    `通知: ${state.snapshot.notified ? '発行済み' : '回収済み台帳では未発行（未回収時は原記録を確認）'}。金額停止・受渡し異常: ${state.error ?? state.snapshot.reason ?? 'なし（未回収枠があれば未確定）'}。停止後の再開はしない。`,
+    '予約込みの保守的見込額でありAPIの請求確定額ではない。未回収時の確認済み状態・通知はローカルbudget-*.jsonへ戻る。実請求・hit率・実API互換性は未確認。',
+  ];
+}
+
 export async function writeComparison(directory: string, assessmentFile?: string) {
   directory = await realpath(directory);
   const raw = await readFile(resolve(directory, 'evaluation.json'), 'utf8');
@@ -275,8 +297,10 @@ export async function writeComparison(directory: string, assessmentFile?: string
       'Missing planned pairs require an indeterminate comparison',
     );
   }
+  const money = await moneySummary(directory, evaluation.config);
   const lines = [
     '# 指示変更の比較（公開前に内容を確認）',
+    ...money,
     `予定${evaluation.config.maxTrials}試行 / 記録${evaluation.records.length}試行。計画・実行全体: ${evaluation.error ? '停止・不成立（詳細はローカルevaluation.json）' : '記録済み、成果判定は別欄'}。`,
     '',
     `対象: ${evaluation.config.issue}`,

@@ -12,6 +12,8 @@ import { sandboxPreflightTrial } from './sandbox.ts';
 import type { preparePlan } from './eval.ts';
 import { preflightGatewayEntrypoint } from './preflight-container.ts';
 import { preflightWorkerEntrypoint } from './preflight-worker.ts';
+import { createBudgetRun, stageBudgetSources } from './budget-host.ts';
+import { priceProfile, profileHash } from './budget.ts';
 
 // 固定応答・期待値の正本は独立担当の資産。実装側で成功まで応答を探索しない。
 const relativeFile = z
@@ -471,6 +473,13 @@ function parseScenarios(raw: string) {
   return scenarios;
 }
 
+function preflightMoney(config: EvalConfig) {
+  return config.budget ? { priceProfile, profileHash, conditions: config.budget } : null;
+}
+function requireMoneySuccess(budget?: Awaited<ReturnType<typeof createBudgetRun>>) {
+  assert(!budget?.state.snapshot.stopped && !budget?.state.error, 'Preflight money stop');
+}
+
 async function preflightScenarios(
   config: EvalConfig,
   plan: Awaited<ReturnType<typeof preparePlan>>,
@@ -491,6 +500,7 @@ async function preflightScenarios(
     runner: plan.runner,
     runtimeHash: plan.runtimeHash,
     fixtureSha256: createHash('sha256').update(raw).digest('hex'),
+    money: preflightMoney(config),
     gatewaySha256: createHash('sha256').update(source).digest('hex'),
     scenarioTimeMs: 120000,
     totalTimeMs: 1200000,
@@ -502,6 +512,7 @@ async function preflightScenarios(
   console.log(JSON.stringify(manifest));
   await writeFile(resolve(directory, 'preflight-plan.json'), JSON.stringify(manifest, null, 2));
   let error: string | null = null;
+  const budget = config.budget ? await createBudgetRun(directory, config.budget) : undefined;
   for (const [index, scenario] of scenarios.entries()) {
     if (error) {
       records.push({ scenario: scenario.id, status: 'not-run', reason: error });
@@ -531,6 +542,7 @@ async function preflightScenarios(
           model: config.model,
           reasoning: config.reasoning,
           maxRequests: 4,
+          budgetRequired: Boolean(config.budget),
           maxOutputTokens: config.maxOutputTokens,
           expiresAt: deadline,
           prompt: scenario.prompt,
@@ -541,10 +553,14 @@ async function preflightScenarios(
           hostCanaryPath: resolve(dir, 'host-canary'),
         }),
       );
+      await stageBudgetSources(runtime);
+      await budget?.delegate(runtime, deadline);
       assert(!stopped(), 'Preflight interrupted during preparation');
       const result = ['interrupt', 'timeout'].includes(scenario.id)
         ? await stoppedSession(config, dir, scenario)
         : await withInterrupts(() => sandboxPreflightTrial(config, runtime, input, deadline));
+      await budget?.recover(runtime);
+      requireMoneySuccess(budget);
       assert(!stopped(), 'Preflight interrupted');
       await assessScenario(result, scenario, dir, config.bunVersion);
       records.push({ scenario: scenario.id, status: 'passed', result });
