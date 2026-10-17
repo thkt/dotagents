@@ -791,7 +791,7 @@ gh pr edit PR_NUMBER --repo OWNER/REPO \
 
 ## 指示変更時の同条件eval
 
-比較evalの実行コード・corpus・合成課題・模擬テストと操作説明は、repo直下の`eval/`へ分離しています。[eval専用ガイド](../eval/README.md)で入力・上限・裁定・新旧入口と移行条件を確認してください。通常developmentからは起動せず、比較実行には別の実行指示が必要です。
+比較evalの実行コード・corpus・合成課題・模擬テストと操作説明は、repo直下の`eval/`へ分離しています。[eval専用ガイド](../eval/README.md)で入力・上限・裁定・新旧入口と移行条件を確認してください。通常developmentからは起動せず、比較実行には別の実行指示が必要です。`bun eval/eval.ts preflight CONFIG`は、APIキーを渡さず実Docker／実CLIと固定応答の互換性を確認する別の入口です。[モデルなしの確認](../eval/README.md#モデルなしの互換性確認401)で必要な独立資産・有限上限・証拠と未確認事項を確認してください。#401の方式変更では新しいrunを使い、旧Issue本文に結び付く停止runを`--host-run`で再開しません。
 
 ## 選択したimplement runの使用量集計
 

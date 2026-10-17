@@ -11,7 +11,7 @@
 | 合成課題workspace | `eval/fixtures/workspace/` | `fixtures/workspace/` |
 | 模擬テストとホスト用資料 | `eval/tests/` | `scripts/tests/eval/` |
 
-repoルートから`bun eval/eval.ts plan|run CONFIG`、`bun eval/eval.ts report RUN_DIRECTORY [JUDGMENTS_JSON]`を使います。旧入口`bun scripts/eval/eval.ts ...`は残していません。新配置を含む同じ共有commitをrunner・corpus・workspaceへ指定し、設定の`workspaceFiles`も新配置へ更新してください。固定A/Bの指示commitと指示側のパスは変更しません。過去runは上書き・再開せず、歴史資料と固定A/Bの検証snapshotも書き換えません。
+repoルートから`bun eval/eval.ts plan|preflight|run CONFIG`、`bun eval/eval.ts report RUN_DIRECTORY [JUDGMENTS_JSON]`を使います。旧入口`bun scripts/eval/eval.ts ...`は残していません。新配置を含むcommitへ固定し、設定の`workspaceFiles`も新配置へ更新してください。Issueでcorpus・workspaceのcommitを固定している場合は、そのIDを維持し、変更後のrunnerを別に固定します。固定A/Bの指示commitと指示側のパスは変更しません。過去runは上書き・再開せず、歴史資料と固定A/Bの検証snapshotも書き換えません。
 
 課題ファイルはrepo相対パスを保って隔離環境の`/work/repo/eval/fixtures/workspace/`へ配置します。新配置のcorpusにある依頼文・checkと同じパスになり、両条件で同じ本文・hashを使います。ホスト用のcorpus・テスト・採点情報は転送しません。
 
@@ -21,7 +21,7 @@ repoルートから`bun eval/eval.ts plan|run CONFIG`、`bun eval/eval.ts report
 
 ## 指示変更時の同条件eval
 
-`scoping`・`implement`や、それらに適用する`AGENTS.md`を改善するとき、[Issue #191](https://github.com/thkt/dotagents/issues/191)の合意に従って、変更前後の行動・成果・負担を比べます。[Issue #335](https://github.com/thkt/dotagents/issues/335)により、下記の共通参照文書も明示して比較できます。入口は `bun eval/eval.ts plan|run CONFIG` と `report RUN_DIRECTORY [JUDGMENTS_JSON]` です。通常のdevelopment、定期監査、全PRのCIには接続しません。既存の証拠で判断できる変更には実モデル呼出しを追加しません。
+`scoping`・`implement`や、それらに適用する`AGENTS.md`を改善するとき、[Issue #191](https://github.com/thkt/dotagents/issues/191)の合意に従って、変更前後の行動・成果・負担を比べます。[Issue #335](https://github.com/thkt/dotagents/issues/335)により、下記の共通参照文書も明示して比較できます。入口は `bun eval/eval.ts plan|preflight|run CONFIG` と `report RUN_DIRECTORY [JUDGMENTS_JSON]` です。通常のdevelopment、定期監査、全PRのCIには接続しません。既存の証拠で判断できる変更には実モデル呼出しを追加しません。
 
 [ケース](corpus/cases.json)は、[#183の公開コメント](https://github.com/thkt/dotagents/issues/183#issuecomment-5793406460)にある依頼文5件を再利用しています。実際の失敗の再現ではなく、公開済みの適用条件から作った正例2件・負例2件・採点外の境界1件です。ケースの依頼文の出典・期待ラベル・採点基準はホストだけが読みます。実装ケースの`context`には対象Issue本文の固定コピーだけを含め、選択時には文脈だけを`evaluation-issue.json`として渡し、その場所だけを依頼文に追記します。過去の中断runや他条件の回答は渡しません。この1ファイルは版管理する評価入力で、雛形や実行結果ではありません。実行結果は`outputDirectory`で指定したリポジトリ外へ保存します。統合後の評価では、新しい配置と内容を含むcommitを`corpusCommit`に指定します。ケースを追加・変更する場合は、実際の見落としの根拠と適用範囲をIssueへ残し、新旧集合を同条件の改善率にしません。
 
@@ -30,6 +30,15 @@ repoルートから`bun eval/eval.ts plan|run CONFIG`、`bun eval/eval.ts report
 実行ホストにはBun、Git、Dockerが必要です。Dockerのinternal bridgeで `gateway_mode_ipv4=isolated` を使えることが条件です。[Dockerの仕様](https://docs.docker.com/engine/network/port-publishing/#gateway-modes)に従い、評価側にホストへのgatewayや外部へのdefault routeを置きません。未対応なら開始前の検査で止め、ネットワークを緩めて続行しません。通常ハーネスのmacOS登録を切り替える操作ではありません。
 
 ホスト担当者は、認証情報・私的資料・追加スキル・起動hookを含まないLinuxのツール用imageを用意して内容を確認し、ローカルに存在するdigestを指定します。`/usr/local/bin/bun`、`codex`、`git`、`sh`、`sleep`、CA証明書が必要です。imageの既定環境変数とvolume宣言も検査します。実行中のpull・依存導入や、利用者のホーム・Docker socket・Git履歴のマウントは行いません。既存のimageやDocker daemon自体を敵対的な実装から守る仕組みではなく、ホストと確認済みimageを信頼境界とします。
+
+Linux arm64の採用候補には[image.Dockerfile](image.Dockerfile)を使えます。build contextには、公式配布のBun実体を`bun`、Codexの`package/vendor/aarch64-unknown-linux-musl/`の内容を`codex-vendor/`として置きます。CLIの本体だけを抜き出さず、同梱のcode実行用プログラムや`rg`も含めます。ホストのホーム・設定・登録スキルをbuild contextへ入れません。
+
+| 固定した配布物 | 入手先と照合値 |
+| --- | --- |
+| Bun 1.4.3 Linux arm64 | [公式zip](https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-linux-aarch64.zip)、SHA-256: `efa9813da5ed72423bf847f916e8d2c47c0d776add972354026a75e10da9aa21` |
+| Codex 0.163.0 Linux arm64 | [公式npm配布物](https://registry.npmjs.org/@openai/codex/-/codex-0.163.0-linux-arm64.tgz)、SHA-512 SRI: `sha512-IH2/R+4OarjGvsAf1ll3fdyLwrPgYLl3uzp6u9CyD9sj2Lw+ViDSe3QBZVHdcHJs0eIiZFg6Wprcuy4CRZaUGw==` |
+
+照合したcontextから`docker build --platform linux/arm64 -f eval/image.Dockerfile -t dotagents/eval:cli01630 CONTEXT`で作成します。タグやimage IDを設定のmanifest digestに代用せず、使用するregistryでdigestを確定し、ローカルに存在する参照を指定してください。外部registryへの公開は別の権限を要します。今回の準備ではホスト内のregistryだけを使っています。build時のOS package取得は将来同じ版になる保証がないため、Git等の実効版・image内容・digestを再照合し、新しいimageのpreflightを行います。Dockerfileの一致だけで、過去のimageと同一とは扱いません。
 
 設定例のcommit、image digest、実際のツール版、対象Issue/PR、保存先を置き換えます。対象・有限上限・送信先と公開範囲が改善作業の合意内であることを開始前に照合します。設定の存在だけを合意とは扱いません。範囲や上限を広げる場合は依頼者へ戻します。
 
@@ -65,6 +74,7 @@ repoルートから`bun eval/eval.ts plan|run CONFIG`、`bun eval/eval.ts report
   "maxOutputTokens": 8000,
   "maxTrials": 10,
   "outputDirectory": "/absolute/path/outside-checkout/new-eval",
+  "preflightDirectory": "/absolute/path/outside-checkout/completed-preflight",
   "disclosure": {
     "inputs": "reviewed-public-committed-files-only",
     "raw": "local-only",
@@ -85,6 +95,7 @@ UTF-8の通常Git blobだけを使い、symlink、作業差分、未追跡資料
 
 ```sh
 bun eval/eval.ts plan /absolute/path/eval-config.json
+bun eval/eval.ts preflight /absolute/path/preflight-config.json
 bun eval/eval.ts run /absolute/path/eval-config.json
 bun eval/eval.ts report /absolute/path/outside-checkout/new-eval
 ```
@@ -99,9 +110,123 @@ bun eval/eval.ts report /absolute/path/outside-checkout/new-eval
 
 `run` は同じ計画を保存し、ケース・時間・モデル要求数・公開範囲を表示してから、beforeの全ケース、afterの全ケースを各1回実行します。ケースの順序と集合は両条件で同じです。モデルには現在のケースの依頼文と入力ファイルだけが見えます。スキルは新しいコンテナーのホームから、その条件の実体へ登録します。既存の登録や進行中タスクは変更しません。
 
+### モデルなしの互換性確認（#401）
+
+[#401](https://github.com/thkt/dotagents/issues/401)の2026年10月17日の合意に基づき、evalだけの隔離境界を外側のDockerへ集約します。通常repair／reviewのsandboxは変更しません。固定A/Bのpromptと過去の出典を保ち、`actorInputs.sourceLaunch`に元の`workspace-write`等を、`launch`とplanの`effectiveLaunch`にevalの`danger-full-access`・承認`never`等を分けて記録します。内側のworkspace境界は失います。`/work/repo`だけでなく、試行用HOMEと設定・スキル登録を含む`/work`、`/tmp`へ書けます。各試行で空の一時領域を作り、終了時に破棄します。過去方式と同条件の結果、通常のworkspace-writeへの安全性・行動の一般化として報告しません。
+
+`plan` → `preflight` → image・版・hash・実効条件の照合 → API・費用・範囲の別判断 → 明示指示後の`run`の順に進めます。preflight成功は実モデル起動の許可ではありません。`preflight`の`outputDirectory`はcheckout外の新規保存先にします。後日の`run`には別の新規`outputDirectory`と、成功した保存先の`preflightDirectory`を指定します。`run`は出力先・証拠参照先を除く設定、入力hash、runnerのソースhash、実効条件、合成応答資産のhashを照合し、各試行でも外側と版を再確認します。過去の成功ファイルが存在するだけでは進みません。
+
+本番gatewayは固定Responses endpointへ送る専用実装のままです。preflightは別の`preflight-container.ts`を外部bridgeへ接続せずに起動し、APIキーを渡しません。本番と同じ要求検査、CLI引数、コンテナー引数、probeとcleanupを使い、固定SSEだけを返します。新形式のnamespaceとローカルfunction／custom宣言、呼出し・結果は構造を保持します。未知の制御・フィールド、remote tool、保存参照、外部grammarとSchema参照は拒否します。説明・コード文字列のURLやSchemaのプロパティ名は、外部参照と同一視しません。[公開の最小宣言](tests/local-tools.fixture.ts)はIssueから作った合成入力であり、実CLI採取原本ではありません。
+
+呼出し先は同じ要求内の宣言位置に依存せず照合します。後方に宣言があっても、未宣言・型不一致の宛先を許可しません。宣言を持たない既存のinline履歴は維持します。`call_id`は要求全体で一意とし、結果が完了したIDも再使用を拒否します。Schemaの`dependencies`も、プロパティ名の配列とSchemaを区別し、後者に入れた外部参照を拒否します。プロパティ名・`const`等のデータは、参照制御として検査しません。
+
+ホストはgateway・probe・actorを起動前にinspectします。image名と実体ID、user、readonly root、capability、NoNewPrivs、PID／network、readonly mount、memory 2g・CPU 2・pids 64、`/work` 256MiB・`/tmp` 64MiB、ログの`local`・10m・1ファイル・`compress=false`を照合します。actor／probe／模擬gatewayのDNS上流はコンテナー自身のloopbackに固定し、Dockerの名前解決から外部へ転送する経路も閉じます。gatewayのalias解決とDNS拒否の実動作はホスト検証対象です。actor内でもPID 1・UID/GID 1000、権限、readonly mount、書込み拒否、default route不在と版を確認してからCLIを起動します。不一致時のホスト直接実行、sandbox方式の自動fallback、権限拡大はありません。
+
+preflightの7シナリオはscoping、初回実装、境界操作、既知のコマンド失敗、marker欠落、期限、ホスト割込みです。1件120秒・最大4要求・全体20分・再試行0で、開始前に一覧を出力します。使用量・ログ観測は計5秒以内、コンテナーとnetwork削除は各30秒以内で、終了確認の猶予は1件最大65秒です。CLI終了0に加え、要求・結果の到達、終了イベント、marker・成果物本文、初回repairの応答契約を照合します。負の対照は期待した失敗を検出できることを確認し、期限・割込みでは終了と削除を観測します。失敗・終了不明・資産不足では理由を保存して後続を止めます。分離した子プロセスの停止はPID namespaceとprobeでも確認します。
+
+固定応答と期待値は独立テスト担当の`eval/tests/preflight.json`から読みます。`preflight.ts`の`scenarioSchema`が読取り形式です。公開の合成入力・固定SSEと要求内の結果照合、markerと成果物、初回repairのschemaを含めます。境界ケースには合成canary、許可されたHOMEへの書込みと禁止mountへの書込み拒否、直接IP・hostname・Docker DNS・host側・link-local・別のモデル／公開endpoint・子経路の正常／拒否操作を含め、外部の実サービス・秘密情報を試験しません。`host-canary`は試行ディレクトリに作り、actorへmountしません。応答を成功まで変える探索は行いません。
+
+#### preflight資産の接続契約
+
+`eval/tests/preflight.json`は7シナリオの配列です。各要素は次の項目を持ち、未知の項目は受け付けません。これは資産の接続形式であり、期待結果は#401の保証から独立テスト担当が定めます。
+
+| 項目 | 形式と接続先 |
+| --- | --- |
+| `id` | `scoping`・`initial`・`boundaries`・`command-failure`・`missing-marker`・`timeout`・`interrupt`を1件ずつ |
+| `prompt` | CLIへ渡す合成依頼文の文字列 |
+| `responseSchema` | 任意のJSON Schemaオブジェクト。`initial`には通常repairの`status`・`findings`の応答契約を指定 |
+| `steps` | 1〜4件。各要素は`requestIncludes: string[]`と`sse: string`。検査済み要求の本文に必要な文字列を照合し、その回の固定SSEを返す |
+| `files` | 正規の相対パスから合成本文へのmap。readonly入力から試行workspaceへコピーする |
+| `marker` | 次要求のローカルツール結果で確認する非空文字列。呼出しコードや最終返答に書かれただけでは成功にしない |
+| `artifact`・`artifactText` | workspace相対の成果物パスと、期待する本文。正常経路ではsnapshotと照合する |
+| `runtimeArtifact` | 操作Bun自身が版・実体を記録するJSONファイルのworkspace相対パス。入力には事前配置しない |
+| `networkCanary` | `boundaries`だけに指定する合成待受けの`path`・`body`。実URLはホストが生成する |
+| `expectedRejected` | 1〜16の整数、既定1。共通probeと固定操作で予定した中継拒否の合計 |
+
+`timeout`と`interrupt`は入力に含めていない`artifact`と`runtimeArtifact`を固定操作で生成し、その後も処理を継続する。ホストは稼働中のactorで成果物本文と操作Bunの観測を読み、`operation-observation.json`へ保存する。`interrupt`はその後にSIGINTを送り、`timeout`は自然な期限まで待つ。要求到達・起動試行だけを操作開始の証拠にせず、未開始の期限切れを拒否する。`command-failure`は既知の非0終了、`missing-marker`は他の必要条件を満たした上でmarker欠落を観測する。通常の実比較の非0終了の裁定は変更しない。
+
+採用候補CLI 0.163.0の観測済み最小構造では、ローカルcode実行は`namespace: functions`の`custom`宣言`exec`を使い、inline JavaScriptから`tools.exec_command`等を呼ぶ。新形式の宣言・呼出し・結果を保つ。要求の`client_metadata`は観測済みの7キー（`x-codex-installation-id`・`x-codex-turn-metadata`・`turn_id`・`x-codex-window-id`・`session_id`・`root_turn_id`・`thread_id`）の文字列値だけ、`reasoning.context`は未指定または`all_turns`だけを受け付ける。これらの観測は新しいAPI機能全般の許可ではない。fixtureの識別子や本文には公開の合成値を使い、生ログをコピーしない。
+
+模擬実行で`preflightDirectory`を接続する場合も、存在するファイルだけでは通らない。`preflight.json`は`error: null`、7シナリオそれぞれの`status: passed`、`manifest.modelFree: true`と一致する識別値を必要とする。`manifest.identity`は、planから`outputDirectory`と`preflightDirectory`を除いたconfig、runnerの`sourceHashes`、`effectiveLaunch`、各variantの`versions`、`corpusHash`を、順に`config`・`sources`・`launch`・`inputs`・`corpus`へ入れたオブジェクトの`JSON.stringify`に対するSHA-256である。`manifest.fixtureSha256`も現在の資産本文と照合する。模擬の証拠は実Docker・実CLIの受入結果には使わない。
+
+証拠ファイルの最小構造は次のとおり。`records`の要素は`id`ではなく`scenario`を持つ。hashの仮表記を実測値へ置き換える必要があり、この合成例は成功の証拠ではない。
+
+```json
+{
+  "manifest": {
+    "identity": "現在のplanから求めたSHA-256",
+    "modelFree": true,
+    "fixtureSha256": "現在のpreflight.json資産本文のSHA-256"
+  },
+  "error": null,
+  "records": [
+    { "scenario": "scoping", "status": "passed" },
+    { "scenario": "initial", "status": "passed" },
+    { "scenario": "boundaries", "status": "passed" },
+    { "scenario": "command-failure", "status": "passed" },
+    { "scenario": "missing-marker", "status": "passed" },
+    { "scenario": "timeout", "status": "passed" },
+    { "scenario": "interrupt", "status": "passed" }
+  ]
+}
+```
+
+固定SSEのツール層では、`functions.exec`の既定値は30秒での途中応答であり、コマンドの終了とは別である。採取した宣言の接続契約では、inline JavaScriptの先頭に`// @exec: {"yield_time_ms": 120000}`の形式で途中応答までの待機を指定できる。`tools.exec_command`も`yield_time_ms`内に終了しなければ`session_id`を返す。必要な操作が終わる前に最終SSEへ進まず、`tools.write_stdin`等で同じ処理の完了を観測する。これは失敗した操作の再実行ではない。期限・割込みケースでは、意図した停止より先に途中応答を返して別要求へ進まない条件を揃える。
+
+採取した`tools.exec_command`の宣言では、待機の実効範囲は250〜30000msである。120000msと指定しただけでは120秒待てると仮定しない。`tools.write_stdin`の空入力による継続待機は5000〜300000msの範囲であり、終了したら`exit_code`、継続中なら`session_id`を返す。期限・割込みケースもこの契約で同じ処理を待つ。scoping・initialの固定操作には、既存の合成ファイルの読取りと変更、その変更の読戻し、新しい成果物の作成を含める。境界操作では、親と利用する子経路で合成通信先への拒否も確認する。
+
+中継の`requests`は検査を通って模擬応答へ到達した件数である。共通probeの`GET /github`は拒否1件を記録する。通常はこの1件、現在の`boundaries`は親子による禁止path・別モデル要求の4件を加えた計5件を`expectedRejected`で照合する。完了するシナリオは固定SSE件数と一致する`requests`と`failed: false`を必要とし、予期しない拒否や追加要求を無視しない。
+
+操作自身の観測は`runtimeArtifact`のJSON配列へ、`role: operation`・`bunVersion`・`execPath`・`realPath`として保存する。`boundaries`は実際の子Bunによる`role: child`の観測も必要とする。設定したBun版とimage内の`/usr/local/bin/bun`の実体へ照合し、親actorの`eval.runtime`やコマンド文字列だけでは代用しない。通常終了はartifact snapshotから、期限・割込みは生存中の読取り記録から確認する。秘密値やPATH全文は記録しない。
+
+通信の正常対照は、評価網とは別のinternal bridgeに置く`preflight-canary`と`preflight-control`で行う。両網とも`gateway_mode_ipv4=isolated`を使い、外部bridge・公開port・資格情報を追加しない。新しい2役も同じimage・UID・readonly・権限・資源・ログ上限を使い、CLIは起動しない。待受けは8081の固定pathへのGETに公開の合成本文だけを返し、転送機能を持たない。正常対照はactorの前後で、同じ直接IPとDocker DNSのURLへ200・本文一致を確認する。評価側の親子操作は同じ宛先への到達拒否を確認する。`network-canary.json`、対照のstdout/stderrとinspectを保存し、待受け不在だけで通信隔離を成功としない。従来の合成host/link-local宛先への接続失敗、実効route・DNS、模擬gatewayの公開path・別モデル拒否は、それぞれの保証と区別して記録する。
+
+#### 模擬接続で使うruntimeとinspect
+
+利用者が渡すのはCONFIGだけであり、次のruntimeファイルはrunnerが生成する。独立テストで内部の接続を模擬するときは、同じ版のこの契約へ照合する。actor用`/runtime/settings.json`は`model`・`reasoning`・`prompt`・`cliVersion`・`bunVersion`・`gitVersion`を文字列、`maxRequests`・`maxOutputTokens`・`expiresAt`を数値として持つ。`expiresAt`は将来の有限のUNIX時刻（ミリ秒）である。`responseSchema`は初回実装だけの任意オブジェクトで、`gatewayAddress`には生成した隔離網のIPv4をホストが設定する。通信対照では、生成した直接IP・`canary` aliasのURLと合成本文を`networkCanary: {ipUrl, dnsUrl, body}`へ設定する。CONFIGから任意の外部URLを受け取らず、通常のモデル実行settingsには追加しない。
+
+版の合成例は`cliVersion: "codex-cli synthetic"`・`bunVersion: "1.4.3"`・`gitVersion: "git version synthetic"`である。対応する`codex --version`・`bun --version`・`git --version`は終了0でその文字列を出し、前後の空白を除いた本文が設定と一致しなければ起動しない。入口Bunと子Bunの版も照合する。`codex exec`の代わりに`--version`の引数を記録して正常な担当起動と数えない。
+
+actorは版取得を含むCLI起動前に、LinuxのPID 1・UID 1000、capabilityなし・NoNewPrivs、readonlyのroot・入力・runtime、default routeなし等を照合する。ホストでactorを直接起動した場合は、合成の版応答や環境変数だけではCLIを起動できないことが正常である。CLI引数・応答schemaの正常接続は実Dockerのpreflightで確認する。単体テストで観測を模擬しても、製品側へ境界を省く入口を作らない。
+
+preflightのsettingsに限り、`hostCanaryPath`へホストが生成した合成canaryの絶対パスを設定する。そのファイルはmountしない。境界操作は実際のこのパスを使って読取り不能を確かめ、任意の存在しない別パスだけで代用しない。この値と生ログはローカルに留め、通常の実モデル用runtimeには追加しない。
+
+ホスト側のDocker観測には、次の設定と実際の作成引数が対応する。gatewayも起動前の照合対象であり、probeの正常応答だけでactorの不一致を隠さない。
+
+gatewayは設定を起動前と起動後に照合する。IPの割当ては起動後に観測し、設定の`gatewayAddress`へ記録する。gateway自身は隔離網だけへ登録した`gateway` aliasをIPv4で解決し、自分の非loopback interfaceに存在するIPだけで待ち受ける。作成時にIPが空でもwildcardへ切り替えない。probeは起動直後のhealth到達を最大3秒だけ待ち、その後に一般proxyの拒否と版を確認する。この観測待ちはモデル要求や固定操作の再実行ではない。
+
+| inspectの対象 | 必要な値・関係 |
+| --- | --- |
+| image | `Config.Image`が設定digest、`Image`がimage inspectで得たIDと一致 |
+| userとnamespace | `Config.User: "1000:1000"`、`HostConfig.ReadonlyRootfs: true`・`Privileged: false`、`PidMode`・`UTSMode`は空、`IpcMode`は空または`private` |
+| 権限 | `CapDrop`に`ALL`、`CapAdd`は空、`SecurityOpt`は`no-new-privileges`だけ |
+| 資源 | `Memory: 2147483648`・`NanoCpus: 2000000000`・`PidsLimit: 64` |
+| 一時領域 | `Tmpfs`は`/work: rw,nosuid,nodev,size=268435456,uid=1000,gid=1000`と`/tmp: rw,nosuid,nodev,size=67108864,uid=1000,gid=1000`だけ |
+| ログ | `LogConfig.Type: local`、`Config`の`max-size: 10m`・`max-file: "1"`・`compress: "false"` |
+| mount | gateway・canary・controlはreadonlyの`/runtime`だけ、probeとactorはこれにreadonlyの`/input`を加える。Sourceも生成したディレクトリと一致。他の永続mountは不可 |
+| network | `HostConfig.NetworkMode`と接続先集合を照合。probe・actor・preflight gatewayは評価用の隔離網だけ、canary・controlは対照用の隔離網だけ、本番gatewayは`bridge`と評価網だけ |
+| DNSと転送 | 隔離網だけの役割は`Dns: ["127.0.0.1"]`で外部へのDNS転送を避ける。本番gateway・preflight-gateway・preflight-canary・preflight-controlは`Sysctls["net.ipv4.ip_forward"]: "0"`を明示し、内側でも実効値を照合。actor・probeにはこの明示設定と内側照合はなく、接続先network・DNS・default routeなし等を検査する |
+| 追加接続 | `Devices`・`DeviceRequests`・`ExtraHosts`・`Links`・`VolumesFrom`は未指定または空 |
+
+模擬Dockerでこの構造を再現する場合も、値の不一致、markerや成果物・schemaの欠落、ログ保存失敗、期限・割込みのケースを実際に対象へ到達させる。模擬検証で実Dockerの成立を証明したとは扱わない。
+
+2026年10月18日のホスト再受入では、独立テスト担当が用意した固定SSE・シナリオ資産を使い、実Docker・採用CLIで7シナリオすべてを確認しました。既存ファイルの読取り・変更、新規成果物、ツール結果の次要求への到達、初回repairの応答schemaに加え、実操作の親子Bunの版・入口・実体を照合しています。期限・割込みは、操作が生成した成果物と版の記録を生存中に読んでから、停止・削除を確認しました。
+
+追加の独立評価で、本文のないSSE完了イベントの受入と、stats・gatewayログ・canaryログの待機枠の合計超過が見つかりました。完了本文の`status: completed`を必須にし、3つの観測へ合計5秒の共通予算を適用しました。この修正後の版でも、実Docker・採用CLIの7シナリオすべてが通りました。独立テストでは、不正な完了本文と後続送信の抑止、canaryありの共有予算、観測失敗後の削除・終了記録を確認しています。模擬検証と実Dockerの結果は分けて保存しています。
+
+通信対照はactorの前後で直接IP・Docker DNSの両URLへの200と本文一致を観測し、評価側の親子から同じ宛先への到達拒否を確認しました。禁止された公開pathと別モデル要求への403も実操作に含め、予定した拒否5件と受理された固定応答2件を照合しています。実モデル・外部モデルAPI・実APIキーは使っていません。初回確認の不足はこの再受入で補っており、別のimage・版・ホストへ成功をそのまま適用しません。
+
+受入途中の旧版ではBun 1.4.3のactorが異常終了し、後続シナリオを停止しました。出力の読取り・書込みの完了を待ち、版取得時に両出力を回収する処理へ修正した後の7シナリオは通りましたが、異常終了の原因と再発防止は確定していません。固定応答や資源上限を緩めて成功させたものではありません。失敗記録と修正後の結果を分けて保持し、終了不明や再発時は後続を止めます。
+
+ホスト受入では、採用候補CLI 0.163.0の正規`gpt-6.1-sol`情報を使い、未知モデルfallbackやmetadata改変を認めません。公開配布物から専用imageを準備し、base digest、Bun配布物のSHA-256、Codex配布物のSHA-512 SRI、導入コマンド、実効版をローカル証拠へ残します。Issueの調査基点はmain `0c7316253a9768844eb1c224961e00be52dcdcf2`、確認した環境はmacOS／OrbStack、Docker 29.4.0、Linux arm64、baseは`debian@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587`、Bun 1.4.3、Git 2.39.5です。配布物のdigest値やローカルimage参照を推測で補いません。
+
+`preflight-plan.json`、`preflight.json`から対象版・条件・資産hash・各シナリオへ辿ります。各ディレクトリに`inspections.json`、`containers.json`、probe・actor・gatewayのstdout/stderr、ログ取得結果と`safety.json`を残します。inspectの環境変数値は保存前に伏せます。期限・ホスト割込みは別workerで操作開始を観測し、割込みではSIGINTを送ります。`worker.*`・`session.json`・`operation-observation.json`も保存します。正常CLIの要求・呼出し・結果はgateway原記録で確認し、公開可能な最小部分をfixtureへ反映する必要があれば独立テスト担当へ戻します。生ログ・ローカルパスは公開しません。
+
+これらは当該image・ホスト・版・条件のローカル互換性と境界の確認です。実APIの利用権限・モデル提供・実応答・品質・請求額は未確認として残します。ホストの入口と子Bunへ同じ固定環境を渡し、[ホスト検証後の再評価](../scripts/README.md#ホスト検証後の再評価)で新しい外部ログと証拠から同じ差分を再評価します。旧runの停止記録・部分修正・原ログを保全し、旧本文へ結び付いた`--host-run`からは再開しません。
+
 ### 8課題の行動比較を準備する（#393）
 
-[#393](https://github.com/thkt/dotagents/issues/393)の準備変更は、実モデル比較の実行許可を含みません。モデルを使わずに入力・有限上限・経路を確認し、実行コード、corpus、workspaceを共有済みcommitへ固定してから、依頼者の別の実行指示を受けます。現在の準備を実モデルの行動改善、APIの利用可能性、imageの実稼働確認として報告しません。
+[#393](https://github.com/thkt/dotagents/issues/393)の準備変更は、実モデル比較の実行許可を含みません。モデルを使わずに入力・有限上限・経路を確認し、実行コード、corpus、workspaceを共有済みcommitへ固定してから、依頼者の別の実行指示を受けます。準備変更だけを実モデルの行動改善、APIの利用可能性、imageの実稼働確認として報告しません。imageと実CLIのモデルなし受入結果は、前節の#401の確認範囲に限ります。
 
 追加した課題は公開の合成例です。実際に観測した失敗の再現でも、全工程の網羅でもありません。既存5課題はそのまま残し、追加8課題と混在させません。モデルへは現在の依頼と通常の仕様・コード・独立検証・合成履歴だけを渡します。下表のC番号、criteria、Issue #393本文、対照の分類、他条件の回答、ホストの参照解・反例は渡しません。
 

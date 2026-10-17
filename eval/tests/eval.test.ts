@@ -5,15 +5,24 @@ import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'n
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { expect, test } from 'bun:test';
+import { writePreflightEvidence } from './preflight-evidence.ts';
 import { instructionFiles, installTrustedInputs } from './trusted-inputs.ts';
 import { providerGateway, providerBody } from '../container.ts';
 import { evalConfig, validatePlan } from '../data.ts';
-import { preparePlan, runEvaluation } from '../eval.ts';
+import { preparePlan, runEvaluation as runRawEvaluation } from '../eval.ts';
 import { assessTrial, readUsage, writeComparison } from '../report.ts';
 import { containerArgs, verifyImage, verifyNetwork } from '../sandbox.ts';
 import { command, withInterrupts } from '../../scripts/shared/process.ts';
 import { isRecord } from '../../scripts/shared/values.ts';
 import { initializeTarget, git, targetConfig } from '../../scripts/tests/support/target.ts';
+
+// 既存の境界・停止ケースを、モデルなし照合の後の対象経路へ接続する。
+async function runEvaluation(repo: string, input: Parameters<typeof preparePlan>[1]) {
+  const preflightDirectory = join(dirname(input.outputDirectory), 'synthetic-preflight');
+  const plan = { ...input, preflightDirectory };
+  await writePreflightEvidence(preflightDirectory, await preparePlan(repo, plan));
+  return runRawEvaluation(repo, plan);
+}
 
 const config = evalConfig.parse({
   repository: 'thkt/dotagents',
@@ -233,9 +242,12 @@ test('20要求を共通中継で数え、21番目を拒否し、要求ごとの�
       expect(url).toBe('https://api.openai.com/v1/responses');
       assert(typeof init.body === 'string');
       sent.push(JSON.parse(init.body));
-      return new Response('data: {"type":"response.completed"}\n\n', {
-        headers: { 'Content-Type': 'text/event-stream' },
-      });
+      return new Response(
+        'data: {"type":"response.completed","response":{"status":"completed"}}\n\n',
+        {
+          headers: { 'Content-Type': 'text/event-stream' },
+        },
+      );
     },
   );
   try {
@@ -272,9 +284,12 @@ test('gateway enforces the shared request budget under concurrent child requests
   const sent: { url: unknown; init: unknown }[] = [];
   const gateway = providerGateway(limits, 'private-provider-key', async (url, init) => {
     sent.push({ url, init });
-    return new Response('data: {"type":"response.completed"}\n\n', {
-      headers: { 'Content-Type': 'text/event-stream' },
-    });
+    return new Response(
+      'data: {"type":"response.completed","response":{"status":"completed"}}\n\n',
+      {
+        headers: { 'Content-Type': 'text/event-stream' },
+      },
+    );
   });
   const responses = await Promise.all(
     [1, 2, 3].map((n) => gateway.handle(request({ ...body, input: String(n) }))),
@@ -292,9 +307,12 @@ test('gateway accepts inline conversation and local tool results but never sends
   const gateway = providerGateway(limits, 'private-provider-key', async (_url, init) => {
     assert(typeof init.body === 'string');
     sent.push(JSON.parse(init.body));
-    return new Response('data: {"type":"response.completed"}\n\n', {
-      headers: { 'Content-Type': 'text/event-stream' },
-    });
+    return new Response(
+      'data: {"type":"response.completed","response":{"status":"completed"}}\n\n',
+      {
+        headers: { 'Content-Type': 'text/event-stream' },
+      },
+    );
   });
   for (const item of [
     { type: 'item_reference', id: 'msg_from_another_run' },
@@ -674,12 +692,17 @@ import {join,posix} from 'node:path';
 const args=process.argv.slice(2), root=process.env.EVAL_TEST_ROOT;
 appendFileSync(join(root,'calls.jsonl'),JSON.stringify(args)+'\\n');
 const net=[{Driver:'bridge',Internal:process.env.EVAL_TEST_FAILURE!=='network',EnableIPv6:false,Options:{'com.docker.network.bridge.gateway_mode_ipv4':'isolated'}}];
-if(args[0]==='image') console.log(JSON.stringify([{Config:{Env:['PATH=/usr/local/bin:/usr/bin:/bin'],Volumes:null}}]));
+if(args[0]==='image') console.log(JSON.stringify([{Id:args.at(-1).split('@')[1],Config:{Env:['PATH=/usr/local/bin:/usr/bin:/bin'],Volumes:null}}]));
 if(args[0]==='network'&&args[1]==='inspect') console.log(JSON.stringify(net));
 if(args[0]==='create') {
  const name=args[args.indexOf('--name')+1];
  const runtime=args.find(a=>a.startsWith('type=bind')&&a.includes('dst=/runtime')).split(',')[1].slice(4);
  writeFileSync(join(root,name+'.json'),JSON.stringify({runtime,args}));
+}
+if(args[0]==='network'&&args[1]==='connect') {
+ const path=join(root,args.at(-1)+'.json'), saved=JSON.parse(readFileSync(path));
+ saved.networks=[saved.args[saved.args.indexOf('--network')+1],args.at(-2)];
+ writeFileSync(path,JSON.stringify(saved));
 }
 if(args[0]==='inspect') {
  if(args.includes('--format')) console.log(args.includes('{{.State.Running}} {{.State.Pid}} {{.State.ExitCode}}')?'false 0 0':'172.28.0.2');
@@ -687,7 +710,34 @@ if(args[0]==='inspect') {
   const saved=JSON.parse(readFileSync(join(root,args.at(-1)+'.json'))), a=saved.args;
   const network=a[a.indexOf('--network')+1];
   const Mounts=a.filter(x=>x.startsWith('type=bind')).map(x=>({Type:'bind',RW:false,Source:x.split(',')[1].slice(4),Destination:x.split(',')[2].slice(4)}));
-  console.log(JSON.stringify([{Config:{User:'1000:1000'},HostConfig:{ReadonlyRootfs:true,Privileged:false,NetworkMode:network,PidMode:'',CapDrop:['ALL'],CapAdd:null,SecurityOpt:['no-new-privileges']},Mounts,NetworkSettings:{Networks:{[network]:{}}}}]));
+  const info={Config:{User:'1000:1000',Image:a.at(-3)},Image:a.at(-3).split('@')[1],HostConfig:{ReadonlyRootfs:true,Privileged:false,NetworkMode:network,PidMode:'',UTSMode:'',IpcMode:'private',Dns:['127.0.0.1'],Sysctls:{'net.ipv4.ip_forward':'0'},LogConfig:{Type:'local',Config:{'max-size':'10m','max-file':'1',compress:'false'}},Devices:[],DeviceRequests:[],ExtraHosts:[],Links:[],VolumesFrom:[],CapDrop:['ALL'],CapAdd:null,SecurityOpt:['no-new-privileges'],Memory:2147483648,NanoCpus:2000000000,PidsLimit:64,Tmpfs:{'/work':'rw,nosuid,nodev,size=268435456,uid=1000,gid=1000','/tmp':'rw,nosuid,nodev,size=67108864,uid=1000,gid=1000'}},Mounts,NetworkSettings:{Networks:Object.fromEntries((saved.networks||[network]).map(name=>[name,{}]))}};
+  if(args.at(-1).endsWith('-gateway')) info.HostConfig.Dns=[];
+  // probeだけ正常でもactorの実効条件が異なれば起動してはいけない。
+  if(args.at(-1).endsWith('-actor')) {
+   const failure=process.env.EVAL_TEST_FAILURE;
+   if(failure==='actor-image') info.Config.Image='unexpected@sha256:'+ '0'.repeat(64);
+   if(failure==='actor-user') info.Config.User='0:0';
+   if(failure==='actor-memory') info.HostConfig.Memory=0;
+   if(failure==='actor-cpu') info.HostConfig.NanoCpus=0;
+   if(failure==='actor-pids') info.HostConfig.PidsLimit=0;
+   if(failure==='actor-work') info.HostConfig.Tmpfs['/work']='rw,size=536870912';
+   if(failure==='actor-runtime') Mounts.find(m=>m.Destination==='/runtime').RW=true;
+   if(failure==='actor-network') info.NetworkSettings.Networks.bridge={};
+   if(failure==='actor-image-id') info.Image='sha256:'+ '0'.repeat(64);
+   if(failure==='actor-dns') info.HostConfig.Dns=[];
+   if(failure==='actor-log') info.HostConfig.LogConfig.Config.compress='true';
+   if(failure==='actor-readonly') info.HostConfig.ReadonlyRootfs=false;
+   if(failure==='actor-capability') info.HostConfig.CapDrop=[];
+   if(failure==='actor-no-new-privs') info.HostConfig.SecurityOpt=[];
+   if(failure==='actor-pid') info.HostConfig.PidMode='host';
+   if(failure==='actor-input') Mounts.find(m=>m.Destination==='/input').RW=true;
+   if(failure==='actor-privileged') info.HostConfig.Privileged=true;
+   if(failure==='actor-cap-add') info.HostConfig.CapAdd=['SYS_ADMIN'];
+   if(failure==='actor-seccomp') info.HostConfig.SecurityOpt.push('seccomp=unconfined');
+   if(failure==='actor-tmp') info.HostConfig.Tmpfs['/tmp']='rw,size=134217728';
+   if(failure==='actor-socket') Mounts.push({Type:'bind',RW:false,Source:'/var/run/docker.sock',Destination:'/var/run/docker.sock'});
+  }
+  console.log(JSON.stringify([info]));
  }
 }
 if(args[0]==='start'&&args.at(-1).endsWith('-probe')) console.log(JSON.stringify({cli:'codex-cli 0.156.1',bun:process.env.EVAL_TEST_BUN||'1.4.2',git:'git version 2.50.1',safety:'probe-passed'}));
@@ -787,6 +837,129 @@ async function actorStarts(root: string) {
   return calls.filter(
     (call) => Array.isArray(call) && call[0] === 'start' && String(call.at(-1)).endsWith('-actor'),
   );
+}
+
+for (const mismatch of [
+  'image',
+  'user',
+  'memory',
+  'cpu',
+  'pids',
+  'work',
+  'runtime',
+  'network',
+  'image-id',
+  'dns',
+  'log',
+  'readonly',
+  'capability',
+  'no-new-privs',
+  'pid',
+  'input',
+  'privileged',
+  'cap-add',
+  'seccomp',
+  'tmp',
+  'socket',
+]) {
+  test.serial(
+    `probeが正常でもactorの${mismatch}不一致では起動せず停止記録とcleanupを残す`,
+    async () => {
+      await withEvaluationFixture(async ({ root, repo, plan }) => {
+        process.env.EVAL_TEST_FAILURE = `actor-${mismatch}`;
+        const result = await runEvaluation(repo, plan);
+        expect(await actorStarts(root)).toHaveLength(0);
+        expect(result.records[0]).toMatchObject({ launched: false, execution: 'unevaluated' });
+        const calls: unknown[] = (await readFile(join(root, 'calls.jsonl'), 'utf8'))
+          .trim()
+          .split('\n')
+          .map((line): unknown => JSON.parse(line));
+        // 入口や版不一致で先に止まった場合はactor境界の検査成功に数えない。
+        expect(
+          calls.some(
+            (call) =>
+              Array.isArray(call) &&
+              call[0] === 'inspect' &&
+              !call.includes('--format') &&
+              String(call.at(-1)).endsWith('-actor'),
+          ),
+        ).toBe(true);
+        expect(
+          JSON.parse(
+            await readFile(join(plan.outputDirectory, 'before-positive', 'safety.json'), 'utf8'),
+          ),
+        ).toEqual({ containersRemoved: true, networkRemoved: true });
+        expect(await savedExecutions(plan.outputDirectory)).toEqual(['unevaluated', 'unevaluated']);
+      });
+    },
+    10000,
+  );
+}
+
+function corruptPreflightEvidence(
+  evidence: Awaited<ReturnType<typeof writePreflightEvidence>>,
+  invalid: string | null,
+) {
+  if (invalid === 'identity') {
+    evidence.manifest.identity = '0'.repeat(64);
+  }
+  if (invalid === 'fixture') {
+    evidence.manifest.fixtureSha256 = '0'.repeat(64);
+  }
+  if (invalid === 'modelFree') {
+    evidence.manifest.modelFree = false;
+  }
+  if (invalid === 'missing') {
+    evidence.records.pop();
+  }
+  if (invalid === 'failed') {
+    const record = evidence.records[0];
+    assert(record);
+    record.status = 'failed';
+  }
+}
+
+// 正常な模擬証拠と一項目だけ崩した証拠を比較し、存在確認だけで通す回帰を検出する。
+for (const invalid of [
+  null,
+  'identity',
+  'fixture',
+  'modelFree',
+  'missing',
+  'failed',
+  'error',
+] as const) {
+  test.serial(`モデルなし証拠の照合: ${invalid ?? '正常対照'}`, async () => {
+    await withEvaluationFixture(async ({ root, repo, plan }) => {
+      const preflightDirectory = join(root, 'synthetic-preflight');
+      const input = { ...plan, preflightDirectory };
+      const evidence = await writePreflightEvidence(
+        preflightDirectory,
+        await preparePlan(repo, input),
+      );
+      corruptPreflightEvidence(evidence, invalid);
+      await writeFile(
+        join(preflightDirectory, 'preflight.json'),
+        JSON.stringify({
+          ...evidence,
+          ...(invalid === 'error' ? { error: '合成の未完了' } : {}),
+        }),
+      );
+      const result = await runRawEvaluation(repo, input);
+      if (invalid === null) {
+        expect(result.error).toBeNull();
+        expect(result.records).toHaveLength(2);
+        expect(await actorStarts(root)).toHaveLength(2);
+      } else {
+        expect(result.error).not.toBeNull();
+        // API keyが設定された通常の入口でも、モデル用actorを起動しない。
+        if (existsSync(join(root, 'calls.jsonl'))) {
+          expect(await actorStarts(root)).toHaveLength(0);
+        }
+        expect(existsSync(join(root, 'actor-input.jsonl'))).toBe(false);
+      }
+    });
+  });
 }
 
 async function savedExecutions(directory: string) {
@@ -1065,6 +1238,16 @@ test.serial(
       const { plan, selected, trialOrder } = await initialActorFixture(context);
       const configPath = join(context.root, 'initial-eval-config.json');
       await writeFile(configPath, JSON.stringify(plan));
+      const planning = await command(
+        [process.execPath, 'eval/eval.ts', 'plan', configPath],
+        context.repo,
+        '',
+        10000,
+      );
+      expect(planning.code, planning.stdout + planning.stderr).toBe(0);
+      const preflightDirectory = join(context.root, 'synthetic-preflight');
+      await writePreflightEvidence(preflightDirectory, JSON.parse(planning.stdout));
+      await writeFile(configPath, JSON.stringify({ ...plan, preflightDirectory }));
       const execution = await command(
         [process.execPath, 'eval/eval.ts', 'run', configPath],
         context.repo,
@@ -1524,7 +1707,9 @@ test('provider stream failure or missing completion seals the gateway while a co
                   controller.error(new Error('transport failed'));
                 },
               })
-            : `data: {"type":"${mode === 'complete' ? 'response.completed' : 'response.output_text.delta'}"}\n\n`;
+            : mode === 'complete'
+              ? 'data: {"type":"response.completed","response":{"status":"completed"}}\n\n'
+              : 'data: {"type":"response.output_text.delta"}\n\n';
         return new Response(stream, { headers: { 'Content-Type': 'text/event-stream' } });
       },
     );

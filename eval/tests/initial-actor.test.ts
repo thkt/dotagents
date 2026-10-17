@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from 'bun:test';
-import { isRecord } from '../../scripts/shared/values.ts';
 
 // 通常actorのrepair応答契約。モデルの返答やevalの実出力から期待値を作らない。
 const responseSchema = {
@@ -31,6 +30,8 @@ async function launch(initial: boolean) {
       `#!${process.execPath}
 import {readFileSync,writeFileSync} from 'node:fs';
 const args=process.argv.slice(2);
+writeFileSync(${JSON.stringify(capture)},JSON.stringify({args}));
+if(args.includes('--version')) {console.log('codex-cli synthetic');process.exit(0);}
 const index=args.indexOf('--output-schema');
 const schema=index<0?null:JSON.parse(readFileSync(args[index+1],'utf8'));
 writeFileSync(${JSON.stringify(capture)},JSON.stringify({args,schema,input:readFileSync(0,'utf8')}));
@@ -52,6 +53,9 @@ console.log(JSON.stringify({type:'turn.completed'}));
     await writeFile(
       join(root, 'runtime/settings.json'),
       JSON.stringify({
+        cliVersion: 'codex-cli synthetic',
+        bunVersion: process.versions.bun,
+        gitVersion: 'git version synthetic',
         model: 'simulated-model',
         reasoning: 'medium',
         maxRequests: 20,
@@ -67,29 +71,17 @@ console.log(JSON.stringify({type:'turn.completed'}));
       env: { PATH: process.env.PATH },
     });
     assert(!result.error && result.signal === null, '模擬actorの実行が完了していない');
-    expect(result.status, result.stdout + result.stderr).toBe(0);
-    const saved: unknown = JSON.parse(await readFile(capture, 'utf8'));
-    assert(isRecord(saved) && Array.isArray(saved.args));
-    expect(saved.input).toBe(prompt);
-    expect(saved.args).toContain('--ignore-user-config');
-    expect(saved.args).toContain('workspace-write');
-    expect(saved.args).toContain('model_reasoning_effort="medium"');
-    expect(saved.args).toContain('model_providers.eval.request_max_retries=0');
-    expect(saved.args).toContain('model_providers.eval.stream_max_retries=0');
-    return saved;
+    // #401: 環境変数・合成版応答・パスの付替えでは外側の境界を証明できない。
+    // ホスト上では版取得を含むCLIを起動せず、非0で停止することが期待結果。
+    expect(result.status, result.stdout + result.stderr).not.toBe(0);
+    await assert.rejects(access(capture), { code: 'ENOENT' });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 }
 
-test('既存のスキル選択actorは初回担当の応答契約を強制しない', async () => {
-  const saved = await launch(false);
-  expect(saved.args).not.toContain('--output-schema');
-  expect(saved.schema).toBeNull();
-});
-
-test('初回担当はresponseSchemaを実CLIのoutput-schemaへ接続する', async () => {
-  const saved = await launch(true);
-  expect(saved.args).toContain('--output-schema');
-  expect(saved.schema).toEqual(responseSchema);
-});
+for (const initial of [false, true]) {
+  test(`ホスト直接実行は${initial ? '初回担当schemaあり' : 'スキル選択'}でもCLIを起動しない`, async () => {
+    await launch(initial);
+  });
+}
