@@ -44,6 +44,7 @@ testDevelopment('初回実装の実際の担当入力から前提検証の参照
   await expectSharedPremiseReferences([prompt, reviewInstructions], '設計理由');
   await expectSharedPremiseReferences([prompt, reviewInstructions], '利用例');
   await expectSharedPremiseReferences([prompt, testPrompt, reviewInstructions], '機械化');
+  await expectSharedPremiseReferences([prompt, testPrompt, reviewInstructions], '性能');
 });
 
 test('check後の追加修正と独立評価の実際の入力が共通の前提検証へ到達する', async () => {
@@ -58,4 +59,5 @@ test('check後の追加修正と独立評価の実際の入力が共通の前提
   await expectSharedPremiseReferences([repair, review], '設計理由');
   await expectSharedPremiseReferences([repair, review], '利用例');
   await expectSharedPremiseReferences([repair, review], '機械化');
+  await expectSharedPremiseReferences([repair, review], '性能');
 });

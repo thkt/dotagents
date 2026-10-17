@@ -2167,6 +2167,10 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
         [...premisePrompts, ...f.independentTests.map((entry) => entry.prompt)],
         '機械化',
       );
+      await expectSharedPremiseReferences(
+        [...premisePrompts, ...f.independentTests.map((entry) => entry.prompt)],
+        '性能',
+      );
       expect(
         await Promise.all(priorFiles.map((path) => readFile(join(f.prior, path), 'utf8'))),
       ).toEqual(priorEvidence);

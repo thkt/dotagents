@@ -314,6 +314,10 @@ console.log(JSON.stringify({targetId:input.targetId,status:prior?'unnecessary':'
         [observation.prompt, repairInstructions(null), reviewInstructions],
         '機械化',
       );
+      await expectSharedPremiseReferences(
+        [observation.prompt, repairInstructions(null), reviewInstructions],
+        '性能',
+      );
     }
     if (changeExpectation) {
       expect(result.status).toBe(1);
