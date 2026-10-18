@@ -273,9 +273,81 @@ probeはactorと同じ固定環境で子CLI・Bun・Gitの版を観測し、入�
 
 子CLIが中継を使っても、ケース内で共有する `maxModelRequestsPerCase` を超える要求は拒否します。並列要求も同じ上限です。CLIのHTTP・stream再試行を0にし、中継も同一要求の再送とprovider失敗後の続行を拒否します。[Codexの接続設定](https://developers.openai.com/codex/config-reference)を使いますが、固定版CLIと選んだモデルがこの設定で動くかは実試行で確認します。モデル・ツールの終了0は要求充足の判定ではありません。
 
-`totalTimeMs` は計画の読取り・保存後から全ケースに共有する予算、`caseTimeMs` はケースの隔離準備とモデル実行の上限です。終了確認のため、モデル時間の外に各試行最大65秒（使用量取得5秒、コンテナー削除30秒、network削除30秒）の有限猶予があります。新規モデル起動は期限後に行いません。コンテナー内部にも同じ絶対期限を渡し、ホストが停止しても期限でPID 1を終了させます。モデル出力は16MiBを超えると停止します。成果物は1ファイル1MiB・合計8MiB・2000ファイルまで取得し、symlinkは取得不能として示します。`.git`・`node_modules`は含めません。取得失敗・時間切れの成果物不足を成功としません。
+`totalTimeMs` は計画の読取り・保存後から全ケースに共有する予算、`caseTimeMs` はケースの隔離準備とモデル実行の上限です。終了確認のため、モデル時間の外に各試行最大65秒（使用量取得5秒、コンテナー削除30秒、network削除30秒）の有限猶予があります。新規モデル起動は期限後に行いません。actorには同じ絶対期限を渡します。金額制御のgatewayは新規要求を同じ期限で拒否し、終了観測の5秒以内にPID 1と観測補助処理を止めます。ホストが停止しても内部の期限で終了します。モデル出力は16MiBを超えると停止します。成果物は1ファイル1MiB・合計8MiB・2000ファイルまで取得し、symlinkは取得不能として示します。`.git`・`node_modules`は含めません。取得失敗・時間切れの成果物不足を成功としません。
 
 SIGINT/SIGTERM・失敗・期限で所有するコンテナーとnetworkを削除し、結果を保存します。終了確認に失敗したら後続試行は未評価で止めます。SIGKILL・Docker daemon停止等でホストの最終記録が欠けた場合は、`containers.json` の自分の資源だけをホストで照合し、停止・証拠を確認してください。停止runを再開・上書きせず、成功まで自動再試行しません。新しい保存先でも旧runの停止理由や合意上限を迂回しません。
+
+### #393の金額制御
+
+[#403](https://github.com/thkt/dotagents/issues/403)により、8課題の実runには次の`budget`を設定します。旧5課題へ金額条件を必須化しません。8課題のA/B・corpus・workspace・順序・時間・要求数・出力上限は維持し、runnerは新しい実装と検証を共有したcommitへ両条件共通で固定します。
+
+```json
+{
+  "budget": {
+    "currency": "USD",
+    "unit": "usd-1e-7",
+    "budget": 6000000000,
+    "stop": 5000000000,
+    "notify": 4000000000,
+    "profile": "gpt-6.1-sol-standard-2026-10-18",
+    "profileHash": "e8bf221b79b734deb14067747932e3256cc3ce92b8ac4a6490cce9afdf855193"
+  }
+}
+```
+
+このrunは予算$600・停止$500・通知$400を使います。外部送信前に最大費用を予約し、検査できたusageだけを精算します。不明な費用はゼロへ戻さず全体を止めます。通知は予約込みの見込額で、APIの請求確定額ではありません。停止後に残額を使って再開せず、未実行の試行も記録に残します。料金・model・tierの前提が変われば、このprofileの保証を引き継ぎません。$600までの自動追加使用は許可しません。
+
+固定profileの正本は[budget.ts](budget.ts)です。2026年10月18日採用の`gpt-6.1-sol`／`medium`、Standard（要求・返却とも`service_tier: "default"`）、非regionalの通常従量課金を使います。[公式モデル仕様](https://developers.openai.com/api/docs/models/gpt-6.1-sol)、[料金](https://developers.openai.com/api/docs/pricing)、[prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)、[Responses仕様](https://developers.openai.com/api/reference/python/resources/responses/methods/create)とIssueの固定条件に基づきます。実行中の価格取得、token count／Usage／Billing API、別providerや高額tierへの切替えはありません。
+
+100万tokensあたり通常入力／cache読取り／cache書込み／出力は、入力272,000以下で$2／$0.10／$2.50／$10、それを超えると要求全体へ$4／$0.20／$5／$15です。書込みは通常入力単価への加算ではなく置換です。通常入力は入力から読取り・書込みを引き、推論は出力の内数として再加算しません。最大入力922,000、最大出力8,000をすべて長文書込み・出力として予約すると、`922000 × 5 / 1000000 + 8000 × 15 / 1000000 = $4.73`です。計算・比較・保存にはUSDの10^-7単位の整数を使います。
+
+ホストがrun全体の台帳を所有し、残額を同時に1つのgatewayへ委譲します。gateway内の要求検査・予約は直列化し、精算済み額＋返却不能額＋実行中要求の予約額に、新予約を加えて$500以下の場合だけ送信します。$500一致または不足による拒否で停止を固定し、精算後も再開しません。要求前の保存と$400以上で初回の通知は、ホスト専用`docker exec -i`の確認応答を待ちます。ホストCLI出力とローカル記録への通知完了前に後続送信を許可しません。外部配送・人の既読は保証しません。
+
+委譲入力はgateway専用のread-only runtimeに置きます。actor／probeのsettings・入力・公開statsへ全体残額や他試行の履歴を含めません。新しいホスト書込みmount・Docker socket・資格情報・接続先は追加しません。runtimeの補助コードは固定lockfileの依存をBunでbundleし、image内で依存を取得しません。plan・互換性証拠にはprofileの内容とhash・金額条件・追加ソースhashを結び付けます。
+
+送信後のHTTP失敗・429、費用未確定の切断・取消・期限・割込み、usage欠落や不正、model／tier不一致、重複・競合するSSE終端では、予約を返却不能額へ移して全体停止します。正常なstreamのEOFと一意な終端応答を確認するまで精算しません。確認後の下流切断でも精算の保存を待ち、その失敗は停止へつなぎます。保存・通知・委譲回収の失敗でも続行しません。未回収委譲枠は保留し、要求予約や通知見込額へ二重加算しません。取消がAPI側の処理・課金を即時停止するとは説明しません。
+
+runの`budget.json`はホストが回収した台帳と未回収枠を区別します。各試行の`budget-N.json`、`budget-notice.json`、`budget-closed.json`に要求ID・応答識別hash・金額・停止理由と受渡し順序を保存します。受渡し原記録の欠落や強制終了を精算成功にせず、後続試行を未実行にします。費用記録と`safety.json`の資源削除確認は別です。観測補助処理も終了観測5秒の内側で止め、コンテナー削除30秒・network削除30秒を維持します。gatewayの終了観測中も新規要求の期限は延ばしません。
+
+料金前提や上限に違反する応答は、課金項目と算定できた額を要求の`observation`へ残します。`confirmedCost`は既知の単価と使用量から算定できた値で、通常精算や請求確定へ読み替えません。不正な受渡しメッセージはホスト専用の`budget-rejected-message.json`へ保全します。いずれも前提違反による停止の証拠であり、上限超過を予約内の正常終了へ切り詰めません。
+
+保証は採用profileの前提に基づく税抜API token利用料の保守的計上です。税・為替・他runや同projectの別利用・契約固有の割増・仕様変更を含む請求総額や、全16試行の完走を保証しません。Platformの補助上限・alertは人が別途判断し、今回のコードから操作しません。
+
+2026年10月18日の実Docker・採用CLIによるモデルなし確認では、当時の金額経路の7シナリオがすべて通りました。12応答の合成usageを同じ台帳へ精算し、未回収枠・予約残り・返却不能額は0、各コンテナーとnetworkの削除も確認しました。金額閾値付近の動作は関数・模擬結合で検証し、この7シナリオの少量usageだけで$400通知・$500停止の到達を実証したとは扱いません。
+
+初回のモデルなし確認では、正常に精算した応答の下流切断を費用不明として停止し、残る6シナリオを未実行にしました。正常なEOFと一意な終端を確認後も精算の保存を待ち、未確定の取消・切断と区別する処理へ修正した後の7シナリオが上記結果です。旧失敗記録と過去の#401の成功は別に保全しています。ソース・config・profile・fixtureを変えた場合は証拠を更新します。
+
+未使用の予算bundle、同一境界の料金・計画検査、送信失敗・取消・不正usageでの同じ失敗の再保存を整理しました。保存と通知が確認できた失敗だけ再保存を省き、保存失敗時の停止・不明額保持は維持します。ホスト通知の模擬結合では、実stdoutへの正常出力と保存不能に加え、stdoutの非同期完了前・書込みerror時のack抑止を確認しています。終了snapshotの未完了予約・過去履歴欠落は、他の金額条件を整合させて検査します。
+
+この再受入の途中でも、境界シナリオのactorでBun 1.4.3の`abort()`が再発し、残る4シナリオを未実行で停止しました。クラッシュの公式stackはGC helperのthread作成を指しています。PID上限到達の直接観測はないため原因は未確定です。[採用版のJSC設定](https://github.com/oven-sh/WebKit/blob/0c06faadf65bf8e8c8ad3a5a8aca83e1e9ed653f/Source/JavaScriptCore/runtime/OptionsList.h)へ照合し、actorと子プロセスに`BUN_JSC_numberOfGCMarkers=1`を固定しました。同じimage・CLI・BunとPID 64・CPU 2・メモリ2gを維持した変更後の7シナリオが上記結果です。設定の認識と操作用の子Bunへの受渡しも観測しましたが、再発防止の確定や最大PID数の証明とは扱いません。失敗記録を保持し、再発時は後続を止めます。
+
+固定SSEのusage・tierは公開仕様の合成fixtureで、実API採取原本ではありません。通常checkは模擬検証です。実APIのmodel／tier／usage互換性、hit率、請求額、品質は未確認です。実モデル・実キーの利用、API project・料金条件・送信範囲・summary公開先・具体的な実行指示は実装後に別途確定し、実装完了やマージを実行許可にしません。
+
+#### 金額受渡しの模擬接続契約
+
+独立テストで接続を模擬するときは、次の形式を使います。期待結果はIssue #403から定め、ここに示す形式自体を要求充足の証拠にはしません。設定の`budget`は前節の例と同じ7項目です。
+
+| 接続 | 形式 |
+| --- | --- |
+| `budget-host.ts`の`createBudgetRun(directory, conditions)` | `conditions`は`currency`・`unit`・`budget`・`stop`・`notify`。返値は`state`、`delegate(runtime, expiresAt)`、`recover(runtime)`を持つ |
+| `state` | `snapshot`、`delegation: string \| null`、`held: number`、`error: string \| null`。`directory/budget.json`には`conditions`とこれらを保存する |
+| `runtime/delegation.json` | `id`はUUID、`conditions`は5項目、`initial`はsnapshot、`expiresAt`は有限のUNIX時刻ミリ秒 |
+| gateway専用runtime | 元のruntimeを同じ試行ディレクトリの`gateway-runtime`へコピーし、元の`delegation.json`を取り除く。actor／probeへ元のruntimeを、gatewayへ専用runtimeをreadonlyでmountする |
+| ホストの観測コマンド | `docker exec -i GATEWAY /usr/local/bin/bun /runtime/budget-runtime.ts`。標準出力は1行1件のJSON、標準入力は確認したsequenceの数値と改行、終了要求は`close`と改行 |
+| `budget-host.ts`の`observeBudget(gateway, runtime, directory, expiresAt)` | gateway専用runtimeを読み、上記コマンドを起動する。返値は`close(deadline)`・`stop(deadline)`。`expiresAt`はUNIX時刻ミリ秒、`deadline`は`performance.now()`と同じ単位の終了観測期限 |
+| 観測メッセージ | `delegation`は委譲ID、`sequence`は1から始まる整数、`kind`は`save`・`notify`・`closed`、`snapshot`は下記形式 |
+| CLI通知の形式 | 1行のJSON。`type: "eval.budget-notice"`に、`kind: "notify"`の観測メッセージ全項目を加える。`budget-notice.json`は観測メッセージそのものを保存する |
+| 保存結果 | 試行ディレクトリの`budget-SEQUENCE.json`、`budget-notice.json`、`budget-closed.json`。`recover(runtime)`は`runtime`の親にある`budget-closed.json`を読む |
+
+通知ファイルの保存と標準出力への書込みは、それぞれの完了を確認してから、そのnotifyのsequenceへackを返す契約です。保存・標準出力のどちらかが失敗した場合はackを返さず、後続要求へ進みません。CLI出力先は呼出しプロセスの`process.stdout`で、`write(chunk, callback)`のcallback完了を非同期書込みの完了として扱います。callbackのerrorは出力失敗です。製品専用の出力注入引数はありません。
+
+`close`は委譲の終了確認、`stop`は観測用の子プロセス・timer・pipeの停止です。呼出し側は`close`の成功・失敗を問わず、同じ終了観測期限を渡して`stop`を実行します。
+
+snapshotは`runId: string`、固定した`profileHash: string`、整数の`settled`・`unrecoverable`・`reserved`・`accounted`、真偽値の`stopped`・`notified`、`reason: string | null`、`requests`配列を持ちます。要求は`id: string`、`state: reserved | sent | settled | released | unrecoverable`、`cost: number`、`response: string | null`、`billing: object | null`を持ちます。これらの内部接続は通常ハーネスの共有APIではなく、旧runを再開する入口にも使いません。
+
+`requests`の課金項目は`billing: null | { id, status, model, service_tier, usage }`です。`status`は`completed`、model・tierは固定profileと一致し、usageは`input_tokens`、`input_tokens_details: { cached_tokens, cache_write_tokens }`、`output_tokens`、`output_tokens_details: { reasoning_tokens }`、`total_tokens`を持ちます。各token数と金額は非負の安全な整数です。予約中・送信済み・返却不能の要求額は最大予約額、解放済みは0で、精算済みには検査できたbillingを保存します。snapshotの各合計は対応する要求一覧と整合し、終了回収では実行中の予約がなく、過去の閉じた要求も維持されている必要があります。
+
+要求の任意項目`observation`は、検査できなかった課金項目の`billing`と、整数または`null`の`confirmedCost`を持ちます。受渡し形式が不正な場合の保存先は`budget-rejected-message.json`です。これらを通常の精算済み額へ自動加算したり、請求総額の上限保証として使ったりしません。
 
 ### 判定と関係者への報告
 

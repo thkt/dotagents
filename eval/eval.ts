@@ -11,6 +11,8 @@ import { preflight, requireCompatibilityProof } from './preflight.ts';
 import { sandboxTrial } from './sandbox.ts';
 import { isRecord } from '../scripts/shared/values.ts';
 import { writeComparison } from './report.ts';
+import { createBudgetRun, stageBudgetSources } from './budget-host.ts';
+import { priceProfile, profileHash } from './budget.ts';
 
 async function git(repo: string, args: string[]) {
   const result = await command(['git', ...args], repo, '', 30000, undefined, {
@@ -87,6 +89,15 @@ function compareActorInputs(
   }
 }
 
+function moneyPlan(config: EvalConfig) {
+  return config.budget ? { profile: priceProfile, profileHash, conditions: config.budget } : null;
+}
+function moneyStop(budget?: Awaited<ReturnType<typeof createBudgetRun>>) {
+  return (
+    budget?.state.error ?? (budget?.state.snapshot.stopped ? budget.state.snapshot.reason : null)
+  );
+}
+
 export async function preparePlan(repo: string, config: EvalConfig) {
   const remote = (await git(repo, ['remote', 'get-url', 'origin'])).trim();
   assert(
@@ -115,6 +126,9 @@ export async function preparePlan(repo: string, config: EvalConfig) {
     'preflight.ts',
     'preflight-container.ts',
     'preflight-worker.ts',
+    'budget.ts',
+    'budget-runtime.ts',
+    'budget-host.ts',
     '../scripts/shared/process.ts',
     '../scripts/shared/values.ts',
     '../scripts/shared/token-usage.ts',
@@ -230,6 +244,7 @@ export async function preparePlan(repo: string, config: EvalConfig) {
   assert(changedInstructions.length > 0, 'No relevant instruction changes; evaluation not started');
   return {
     config,
+    money: moneyPlan(config),
     effectiveLaunch: {
       isolation: 'verified-eval-docker',
       sandbox: 'danger-full-access',
@@ -289,6 +304,7 @@ async function executeCase(
   contextBody: string | null,
   runtimeSource: string,
   responseSchema?: Record<string, unknown>,
+  budget?: Awaited<ReturnType<typeof createBudgetRun>>,
 ) {
   assertRunning();
   const started = performance.now();
@@ -308,6 +324,7 @@ async function executeCase(
       model: config.model,
       reasoning: config.reasoning,
       maxRequests: config.maxModelRequestsPerCase,
+      budgetRequired: Boolean(config.budget),
       maxOutputTokens: config.maxOutputTokens,
       expiresAt,
       prompt,
@@ -317,7 +334,10 @@ async function executeCase(
       gitVersion: config.gitVersion,
     }),
   );
+  await stageBudgetSources(runtime);
+  await budget?.delegate(runtime, expiresAt);
   const result = await sandboxTrial(config, runtime, input, expiresAt);
+  await budget?.recover(runtime);
   return { ...result, elapsedMs: performance.now() - started };
 }
 
@@ -328,6 +348,7 @@ async function executePlannedCase(
   item: Awaited<ReturnType<typeof preparePlan>>['selected'][number],
   remaining: number,
   runtimeSource: string,
+  budget?: Awaited<ReturnType<typeof createBudgetRun>>,
 ) {
   const actor = variant.actorInputs.find((input) => input.case === item.id);
   return executeCase(
@@ -339,6 +360,7 @@ async function executePlannedCase(
     actor ? null : item.contextBody,
     runtimeSource,
     actor?.schema,
+    budget,
   );
 }
 
@@ -394,6 +416,7 @@ export async function runEvaluation(repo: string, config: EvalConfig) {
         disclosure: config.disclosure,
       }),
     );
+    const budget = config.budget ? await createBudgetRun(directory, config.budget) : undefined;
     const tasks = orderedTasks(plan);
     for (const { variant, item } of tasks) {
       const trial = `${variant.side}-${item.id}`;
@@ -431,9 +454,10 @@ export async function runEvaluation(repo: string, config: EvalConfig) {
           item,
           remaining,
           plan.runtimeSource,
+          budget,
         );
         Object.assign(pending, result);
-        error = cleanupError(result.safety);
+        error = cleanupError(result.safety) ?? moneyStop(budget);
       } catch (cause) {
         error = cause instanceof Error ? cause.message : 'Interrupted or failed';
         Object.assign(pending, { reason: error });

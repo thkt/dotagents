@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { gatewayBindAddress, providerGateway } from './container.ts';
+import { runtimeBudget } from './budget-runtime.ts';
 
 export const preflightGatewayEntrypoint = import.meta.path;
 
@@ -43,7 +44,12 @@ async function preflightSettings() {
     reasoning: settings.reasoning,
     maxRequests: settings.maxRequests,
     maxOutputTokens: settings.maxOutputTokens,
+    budgetRequired: settings.budgetRequired,
     expiresAt: settings.expiresAt,
+    requestExpiresAt:
+      typeof settings.requestExpiresAt === 'number'
+        ? settings.requestExpiresAt
+        : settings.expiresAt,
     networkCanary: settings.networkCanary,
   };
 }
@@ -53,26 +59,32 @@ async function servePreflight(settings: Awaited<ReturnType<typeof preflightSetti
   assert(record(scenario) && Array.isArray(scenario.steps), 'Missing fixed responses');
   const steps: unknown[] = scenario.steps;
   let step = 0;
-  const gateway = providerGateway(settings, '', async (_url, init) => {
-    const response = steps[step++];
-    assert(
-      record(response) &&
-        typeof response.sse === 'string' &&
-        Array.isArray(response.requestIncludes) &&
-        typeof init.body === 'string',
-      'Unexpected request',
-    );
-    console.log(
-      JSON.stringify({ type: 'preflight.request', step, body: JSON.parse(init.body) as unknown }),
-    );
-    for (const required of response.requestIncludes) {
+  const budget = await runtimeBudget();
+  assert(!settings.budgetRequired || budget, 'Preflight money delegation missing');
+  const gateway = providerGateway(
+    { ...settings, expiresAt: settings.requestExpiresAt, budget },
+    '',
+    async (_url, init) => {
+      const response = steps[step++];
       assert(
-        typeof required === 'string' && init.body.includes(required),
-        'Required tool result missing',
+        record(response) &&
+          typeof response.sse === 'string' &&
+          Array.isArray(response.requestIncludes) &&
+          typeof init.body === 'string',
+        'Unexpected request',
       );
-    }
-    return new Response(response.sse, { headers: { 'Content-Type': 'text/event-stream' } });
-  });
+      console.log(
+        JSON.stringify({ type: 'preflight.request', step, body: JSON.parse(init.body) as unknown }),
+      );
+      for (const required of response.requestIncludes) {
+        assert(
+          typeof required === 'string' && init.body.includes(required),
+          'Required tool result missing',
+        );
+      }
+      return new Response(response.sse, { headers: { 'Content-Type': 'text/event-stream' } });
+    },
+  );
   Bun.serve({
     port: 8080,
     hostname: await gatewayBindAddress(),
