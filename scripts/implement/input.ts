@@ -24,6 +24,7 @@ const revisionTextFields = [
 export type Revision = Record<(typeof revisionTextFields)[number], string> & {
   repositoryId: number;
   localOnly: boolean;
+  reviewReturn?: ReviewReturn;
 };
 
 function assertRevision(value: unknown): asserts value is Revision | undefined {
@@ -38,6 +39,10 @@ function assertRevision(value: unknown): asserts value is Revision | undefined {
     typeof value.repositoryId === 'number' && typeof value.localOnly === 'boolean',
     'Invalid revision target',
   );
+  if (value.reviewReturn !== undefined) {
+    const returned = reviewReturnShape.parse(value.reviewReturn);
+    assert(returned.interruption, '修正へ引き継ぐ対象は照合済み中断だけです');
+  }
 }
 
 export type ActorRole = 'repair' | 'review';
@@ -117,6 +122,8 @@ export interface Config extends ReviewConfig {
 }
 export interface ProbeConfig extends ReviewConfig {
   reviewTimeMs: number;
+  // 読取り専用の一回評価へ既存の独立記録を付ける。通常開発のテスト工程は代替しない。
+  preparedTests?: z.infer<typeof hostPreparationShape>[];
 }
 const nonnegative = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0;
@@ -142,8 +149,11 @@ export function assertConfig(value: unknown): asserts value is Config {
 }
 
 export function assertProbeConfig(value: unknown): asserts value is ProbeConfig {
-  assertReviewConfig(value, ['reviewTimeMs']);
+  assertReviewConfig(value, ['reviewTimeMs', 'preparedTests']);
   assert('reviewTimeMs' in value && positive(value.reviewTimeMs), 'Invalid reviewTimeMs');
+  if ('preparedTests' in value && value.preparedTests !== undefined) {
+    hostPreparationShape.array().min(1).parse(value.preparedTests);
+  }
 }
 
 // 旧設定は過去の公開記録の照合にだけ使う。元のオブジェクトとhashを変えない。

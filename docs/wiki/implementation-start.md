@@ -24,6 +24,8 @@ scenes: ["plan", "implement"]
 
 [初回不正評価後の新しい検証](../../scripts/README.md#初回不正評価後の新しい検証)は、未公開・有効な評価履歴なし・追加修正なしの初回`invalid_review`専用です。応答生成側を修正した信頼するハーネスから`--review-run`を使い、旧runと同じ親の新しい保存先で、同じcheckout・Issue・設定原文・実効主体・repository・HEAD・branch・元の差分基準・停止成果物・独立テストの内容とモードを照合します。初回実装を繰り返さず、新しいcheckと独立評価へ進みます。旧応答は診断資料として参照し、編集・補正して再投入しません。旧証拠記録の変更、active予約・lock・稼働プロセス、必要記録の欠落、不一致や照合不能では停止します。公開権限を判別できない旧記録は`--no-publish`に限定します。通常初回実装・ホスト追加検証後の復帰・公開済みPR修正の開始条件を混同しません。
 
+[中断した初回評価の照合と新しい検証](../../scripts/README.md#中断した初回評価の照合と新しい検証)では、未公開・終端のverification中断で初回review予約が残るrunを明示します。通常初回とホスト復帰後を扱い、旧内容・モード・未完了の予約を保ったまま実プロセス・remote ref・全状態のPRを照合します。同じ要求・主体・checkout・HEAD・branch・差分基準・検証契約・公開権限を保ち、同じ親の新しい保存先で現在成果物をcheck・独立評価へ渡します。初回実装は繰り返さず、過去の成功・受入を移しません。中断分の不明時間・usageはゼロにせず、旧記録と今回分を区別します。復帰自身の再中断や他の未完了runを自動で飛び越えず、観測失敗や記録・対象・証拠の不一致で停止します。
+
 ## 過去の観測と未検証事項
 
 2026-10-12の[Issue #373](https://github.com/thkt/dotagents/issues/373)のローカル試行では、基準commit `04892d99f070953b17525e9b2bdf1746c5aa8fff`から実装した#351の初回`invalid_review`を保全し、変更後のハーネスの通常CLIから新しい兄弟runで検証しました。Bun 1.4.2のcheckは605成功・失敗0、新しい独立評価は`accepted`・指摘0件で、4ステップの10参照が実在する行範囲を指していました。追加修正はありません。旧runは`invalid_review`・評価1回・追加修正0回・有効な評価履歴なしのままで、旧応答を有効な評価へ移していません。
@@ -47,6 +49,8 @@ scenes: ["plan", "implement"]
 
 - [host-handoff.ts](../../scripts/implement/host-handoff.ts)・[host-records.ts](../../scripts/implement/host-records.ts)：停止成果物と追加証拠の参照、復帰時の再照合。
 
+- [interrupted-records.ts](../../scripts/implement/interrupted-records.ts)：中断runのモード・外部観測・追加証拠と明示した一件の照合。
+
 - [review-recovery.ts](../../scripts/implement/review-recovery.ts)・[review-recovery-records.ts](../../scripts/implement/review-recovery-records.ts)：初回不正評価の復帰条件と旧記録の実行中照合。
 
 ## 由来
@@ -55,6 +59,8 @@ scenes: ["plan", "implement"]
 - [DR-0003](../decisions/0003-retire-shared-knowledge-selection.md)：共有モデル選択を終え、説明をwikiへ集約した経緯。
 
 ## 根拠
+
+- [Issue #406](https://github.com/thkt/dotagents/issues/406)（2026-10-18T12:19:47Z版）：終端中断の原記録保全と明示的な照合。#373の入口・ガードを維持し、別の新runで検証する合意です。実中断の復帰成功はホストの実行証拠で確認し、過去の#351の観測を流用しません。
 
 - [Issue #373](https://github.com/thkt/dotagents/issues/373)（2026-10-11T11:01:13Z版）：評価応答の実在行番号確認と初回不正評価後の新runによる検証。実際の#351の復帰結果と適用限界は「過去の観測と未検証事項」に記し、手順の実装と実行証拠を区別します。
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile, realpath } from 'node:fs/promises';
 import { z } from 'zod';
-import { isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { hash, RecordObservation } from './record-observation.ts';
 import { verifySavedRuntime } from './runtime-records.ts';
 import { outside, isRecord } from '../shared/values.ts';
@@ -14,20 +14,43 @@ const reference = z.strictObject({
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
 export const hostPreparationShape = reference;
-export const hostReturnShape = z.strictObject({
-  previousRun: absolutePath,
-  records: z.array(reference).min(1),
-  evidence: reference,
-});
-export type HostReturn = z.infer<typeof hostReturnShape>;
 export const reviewReturnShape = z.strictObject({
   previousRun: absolutePath,
   records: z.array(reference).min(1),
   source: z.string().regex(/^[a-f0-9]{64}$/),
   head: nonblank,
   branch: nonblank,
+  interruption: z
+    .strictObject({
+      version: z.literal(1),
+      oldSource: nonblank,
+      state: nonblank,
+      modes: z.array(z.strictObject({ path: absolutePath, mode: z.number().int() })),
+      observations: z.array(reference).min(3),
+      evidence: reference.optional(),
+      unknown: z.literal('中断区間の時間・usageは未記録。累計は記録済み量の下限'),
+    })
+    .optional(),
 });
 export type ReviewReturn = z.infer<typeof reviewReturnShape>;
+export const hostReturnShape = z.strictObject({
+  previousRun: absolutePath,
+  records: z.array(reference).min(1),
+  evidence: reference,
+  reviewReturn: reviewReturnShape.refine((value) => Boolean(value.interruption)).optional(),
+});
+export type HostReturn = z.infer<typeof hostReturnShape>;
+
+export function interruptionReturn(config: {
+  reviewReturn?: ReviewReturn;
+  hostReturn?: HostReturn;
+  revision?: { reviewReturn?: ReviewReturn };
+}) {
+  return config.reviewReturn?.interruption
+    ? config.reviewReturn
+    : (config.hostReturn?.reviewReturn ?? config.revision?.reviewReturn);
+}
+
 export const hostEvidenceShape = z.strictObject({
   status: z.enum(['passed', 'failed', 'unavailable']),
   source: z.string().regex(/^[a-f0-9]{64}$/),
@@ -64,26 +87,62 @@ function precedingReturns(content: string | undefined) {
   if (config.reviewReturn !== undefined) {
     returns.push(reviewReturnShape.parse(config.reviewReturn));
   }
+  if (isRecord(config.revision) && config.revision.reviewReturn !== undefined) {
+    returns.push(reviewReturnShape.parse(config.revision.reviewReturn));
+  }
   return returns;
 }
-export async function hostLocalRoots(input?: HostReturn) {
-  const roots: string[] = [];
-  const visited = new Set<string>();
-  const pending: (HostReturn | ReviewReturn)[] = input ? [input] : [];
+// 同じ原記録への一致する参照は共有するが、祖先への循環と異なる期待値は拒否する。
+async function* returnHistory(
+  input?: HostReturn | ReviewReturn,
+  observation = new RecordObservation(),
+  visited = new Set<string>(),
+) {
+  const seen = new Map<string, string>();
+  const pending = input ? [{ current: input, ancestors: visited }] : [];
   while (pending.length > 0) {
-    const current = pending.shift();
-    assert(current);
-    assert(!visited.has(current.previousRun), 'Cyclic host handoff history');
-    visited.add(current.previousRun);
+    const next = pending.shift();
+    assert(next);
+    const { current, ancestors } = next;
+    assert(!ancestors.has(current.previousRun), 'Cyclic host handoff history');
+    const identity = JSON.stringify(current);
+    const previous = seen.get(current.previousRun);
+    if (previous) {
+      assert(previous === identity, '同じ復帰履歴に異なる期待値があります');
+      continue;
+    }
+    seen.set(current.previousRun, identity);
+    const configPath = join(current.previousRun, 'verification-config.json');
+    const configRef = current.records.find((ref) => ref.path === configPath);
+    assert(configRef, 'Missing host handoff configuration reference');
+    observation.retain([configPath]);
+    const config = await readReference(configRef, observation);
+    yield current;
+    const lineage = new Set([...ancestors, current.previousRun]);
+    pending.push(
+      ...precedingReturns(config).map((entry) => ({ current: entry, ancestors: lineage })),
+    );
+  }
+}
+
+export async function hostLocalRoots(input?: HostReturn | ReviewReturn) {
+  const roots: string[] = [];
+  for await (const current of returnHistory(input)) {
     roots.push(current.previousRun);
     if ('evidence' in current) {
       const evidence = hostEvidenceShape.parse(JSON.parse(await readReference(current.evidence)));
       roots.push(current.evidence.path, ...evidence.logs.map((ref) => ref.path));
     }
-    const configPath = join(current.previousRun, 'verification-config.json');
-    const configRef = current.records.find((ref) => ref.path === configPath);
-    assert(configRef, 'Missing host handoff configuration reference');
-    pending.push(...precedingReturns(await readReference(configRef)));
+    if ('interruption' in current && current.interruption) {
+      const interrupted = current.interruption;
+      roots.push(...interrupted.observations.map((ref) => dirname(ref.path)));
+      if (interrupted.evidence) {
+        const evidence = hostEvidenceShape.parse(
+          JSON.parse(await readReference(interrupted.evidence)),
+        );
+        roots.push(interrupted.evidence.path, ...evidence.logs.map((ref) => ref.path));
+      }
+    }
   }
   return roots;
 }
@@ -93,39 +152,44 @@ export async function verifyHostReturn(
   observation = new RecordObservation(),
   visited = new Set<string>(),
 ) {
-  const pending: (HostReturn | ReviewReturn)[] = [input];
   let latest;
+  let implemented = false;
   const history = [];
-  while (pending.length > 0) {
-    const current = pending.shift();
-    assert(current);
-    assert(!visited.has(current.previousRun), 'Cyclic host handoff history');
-    visited.add(current.previousRun);
+  const references = new Set<string>();
+  for await (const current of returnHistory(input, observation, visited)) {
     const records = new Map<string, string>();
     for (const ref of current.records) {
       records.set(ref.path, await readReference(ref, observation));
+      references.add(ref.path);
     }
+    implemented ||= records.has(join(current.previousRun, 'implementation.prompt'));
     assert(
       'evidence' in current || records.has(join(current.previousRun, 'verification/state.json')),
       '旧不正評価のstate記録がありません',
     );
-    await verifySavedRuntime(current.previousRun, records, observation);
-    const configContent = records.get(join(current.previousRun, 'verification-config.json'));
-    pending.push(...precedingReturns(configContent));
+    for (const path of await verifySavedRuntime(current.previousRun, records, observation)) {
+      references.add(path);
+    }
     if ('evidence' in current) {
       const verified = await verifyHostEvidence(current, cwd, observation);
+      references.add(current.evidence.path);
+      for (const ref of verified.evidence.logs) {
+        references.add(ref.path);
+      }
       history.push({ previousRun: current.previousRun, records, evidence: verified.evidence });
       latest ??= { ...verified.evidence, testRecordContents: verified.testRecordContents };
     }
   }
   assert(latest);
-  return { ...latest, history };
+  return { ...latest, history, implemented, references: [...references] };
 }
 
 async function verifyHostEvidence(input: HostReturn, cwd: string, observation: RecordObservation) {
+  observation.retain([input.evidence.path]);
   const evidence = hostEvidenceShape.parse(
     JSON.parse(await readReference(input.evidence, observation)),
   );
+  observation.retain((evidence.testRecords ?? []).map((ref) => ref.path));
   for (const ref of evidence.testRecords ?? []) {
     assert(
       evidence.logs.some((log) => log.path === ref.path && log.sha256 === ref.sha256),

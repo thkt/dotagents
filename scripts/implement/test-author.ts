@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { cp, mkdir, readFile, writeFile, lstat, realpath, rm, readlink } from 'node:fs/promises';
 import { dirname, resolve, isAbsolute } from 'node:path';
 import { z } from 'zod';
+import type { RecordObservation } from './record-observation.ts';
 import { command } from '../shared/process.ts';
 import { outside } from '../shared/values.ts';
 
@@ -26,6 +27,32 @@ export type TestRecord = {
   inputHash?: string;
   promptHash?: string;
 };
+export interface TestIntake {
+  manifest: Record<string, string>;
+  records: RecordObservation;
+}
+
+export function testRecordPaths(records: TestRecord[]) {
+  const paths = [];
+  for (const record of records) {
+    paths.push(`${record.prefix}.stdout`);
+    if (record.inputHash) {
+      paths.push(`${record.prefix}.target.json`);
+    }
+    if (record.promptHash) {
+      paths.push(`${record.prefix}.prompt`);
+    }
+  }
+  return paths;
+}
+
+async function readTestRecord(path: string, observation?: RecordObservation) {
+  if (observation) {
+    return observation.read(path);
+  }
+  const content = await readFile(path);
+  return { content, sha256: hash(content) };
+}
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const isTestArtifact = (path: string) =>
   /(?:^|\/)(?:tests?|__tests__|fixtures?)(?:\/)|\.(?:test|spec)\./.test(path);
@@ -118,6 +145,7 @@ export async function verifyTestArtifacts(
   cwd: string,
   records: TestRecord[],
   observedManifest?: Files,
+  observation?: RecordObservation,
 ) {
   if (records.length === 0) {
     return;
@@ -125,7 +153,8 @@ export async function verifyTestArtifacts(
   const current =
     observedManifest ??
     (records.some((record) => Object.keys(record.files).length > 0) ? await entries(cwd) : {});
-  return verifyTestManifest(current, records);
+  observation?.retain(testRecordPaths(records));
+  return verifyTestManifest(current, records, observation);
 }
 
 // ホストが別の独立テスト工程で準備した資産だけを新しい工程へ渡します。
@@ -133,6 +162,7 @@ export async function readPreparedTestRecord(
   content: string,
   issue: string,
   cwd: string,
+  intake?: TestIntake,
 ): Promise<TestRecord> {
   const record = z
     .strictObject({
@@ -146,15 +176,18 @@ export async function readPreparedTestRecord(
       findings: text,
     })
     .parse(JSON.parse(content));
+  intake?.records.retain([`${record.prefix}.json`, ...testRecordPaths([record])]);
   assert(
     outside(cwd, await realpath(record.prefix + '.json')),
     'テスト記録はcheckoutの外に置きます',
   );
   assert(
-    (await readFile(record.prefix + '.json', 'utf8')) === content,
+    (await readTestRecord(record.prefix + '.json', intake?.records)).content.toString('utf8') ===
+      content,
     '元のテスト記録と参照が一致しません',
   );
-  const [observed] = (await verifyTestArtifacts(cwd, [record])) ?? [];
+  const [observed] =
+    (await verifyTestArtifacts(cwd, [record], intake?.manifest, intake?.records)) ?? [];
   assert(observed?.input, '準備済みテストの検証済み入力がありません');
   const reply = testReplyShape.parse(JSON.parse(observed.stdout.toString('utf8')));
   const target = z
@@ -186,7 +219,11 @@ export async function readPreparedTestRecord(
   };
 }
 
-async function verifyTestManifest(current: Files, records: TestRecord[]) {
+async function verifyTestManifest(
+  current: Files,
+  records: TestRecord[],
+  observation?: RecordObservation,
+) {
   const expected = z
     .record(z.string(), z.string())
     .parse(Object.assign({}, ...records.map((record) => record.files)));
@@ -195,19 +232,21 @@ async function verifyTestManifest(current: Files, records: TestRecord[]) {
   }
   const observations = [];
   for (const record of records) {
-    const stdout = await readFile(`${record.prefix}.stdout`);
-    assert(hash(stdout) === record.stdoutHash, 'テスト応答が変更されました');
-    const input = record.inputHash ? await readFile(`${record.prefix}.target.json`) : undefined;
+    const stdout = await readTestRecord(`${record.prefix}.stdout`, observation);
+    assert(stdout.sha256 === record.stdoutHash, 'テスト応答が変更されました');
+    const input = record.inputHash
+      ? await readTestRecord(`${record.prefix}.target.json`, observation)
+      : undefined;
     if (input) {
-      assert(hash(input) === record.inputHash, '保存テスト入力が変更されました');
+      assert(input.sha256 === record.inputHash, '保存テスト入力が変更されました');
     }
     if (record.promptHash) {
       assert(
-        hash(await readFile(`${record.prefix}.prompt`)) === record.promptHash,
+        (await readTestRecord(`${record.prefix}.prompt`, observation)).sha256 === record.promptHash,
         '保存テスト指示が変更されました',
       );
     }
-    observations.push({ stdout, input });
+    observations.push({ stdout: stdout.content, input: input?.content });
   }
   return observations;
 }

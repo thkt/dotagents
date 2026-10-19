@@ -5,8 +5,15 @@ import { z } from 'zod';
 import { assertConfig, assertState } from './input.ts';
 import type { Config } from './input.ts';
 import { recordArtifacts, snapshot } from './correction.ts';
-import { hash, hostReturnShape, hostEvidenceShape, readReference } from './host-records.ts';
+import {
+  hash,
+  hostReturnShape,
+  hostEvidenceShape,
+  readReference,
+  interruptionReturn,
+} from './host-records.ts';
 import { reconcileExecutions } from './revision.ts';
+import { verifyReviewReturn } from './review-recovery-records.ts';
 import { outside, isRecord } from '../shared/values.ts';
 import type { readTarget } from '../shared/target.ts';
 
@@ -128,10 +135,6 @@ export async function previousHostRun(input: {
   );
   assert(stop.head === input.head, 'Host handoff HEAD changed; preserve original diff base');
   assert(!stop.localOnly || input.localOnly, 'Host return cannot expand publication authority');
-  await reconcileExecutions(
-    { previousRun: dir, runDirectory: resolve(input.runDirectory) },
-    input.cwd,
-  );
   const requiredPaths = new Set(
     ['verification-config.json', 'target.json', 'issue.json', 'verification/state.json']
       .filter((name) => result.phase === 'verification' || name !== 'verification/state.json')
@@ -178,6 +181,13 @@ export async function previousHostRun(input: {
       'Host handoff verification is inconsistent',
     );
   }
+  const inherited = await reconcileHostHistory(
+    config,
+    dir,
+    input.cwd,
+    input.runDirectory,
+    input.head,
+  );
   const evidenceFile = await realpath(input.evidenceFile);
   assert(
     outside(input.cwd, evidenceFile) && outside(dir, evidenceFile),
@@ -204,6 +214,7 @@ export async function previousHostRun(input: {
     baseCommit: stop.baseCommit,
     hostReturn: {
       previousRun: dir,
+      ...inherited,
       records: [
         ...stop.records,
         { path: stopFile, sha256: hash(stopContent) },
@@ -212,4 +223,28 @@ export async function previousHostRun(input: {
       evidence: { path: evidenceFile, sha256: hash(evidenceContent) },
     },
   };
+}
+
+async function reconcileHostHistory(
+  config: Config,
+  dir: string,
+  cwd: string,
+  runDirectory: string,
+  head: string,
+) {
+  const inherited = interruptionReturn(config);
+  if (inherited) {
+    await verifyReviewReturn(
+      inherited,
+      cwd,
+      join(resolve(runDirectory), 'verification'),
+      head,
+      undefined,
+      undefined,
+      Boolean(config.revision),
+    );
+  } else {
+    await reconcileExecutions({ previousRun: dir, runDirectory: resolve(runDirectory) }, cwd);
+  }
+  return inherited && !config.revision ? { reviewReturn: inherited } : {};
 }

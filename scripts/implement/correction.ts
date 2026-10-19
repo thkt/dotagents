@@ -1,10 +1,17 @@
 import { RecordObservation } from './record-observation.ts';
 import { runtimeRecords, verifyReviewedRuntime, runtimeInstructions } from './runtime-records.ts';
-import { authorTests, prepareTestBaseline, verifyTestArtifacts } from './test-author.ts';
+import {
+  authorTests,
+  prepareTestBaseline,
+  verifyTestArtifacts,
+  readPreparedTestRecord,
+} from './test-author.ts';
+import type { TestIntake } from './test-author.ts';
 import { testDiagnostics } from './test-diagnostics.ts';
 import assert from 'node:assert/strict';
 import {
   hostPreparationRecord,
+  hostPreparationShape,
   readReference,
   hostReturnContext,
   verifyHostReturn,
@@ -174,8 +181,8 @@ function captureFiles(
   );
 }
 
-export async function snapshot(cwd: string) {
-  return digest(JSON.stringify(await sourceFiles(cwd)));
+export async function snapshot(cwd: string, testManifest?: Record<string, string>) {
+  return digest(JSON.stringify(await sourceFiles(cwd, undefined, testManifest)));
 }
 
 export async function recordArtifacts(cwd: string, baseCommit: string) {
@@ -938,7 +945,8 @@ async function targetChange(
   if (digest(issue) !== state.issueHash) {
     return 'requirements_changed';
   }
-  if ((await snapshot(config.cwd)) !== state.source) {
+  const manifest: Record<string, string> | undefined = state.testRecords?.length ? {} : undefined;
+  if ((await snapshot(config.cwd, manifest)) !== state.source) {
     return 'source_changed';
   }
   const observation = new RecordObservation();
@@ -948,7 +956,7 @@ async function targetChange(
     state.findings = String(error);
     return 'host_evidence_changed';
   }
-  if (config.hostReturn || config.reviewReturn) {
+  if (config.hostReturn || config.reviewReturn || 'preparedTests' in config) {
     try {
       await verifyHostEntry(config, state, undefined, observation);
     } catch (error) {
@@ -956,21 +964,25 @@ async function targetChange(
       return 'host_evidence_changed';
     }
   }
-  return null;
+  return manifest
+    ? ((await testArtifactStop(config, state, { manifest, records: observation })).stop ?? null)
+    : null;
 }
 
 // 保全確認と直後の版識別だけで共有し、次の工程へは持ち越しません。
 async function testArtifactStop(
   config: ReviewConfig,
   state: State,
+  intake?: TestIntake,
 ): Promise<{ stop?: StopReason; files?: SourceFile[] }> {
   try {
     const records = state.testRecords ?? [];
-    const manifest: Record<string, string> = {};
-    const files = records.some((record) => Object.keys(record.files).length > 0)
-      ? await sourceFiles(config.cwd, undefined, manifest)
-      : undefined;
-    await verifyTestArtifacts(config.cwd, records, manifest);
+    const manifest: Record<string, string> = intake?.manifest ?? {};
+    const files =
+      !intake && records.some((record) => Object.keys(record.files).length > 0)
+        ? await sourceFiles(config.cwd, undefined, manifest)
+        : undefined;
+    await verifyTestArtifacts(config.cwd, records, manifest, intake?.records);
     return { files };
   } catch (error) {
     state.findings = error instanceof Error ? error.message : String(error);
@@ -1184,7 +1196,55 @@ function isMissing(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
-async function initialTestRecords(config: Config | ProbeConfig, state: State) {
+function preparedTestReferences(config: ReviewConfig) {
+  return 'preparedTests' in config && config.preparedTests !== undefined
+    ? hostPreparationShape.array().min(1).parse(config.preparedTests)
+    : [];
+}
+
+async function readProbeTests(config: ReviewConfig, issue: string, observation: RecordObservation) {
+  const references = preparedTestReferences(config);
+  if (references.length === 0) {
+    return undefined;
+  }
+  const manifest: Record<string, string> = {};
+  const cwd = await realpath(config.cwd);
+  await snapshot(cwd, manifest);
+  const intake = { manifest, records: observation };
+  return Promise.all(
+    references.map(async (ref) =>
+      readPreparedTestRecord(await readReference(ref, observation), issue, cwd, intake),
+    ),
+  );
+}
+
+async function verifyProbeReferences(config: ReviewConfig, observation: RecordObservation) {
+  const references = preparedTestReferences(config);
+  if (references.length === 0) {
+    return;
+  }
+  const cwd = await realpath(config.cwd);
+  observation.retain(references.map((ref) => ref.path));
+  for (const ref of references) {
+    assert(outside(cwd, await realpath(ref.path)), '準備済みテスト記録はcheckoutの外に置きます');
+    await readReference(ref, observation);
+  }
+}
+
+async function initialTestRecords(
+  config: Config | ProbeConfig,
+  state: State,
+  issue: string,
+  observation: RecordObservation,
+) {
+  const prepared = await readProbeTests(config, issue, observation);
+  if (prepared) {
+    if (state.testRecords) {
+      assert.deepStrictEqual(state.testRecords, prepared);
+    }
+    state.testRecords = prepared;
+    return;
+  }
   if (!state.testRecords && 'test' in config && config.test) {
     assert(config.testBaseline);
     try {
@@ -1208,12 +1268,11 @@ async function verifyHostEntry(
   publicationHead?: string,
   observation = new RecordObservation(),
 ) {
+  await verifyProbeReferences(config, observation);
   if (config.reviewReturn) {
     if (publicationHead) {
-      assert(
-        state?.result === 'ready_for_human_review' && state.source === (await snapshot(config.cwd)),
-        '公開commitには同じ成果物の有効な検証が必要です',
-      );
+      // 成果物とmanifestは、このexecuteのstoppedStateで最後に一度観測する。
+      assert(state?.result === 'ready_for_human_review', '公開commitには有効な終端検証が必要です');
       const parent = await command(
         ['git', 'rev-parse', `${publicationHead}^`],
         config.cwd,
@@ -1249,6 +1308,16 @@ async function verifyHostEntry(
     );
   }
   if (config.hostReturn) {
+    if (config.hostReturn.reviewReturn) {
+      await verifyReviewReturn(
+        config.hostReturn.reviewReturn,
+        config.cwd,
+        config.runDir,
+        publicationHead,
+        undefined,
+        observation,
+      );
+    }
     const evidence = await verifyHostReturn(config.hostReturn, config.cwd, observation);
     const preparation = config.hostPreparation
       ? hostPreparationRecord.parse(JSON.parse(await readReference(config.hostPreparation)))
@@ -1262,6 +1331,22 @@ async function verifyHostEntry(
       'Host evidence does not match current deliverables',
     );
   }
+}
+
+// 終端結果の参照も新しい境界。旧stateは変更せず、公開前の再利用も照合する。
+async function stoppedState(
+  config: ReviewConfig,
+  state: State,
+  issue: string,
+  observation: RecordObservation,
+): Promise<State> {
+  const manifest: Record<string, string> | undefined = state.testRecords?.length ? {} : undefined;
+  const unchanged =
+    state.issueHash === digest(issue) && state.source === (await snapshot(config.cwd, manifest));
+  if (unchanged) {
+    await verifyTestArtifacts(config.cwd, state.testRecords ?? [], manifest, observation);
+  }
+  return { ...state, result: unchanged ? state.result : 'target_changed_after_stop' };
 }
 
 async function execute(
@@ -1305,9 +1390,7 @@ async function execute(
     await verifyReviewedRuntime(state, observation);
   }
   if (state?.result) {
-    const unchanged =
-      state.issueHash === digest(issue) && state.source === (await snapshot(config.cwd));
-    return { ...state, result: unchanged ? state.result : 'target_changed_after_stop' };
+    return stoppedState(config, state, issue, observation);
   }
   state ??= {
     reviewFormat: 4,
@@ -1323,7 +1406,7 @@ async function execute(
     active: null,
     events: [],
   };
-  await initialTestRecords(config, state);
+  await initialTestRecords(config, state, issue, observation);
   const persist = () => save(path, state);
   await persist();
   await finishVerification(path, state, issue, persist, verify);

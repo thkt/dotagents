@@ -1,14 +1,21 @@
 import assert from 'node:assert/strict';
 import { realpath } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import type { ReviewReturn } from './host-records.ts';
 import type { Config, State } from './input.ts';
-import { assertConfig, assertState, testRecordsShape } from './input.ts';
+import { assertConfig, assertPreviousConfig, assertState, testRecordsShape } from './input.ts';
 import { hash, verifyHostReturn } from './host-records.ts';
 import { reviewRecoveryRecords, verifyReviewReturn } from './review-recovery-records.ts';
 import { RecordObservation } from './record-observation.ts';
 import { snapshot } from './correction.ts';
-import { verifyTestArtifacts } from './test-author.ts';
+import { verifyTestArtifacts, verifyTestBaseline } from './test-author.ts';
 import { isRecord, outside } from '../shared/values.ts';
+import {
+  prepareInterruption,
+  preparedInterruptionTests,
+  retainInterruptionTestModes,
+} from './interrupted-records.ts';
+import { verifyReviewedRuntime } from './runtime-records.ts';
 import { targetCommand } from '../shared/target.ts';
 import type { readTarget } from '../shared/target.ts';
 
@@ -26,7 +33,9 @@ async function verifyInitialHistory(config: Config, cwd: string, observation: Re
         );
       }
     }
+    return history;
   }
+  return undefined;
 }
 
 async function verifyStoppedCheck(
@@ -55,6 +64,8 @@ async function verifyStoppedCheck(
 
 export async function previousReviewRun(input: {
   directory?: string;
+  interrupted?: boolean;
+  evidenceFile?: string;
   runDirectory?: string;
   cwd: string;
   issue: string;
@@ -92,25 +103,14 @@ export async function previousReviewRun(input: {
   const config: unknown = JSON.parse(await text('verification-config.json'));
   const state: unknown = JSON.parse(await text('verification/state.json'));
   const target: unknown = JSON.parse(await text('target.json'));
-  assertConfig(config);
+  if (input.interrupted) {
+    assertPreviousConfig(config);
+  } else {
+    assertConfig(config);
+  }
   assertState(state);
   assert(isRecord(result) && isRecord(target), '旧runの対象記録が不正です');
-  assert(
-    result.terminal === true &&
-      result.status === 'stopped' &&
-      result.phase === 'verification' &&
-      result.reasonCode === 'invalid_review' &&
-      result.publication === 'not_attempted' &&
-      !result.url &&
-      !result.commit &&
-      state.result === 'invalid_review' &&
-      state.review === 1 &&
-      state.repair === 0 &&
-      state.reviewHistory.length === 0 &&
-      state.active === null &&
-      !state.events.some((event) => event.role === 'repair'),
-    '復帰対象は未公開・履歴なし・追加修正なしの初回invalid_reviewだけです',
-  );
+  verifyEligibility(result, state, input.interrupted, dir);
   assert(
     config.cwd === input.cwd &&
       config.runDir === join(dir, 'verification') &&
@@ -136,21 +136,7 @@ export async function previousReviewRun(input: {
     (await text('issue.json')) === input.original && state.issueHash === hash(input.original),
     '合意済みIssueが変わりました',
   );
-  assert(
-    JSON.stringify(config.check) === JSON.stringify(targetCommand(input.target.config.check)) &&
-      config.checkTimeMs === 540000 &&
-      JSON.stringify(config.setup) ===
-        JSON.stringify(input.target.config.setup.map(targetCommand)) &&
-      JSON.stringify(config.capture) ===
-        JSON.stringify(
-          input.target.config.capture
-            ? targetCommand(input.target.config.capture.command)
-            : undefined,
-        ) &&
-      config.captureDestination === input.target.config.capture?.destination &&
-      config.captureRequired === input.target.config.capture?.required,
-    '対象のcheck契約が一致しません',
-  );
+  verifyCommandContract(config, input.target);
   const review: unknown = JSON.parse(await text('verification/review-1.target.json'));
   assert(isRecord(review), '旧評価対象が不正です');
   assert(
@@ -171,52 +157,144 @@ export async function previousReviewRun(input: {
       hash(JSON.stringify(review.files)) === state.source,
     '旧評価対象の識別値が一致しません',
   );
-  const event = state.events.filter((entry) => entry.role === 'review');
-  assert(
-    event.length === 1 &&
-      event[0]?.prefix === join(dir, 'verification/review-1') &&
-      event[0].code === 0 &&
-      !event[0].timedOut &&
-      state.checks > 0,
-    '初回評価の実行記録が一致しません',
-  );
+  verifyFirstExecution(state, input.interrupted, dir);
   await verifyStoppedCheck(review.check, config, state, dir, text);
   await text('verification/review-1.stdout');
+  await text('verification/review-1.stderr');
+  await text('verification/review-1.additions.json');
   await text('verification/review-1.prompt');
   await text('verification/review-1.diff');
-  const tests = testRecordsShape.parse(JSON.parse(await text('test-records.json')));
+  const originalTests = testRecordsShape.parse(JSON.parse(await text('test-records.json')));
   assert(
-    JSON.stringify(tests) === JSON.stringify(state.testRecords),
+    JSON.stringify(originalTests) === JSON.stringify(state.testRecords),
     '旧独立テストの記録が一致しません',
   );
-  await verifyTestArtifacts(input.cwd, tests);
+  const manifest: Record<string, string> = {};
+  const currentSource = await snapshot(input.cwd, manifest);
+  const intake = { manifest, records: observation };
   assert(
-    state.source && state.source === (await snapshot(input.cwd)),
+    state.source && (input.interrupted || state.source === currentSource),
     '停止時の成果物が変わりました',
   );
-  await verifyInitialHistory(config, input.cwd, observation);
+  const runtimePaths = await verifyReviewedRuntime(state, observation);
+  const history = await verifyInitialHistory(config, input.cwd, observation);
   assert(config.testBaseline, '旧独立テストの修正前入力がありません');
-  await text('test-baseline.json');
+  await verifyTestBaseline(config.testBaseline);
+  verifyAuthority(result, input.localOnly);
+  const interruption = input.interrupted
+    ? await prepareInterruption({
+        dir,
+        config,
+        state,
+        text,
+        history,
+        runtimePaths,
+        intake,
+        cwd: input.cwd,
+        branch: input.branch,
+        runDirectory: resolve(input.runDirectory),
+        currentSource,
+        evidenceFile: input.evidenceFile,
+      })
+    : undefined;
+  const tests = [
+    ...originalTests,
+    ...(interruption
+      ? await preparedInterruptionTests(interruption, input.cwd, input.original, intake)
+      : []),
+  ];
+  // 旧入力・原応答の照合は残し、独立工程で確認した更新分だけを後勝ちで採用する。
+  await verifyTestArtifacts(input.cwd, tests, manifest, observation);
+  const reviewReturn = {
+    previousRun: dir,
+    records: saved,
+    source: input.interrupted ? currentSource : state.source,
+    head: input.head,
+    branch: input.branch,
+  };
+  const returned: ReviewReturn = interruption
+    ? { ...reviewReturn, interruption: await retainInterruptionTestModes(interruption, tests) }
+    : reviewReturn;
+  await verifyReviewReturn(
+    returned,
+    input.cwd,
+    join(resolve(input.runDirectory), 'verification'),
+    undefined,
+    new Set<string>(),
+    new RecordObservation(),
+  );
+  return {
+    dir,
+    config,
+    tests,
+    hostHistory: history?.history.map(({ previousRun, evidence }) => ({ previousRun, evidence })),
+    reviewReturn: returned,
+    branch: input.branch,
+    baseCommit: state.baseCommit,
+  };
+}
+
+function verifyEligibility(
+  result: Record<string, unknown>,
+  state: State,
+  interrupted: boolean | undefined,
+  dir: string,
+) {
+  assert(
+    result.terminal === true &&
+      result.status === 'stopped' &&
+      result.phase === 'verification' &&
+      (interrupted ? state.result === 'interrupted' : result.reasonCode === 'invalid_review') &&
+      result.publication === 'not_attempted' &&
+      !result.url &&
+      !result.commit &&
+      (interrupted || state.result === 'invalid_review') &&
+      state.review === 1 &&
+      state.repair === 0 &&
+      state.reviewHistory.length === 0 &&
+      (interrupted
+        ? state.active?.role === 'review' &&
+          state.active.prefix === join(dir, 'verification/review-1')
+        : state.active === null) &&
+      !state.events.some((event) => event.role === 'repair'),
+    '復帰対象は未公開・終端・履歴なし・追加修正なしの初回invalid_reviewまたは明示した中断だけです',
+  );
+}
+
+function verifyFirstExecution(state: State, interrupted: boolean | undefined, dir: string) {
+  const event = state.events.filter((entry) => entry.role === 'review');
+  assert(
+    state.checks > 0 &&
+      (interrupted
+        ? event.length === 0
+        : event.length === 1 &&
+          event[0]?.prefix === join(dir, 'verification/review-1') &&
+          event[0].code === 0 &&
+          !event[0].timedOut),
+    '初回評価の実行記録が一致しません',
+  );
+}
+
+function verifyCommandContract(config: Config, target: Awaited<ReturnType<typeof readTarget>>) {
+  assert(
+    JSON.stringify(config.check) === JSON.stringify(targetCommand(target.config.check)) &&
+      config.checkTimeMs === 540000 &&
+      JSON.stringify(config.setup) === JSON.stringify(target.config.setup.map(targetCommand)) &&
+      JSON.stringify(config.capture) ===
+        JSON.stringify(
+          target.config.capture ? targetCommand(target.config.capture.command) : undefined,
+        ) &&
+      config.captureDestination === target.config.capture?.destination &&
+      config.captureRequired === target.config.capture?.required,
+    '対象のcheck契約が一致しません',
+  );
+}
+
+function verifyAuthority(result: Record<string, unknown>, currentLocalOnly: boolean) {
   assert(
     result.localOnly === undefined || typeof result.localOnly === 'boolean',
     '旧公開権限の記録が不正です',
   );
   const localOnly = typeof result.localOnly === 'boolean' ? result.localOnly : true; // 旧記録で権限が判別できなければ公開しない範囲に限定する。
-  assert(!localOnly || input.localOnly, '復帰で公開権限を拡大できません');
-  const reviewReturn = {
-    previousRun: dir,
-    records: saved,
-    source: state.source,
-    head: input.head,
-    branch: input.branch,
-  };
-  await verifyReviewReturn(
-    reviewReturn,
-    input.cwd,
-    join(resolve(input.runDirectory), 'verification'),
-    undefined,
-    new Set<string>(),
-    observation,
-  );
-  return { dir, config, tests, reviewReturn, branch: input.branch, baseCommit: state.baseCommit };
+  assert(!localOnly || currentLocalOnly, '復帰で公開権限を拡大できません');
 }
