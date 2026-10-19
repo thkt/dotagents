@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from 'bun:test';
 import { isRecord } from '../../scripts/shared/values.ts';
-import { instructionFiles } from './trusted-inputs.ts';
+import { instructionFiles, lightInputRepository } from './trusted-inputs.ts';
 import { lightCliFixture } from './light-cli.fixture.ts';
 
 // Issueの段階・順序が正本。入口とJSONキーは独立テストの接続上の選択であり、
@@ -56,9 +56,7 @@ async function fixture(
   const root = await mkdtemp(join(tmpdir(), 'eval-light-plan-'));
   try {
     const repo = join(root, 'repo');
-    // 自分のcheckoutだけを複製する。別の実装checkoutやrun記録は入力にしない。
-    git(repository, 'clone', '--quiet', '--shared', '--no-checkout', repository, repo);
-    git(repo, 'remote', 'set-url', 'origin', 'https://github.com/thkt/dotagents.git');
+    await lightInputRepository(repo);
     const bin = join(root, 'bin');
     const home = join(root, 'dummy-codex-home');
     const starts = join(root, 'forbidden-starts');

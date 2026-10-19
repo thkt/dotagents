@@ -19,6 +19,8 @@ repoルートから`bun eval/eval.ts plan|preflight|run CONFIG`、`bun eval/eval
 
 模擬テストは`bun run test:eval`、通常制御テストは`bun run test:control`です。両方とも既存のJUnit確認runnerを使い、0件・skip・失敗を成功にしません。総合`bun run check`は両方のテストと静的検査を含みます。合成課題の変更前コードを一律lintすることはせず、課題検証・参照解・反例による既存の確認を維持します。これは実モデル・実API・実Docker imageの稼働確認ではありません。
 
+軽量版の入力・planの模擬テストは、浅いcheckoutでも固定入力を検証できるよう、[A/Bのpack](tests/fixtures/trusted-inputs.json)と[corpus・workspaceのpack](tests/fixtures/light-common-inputs.json)を空の一時Gitリポジトリへ展開します。[共通の展開処理](tests/trusted-inputs.ts)でpackのSHA-256と各ファイルのmode・blob ID・本文hashを照合し、親checkoutの履歴や追加fetchに依存しません。Aで意図した資料の不存在は、treeの取得成功と空の結果で確認し、Git入力の欠落を成功にしません。これはテスト専用の入力準備です。実比較では設定した固定commitの公開blobが必要であり、packによる入力の補完や別版への自動切替えは行いません。
+
 ## ChatGPT認証の軽量比較（#405）
 
 [Issue #405](https://github.com/thkt/dotagents/issues/405)の軽量入口は`bun eval/light.ts plan|preflight|run CONFIG`、裁定は`bun eval/light.ts report RUN_DIRECTORY [JUDGMENTS_JSON]`です。既存の`eval.ts`はAPIキー・固定Docker・中継・金額台帳を使う別経路として維持します。通常ハーネス・公開CI・スケジューラーには接続しません。

@@ -1,13 +1,24 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { resolve } from 'node:path';
-import { expect, test } from 'bun:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { evalConfig } from '../data.ts';
 import { initialActorSources, prepareInitialActorInput } from '../initial-input.ts';
-import { instructionFiles } from './trusted-inputs.ts';
+import { instructionFiles, lightInputRepository } from './trusted-inputs.ts';
 
-const root = resolve(import.meta.dir, '../..');
+let root: string;
+let temporary: string;
+beforeAll(async () => {
+  temporary = await mkdtemp(join(tmpdir(), 'eval-light-input-'));
+  root = join(temporary, 'repo');
+  await lightInputRepository(root);
+});
+afterAll(async () => {
+  await rm(temporary, { recursive: true, force: true });
+});
 const before = 'fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092';
 const after = '6181233d17a29c711a84f20549f78507c5c3e5fb';
 const workspace = '0c7316253a9768844eb1c224961e00be52dcdcf2';
@@ -49,10 +60,13 @@ const config = evalConfig.parse({
 });
 
 function blob(commit: string, path: string, absent = false) {
-  const result = spawnSync('git', ['show', `${commit}:${path}`], { cwd: root, encoding: 'utf8' });
-  if (absent && result.status !== 0) {
+  if (absent) {
+    const tree = spawnSync('git', ['ls-tree', commit, '--', path], { cwd: root, encoding: 'utf8' });
+    assert.equal(tree.status, 0, tree.stderr);
+    assert.equal(tree.stdout, '', `Aで意図した不存在: ${path}`);
     return null;
   }
+  const result = spawnSync('git', ['show', `${commit}:${path}`], { cwd: root, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout;
 }
