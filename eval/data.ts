@@ -183,6 +183,13 @@ export function validatePlan(config: EvalConfig, cases: EvalCase[]) {
       'Eight-case limits exceeded',
     );
   }
+  validateInputFiles(config);
+  return selected;
+}
+
+export function validateInputFiles(
+  config: Pick<EvalConfig, 'workspaceFiles' | 'instructionFiles'>,
+) {
   const paths = [...config.workspaceFiles, ...config.instructionFiles];
   assert(new Set(paths).size === paths.length, 'File lists overlap or contain duplicates');
   for (const path of paths) {
@@ -226,5 +233,4 @@ export function validatePlan(config: EvalConfig, cases: EvalCase[]) {
   for (const path of ['AGENTS.md', 'skills/scoping/SKILL.md', 'skills/implement/SKILL.md']) {
     assert(config.instructionFiles.includes(path), `Missing effective instruction: ${path}`);
   }
-  return selected;
 }

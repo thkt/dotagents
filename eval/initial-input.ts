@@ -5,6 +5,11 @@ import { runInNewContext } from 'node:vm';
 import { isRecord } from '../scripts/shared/values.ts';
 import type { EvalConfig } from './data.ts';
 
+type ActorConfig = Pick<
+  EvalConfig,
+  'before' | 'after' | 'trialOrder' | 'workspaceCommit' | 'model' | 'reasoning'
+>;
+
 const trusted = {
   before: 'fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092',
   after: '6181233d17a29c711a84f20549f78507c5c3e5fb',
@@ -28,7 +33,7 @@ function expression(source: string, bindings: Record<string, unknown>): unknown 
 }
 
 export async function initialActorSources(
-  config: EvalConfig,
+  config: ActorConfig,
   read: (path: string) => Promise<string>,
 ) {
   assert(
@@ -52,17 +57,19 @@ export async function initialActorSources(
 
 // 条件ごとの固定入力を一度準備し、課題別のpromptと記録だけを生成する。
 export function prepareInitialActorInput(
-  config: EvalConfig,
+  config: ActorConfig,
   files: Record<string, string>,
   sources: Awaited<ReturnType<typeof initialActorSources>>,
+  destination = '/work/repo',
 ) {
   const source = (path: string) => {
     const entry = sources[`scripts/implement/${path}.ts`];
     assert(entry, 'Missing trusted source');
     return entry.body;
   };
-  const root = '/work/repo';
-  const dir = '/work/repo/actor-records';
+  const root = destination;
+  assert(posix.isAbsolute(root) && !root.includes('\n'), 'Absolute actor destination required');
+  const dir = posix.join(root, 'actor-records');
   const repair = between(
     source('repair'),
     'export function repairInstructions(capture: { destination: string } | null) {\n  return ',
@@ -76,9 +83,14 @@ export function prepareInitialActorInput(
     },
   );
   assert(typeof instructions === 'string', 'Invalid repair instructions');
-  const absoluteReferences = [
-    ...instructions.matchAll(/\/work\/repo\/skills\/[a-zA-Z0-9/_.-]+\.md/g),
-  ].map(([path]) => path.slice(root.length + 1));
+  const absoluteReferences = instructions
+    .split(`${root}/skills/`)
+    .slice(1)
+    .map((tail) => {
+      const path = tail.match(/^[a-zA-Z0-9/_.-]+\.md/)?.[0];
+      assert(path, 'Invalid trusted actor reference');
+      return `skills/${path}`;
+    });
   for (const path of absoluteReferences) {
     assert(Object.hasOwn(files, path), `Missing trusted actor reference: ${path}`);
   }

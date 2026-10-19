@@ -5,6 +5,7 @@ import { resolve, relative } from 'node:path';
 import { z } from 'zod';
 import { evalConfig, type EvalConfig } from './data.ts';
 import { budgetSnapshot } from './budget.ts';
+import { lightConfig } from './light-data.ts';
 import { isRecord } from '../scripts/shared/values.ts';
 import { addTokenUsage, parseTokenUsage } from '../scripts/shared/token-usage.ts';
 
@@ -38,7 +39,8 @@ const trial = z.object({
   expected: z.enum(['scoping', 'implement', 'none', 'boundary']),
   execution: z.enum(['unevaluated', 'completed', 'failed', 'timeout']),
   launched: z.boolean(),
-  reason: z.string().optional(),
+  launchUnknown: z.boolean().optional(),
+  reason: z.string().nullable().optional(),
   requests: z
     .object({
       requests: z.number().int().nonnegative(),
@@ -48,7 +50,15 @@ const trial = z.object({
     .nullable()
     .optional(),
   elapsedMs: z.number().nullable(),
-  safety: z.object({ containersRemoved: z.boolean(), networkRemoved: z.boolean() }).optional(),
+  executionMode: z.enum(['native-chatgpt', 'api-docker']).optional(),
+  safety: z
+    .object({
+      containersRemoved: z.boolean().optional(),
+      networkRemoved: z.boolean().optional(),
+      boundaryVerified: z.boolean().optional(),
+      processesStopped: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 export function readUsage(lines: string[]) {
@@ -83,12 +93,21 @@ export function readUsage(lines: string[]) {
   };
 }
 
+function safeTrial(record: z.infer<typeof trial>) {
+  return record.executionMode === 'native-chatgpt'
+    ? record.safety?.boundaryVerified && record.safety.processesStopped
+    : record.safety?.containersRemoved && record.safety.networkRemoved;
+}
+
 export function assessTrial(record: z.infer<typeof trial>, assessment?: z.infer<typeof judgment>) {
   if (!assessment) {
     return { selection: 'unknown', outcome: 'indeterminate', correct: null };
   }
-  const safe = record.safety?.containersRemoved && record.safety.networkRemoved;
-  assert(record.launched && safe, 'Unsafe or unevaluated trial cannot be scored');
+  const safe = safeTrial(record);
+  assert(
+    record.launched && !record.launchUnknown && safe,
+    'Unsafe or unevaluated trial cannot be scored',
+  );
   if (assessment.selection === 'none') {
     assert(assessment.completeTrace.length > 0, 'Non-selection requires complete trace evidence');
   } else if (assessment.selection !== 'unknown') {
@@ -151,6 +170,9 @@ async function evidence(
 }
 
 function stopReason(record: z.infer<typeof trial>) {
+  if (record.launchUnknown) {
+    return '起動状態・終了記録が不明（詳細は元記録）';
+  }
   if (record.execution === 'timeout') {
     return '時間切れ';
   }
@@ -238,7 +260,7 @@ async function summarizeTrial(
   const tokens = usage.totals
     ? `${usage.totals.input_tokens} / ${usage.totals.cached_input_tokens} / ${usage.totals.output_tokens}${usage.incompleteLines ? '（記録欠落あり）' : ''}`
     : '未取得';
-  const line = `| [${record.case}](${record.trial}/actor.stdout) | ${record.side} | ${result.selection} (${result.correct === null ? '採点外・不明' : result.correct ? '正' : '誤'}) | ${result.outcome} | ${record.execution}; ${stopReason(record)} | ${record.safety?.containersRemoved && record.safety.networkRemoved ? '終了確認済み' : '未確認'} | ${record.elapsedMs === null ? '未取得' : (record.elapsedMs / 1000).toFixed(1)} | ${tokens} |`;
+  const line = `| [${record.case}](${record.trial}/actor.stdout) | ${record.side} | ${result.selection} (${result.correct === null ? '採点外・不明' : result.correct ? '正' : '誤'}) | ${result.outcome} | ${record.execution}; ${stopReason(record)} | ${safeTrial(record) ? '終了確認済み' : '未確認'} | ${record.elapsedMs === null ? '未取得' : (record.elapsedMs / 1000).toFixed(1)} | ${tokens} |`;
   return { ...record, ...result, usage, line, decision: item };
 }
 
@@ -275,6 +297,10 @@ export async function writeComparison(directory: string, assessmentFile?: string
       error: z.string().nullable(),
     })
     .parse(JSON.parse(raw));
+  assert(
+    evaluation.records.every((record) => record.executionMode !== 'native-chatgpt'),
+    'ネイティブ結果をAPI方式へ混合できません',
+  );
   const readEvidence = evidenceReader(directory);
   const assessment = await loadJudgments(readEvidence, raw, evaluation.records, assessmentFile);
   const expectedTrials = evaluation.config.cases.flatMap((id) => [`before-${id}`, `after-${id}`]);
@@ -405,4 +431,92 @@ async function saveComparison(
       mode: 0o600,
     },
   );
+}
+
+// 同じ証拠・裁定処理を使い、実行方式と段階の分母だけを別契約にする。
+export async function writeLightComparison(directory: string, assessmentFile?: string) {
+  directory = await realpath(directory);
+  const raw = await readFile(resolve(directory, 'evaluation.json'), 'utf8');
+  const evaluation = z
+    .object({
+      executionMode: z.literal('native-chatgpt'),
+      config: lightConfig,
+      records: z.array(trial),
+      retries: z.literal(0),
+      elapsedMs: z.number().nullable(),
+      error: z.string().nullable(),
+    })
+    .parse(JSON.parse(raw));
+  const order = evaluation.config.trialOrder;
+  assert(
+    order &&
+      evaluation.records.length === order.length &&
+      evaluation.records.every(
+        (record, index) =>
+          record.trial === order[index] &&
+          record.executionMode === 'native-chatgpt' &&
+          record.trial === `${record.side}-${record.case}`,
+      ),
+    '段階の予定試行と記録が一致しません',
+  );
+  const readEvidence = evidenceReader(directory);
+  const assessment = await loadJudgments(readEvidence, raw, evaluation.records, assessmentFile);
+  const lines = [
+    '# 軽量比較の結果（公開前に内容を確認）',
+    '',
+    `対象: ${evaluation.config.issue}。第${evaluation.config.stage}段階。予定${order.length}試行、起動確認${evaluation.records.filter((record) => record.launched).length}試行、起動不明${evaluation.records.filter((record) => record.launchUnknown).length}試行。再試行0。`,
+    `変更前: ${evaluation.config.before}。変更後: ${evaluation.config.after}。共通入力: ${evaluation.config.corpusCommit}。モデル: ${evaluation.config.model} / ${evaluation.config.reasoning}。`,
+    '認証: 保存済みChatGPT認証。環境: macOSネイティブCLIとpermission profile。API/Docker結果とは混合しない。金額・内部要求数・残り枠は未取得であり、0や無料を意味しない。',
+    '',
+    '| ケース | 条件 | 行動 | 成果 | 実行・理由 | 安全 | 秒 | input / cached / output |',
+    '| --- | --- | --- | --- | --- | --- | ---: | --- |',
+  ];
+  const summaries = [];
+  for (const record of evaluation.records) {
+    const decision = assessment?.trials.find((item) => item.trial === record.trial);
+    if (decision?.outcome === 'fulfilled') {
+      const trace = await readEvidence(record.trial, 'actor.stdout');
+      const usage = readUsage(trace.lines);
+      assert(
+        usage.completedTurns > 0 && usage.incompleteLines === 0,
+        'JSONL欠落・不正usageを軽量比較の要求充足へ変換できません',
+      );
+    }
+    const summary = await summarizeTrial(readEvidence, record, decision);
+    summaries.push(summary);
+    lines.push(summary.line);
+    if (decision) {
+      lines.push(
+        '',
+        `${record.trial}: ${decision.reason}`,
+        ...[
+          ...decision.bodyReads,
+          ...decision.applications,
+          ...decision.completeTrace,
+          ...decision.evidence,
+        ].map((ref) => `${record.trial}/${ref.file}:${ref.lines.join('-')} SHA-256 ${ref.sha256}`),
+        '',
+      );
+    }
+  }
+  for (const side of ['before', 'after']) {
+    const rows = summaries.filter((item) => item.side === side);
+    lines.push(
+      '',
+      `${side}: 要求充足${rows.filter((item) => item.outcome === 'fulfilled').length}/${evaluation.config.cases.length}、未充足${rows.filter((item) => item.outcome === 'unfulfilled').length}、判定不能${rows.filter((item) => item.outcome === 'indeterminate').length}。失敗・時間切れ・未実行も分母に含む。`,
+    );
+  }
+  lines.push(
+    '',
+    `全体実時間（準備・終了処理を含む）: ${evaluation.elapsedMs === null ? '未取得' : `${evaluation.elapsedMs}ms`}。事前準備と手動裁定は別途記録する。`,
+    `停止: ${evaluation.error ? 'あり。詳細はローカル原記録を参照。' : 'なし。要求充足は別に裁定する。'}`,
+    `結論: ${assessment?.conclusion ?? 'indeterminate'}`,
+    assessment?.reason ?? '独立した行動・成果の裁定は未実施。',
+    `次の判断: ${assessment?.nextDecision ?? '記録と基準で裁定できるかを確認する。第2段階は別の実行指示が必要。'}`,
+    ...(assessment?.conditionDifferences ?? []).map((item) => `条件差: ${item}`),
+    '各条件1回の合成課題であり、統計的改善・4件それぞれの独立効果・通常フロー全体・費用や速度の改善は結論にしない。第1段階では#385・#387・#388の効果は未評価。',
+    '使用量は親CLIの取得済み完了ターンのみ。子処理・未完了ターン・契約枠消費・請求額は未確認。',
+    '採点情報と生ログはhost-only。条件名を伏せる既存の採点手順でも、指示内容から推測できるため完全な盲検ではない。自動投稿せず、公開summaryの共有先と内容は人が確認する。',
+  );
+  await saveComparison(directory, assessment, `${lines.join('\n')}\n`);
 }

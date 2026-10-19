@@ -19,6 +19,76 @@ repoルートから`bun eval/eval.ts plan|preflight|run CONFIG`、`bun eval/eval
 
 模擬テストは`bun run test:eval`、通常制御テストは`bun run test:control`です。両方とも既存のJUnit確認runnerを使い、0件・skip・失敗を成功にしません。総合`bun run check`は両方のテストと静的検査を含みます。合成課題の変更前コードを一律lintすることはせず、課題検証・参照解・反例による既存の確認を維持します。これは実モデル・実API・実Docker imageの稼働確認ではありません。
 
+## ChatGPT認証の軽量比較（#405）
+
+[Issue #405](https://github.com/thkt/dotagents/issues/405)の軽量入口は`bun eval/light.ts plan|preflight|run CONFIG`、裁定は`bun eval/light.ts report RUN_DIRECTORY [JUDGMENTS_JSON]`です。既存の`eval.ts`はAPIキー・固定Docker・中継・金額台帳を使う別経路として維持します。通常ハーネス・公開CI・スケジューラーには接続しません。
+
+このIssueの許可は入口・操作説明・モデルなしの検証までです。`plan`と`preflight`は推論を起動しません。`run`は比較モデルを起動する入口なので、実装の完了やcheck・CIの成功は実行許可に含めず、後続の具体的な実行指示を待ってください。実モデル、実認証による推論、ログイン、認証情報の移送、課金変更や追加購入は今回行いません。
+
+### 計画と後続の操作例
+
+先に`plan`で公開blobの本文・hash、Aで意図した不存在、参照の欠落、固定初回担当入力・応答契約・テストhash、runnerのcommit・未commit変更・ソースhashを確認します。本文のある固定担当ソースは`actorSources`にhashでまとめ、各条件から参照します。共通workspaceは部分集合へ減らせません。採点基準・参照解・他方の結果・本Issue本文・過去run・ホスト記録はactorに渡しません。
+
+設定は既存API設定を流用せず、次の軽量専用契約でJSONに保存します。未知のキーや、旧sandbox設定、任意の読取りパス・hook・MCP・追加agentの指定は拒否します。
+
+| 項目 | 値と確認方法 |
+| --- | --- |
+| `repository` / `issue` | `thkt/dotagents`と合意したIssueまたはPRのURL |
+| `authentication` / `permissionProfile` | `chatgpt` / `eval-light` |
+| `before` / `after` | `fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092` / `6181233d17a29c711a84f20549f78507c5c3e5fb` |
+| `corpusCommit` / `workspaceCommit` | 両方`0c7316253a9768844eb1c224961e00be52dcdcf2` |
+| `workspaceFiles` | 同commitの`git ls-tree -r --name-only 0c7316253a9768844eb1c224961e00be52dcdcf2 -- eval/fixtures/workspace`の全行を配列にする |
+| `instructionFiles` | 下の8課題の設定にある指示ファイル一覧。共通参照・テンプレートを含めて両条件で固定する |
+| `model` / `reasoning` | `gpt-6.1-sol` / `medium`。実アカウントでの提供は未確認。利用できなければ停止する |
+| `cliExecutable` | 必要なら採用CLI実体の絶対パス。未指定時はPATHの`codex`。shimの場合は背後のCLI実体もホストで観測し、同じ版へ固定する |
+| `cliVersion` / `bunVersion` / `gitVersion` | 採用する実効版の文字列。候補は`codex-cli 0.163.0` / `1.4.3`。親子に同じ固定環境を渡す |
+| `stage` / `cases` / `trialOrder` / `maxTrials` | 下表の段階ごとの固定値。順序・片側・重複・余分な課題は変更できない |
+| `caseTimeMs` / `totalTimeMs` | 各試行600000以下、全体は第1段階2400000以下・第2段階7200000以下 |
+| `outputDirectory` | checkout外の、新しい絶対パス。既存runを再開・上書きしない |
+| `boundaryEvidence` | ホストで作成するモデルなし確認の外部JSON。未指定でもplanは作れるが、推論を開始できない |
+| `disclosure` | `inputs: reviewed-public-committed-files-only`、`raw: local-only`、`summary: manual-issue-or-pr` |
+
+| 段階 | `cases`（この順） | `trialOrder` | `maxTrials` |
+| --- | --- | --- | ---: |
+| 1 | `storage-fields`, `completion-message` | `before-storage-fields`, `after-storage-fields`, `after-completion-message`, `before-completion-message` | 4 |
+| 2 | `retry-limit`, `guide-link`, `work-area`, `cli-description`, `history-record`, `save-diagnostics` | `before-retry-limit`, `after-retry-limit`, `after-guide-link`, `before-guide-link`, `before-work-area`, `after-work-area`, `after-cli-description`, `before-cli-description`, `before-history-record`, `after-history-record`, `after-save-diagnostics`, `before-save-diagnostics` | 12 |
+
+例えば、公開入力を確認した第1段階の設定を`/absolute/path/light-stage1.json`へ保存したら、まず`bun eval/light.ts plan /absolute/path/light-stage1.json`で確認します。モデルなし確認は別の新しい`outputDirectory`を指定して`bun eval/light.ts preflight /absolute/path/light-stage1.json`で行います。認証操作やモデル実行の許可にはなりません。
+
+後続で実行が指示された場合だけ、同じ共有runner commit、実効ツール版・モデル・設定を固定し、ホスト確認済みの`boundaryEvidence`と新しい保存先を指定して`run`を使います。第2段階は、第1段階の裁定を見た依頼者の別の指示と新しいrunが必要です。段階を自動で進めたり、第1段階を再実行したりしません。認証保存先の`eval-light-runs`に段階と固定runner・入力の予約を排他的に保存するため、同じ段階を別の保存先でやり直す操作も拒否します。停止記録・予約を削除して上限を回避しないでください。
+
+### 認証・入力・境界
+
+保存済みChatGPT認証を公式CLI自身が使い、更新します。独自OAuth、tokenの抽出・再送、API中継への置換、APIへのfallbackはありません。子環境はPATH・HOME・CODEX_HOME・TMPDIRだけから選び、actorのコマンド環境はさらに必要な実行パスと専用一時領域へ限定します。APIキー、provider上書き、起動hookなどの環境は引き継ぎません。各試行の直前にCLIの`login status`でChatGPT認証を確認し、未ログイン・API認証・不明・失敗では推論を開始しません。アカウントやworkspaceの選択、通常のログインが必要な場合は、後続実行前に人が行います。認証本文をplan・ログへ保存しません。
+
+普段のCODEX_HOMEを複製しません。保存済み認証の利用と、通常の指示や登録の持込みは別です。認証保存先に利用者のスキル、`AGENTS.md`・`hooks.json`・`plugins`・`rules`・`memories`がある場合は、消去・移送で回避せず未対応として止めます。採用CLIが自動配置する既知の`skills/.system`だけを区別して検査し、4件のsystemスキルは設定で無効にします。未知の登録やsymlinkは拒否します。`--ignore-user-config`と`--ignore-rules`を使い、各試行のHOMEと一時領域は新しく作ります。選別済みのscoping・implementだけをそのHOMEに登録し、固定AGENTS本文を渡します。祖先の文書の自動取込みは無効にします。この初期状態の検査だけでは、採用CLIの全入力や公開ツールの境界が確認済みになったとは扱いません。
+
+[採用CLIのscratch処理](https://github.com/openai/codex/blob/rust-v0.163.0/codex-rs/sandboxing/src/seatbelt_scratch.rs)は、`minimal`から`/private/tmp`・`/private/var/tmp`を暗黙に開くため、両方を明示的に拒否します。試行のworkspaceと専用一時領域だけをその下で開き直し、個別denyへ列挙していないcanaryも検査します。profileはrootの読取りを拒否し、必要なシステム・実行ファイルの読取りと、その試行のworkspace・専用一時領域の書込みだけを許可する方針です。指示・仕様・独立テスト等は読取り専用、認証・他試行・ホスト用記録は拒否します。コマンドの外部通信を禁止し、web search・登録MCP・connectors・browser・画像表示／生成・追加モデル・hook等の不要な経路を無効にします。multi-agentは`agents.enabled=false`も明示し、CLI自身のモデル通信・認証更新とは区別します。新しいセッションで`ephemeral`を使い、resumeしません。`danger-full-access`や旧`--sandbox`との混在、全ホームの許可、workspace内への認証コピーで回避しません。
+
+[公式のpermission profiles](https://learn.chatgpt.com/docs/permissions)は、旧sandbox設定と混在させないこと、ローカルコマンドとCLIのサービス通信を分けることを説明しています。[認証の説明](https://learn.chatgpt.com/docs/auth)も参照してください。これは採用ホスト・公開読取りツール・実認証での成功を示す証拠ではありません。
+
+### モデルなし確認と現在の未確認事項
+
+`preflight`は実認証を使わず、専用の合成canaryと[既存の固定操作](tests/light-boundary.fixture.ts)、[ホスト確認の条件](tests/fixtures/light-host-cases.json)を使います。公式の`codex sandbox`で通常入力の読取り・workspaceと専用一時領域の書込みを確かめ、ダミー認証・別試行・採点・私的領域の読取り／書込みとloopback通信の拒否を観測します。canaryは先に作成してhashを残し、未存在や単なる接続失敗を拒否成功にしません。同じBun・固定通信操作・宛先・環境をprofile外→内→外で実行し、前後は接続でき、内側だけが拒否されることを照合します。内側の`EPERM`／`EACCES`、または公式`--log-denials`が対象PIDに絞った`network-outbound`と当該ポートの一致を要求します。`ECONNREFUSED`単独や別ポートの拒否、対照の欠落・失敗・終了不明は未確認です。正常対照が起動できなければ、後続診断を止めます。推論・外部provider・ブラウザーは起動しません。通信の正常対照には、公開の合成本文だけを返す一時的なlocalhostサーバーを使い、終了時に閉じます。
+
+公開読取りツールはコマンドfixtureで代用しません。初回宣言に加え、独立担当の`nativeToolInventoryResponses()`で実行時の`ALL_TOOLS`を採取します。採用設定では独立したローカルファイル読取りツールを公開せず、汎用MCP操作には登録先・resource・templateがありません。`apply_patch`の正常な変更と保護対象の読取り拒否も別に照合します。通常の子処理を含む期限・SIGINT・SIGTERM・正常終了には、独立したネイティブ固定応答の操作・成果物・PIDの証拠が必要です。コマンドだけの部分診断は`diagnostic.json`へ残し、`preflight.json`の成功には完全な外部証拠との照合も要求します。実アカウントを使って不足を補完しません。固定応答を実CLIへ接続する操作は、[ホスト確認driverの手順](tests/fixtures/light-host-driver.md)を参照してください。操作ごとに新しい保存先を指定し、旧記録は保全します。
+
+ホストの`boundaryEvidence`は`light-native.ts`の契約に従い、`status: passed`、`runnerHashes`、実効`versions`（起動入口のパス・hashを含む）、`profilePolicyHash`、`fixtureHashes`、`readToolInventory`、`observations`を保持します。`plan`の`boundaryEvidenceSchema`で保存形式を確認できます。`readToolInventory`は独立したローカルファイル読取りツールが無効な実効一覧の外部ログとhashを指します。観測は`command`・`read-tool`・`lifecycle`を分け、対象・操作（`read`・`write`・`network`・`execution`）・allowed／denied／stopped・外部生ログの絶対パス・SHA-256を対応させます。通常入力・2種類の書込み・保護対象4種類・未列挙のscratch領域2種類・通信・期限と割込み・通常の子処理を欠かせません。コードは対象版・必要観測・ログhashを照合しますが、ログ内容の真実性や意味はホスト担当AIと独立評価が確認します。設定文字列や自分で記入した成功値だけで証拠を作らないでください。確認に失敗すれば未対応として止めます。
+
+2026年10月18日にmacOS 27.0.1 arm64、CLI 0.163.0、Bun 1.4.3、Apple Git 2.54.0で、モデルなしのファイル許可／拒否、実効ツール一覧、`apply_patch`の境界、空のMCP登録、固定応答の通常操作・課題内失敗・marker欠落・期限・SIGINT・SIGTERMと通常子処理の終了を確認しました。生ログはcheckout外のローカル保存先に保持します。通常checkは模擬CLIと制御テストだけであり、このホスト受入を実行しません。別のrunner・ツール・profileで使う場合は[ホスト検証後の再評価](../scripts/README.md#ホスト検証後の再評価)で対象版と証拠を更新してください。実効境界をモデルなしで確認できなければ、軽量版を未対応として報告します。過去のDockerの7シナリオをネイティブの証拠へ流用しません。
+
+### 停止・容量・裁定
+
+試行準備・CLI・ツールに加え、成果物の回収・記録保存までを各試行の時間へ含めます。CLIのツールが別sessionを作るため、CLIのgroupだけでなく、稼働中に観測した通常の子孫も開始時刻とともに保持して止めます。観測失敗や残存は終了不明とし、敵対的なdaemonや意図的な監視回避の捕捉は保証しません。終了観測とプロセス停止に実際に使った時間だけを、最大30秒の別枠として扱います。未使用の別枠を回収・記録保存へ充てず、終了不明を成功にしません。最大追加枠は第1段階2分、第2段階6分です。CLI失敗・時間切れ・認証や利用枠のエラー・保存失敗・容量超過・終了不明では後続を起動せず、未実行も予定行として残します。保存例外などで起動状態が分からない行は`launchUnknown`を付け、起動0や成功と読み替えません。通常の課題内コマンド失敗と、CLI全体の失敗をJSONLで区別します。成功するまでの自動再試行は0です。
+
+終了JSON等を含むログ合計は16MiB／試行、成果物は1ファイル1MiB・合計8MiB・2,000件以下で収集します。ディレクトリも件数へ含め、symlinkは収集しません。これはログと回収の上限であり、作業ディスクのquotaではありません。Docker同等のCPU・メモリー・PID隔離、全HTTP捕捉、内部の再送禁止、APIのtier・usage監査は保証しません。ネイティブのプロセス群終了もPID namespaceと同じ保証ではなく、確認済みの合成課題だけに限定します。
+
+`evaluation.json`は段階・全予定行・実行方式・版・境界証拠・実行状態・取得できたusageと実時間を持ちます。各試行の`versions.json`で開始直前の実効版・実体hashを再照合します。`actor.stdout`はJSONL、`actor.stderr`・`launch.json`（実際のargv・profile・prompt hash）・`probe.json`・`trial.json`・`artifacts.json`と回収物はローカル限定です。正常終了・自己申告・参照への言及だけで要求充足にしません。既存8課題の基準で、発見・適用、要求充足、不要な調査や逸脱、負担を独立に裁定します。裁定JSONの証拠ファイル・hash・行、条件差、理由を照合し、`fulfilled`／`unfulfilled`／`indeterminate`と実行状態を別に残します。ネイティブでは実際の境界・終了証拠を要求し、Docker削除済みの架空値は使いません。
+
+usage未取得・不正・JSONL欠落を0や無料にせず、ChatGPT枠をAPI単価でドルへ換算しません。第1段階の出口は「記録と基準で裁定できる／不足がある」と次の判断です。差なし・悪化・判定不能も残し、#385・#387・#388の効果はまだ未評価です。各条件1回の少数例から統計的改善、4件それぞれの独立効果、通常フロー全体、費用や速度改善を主張しません。両段階を合わせるのはrunner・モデル・入力・設定が共通の場合だけで、期間差を明示します。
+
+採点は既存の条件名を伏せる手順を使えますが、指示から推測できるため完全な盲検ではありません。採点専用モデル・自動投稿は追加しません。生ログと採点情報はhost-only、公開summaryは後続で合意したIssue/PRへ人が確認して手動共有します。実アカウントの推論互換性、利用枠消費、指示の効果は本Issue完了後も未確認です。
+
 ## 指示変更時の同条件eval
 
 `scoping`・`implement`や、それらに適用する`AGENTS.md`を改善するとき、[Issue #191](https://github.com/thkt/dotagents/issues/191)の合意に従って、変更前後の行動・成果・負担を比べます。[Issue #335](https://github.com/thkt/dotagents/issues/335)により、下記の共通参照文書も明示して比較できます。入口は `bun eval/eval.ts plan|preflight|run CONFIG` と `report RUN_DIRECTORY [JUDGMENTS_JSON]` です。通常のdevelopment、定期監査、全PRのCIには接続しません。既存の証拠で判断できる変更には実モデル呼出しを追加しません。

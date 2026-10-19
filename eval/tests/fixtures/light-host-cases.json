@@ -1,0 +1,188 @@
+{
+  "scope": "モデルなし・合成入力だけのネイティブ確認。実ChatGPT認証成功やDocker同等の保証にはしない。",
+  "operations": [
+    {
+      "target": "public-input",
+      "methods": [
+        "read",
+        "shell-read",
+        "read-tool"
+      ],
+      "expected": "allowed"
+    },
+    {
+      "target": "trial-workspace",
+      "methods": [
+        "write"
+      ],
+      "expected": "allowed"
+    },
+    {
+      "target": "trial-temporary",
+      "methods": [
+        "write"
+      ],
+      "expected": "allowed"
+    },
+    {
+      "target": "dummy-auth",
+      "methods": [
+        "read",
+        "shell-read",
+        "read-tool",
+        "write"
+      ],
+      "expected": "denied"
+    },
+    {
+      "target": "other-trial",
+      "methods": [
+        "read",
+        "shell-read",
+        "read-tool",
+        "write"
+      ],
+      "expected": "denied"
+    },
+    {
+      "target": "host-judgments",
+      "methods": [
+        "read",
+        "shell-read",
+        "read-tool",
+        "write"
+      ],
+      "expected": "denied"
+    },
+    {
+      "target": "synthetic-private",
+      "methods": [
+        "read",
+        "shell-read",
+        "read-tool",
+        "write"
+      ],
+      "expected": "denied"
+    },
+    {
+      "target": "unlisted-scratch-tmp",
+      "methods": [
+        "read",
+        "shell-read",
+        "read-tool",
+        "write"
+      ],
+      "expected": "denied"
+    },
+    {
+      "target": "unlisted-scratch-var-tmp",
+      "methods": [
+        "read",
+        "shell-read",
+        "read-tool",
+        "write"
+      ],
+      "expected": "denied"
+    },
+    {
+      "target": "reachable-loopback-canary",
+      "methods": [
+        "network"
+      ],
+      "expected": "permission-denied"
+    }
+  ],
+  "authentication": [
+    {
+      "state": "chatgpt",
+      "eligible": true
+    },
+    {
+      "state": "absent",
+      "eligible": false
+    },
+    {
+      "state": "api",
+      "eligible": false
+    },
+    {
+      "state": "unknown",
+      "eligible": false
+    }
+  ],
+  "execution": [
+    {
+      "scenario": "normal",
+      "execution": "completed",
+      "mayContinue": true
+    },
+    {
+      "scenario": "task-failure",
+      "execution": "completed",
+      "mayContinue": true
+    },
+    {
+      "scenario": "cli-failure",
+      "execution": "failed",
+      "mayContinue": false
+    },
+    {
+      "scenario": "auth-error",
+      "execution": "failed",
+      "mayContinue": false
+    },
+    {
+      "scenario": "quota-error",
+      "execution": "failed",
+      "mayContinue": false
+    },
+    {
+      "scenario": "timeout",
+      "execution": "timeout",
+      "mayContinue": false
+    },
+    {
+      "scenario": "log-overflow",
+      "execution": "failed",
+      "mayContinue": false
+    },
+    {
+      "scenario": "artifact-file-overflow",
+      "execution": "failed",
+      "mayContinue": false
+    },
+    {
+      "scenario": "artifact-total-overflow",
+      "execution": "failed",
+      "mayContinue": false
+    },
+    {
+      "scenario": "artifact-count-overflow",
+      "execution": "failed",
+      "mayContinue": false
+    }
+  ],
+  "nativeFixedResponses": "eval/tests/light-native-responses.fixture.ts: nativeFixedResponses(採用Bunの絶対パス, 採用版)",
+  "hostObservations": [
+    "段階1は4試行、段階2は重複しない12試行を分母に保つ。段階1から段階2を自動起動せず、終了0や自己申告だけでfulfilledにしない。",
+    "missing-jsonlは完了の証拠やusage 0にしない。invalid-usageは取得不能として残し、API単価で金額へ換算しない。",
+    "保存先の書込み失敗、成果物欠落、終了観測の欠落を個別に与え、原記録保全と後続起動0を照合する。検証前の環境不正を狙った障害の再現に数えない。",
+    "各read対象は内側のprobe前にhostで作成し本文とhashを保存する。ENOENTは拒否の証拠にしない。",
+    "拒否writeは既存canaryを使い、操作後にhostが原本文・hashの不変を確認する。",
+    "read-toolは採用CLIが実際に公開する読取りツールで観測する。コマンドreadだけで完了にしない。",
+    "初回toolDeclarationsに読取りツールが見えなくても不存在としない。nativeToolInventoryResponsesの実出力を保存し、遅延公開を含むname・descriptionと実schemaから読取り経路を特定する。一覧未取得やschema不明は未確認。nativeReadToolResponsesの結果はホストが正常対照・実拒否・未存在・引数不正を区別して裁定する。合成本文だけを使い、実資格情報を渡さない。",
+    "network操作の引数はホストが用意したhttp://127.0.0.1:PORT/path。profile外の直前と直後に同じcanaryへ到達する正常対照を保存する。EPERM・EACCES等の明示的拒否、または採用CLIの--log-denialsによる同じ実行ファイルbasename・同じcanaryポートのnetwork-outbound拒否を照合する。ECONNREFUSEDだけや別プログラム・別ポート・通信以外の拒否、未実行・構文不正は拒否成功にしない。診断はnetwork操作だけで有効にし、原stderrと対象情報を保存する。時間切れ・終了不明・前後対照の失敗は診断があっても未確認とする。外部の推論先へは接続しない。",
+    "ネイティブ固定応答は生成したSSEと実行JSのhashを保存する。正常2例・終了23・marker欠落・期限・割込みを採用CLIのテスト専用ローカルproviderへ接続し、CLIの操作記録と成果物・親子版・終了を照合する。Docker用preflight.jsonの7シナリオをネイティブ証拠へ転用しない。",
+    "正常操作・課題検証・成果物回収は別に成功を観測する。",
+    "timeout fixtureのfixture.readyを待ってからSIGINTとSIGTERMをそれぞれ送り、親子の終了と後続起動0・保存保全を観測する。",
+    "後始末は別枠30秒。終了不明、保存失敗、記録上限では後続起動0。runは再開・上書きしない。",
+    "CLI・Bun・Git・runner・profile・fixtureの実効版とhashへ証拠を結び付ける。設定文字列や過去Docker証拠だけでは採用しない。",
+    "このmanifestと採点情報を比較actorの通常入力へ含めない。実認証本文・tokenをfixtureや証拠へ保存しない。",
+    "未列挙canaryはホストが/private/tmpと/private/var/tmpの別々の新規mkdtemp配下にcanary.txtとして作成する。当該workspace・専用一時領域の外に置き、個別パスをprofileの許可・拒否へ列挙しない。通常の合成読取り対照とworkspace・専用一時領域への書込みを同じprofileで維持し、両canaryのread・shell-read・read-tool・writeが拒否されることを照合する。期待値はIssue #405の私的ファイル保護と書込み先制限に基づく。",
+    "境界fixtureは許可workspaceへbyte同一でコピーし、元とコピーのhashを保存する。操作本文は変更しない。fixture実体やBunに到達できない失敗を対象canaryの拒否としない。",
+    "nativeBoundaryResponsesのmarkerやCLI終了0・最終応答だけでは操作到達も拒否も認定しない。実コマンド・対象パス・終了・fixtureのkindと観測を照合する。操作記録がない、引数不正、fixture未実行、ENOENT、時間切れ、終了不明は未確認とし、書込み前後のcanary不変だけで拒否成功にしない。拒否は実操作のEACCES・EPERM等と、write後の原本文・hash不変を併せて確認する。実read-toolも同じ正常対照と対象を使い、記録がない場合は未確認とする。"
+  ],
+  "nativeToolInventoryResponses": "eval/tests/light-native-responses.fixture.ts: nativeToolInventoryResponses()。既存と同じsteps/SSE契約で実行時ALL_TOOLSを観測する。",
+  "nativeReadToolResponses": "eval/tests/light-native-responses.fixture.ts: nativeReadToolResponses(実一覧のname, 実schemaに従う合成パスの引数)。公開入力とdummy-auth・other-trial・host-judgments・synthetic-privateを同じ実ツールで個別確認する。",
+  "nativeBoundaryResponses": "eval/tests/light-native-responses.fixture.ts: nativeBoundaryResponses(採用Bunの絶対パス, 許可workspace内へ同一hashでコピーしたlight-boundary.fixture.tsの絶対パス, read | shell-read | write, 合成canaryの絶対パス)。既存steps/SSE契約で操作を固定する。"
+}
