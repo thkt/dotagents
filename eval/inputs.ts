@@ -3,11 +3,11 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { posix, resolve } from 'node:path';
 import { command } from '../scripts/shared/process.ts';
-import type { EvalConfig, EvalCase } from './data.ts';
+import type { InputConfig, EvalCase } from './data.ts';
 import { prepareInitialActorInput, initialActorSources } from './initial-input.ts';
 
-type InputConfig = Pick<
-  EvalConfig,
+type SelectedInputConfig = Pick<
+  InputConfig,
   | 'repository'
   | 'before'
   | 'after'
@@ -97,7 +97,7 @@ function compareActorInputs(
 
 export async function prepareInputs(
   repo: string,
-  config: InputConfig,
+  config: SelectedInputConfig,
   selected: (Omit<EvalCase, 'context'> & { contextBody: string | null })[],
   destination = '/work/repo',
 ) {
@@ -123,28 +123,24 @@ export async function prepareInputs(
     'inputs.ts',
     'light.ts',
     'light-data.ts',
+    'light-context.ts',
     'light-native.ts',
     'light-processes.ts',
     'light-preflight.ts',
-    'eval.ts',
     'initial-input.ts',
-    'container.ts',
-    'sandbox.ts',
     'report.ts',
-    'preflight.ts',
-    'preflight-container.ts',
-    'preflight-worker.ts',
-    'budget.ts',
-    'budget-runtime.ts',
-    'budget-host.ts',
+    'tests/light-host-driver.fixture.ts',
+    'tests/light-host-execution.fixture.ts',
+    'tests/light-native-responses.fixture.ts',
+    'tests/light-host-bundle.fixture.ts',
+    'tests/fixtures/light-host-driver.md',
+    'tests/fixtures/light-host-bundle.md',
     '../scripts/shared/process.ts',
     '../scripts/shared/values.ts',
     '../scripts/shared/token-usage.ts',
     '../package.json',
     '../bun.lock',
   ];
-  const runtimeSource = await readFile(resolve(import.meta.dir, 'container.ts'), 'utf8');
-  const runtimeHash = createHash('sha256').update(runtimeSource).digest('hex');
   const runner = {
     commit: (await git(runnerRoot, ['rev-parse', 'HEAD'])).trim(),
     uncommitted:
@@ -165,11 +161,9 @@ export async function prepareInputs(
           async (path) =>
             [
               path,
-              path === 'container.ts'
-                ? runtimeHash
-                : createHash('sha256')
-                    .update(await readFile(resolve(import.meta.dir, path)))
-                    .digest('hex'),
+              createHash('sha256')
+                .update(await readFile(resolve(import.meta.dir, path)))
+                .digest('hex'),
             ] as const,
         ),
       ),
@@ -248,8 +242,6 @@ export async function prepareInputs(
     selected,
     variants,
     changedInstructions,
-    runtimeSource,
-    runtimeHash,
     runner,
   };
 }

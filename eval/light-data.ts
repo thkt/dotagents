@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { evalConfig } from './data.ts';
+import { inputConfig } from './data.ts';
 
 const lightOrders = [
   [
@@ -24,15 +24,7 @@ const lightOrders = [
     'before-save-diagnostics',
   ],
 ];
-export const lightConfig = evalConfig
-  .omit({
-    image: true,
-    imageReview: true,
-    budget: true,
-    preflightDirectory: true,
-    maxModelRequestsPerCase: true,
-    maxOutputTokens: true,
-  })
+export const lightConfig = inputConfig
   .extend({
     authentication: z.literal('chatgpt'),
     stage: z.union([z.literal(1), z.literal(2)]),
@@ -61,7 +53,7 @@ export const lightConfig = evalConfig
     if (!valid) {
       context.addIssue({
         code: 'custom',
-        message: 'Issue #405の固定入力・段階・順序・上限と一致しません',
+        message: 'Issue #409の固定入力・段階・順序・上限と一致しません',
       });
     }
   });

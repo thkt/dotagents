@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { expect, test } from 'bun:test';
 import { z } from 'zod';
 import { prepareLightHostCase, lightHostCaseIds } from './light-host-driver.fixture.ts';
-import { lightHostArgv, lightHostResponder } from './light-host-execution.fixture.ts';
+import {
+  lightHostArgv,
+  lightHostEnvironment,
+  lightHostResponder,
+} from './light-host-execution.fixture.ts';
 
 const hash = (body: string | Buffer) => createHash('sha256').update(body).digest('hex');
 async function context(
@@ -124,7 +128,7 @@ test('host-casesの正常・保護・未列挙canaryを同じ操作へ接続す�
       assert(record.targetPath);
       expect(await readFile(record.targetPath, 'utf8')).toBe('SYNTHETIC_BOUNDARY_CANARY\n');
       expect(record.steps[0]?.sse).toContain(record.targetPath);
-      expect(record.protectedPaths).toEqual([record.root, record.auth]);
+      expect(record.protectedPaths).toEqual([record.root, record.cliHome, record.auth]);
     }
     expect(lightHostCaseIds).toContain('interrupt-SIGINT');
     expect(lightHostCaseIds).toContain('interrupt-SIGTERM');
@@ -154,6 +158,16 @@ test('固定公開planの配置は本文/hashを保存し、偽hash・脱出パ�
     for (const [path, body] of Object.entries(files)) {
       expect(await readFile(join(record.workspace, path), 'utf8')).toBe(body);
     }
+    expect(record.steps[0]?.requestIncludes).toContain(
+      JSON.stringify(files['AGENTS.md']).slice(1, -1),
+    );
+    for (const path of ['AGENTS.md', 'skills/scoping/SKILL.md', 'skills/implement/SKILL.md']) {
+      expect(record.steps[1]?.requestIncludes).toContain(versions[path]);
+    }
+    const argv = lightHostArgv(record, [], 12345);
+    const instructions = argv.find((arg) => arg.startsWith('developer_instructions='));
+    expect(instructions).toContain(join(record.workspace, 'skills/scoping/SKILL.md'));
+    expect(record.steps[0]?.sse).not.toContain('SYNTHETIC_PERSONAL_REGISTRATION');
     expect(record.publicFiles?.copies.every((copy) => copy.sourceHash === copy.copyHash)).toBe(
       true,
     );
@@ -236,5 +250,172 @@ test('固定SSEは実request本文と応答を保存し、不一致・保存失�
     });
     expect((await failed.fetch(request('functions exec'))).status).toBe(400);
     expect(JSON.stringify(failed.observations())).toContain('SYNTHETIC_SAVE_FAILURE');
+  });
+});
+
+test('ホスト確認は通常登録とsymlinkのある合成認証保存先を使い、実体と別名へ同じ拒否操作を接続する', async () => {
+  await context(async (root, input) => {
+    for (const caseId of ['boundary-dummy-auth-read', 'boundary-dummy-auth-alias-read']) {
+      const record = await prepareLightHostCase({
+        ...input,
+        caseId,
+        outputDirectory: join(root, caseId),
+      });
+      expect(record.expected).toBe('denied');
+      expect(record.registrations).toContain('AGENTS.md');
+      expect(record.registrations).toContain('hooks.json');
+      expect(await readFile(join(record.auth, 'skills/implement/SKILL.md'), 'utf8')).toContain(
+        'SYNTHETIC_PERSONAL_REGISTRATION',
+      );
+      expect((await lstat(join(record.auth, 'skills/personal-link'))).isSymbolicLink()).toBe(true);
+      expect((await lstat(record.paths['dummy-auth-alias'] ?? '')).isSymbolicLink()).toBe(true);
+      expect(record.steps[0]?.sse).toContain(record.targetPath);
+    }
+  });
+});
+
+test('合成の通常HOMEとCODEX_HOMEをCLIへ渡し、actor用一時HOMEと保護領域を分ける', async () => {
+  await context(async (_root, input) => {
+    const record = await prepareLightHostCase(input);
+    expect(record.cliHome).not.toBe(record.temporary);
+    expect(record.auth).toBe(join(record.cliHome, '.codex'));
+    expect(lightHostEnvironment(record)).toEqual({
+      PATH: '/usr/bin:/bin',
+      HOME: record.cliHome,
+      CODEX_HOME: record.auth,
+      TMPDIR: record.temporary,
+    });
+    expect(record.protectedPaths).toContain(record.cliHome);
+    expect(record.protectedPaths).toContain(record.auth);
+    expect(await readFile(join(record.auth, 'AGENTS.md'), 'utf8')).toContain(
+      'SYNTHETIC_PERSONAL_REGISTRATION',
+    );
+  });
+});
+
+async function rejectsFixedInput(
+  record: Awaited<ReturnType<typeof prepareLightHostCase>>,
+  instructions: string,
+  skillPath: string,
+  publicSkill: string,
+) {
+  const request = (content: string, prompt: string) =>
+    new Request('http://127.0.0.1:1/v1/responses', {
+      method: 'POST',
+      body: JSON.stringify({ tools: [{ name: 'functions.exec' }], content, prompt }),
+    });
+  for (const [badInstructions, badPrompt] of [
+    [
+      instructions.replaceAll(skillPath, join(record.auth, 'skills', publicSkill, 'SKILL.md')),
+      record.prompt,
+    ],
+    ...(publicSkill === 'implement' ? [[instructions, '固定担当入力が欠落']] : []),
+  ]) {
+    assert(badInstructions && badPrompt);
+    const rejected = lightHostResponder(record, async () => {});
+    expect((await rejected.fetch(request(badInstructions, badPrompt))).status).toBe(400);
+    expect((await rejected.fetch(request(instructions, record.prompt))).status).toBe(400);
+  }
+}
+
+test('A/Bの固定skillと初回担当入力はCLI設定・raw要求へ接続し、同名登録への置換と担当入力欠落を拒否する', async () => {
+  await context(async (root, input) => {
+    const planFile = join(root, 'plan.json');
+    const variants = ['before', 'after'].map((side) => {
+      const files = {
+        'AGENTS.md': `公開された${side}の指示\n`,
+        'skills/scoping/SKILL.md': `固定${side}のscoping\n`,
+        'skills/implement/SKILL.md': `固定${side}のimplement\n`,
+      };
+      const repairInstructions = `固定${side}の初回担当指示`;
+      const prompt = `${repairInstructions}\n/work/repo/actor-records/test-1.jsonを確認する。`;
+      return {
+        side,
+        files,
+        versions: Object.fromEntries(
+          Object.entries(files).map(([path, body]) => [path, hash(body)]),
+        ),
+        actorInputs: [
+          {
+            case: 'completion-message',
+            prompt,
+            promptHash: hash(prompt),
+            repairInstructions,
+            repairInstructionsHash: hash(repairInstructions),
+            schema: { type: 'object', required: ['status', 'findings'] },
+            files: { 'actor-records/test-1.json': '{"status":"prepared"}\n' },
+          },
+        ],
+      };
+    });
+    await writeFile(planFile, JSON.stringify({ variants }));
+    const request = (instructions: string, prompt: string) =>
+      new Request('http://127.0.0.1:1/v1/responses', {
+        method: 'POST',
+        body: JSON.stringify({
+          tools: [{ name: 'functions.exec' }],
+          input: [
+            { role: 'developer', content: instructions },
+            { role: 'user', content: prompt },
+          ],
+        }),
+      });
+    for (const [variant, publicSkill] of variants.flatMap((variant) =>
+      ['scoping', 'implement'].map((skill) => [variant, skill] as const),
+    )) {
+      const record = await prepareLightHostCase({
+        ...input,
+        caseId: 'public-input',
+        publicSkill,
+        side: variant.side,
+        publicPlanFile: planFile,
+        outputDirectory: join(root, `${variant.side}-${publicSkill}`),
+      });
+      const argv = lightHostArgv(record, [], 12345);
+      const rawInstruction = argv.find((arg) => arg.startsWith('developer_instructions='));
+      assert(rawInstruction);
+      const instructions = z
+        .string()
+        .parse(JSON.parse(rawInstruction.slice('developer_instructions='.length)));
+      const skillPath = join(record.workspace, 'skills', publicSkill, 'SKILL.md');
+      expect(instructions).toContain(variant.files['AGENTS.md']);
+      expect(instructions).toContain(skillPath);
+      expect(instructions).not.toContain('SYNTHETIC_PERSONAL_REGISTRATION');
+      expect(
+        await readFile(join(record.cliHome, '.agents/skills', publicSkill, 'SKILL.md'), 'utf8'),
+      ).toBe(
+        variant.files[
+          publicSkill === 'scoping' ? 'skills/scoping/SKILL.md' : 'skills/implement/SKILL.md'
+        ],
+      );
+      if (publicSkill === 'implement') {
+        const actor = variant.actorInputs[0];
+        assert(actor);
+        expect(record.prompt).toBe(actor.prompt.replaceAll('/work/repo', record.workspace));
+        expect(argv).toContain('--output-schema');
+        expect(await readFile(join(record.workspace, 'actor-records/test-1.json'), 'utf8')).toBe(
+          '{"status":"prepared"}\n',
+        );
+      }
+      const saved = new Map<string, string>();
+      const responder = lightHostResponder(record, async (name, body) => {
+        saved.set(name, body);
+      });
+      expect((await responder.fetch(request(instructions, record.prompt))).status).toBe(200);
+      expect(saved.get('request-0.json')).toContain(variant.side);
+      await rejectsFixedInput(record, instructions, skillPath, publicSkill);
+    }
+    const missing = variants.map((variant) => ({ ...variant, actorInputs: [] }));
+    await writeFile(planFile, JSON.stringify({ variants: missing }));
+    await assert.rejects(
+      prepareLightHostCase({
+        ...input,
+        caseId: 'public-input',
+        publicSkill: 'implement',
+        publicPlanFile: planFile,
+        outputDirectory: join(root, 'missing-actor'),
+      }),
+      /固定初回担当入力/,
+    );
   });
 });

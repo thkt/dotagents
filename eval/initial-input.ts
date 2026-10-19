@@ -3,10 +3,10 @@ import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { isRecord } from '../scripts/shared/values.ts';
-import type { EvalConfig } from './data.ts';
+import type { InputConfig } from './data.ts';
 
 type ActorConfig = Pick<
-  EvalConfig,
+  InputConfig,
   'before' | 'after' | 'trialOrder' | 'workspaceCommit' | 'model' | 'reasoning'
 >;
 
@@ -189,14 +189,14 @@ export function prepareInitialActorInput(
       launch: {
         model: config.model,
         reasoning: config.reasoning,
-        sandbox: 'danger-full-access',
+        permissionProfile: 'eval-light',
         approvalPolicy: 'never',
-        isolation: 'verified-eval-docker',
+        isolation: 'native-chatgpt',
       },
       commonDifferences: [
-        '通常CLIを再帰起動せず、隔離evalの同一runnerから初回repair担当だけを起動する。',
+        '通常CLIを再帰起動せず、軽量evalの同一runnerから初回repair担当だけを起動する。',
         '公開の合成Issue・setupなし・課題別check・captureなし・独立準備記録を両条件へ同じ形で渡す。',
-        'eval専用Dockerを隔離境界とし、danger-full-access・承認never・ephemeral・ignore-rules・中継・有限上限をA/B共通で使う。通常のworkspace境界は保証せず、独立評価と公開は行わない。',
+        '専用permission profile・承認never・ephemeral・ignore-rules・有限上限をA/B共通で使う。独立評価と公開は行わない。',
         '通常repairの候補はgpt-6.1-sol / medium。実行時は別途合意したconfigのmodel / reasoningで全試行を固定する。',
       ],
     };

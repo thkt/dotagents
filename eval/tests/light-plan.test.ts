@@ -8,6 +8,7 @@ import { expect, test } from 'bun:test';
 import { isRecord } from '../../scripts/shared/values.ts';
 import { instructionFiles, lightInputRepository } from './trusted-inputs.ts';
 import { lightCliFixture } from './light-cli.fixture.ts';
+import { prepareLightHostCase } from './light-host-driver.fixture.ts';
 
 // Issueの段階・順序が正本。入口とJSONキーは独立テストの接続上の選択であり、
 // 内部exportの公開契約や、実アカウントでの推論許可を追加するものではない。
@@ -134,7 +135,7 @@ function successfulPlan(result: SpawnSyncReturns<string>) {
   assert.equal(result.status, 0, result.stdout + result.stderr);
   const value: unknown = JSON.parse(result.stdout);
   assert(isRecord(value) && isRecord(value.config) && Array.isArray(value.variants));
-  return { ...value, config: value.config, variants: value.variants };
+  return { ...value, config: value.config, variants: value.variants, runner: value.runner };
 }
 
 async function noInference(path: string) {
@@ -153,6 +154,47 @@ async function noInference(path: string) {
     }
   }
 }
+
+test('公開CLIのplanからホストprepareへ固定初回担当入力を接続し、A/Bとも配置先だけを変換する', async () => {
+  await fixture(1, async ({ repo, invoke, starts }) => {
+    const plan = successfulPlan(await invoke('plan'));
+    const planFile = join(repo, 'public-plan.json');
+    await writeFile(planFile, JSON.stringify(plan));
+    for (const side of ['before', 'after'] as const) {
+      const variant: unknown = plan.variants.find((item) => isRecord(item) && item.side === side);
+      assert(isRecord(variant) && Array.isArray(variant.actorInputs));
+      const actor: unknown = variant.actorInputs.find(
+        (item: unknown) => isRecord(item) && item.case === 'completion-message',
+      );
+      assert(isRecord(actor) && typeof actor.prompt === 'string' && isRecord(actor.files));
+      const sourceRoot = '/private/tmp/eval-light-trial/workspace';
+      expect(actor.prompt).toContain(`${sourceRoot}/actor-records/test-1.json`);
+      const record = await prepareLightHostCase({
+        repoRoot: repository,
+        outputDirectory: join(repo, '..', `${side}'s $& host-output`),
+        bunExecutable: process.execPath,
+        bunVersion: Bun.version,
+        cliExecutable: join(repo, 'forbidden-cli'),
+        gitExecutable: '/usr/bin/git',
+        caseId: 'public-input',
+        publicSkill: 'implement',
+        side,
+        publicPlanFile: planFile,
+      });
+      const expected = actor.prompt.split(sourceRoot).join(record.workspace);
+      expect(record.prompt).toBe(expected);
+      expect(record.prompt).not.toContain(sourceRoot);
+      expect(record.prompt).toContain(join(record.workspace, 'actor-records/test-1.json'));
+      for (const [path, body] of Object.entries(actor.files)) {
+        assert(typeof body === 'string');
+        expect(await readFile(join(record.workspace, path), 'utf8')).toBe(body);
+      }
+      assert(isRecord(actor.schema));
+      expect(record.responseSchema).toEqual(actor.schema);
+    }
+    await noInference(starts);
+  });
+});
 
 function verifyVariant(repo: string, config: Record<string, unknown>, variant: unknown) {
   assert(isRecord(variant) && isRecord(variant.files) && isRecord(variant.versions));
@@ -198,6 +240,24 @@ for (const stage of [1, 2] as const) {
       const plan = successfulPlan(await invoke('plan'));
       expect(plan.config).toMatchObject(config);
       expect(plan.variants).toHaveLength(2);
+      assert(isRecord(plan.runner) && isRecord(plan.runner.sourceHashes));
+      const obsolete = [
+        'eval.ts',
+        'container.ts',
+        'sandbox.ts',
+        'preflight.ts',
+        'preflight-container.ts',
+        'preflight-worker.ts',
+        'budget.ts',
+        'budget-host.ts',
+        'budget-runtime.ts',
+      ];
+      for (const path of obsolete) {
+        expect(
+          Object.hasOwn(plan.runner.sourceHashes, path),
+          `削除したAPIファイルをhash取得しない: ${path}`,
+        ).toBe(false);
+      }
       expect(plan.variants.map((variant) => (isRecord(variant) ? variant.side : null))).toEqual([
         'before',
         'after',
@@ -213,6 +273,22 @@ for (const stage of [1, 2] as const) {
 }
 
 const invalidPlans: [string, Record<string, unknown>][] = [
+  ...[
+    'image',
+    'imageReview',
+    'budget',
+    'preflightDirectory',
+    'maxModelRequestsPerCase',
+    'maxOutputTokens',
+  ].map((key): [string, Record<string, unknown>] => [
+    `旧API専用キー ${key}`,
+    { [key]: key === 'budget' ? {} : key.startsWith('max') ? 1 : 'synthetic-old-value' },
+  ]),
+  ['偽のGitHubホスト', { issue: 'https://github.com.example/thkt/dotagents/issues/409' }],
+  ['別repoのIssue', { issue: 'https://github.com/other/dotagents/issues/409' }],
+  ['重複した入力', { instructionFiles: [...instructionFiles, 'AGENTS.md'] }],
+  ['非正規の入力パス', { workspaceFiles: ['eval/fixtures/workspace/../corpus/cases.json'] }],
+
   ['片側だけ', { trialOrder: ['before-storage-fields', 'before-completion-message'] }],
   ['重複', { trialOrder: Array(4).fill('before-storage-fields') }],
   ['順序の入替え', { trialOrder: [...(orders[0] ?? [])].reverse() }],
@@ -235,6 +311,8 @@ const invalidPlans: [string, Record<string, unknown>][] = [
 ];
 
 for (const [name, changes] of invalidPlans) {
+  // 正常対照と拒否の各CLIに10秒、固定Git入力の準備・後片付けに10秒を確保する。
+  // 比較試行の期限や性能の合否とは別の、テスト実行器の待機上限。
   test(`軽量planは${name}を拒否する（同じ設定の正常対照つき）`, async () => {
     await fixture(1, async ({ invoke, starts }) => {
       successfulPlan(await invoke('plan'));
@@ -243,5 +321,5 @@ for (const [name, changes] of invalidPlans) {
       expect(result.status, result.stdout + result.stderr).not.toBe(0);
       await noInference(starts);
     });
-  });
+  }, 30000);
 }

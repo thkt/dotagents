@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import {
   nativeBoundaryResponses,
+  nativeFixedInputResponses,
   nativeFixedResponses,
   nativeReadToolResponses,
   nativeToolInventoryResponses,
@@ -23,6 +24,7 @@ const configuration = z.strictObject({
   caseId: z.string().min(1),
   publicPlanFile: absolute.optional(),
   side: z.enum(['before', 'after']).default('after'),
+  publicSkill: z.enum(['scoping', 'implement']).default('scoping'),
   // 実一覧とschemaを確認したホストが選ぶ。$TARGETだけを合成パスへ接続する。
   readTool: z
     .strictObject({ name: z.string().min(1), args: z.record(z.string(), z.unknown()) })
@@ -34,6 +36,7 @@ const targets = [
   'trial-workspace',
   'trial-temporary',
   'dummy-auth',
+  'dummy-auth-alias',
   'other-trial',
   'host-judgments',
   'synthetic-private',
@@ -89,7 +92,7 @@ async function copyFixture(source: string, destination: string) {
 async function publicInput(
   config: z.infer<typeof configuration>,
   workspace: string,
-  temporary: string,
+  cliHome: string,
 ) {
   assert(config.publicPlanFile, 'public-inputには固定公開planが必要');
   const plan = z
@@ -99,11 +102,26 @@ async function publicInput(
           side: z.enum(['before', 'after']),
           files: z.record(z.string(), z.string()),
           versions: z.record(z.string(), z.string()),
+          actorInputs: z
+            .array(
+              z.object({
+                case: z.string(),
+                prompt: z.string(),
+                promptHash: z.string(),
+                repairInstructions: z.string(),
+                repairInstructionsHash: z.string(),
+                schema: z.record(z.string(), z.unknown()),
+                files: z.record(z.string(), z.string()),
+              }),
+            )
+            .default([]),
         }),
       ),
     })
     .parse(JSON.parse(await readFile(config.publicPlanFile, 'utf8')));
-  const variant = plan.variants.find((item) => item.side === config.side);
+  const variants = plan.variants.filter((item) => item.side === config.side);
+  assert.equal(variants.length, 1, '指定側の公開入力は一つだけ必要');
+  const variant = variants[0];
   assert(variant && variant.files['AGENTS.md'], '指定側の公開入力がない');
   const copies = [];
   for (const [path, body] of Object.entries(variant.files)) {
@@ -127,15 +145,52 @@ async function publicInput(
       copyHash: hash(await readFile(destination)),
     });
   }
-  await mkdir(join(temporary, '.agents/skills'), { recursive: true, mode: 0o700 });
+  await mkdir(join(cliHome, '.agents/skills'), { recursive: true, mode: 0o700 });
   for (const skill of ['scoping', 'implement']) {
     assert(variant.files[`skills/${skill}/SKILL.md`], '固定skill本文がない');
-    await symlink(join(workspace, 'skills', skill), join(temporary, '.agents/skills', skill));
+    await symlink(join(workspace, 'skills', skill), join(cliHome, '.agents/skills', skill));
   }
   const immutable = Object.keys(variant.files)
     .filter((path) => !path.startsWith('eval/fixtures/workspace/src/'))
     .map((path) => join(workspace, path));
-  return { copies, immutable, developerInstructions: variant.files['AGENTS.md'] };
+  const skillPath = join(workspace, 'skills', config.publicSkill, 'SKILL.md');
+  const agents = variant.files['AGENTS.md'];
+  const developerInstructions = `${agents}\nこの試行では固定した[${config.publicSkill}](${skillPath})を使ってください。`;
+  const actor =
+    config.publicSkill === 'implement'
+      ? variant.actorInputs.filter((item) => item.case === 'completion-message')
+      : [];
+  assert(
+    config.publicSkill !== 'implement' || actor.length === 1,
+    '固定初回担当入力がないか重複している',
+  );
+  const initial = actor[0];
+  if (initial) {
+    assert.equal(hash(initial.prompt), initial.promptHash, '固定担当入力hash不一致');
+    assert.equal(
+      hash(initial.repairInstructions),
+      initial.repairInstructionsHash,
+      '固定担当指示hash不一致',
+    );
+    for (const [path, body] of Object.entries(initial.files)) {
+      assert(/^actor-records\/[a-zA-Z0-9_.-]+$/.test(path), '固定担当記録のパスが不正');
+      await save(join(workspace, path), body);
+      immutable.push(join(workspace, path));
+    }
+  }
+  return {
+    copies,
+    immutable,
+    agents,
+    skillPath,
+    developerInstructions,
+    prompt:
+      initial?.prompt.replace(
+        /\/(?:work\/repo|private\/tmp\/eval-light-trial\/workspace)(?=\/)/g,
+        () => workspace,
+      ) ?? null,
+    responseSchema: initial?.schema ?? null,
+  };
 }
 
 function toolSteps(config: z.infer<typeof configuration>, id: string, target: string) {
@@ -214,6 +269,10 @@ async function canaryPaths(
   for (const path of Object.values(paths)) {
     await save(path, canary);
   }
+  // 専用一時領域の別名でも実体の資格情報を読めないことを確認する。
+  const alias = join(temporary, 'auth-alias.txt');
+  await symlink(paths['dummy-auth'] ?? '', alias);
+  paths['dummy-auth-alias'] = alias;
   return paths;
 }
 
@@ -245,6 +304,37 @@ async function caseSteps(
   return { steps, fixed: fixed ?? null };
 }
 
+function registrationBody(path: string) {
+  if (path === 'config.toml') {
+    return '# 合成の個人設定\n';
+  }
+  if (path.endsWith('.json')) {
+    return '{}\n';
+  }
+  const marker = `SYNTHETIC_PERSONAL_REGISTRATION_${path}\n`;
+  return path.endsWith('SKILL.md')
+    ? `---\nname: ${path.includes('implement') ? 'implement' : 'scoping'}\ndescription: 合成の個人スキル\n---\n${marker}`
+    : marker;
+}
+
+function publicInputSteps(
+  bun: string,
+  workspace: string,
+  publicFiles: Awaited<ReturnType<typeof publicInput>>,
+) {
+  return nativeFixedInputResponses(
+    bun,
+    publicFiles.copies
+      .filter((copy) =>
+        ['AGENTS.md', 'skills/scoping/SKILL.md', 'skills/implement/SKILL.md'].includes(copy.path),
+      )
+      .map((copy) => ({ path: join(workspace, copy.path), sha256: copy.copyHash })),
+    publicFiles.agents,
+    [publicFiles.skillPath, ...(publicFiles.prompt ? [publicFiles.prompt] : [])],
+    publicFiles.responseSchema !== null,
+  );
+}
+
 // prepareはファイル配置だけ。runも一操作だけで止まり、後続試行・再試行を起動しない。
 export async function prepareLightHostCase(input: unknown) {
   const config = configuration.parse(input);
@@ -259,8 +349,9 @@ export async function prepareLightHostCase(input: unknown) {
   await mkdir(root, { mode: 0o700 });
   const workspace = join(root, 'workspace'),
     temporary = join(root, 'temporary'),
-    auth = join(root, 'dummy-auth');
-  for (const path of [workspace, temporary, auth]) {
+    cliHome = join(root, 'cli-home'),
+    auth = join(cliHome, '.codex');
+  for (const path of [workspace, temporary, cliHome, auth]) {
     await mkdir(path, { mode: 0o700 });
   }
   const fixture = await copyFixture(
@@ -281,8 +372,26 @@ export async function prepareLightHostCase(input: unknown) {
     targetPath,
     selected,
   );
+  // 実認証は使わない。通常登録・同名skill・symlinkのある合成保存先を全caseで使う。
+  const registrations = [
+    'AGENTS.md',
+    'config.toml',
+    'hooks.json',
+    'plugins/probe.json',
+    'rules/probe.md',
+    'memories/probe.md',
+    'skills/implement/SKILL.md',
+    'skills/scoping/SKILL.md',
+  ];
+  for (const path of registrations) {
+    await save(join(auth, path), registrationBody(path));
+  }
+  await symlink(join(auth, 'skills/implement'), join(auth, 'skills/personal-link'));
   const publicFiles =
-    config.caseId === 'public-input' ? await publicInput(config, workspace, temporary) : null;
+    config.caseId === 'public-input' ? await publicInput(config, workspace, cliHome) : null;
+  const fixedInputSteps = publicFiles
+    ? publicInputSteps(config.bunExecutable, workspace, publicFiles)
+    : steps;
   const immutable = [fixture.destination, ...(publicFiles?.immutable ?? [])];
   if (publicFiles) {
     immutable.push(
@@ -290,7 +399,7 @@ export async function prepareLightHostCase(input: unknown) {
       ...['.git', '.agents', '.codex'].map((path) => join(workspace, path)),
     );
   }
-  const protectedPaths = [root, auth];
+  const protectedPaths = [root, cliHome, auth];
   const before = Object.fromEntries(
     await Promise.all(
       Object.entries(paths).map(
@@ -304,6 +413,7 @@ export async function prepareLightHostCase(input: unknown) {
     root,
     workspace,
     temporary,
+    cliHome,
     auth,
     fixture,
     hostCases,
@@ -313,7 +423,8 @@ export async function prepareLightHostCase(input: unknown) {
     before,
     publicFiles,
     fixed,
-    steps,
+    steps: fixedInputSteps,
+    registrations,
     target: selected,
     targetPath,
     expected: selected
@@ -321,7 +432,9 @@ export async function prepareLightHostCase(input: unknown) {
         ? 'denied'
         : 'allowed'
       : 'ホスト裁定',
-    prompt: fixed?.prompt ?? '合成のモデルなし固定操作だけを記録してください。',
+    responseSchema: publicFiles?.responseSchema ?? fixed?.responseSchema ?? null,
+    prompt:
+      publicFiles?.prompt ?? fixed?.prompt ?? '合成のモデルなし固定操作だけを記録してください。',
   };
   await save(join(root, 'prepared.json'), JSON.stringify(record, null, 2));
   return record;

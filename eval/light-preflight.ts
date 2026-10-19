@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { isRecord } from '../scripts/shared/values.ts';
 import { lightEnvironment } from './light-data.ts';
@@ -209,6 +209,7 @@ async function diagnoseOperations(
     'trial-workspace': join(workspace, 'write.txt'),
     'trial-temporary': join(temporary, 'write.txt'),
     'dummy-auth': join(home, 'auth.json'),
+    'dummy-auth-alias': join(temporary, 'auth-alias.txt'),
     'other-trial': join(root, 'other-trial'),
     'host-judgments': join(root, 'host-judgments'),
     'synthetic-private': join(root, 'synthetic-private'),
@@ -218,10 +219,12 @@ async function diagnoseOperations(
     'reachable-loopback-canary': canary,
   };
   for (const [target, path] of Object.entries(files).filter(
-    ([target]) => target !== 'reachable-loopback-canary',
+    ([target]) => !['reachable-loopback-canary', 'dummy-auth-alias'].includes(target),
   )) {
     await writeFile(path, `SYNTHETIC_${target}\n`, { flag: 'wx', mode: 0o600 });
   }
+  assert(files['dummy-auth'] && files['dummy-auth-alias']);
+  await symlink(files['dummy-auth'], files['dummy-auth-alias']);
   const profile = lightProfile(
     workspace,
     temporary,

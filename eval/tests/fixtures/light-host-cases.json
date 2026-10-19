@@ -35,6 +35,16 @@
       "expected": "denied"
     },
     {
+      "target": "dummy-auth-alias",
+      "methods": [
+        "read",
+        "shell-read",
+        "read-tool",
+        "write"
+      ],
+      "expected": "denied"
+    },
+    {
       "target": "other-trial",
       "methods": [
         "read",

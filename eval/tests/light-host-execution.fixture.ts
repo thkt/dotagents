@@ -63,6 +63,16 @@ function runtimeAdapter(imported: unknown): Runtime {
   };
 }
 
+// CLI自身のHOMEと認証保存先は合成の通常環境。actorのHOMEはprofileで一時領域へ限定する。
+export function lightHostEnvironment(prepared: Prepared) {
+  return {
+    PATH: '/usr/bin:/bin',
+    HOME: prepared.cliHome,
+    CODEX_HOME: prepared.auth,
+    TMPDIR: prepared.temporary,
+  };
+}
+
 // 純粋な接続。外部endpoint・実認証・通常設定を受け付ける引数は設けない。
 export function lightHostArgv(prepared: Prepared, profileArgs: string[], port: number) {
   assert(Number.isInteger(port) && port > 0 && port < 65536);
@@ -95,7 +105,7 @@ export function lightHostArgv(prepared: Prepared, profileArgs: string[], port: n
       `developer_instructions=${JSON.stringify(prepared.publicFiles.developerInstructions)}`,
     );
   }
-  if (prepared.fixed?.responseSchema) {
+  if (prepared.responseSchema) {
     argv.push('--output-schema', join(prepared.root, 'schema.json'));
   }
   return [...argv, '-'];
@@ -179,12 +189,7 @@ async function runtimeEvidence(prepared: Prepared, save: ReturnType<typeof recor
     const result = Bun.spawnSync([executable, '--version'], {
       timeout: 5000,
       maxBuffer: 1024 * 1024,
-      env: {
-        PATH: '/usr/bin:/bin',
-        HOME: prepared.temporary,
-        CODEX_HOME: prepared.auth,
-        TMPDIR: prepared.temporary,
-      },
+      env: lightHostEnvironment(prepared),
     });
     const record = {
       executable,
@@ -200,7 +205,7 @@ async function runtimeEvidence(prepared: Prepared, save: ReturnType<typeof recor
   }
   const revision = Bun.spawnSync(
     [prepared.config.gitExecutable, '-C', prepared.config.repoRoot, 'rev-parse', 'HEAD'],
-    { timeout: 5000, env: { PATH: '/usr/bin:/bin', HOME: prepared.temporary } },
+    { timeout: 5000, env: { PATH: '/usr/bin:/bin', HOME: prepared.cliHome } },
   );
   assert.equal(revision.exitCode, 0);
   await save(
@@ -304,8 +309,8 @@ export async function executeLightHostCase(prepared: Prepared) {
     [prepared.config.bunExecutable, prepared.config.gitExecutable],
     prepared.auth,
   );
-  if (prepared.fixed?.responseSchema) {
-    await save('schema.json', JSON.stringify(prepared.fixed.responseSchema));
+  if (prepared.responseSchema) {
+    await save('schema.json', JSON.stringify(prepared.responseSchema));
   }
   const responder = lightHostResponder(prepared, save);
   const server = Bun.serve({
@@ -320,7 +325,11 @@ export async function executeLightHostCase(prepared: Prepared) {
     const argv = lightHostArgv(prepared, runtime.profileArguments(profile), server.port);
     await save(
       'connection.json',
-      JSON.stringify({ argv, profile, fixture: prepared.fixture }, null, 2),
+      JSON.stringify(
+        { argv, profile, environment: lightHostEnvironment(prepared), fixture: prepared.fixture },
+        null,
+        2,
+      ),
     );
     if (prepared.config.caseId.startsWith('interrupt-')) {
       observer = interruptObserver(prepared);
@@ -330,12 +339,7 @@ export async function executeLightHostCase(prepared: Prepared) {
       prepared.workspace,
       prepared.prompt,
       prepared.config.caseId === 'timeout' ? 4000 : 20000,
-      {
-        PATH: '/usr/bin:/bin',
-        HOME: prepared.temporary,
-        CODEX_HOME: prepared.auth,
-        TMPDIR: prepared.temporary,
-      },
+      lightHostEnvironment(prepared),
     );
     observer?.stop();
     await save(

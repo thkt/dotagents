@@ -246,3 +246,39 @@ while (result.session_id) {
     },
   );
 }
+
+// #409: 同名の個人登録があっても固定版の本文を要求・実読取りへ接続する。
+export function nativeFixedInputResponses(
+  bun: string,
+  files: { path: string; sha256: string }[],
+  instructions: string,
+  requiredInputs: string[] = [],
+  structured = false,
+) {
+  const marker = 'PUBLIC_FIXED_INPUT_HASHES';
+  const program = `const {createHash}=require('node:crypto');const {readFileSync}=require('node:fs');console.log(JSON.stringify({marker:${JSON.stringify(marker)},files:${JSON.stringify(files.map((file) => file.path))}.map(path=>({path,sha256:createHash('sha256').update(readFileSync(path)).digest('hex')}))}));`;
+  const cmd = [bun, '-e', program].map(quote).join(' ');
+  const input = `let result = await tools.exec_command(${JSON.stringify({ cmd, yield_time_ms: 1000 })});text(result);while (result.session_id) { result = await tools.write_stdin({session_id: result.session_id, chars: "", yield_time_ms: 1000});text(result); }`;
+  return [
+    {
+      requestIncludes: [
+        'functions',
+        'exec',
+        ...[instructions, ...requiredInputs].map((value) => JSON.stringify(value).slice(1, -1)),
+      ],
+      sse: sse('fixed_inputs', input),
+    },
+    {
+      requestIncludes: [marker, ...files.map((file) => file.sha256)],
+      sse: finalSse(
+        'fixed_inputs',
+        structured
+          ? JSON.stringify({
+              status: 'repaired',
+              findings: '固定入力の本文hashを記録しました。ホストが要求と照合します。',
+            })
+          : '固定入力の本文hashを記録しました。ホストが要求と照合します。',
+      ),
+    },
+  ];
+}

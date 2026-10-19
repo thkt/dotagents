@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { assessTrial } from '../report.ts';
+import { readUsage, assessTrial } from '../report.ts';
 
 const reference = { file: 'actor.stdout', sha256: 'a'.repeat(64), lines: [1, 2] };
 const judgment = {
@@ -61,7 +61,45 @@ test('ネイティブ実行完了と独立裁定なしの要求充足を分け�
 
 test('APIの正常なDocker証拠をネイティブ実行へ流用しない', () => {
   const safety = { containersRemoved: true, networkRemoved: true };
-  const { executionMode: _mode, usage: _usage, reason: _reason, ...api } = record;
-  expect(assess({ ...api, safety })).toMatchObject({ outcome: 'fulfilled' });
+  expect(assess(record)).toMatchObject({ outcome: 'fulfilled' });
   expect(() => assess({ ...record, safety })).toThrow();
+});
+
+test('usage leaves fractional and overflowing token counts unaccounted', () => {
+  const event = (input_tokens: number) =>
+    JSON.stringify({
+      type: 'turn.completed',
+      usage: { input_tokens, cached_input_tokens: 0, output_tokens: 0 },
+    });
+  expect(readUsage([event(10), event(0.5), event(Number.MAX_SAFE_INTEGER)])).toMatchObject({
+    totals: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 0 },
+    completedTurns: 1,
+    incompleteLines: 2,
+  });
+});
+
+test('JSONL欠落・不正usageを0へ変換せず取得済み分と不明を区別する', () => {
+  expect(readUsage(['broken json']).totals).toBeNull();
+  expect(readUsage([]).totals).toBeNull();
+  expect(
+    readUsage([
+      '{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":2}}',
+      'partial',
+    ]),
+  ).toMatchObject({
+    totals: { input_tokens: 10, cached_input_tokens: 4, output_tokens: 2 },
+    incompleteLines: 1,
+  });
+});
+test('行動の自己申告は本文読取り・適用・完全traceの証拠を代替しない', () => {
+  expect(assess(record)).toMatchObject({ outcome: 'fulfilled' });
+  for (const changes of [
+    { bodyReads: [] },
+    { applications: [] },
+    { selection: 'none', completeTrace: [] },
+    { evidence: [] },
+  ]) {
+    expect(() => assess(record, { ...judgment, ...changes })).toThrow();
+  }
+  expect(assess({ ...record, expected: 'boundary' })).toMatchObject({ correct: null });
 });

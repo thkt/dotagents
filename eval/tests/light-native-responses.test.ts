@@ -7,6 +7,7 @@ import { expect, test } from 'bun:test';
 import {
   nativeBoundaryResponses,
   nativeFixedResponses,
+  nativeFixedInputResponses,
   nativeReadToolResponses,
   nativeToolInventoryResponses,
 } from './light-native-responses.fixture.ts';
@@ -251,3 +252,59 @@ for (const item of nativeFixedResponses(process.execPath, Bun.version)) {
     }
   });
 }
+
+test('固定入力のSSEは実ファイルのhashを観測し、初回担当の応答契約へ接続できる', async () => {
+  const root = await mkdtemp(join(tmpdir(), "native-fixed-input's-"));
+  try {
+    const path = join(root, 'SKILL.md');
+    const body = '公開された固定skill本文\n';
+    await writeFile(path, body);
+    const sha256 = Bun.SHA256.hash(body, 'hex');
+    const steps = nativeFixedInputResponses(
+      process.execPath,
+      [{ path, sha256 }],
+      '公開AGENTS',
+      [path],
+      true,
+    );
+    const first = steps[0],
+      last = steps[1];
+    assert(first && last);
+    const outputs: unknown[] = [];
+    await executeProbe(
+      first.sse,
+      [],
+      {
+        exec_command: ({ cmd }: { cmd: string }) => {
+          const result = spawnSync('/bin/sh', ['-c', cmd], {
+            cwd: root,
+            encoding: 'utf8',
+            timeout: 3000,
+          });
+          assert(!result.error && !result.signal, result.stderr);
+          return { exit_code: result.status, output: result.stdout + result.stderr };
+        },
+      },
+      outputs,
+    );
+    const observed = outputs[0];
+    assert(isRecord(observed) && typeof observed.output === 'string');
+    expect(observed.exit_code).toBe(0);
+    expect(JSON.parse(observed.output)).toEqual({
+      marker: 'PUBLIC_FIXED_INPUT_HASHES',
+      files: [{ path, sha256 }],
+    });
+    const output = observed.output;
+    expect(last.requestIncludes.every((value) => output.includes(value))).toBe(true);
+    const completed = last.sse
+      .split('\n')
+      .filter((line) => line.startsWith('data: '))
+      .map((line) => JSON.parse(line.slice(6)) as unknown)
+      .find((event) => isRecord(event) && event.type === 'response.completed');
+    assert(isRecord(completed) && isRecord(completed.response));
+    // JSONLの自己申告を受入証拠とはせず、固定fixtureのschema接続だけを調べる。
+    expect(JSON.stringify(completed.response.output)).toContain('repaired');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

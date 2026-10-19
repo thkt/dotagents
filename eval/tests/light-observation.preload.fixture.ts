@@ -63,14 +63,32 @@ if (process.env.LIGHT_OBSERVATION_SETTINGS) {
     }),
   }));
   await mock.module('../data.ts', () => ({ ...data, validateInputFiles: () => {} }));
+  async function authenticate(environment: unknown, authScenario: string) {
+    await note({ event: 'auth', environment });
+    const statuses: Record<string, [string, number]> = {
+      'auth-api': ['Logged in using an API key', 0],
+      'auth-unknown': ['Unknown authentication', 0],
+      'auth-absent': ['Not logged in', 1],
+      'auth-failed': ['Logged in using ChatGPT', 1],
+    };
+    const [stdout, code] = statuses[authScenario] ?? ['Logged in using ChatGPT', 0];
+    return { code, stdout, stderr: '', timedOut: false, ms: 0 };
+  }
   await mock.module('../../scripts/shared/process.ts', () => ({
     ...processTools,
-    command: async (argv: string[]) => {
+    command: async (
+      argv: string[],
+      _cwd: string,
+      _input: string,
+      _limit: number,
+      _unused: unknown,
+      environment: unknown,
+    ) => {
       let stdout = '';
       if (argv.includes('ls-tree')) {
         stdout = 'eval/fixtures/workspace/README.md\n';
       } else if (argv.includes('status')) {
-        stdout = 'Logged in using ChatGPT';
+        return authenticate(environment, scenario);
       } else if (argv.includes('-e')) {
         stdout = process.execPath;
       } else {
@@ -92,7 +110,7 @@ if (process.env.LIGHT_OBSERVATION_SETTINGS) {
       cwd: string,
       _input: string,
       _timeout: number,
-      _env: unknown,
+      environment: unknown,
       allowance: number,
     ) => {
       if (argv.includes('sandbox')) {
@@ -100,7 +118,10 @@ if (process.env.LIGHT_OBSERVATION_SETTINGS) {
       }
       assert(argv.includes('exec'), '模擬対象はsandboxとexecだけ');
       executions++;
-      await note({ event: 'exec', executions, allowance });
+      await note({ event: 'exec', executions, allowance, argv, environment });
+      if (scenario === 'registered-change' && executions === 1) {
+        await realFs.writeFile(join(root, 'home/AGENTS.md'), 'SYNTHETIC_CHANGED_COMMON_CONTEXT');
+      }
       // cwdはexecutionDirectory/workspace。証拠保存先は固定trial名から特定する。
       const trial = [
         'before-storage-fields',

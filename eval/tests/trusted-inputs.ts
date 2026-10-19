@@ -28,7 +28,7 @@ export const instructionFiles = [
 ];
 
 // Issue #393の公開固定版。採点情報や新実装を含まないGit packをホストだけで展開する。
-export async function installTrustedInputs(repo: string) {
+async function installTrustedInputs(repo: string) {
   await installPack(
     repo,
     'trusted-inputs.json',

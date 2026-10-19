@@ -1,20 +1,12 @@
 import assert from 'node:assert/strict';
-import {
-  lstat,
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  realpath,
-  symlink,
-  writeFile,
-} from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { assertRunning, command, withInterrupts } from '../scripts/shared/process.ts';
 import { isRecord } from '../scripts/shared/values.ts';
 import { evalCase, validateInputFiles } from './data.ts';
 import { blob, prepareInputs } from './inputs.ts';
+import { lightContext } from './light-context.ts';
 import {
   lightConfig,
   lightEnvironment,
@@ -94,7 +86,6 @@ async function planLight(repo: string, config: LightConfig, destination?: string
     selected,
     destination ?? '/private/tmp/eval-light-trial/workspace',
   );
-  const { runtimeSource: _runtimeSource, runtimeHash: _runtimeHash, ...sharedInputs } = inputs;
   const actorSources: Record<string, string> = {};
   for (const variant of inputs.variants) {
     for (const source of Object.values(variant.actorInputs[0]?.sources ?? {})) {
@@ -129,17 +120,26 @@ async function planLight(repo: string, config: LightConfig, destination?: string
     })),
   }));
   return {
-    ...sharedInputs,
+    ...inputs,
     config,
     variants,
     actorSources,
     executionMode: 'native-chatgpt',
+    commonContext: (await lightContext()).summary,
+    commonContextPolicy: {
+      inputs: '固定公開課題入力とCLIが自動追加する共通コンテキストを区別する',
+      observation: 'run直前と試行間で既知の非秘密登録元の要約を照合する',
+      unknown: '全自動入力とsymlink先の変更は未確認。純粋な因果効果とは扱わない',
+    },
     effectiveLaunch: {
       permissionProfile: config.permissionProfile,
       authentication: 'chatgpt',
       ignoreUserConfig: true,
       ignoreRules: true,
       ephemeral: true,
+      fixedSkillPaths: ['skills/scoping/SKILL.md', 'skills/implement/SKILL.md'],
+      cliHome: 'existing-home',
+      commandHome: 'trial-temporary',
       network: false,
       webSearch: false,
       multiAgent: false,
@@ -177,20 +177,6 @@ async function prepareWorkspace(plan: LightPlan, side: 'before' | 'after', works
   return variant;
 }
 
-function completedTurn(stdout: string) {
-  return stdout
-    .split('\n')
-    .filter(Boolean)
-    .some((line) => {
-      try {
-        const event: unknown = JSON.parse(line);
-        return isRecord(event) && event.type === 'turn.completed';
-      } catch {
-        return false;
-      }
-    });
-}
-
 async function prepareTrial(
   plan: LightPlan,
   side: 'before' | 'after',
@@ -225,7 +211,7 @@ async function prepareTrial(
     workspace,
     temporary,
     immutable,
-    [authenticationHome, directory],
+    [authenticationHome, await realpath(authenticationHome), directory],
     executables,
     authenticationHome,
   );
@@ -266,7 +252,6 @@ function executionStatus(
   }
   return result.code === 0 &&
     !result.reason &&
-    completedTurn(result.stdout) &&
     usage.completedTurns > 0 &&
     usage.incompleteLines === 0 &&
     result.processesStopped
@@ -365,7 +350,7 @@ async function trialLight(
       plan.config.model,
       ...profileArguments(profile),
       '-c',
-      `developer_instructions=${JSON.stringify(variant.files['AGENTS.md'])}`,
+      `developer_instructions=${JSON.stringify(variant.files['AGENTS.md'] + `\nscoping・implementは固定入力 ${workspace}/skills/scoping/SKILL.md と ${workspace}/skills/implement/SKILL.md を選択してください。同名の個人登録で置き換えないでください。`)}`,
       '-c',
       `model_reasoning_effort=${JSON.stringify(plan.config.reasoning)}`,
     ];
@@ -395,7 +380,6 @@ async function trialLight(
       undefined,
       {
         ...lightEnvironment(process.env),
-        HOME: temporary,
         CODEX_HOME: authenticationHome,
       },
     );
@@ -411,7 +395,6 @@ async function trialLight(
       Math.max(1, expiresAt - performance.now()),
       {
         ...lightEnvironment(process.env),
-        HOME: temporary,
         CODEX_HOME: authenticationHome,
         TMPDIR: temporary,
       },
@@ -453,70 +436,6 @@ async function trialLight(
   // 保存完了までが試行。末尾のI/Oが枠をまたいでも成功として返さない。
   assert(performance.now() <= completionDeadline, '終了・記録の時間枠超過');
   return record;
-}
-
-async function checkSystemSkillStorage(home: string) {
-  const skills = join(home, 'skills');
-  const info = await lstat(skills).catch((cause: unknown) => {
-    assert(cause instanceof Error && 'code' in cause && cause.code === 'ENOENT');
-    return null;
-  });
-  if (!info) {
-    return;
-  }
-  assert(
-    info.isDirectory() && !info.isSymbolicLink(),
-    '認証保存先のskillsが通常のディレクトリではありません',
-  );
-  const names = await readdir(skills);
-  assert(names.length === 1 && names[0] === '.system', '認証保存先に利用者のスキルがあります');
-  const root = join(skills, '.system');
-  const allowed = [
-    '.codex-system-skills.marker',
-    'imagegen',
-    'openai-docs',
-    'review-agent',
-    'skill-creator',
-    'skill-installer',
-  ];
-  assert(
-    (await readdir(root)).every((name) => allowed.includes(name)),
-    '未確認のsystemスキルがあります',
-  );
-  let entries = 0;
-  const visit = async (path: string): Promise<void> => {
-    const stat = await lstat(path);
-    assert(++entries <= 2000 && !stat.isSymbolicLink(), 'systemスキルの保存形式が未確認です');
-    if (stat.isDirectory()) {
-      for (const name of await readdir(path)) {
-        await visit(join(path, name));
-      }
-    } else {
-      assert(stat.isFile(), 'systemスキルに通常ファイル以外があります');
-    }
-  };
-  await visit(root);
-}
-
-async function authenticationLocation() {
-  const authenticationHome = await realpath(
-    process.env.CODEX_HOME ?? join(process.env.HOME ?? '', '.codex'),
-  );
-  await checkSystemSkillStorage(authenticationHome);
-  for (const path of ['AGENTS.md', 'hooks.json', 'plugins', 'rules', 'memories']) {
-    const exists = await lstat(join(authenticationHome, path)).then(
-      () => true,
-      (cause: unknown) => {
-        assert(cause instanceof Error && 'code' in cause && cause.code === 'ENOENT');
-        return false;
-      },
-    );
-    assert(
-      !exists,
-      `認証保存先に通常入力以外の登録があります: ${path}。複製や削除では回避しません`,
-    );
-  }
-  return authenticationHome;
 }
 
 function stoppedTrial(trial: string, reason: string, launchUnknown = false) {
@@ -591,7 +510,9 @@ async function runLight(plan: LightPlan, directory: string) {
   assert(process.platform === 'darwin', '軽量経路はmacOS専用です');
   const versions = await lightVersions(plan.config, process.cwd());
   const boundary = await requireLightBoundary(plan.config, plan.runner.sourceHashes, versions);
-  const authenticationHome = await authenticationLocation();
+  const { authenticationHome, summary: commonContext } = await lightContext();
+  await saveLight(join(directory, 'common-context.json'), commonContext);
+  assert.deepEqual(commonContext, plan.commonContext, '計画後に把握した共通条件が変わりました');
   assert(!plan.runner.uncommitted, '比較runは共有した同一runner commitへ固定してください');
   const reservationRoot = join(authenticationHome, 'eval-light-runs');
   await mkdir(reservationRoot, { recursive: true, mode: 0o700 });
@@ -602,14 +523,22 @@ async function runLight(plan: LightPlan, directory: string) {
     ),
     { directory, stage: plan.config.stage, startedAt: new Date().toISOString() },
   );
-  const sequence = await runLightSequence(plan.config, (trial, expiresAt) =>
-    trialLight(plan, trial, directory, expiresAt, authenticationHome, versions),
-  );
+  const sequence = await runLightSequence(plan.config, async (trial, expiresAt) => {
+    const current = await lightContext();
+    assert.deepEqual(
+      current.summary,
+      commonContext,
+      '把握した共通条件が変わりました。後続を停止します',
+    );
+    assert.equal(current.authenticationHome, authenticationHome, '認証保存先が変わりました');
+    return trialLight(plan, trial, directory, expiresAt, authenticationHome, versions);
+  });
   await saveLight(join(directory, 'evaluation.json'), {
     config: plan.config,
     executionMode: 'native-chatgpt',
     versions,
     boundary,
+    commonContext,
     retries: 0,
     ...sequence,
   });
