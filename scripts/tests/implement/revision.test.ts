@@ -29,6 +29,7 @@ import { isRecord } from '../../shared/values.ts';
 import { initializeTarget, githubTarget, git, targetConfig } from '../support/target.ts';
 import { testDevelopment } from '../support/development.ts';
 import { expectTestStage } from '../support/test-stage.ts';
+import { expectCallerFirstInstructions } from '../support/caller-first.ts';
 import { expectSharedPremiseReferences } from '../support/premise-reference.ts';
 
 const shellLiteral = (value: string) => `'${value.replaceAll("'", "'\"'\"'")}'`;
@@ -135,6 +136,7 @@ async function fixture(
     implementations: number;
   }[] = [];
   const publicationCommands: string[][] = [];
+  const implementationPrompts: string[] = [];
   async function gitCommand(argv: string[], cwd: string, input: string, timeout: number | null) {
     if (argv.includes('push')) {
       if (priorPublished) {
@@ -226,6 +228,7 @@ async function fixture(
     }
   }
   async function actor(cwd: string, input: string) {
+    implementationPrompts.push(input);
     hooks.implementations++;
     if (!priorPublished) {
       await implementOriginal(cwd);
@@ -460,6 +463,7 @@ async function fixture(
     commands,
     independentTests,
     publicationCommands,
+    implementationPrompts,
   };
 }
 
@@ -1900,6 +1904,19 @@ async function retainedCorrectionEntry(
   }
 }
 
+async function expectRevisionCallerInputs(
+  root: string,
+  implementation: string | undefined,
+  prompts: string[],
+) {
+  expect(prompts[0]).toBe(implementation);
+  expect(prompts[1]).toBe(await readFile(join(root, 'received-repair.prompt'), 'utf8'));
+  expect(prompts[2]).toBe(await readFile(join(root, 'received-review.prompt'), 'utf8'));
+  for (const [index, prompt] of prompts.entries()) {
+    expectCallerFirstInstructions(prompt, index === 2 ? 'review' : 'repair');
+  }
+}
+
 for (const [mode, reason] of [
   ['updated_issue', null],
   ['conflicting_target', /検証中に対象設定が変更されました/],
@@ -1983,7 +2000,9 @@ esac
 import {readFileSync,writeFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 const role = process.argv[2];
-${reviewReplySource}
+const actorInput=['repair','review'].includes(role)?readFileSync(0,'utf8'):'';
+if(['repair','review'].includes(role)) writeFileSync(${JSON.stringify(join(root, 'received-'))}+role+'.prompt',actorInput);
+${reviewReplySource.replaceAll("readFileSync(0,'utf8')", 'actorInput')}
 if(role === 'test') {
  const prompt=readFileSync(0,'utf8');
  const input=JSON.parse(prompt.split('入力: ')[1].split('\\n')[0]);
@@ -2163,6 +2182,7 @@ if(role === 'review') console.log(JSON.stringify(reviewReply('accepted','Issue a
       await expectSharedPremiseReferences(premisePrompts);
       await expectSharedPremiseReferences(premisePrompts, '設計理由');
       await expectSharedPremiseReferences(premisePrompts, '利用例');
+      await expectRevisionCallerInputs(root, f.implementationPrompts.at(-1), premisePrompts);
       await expectSharedPremiseReferences(
         [...premisePrompts, ...f.independentTests.map((entry) => entry.prompt)],
         '機械化',
