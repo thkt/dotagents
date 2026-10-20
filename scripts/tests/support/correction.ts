@@ -75,7 +75,9 @@ export function correctionFixture() {
 import {readFileSync,writeFileSync,existsSync} from 'node:fs';
 import {join} from 'node:path';
 const role=process.argv[2], mode=${JSON.stringify(mode)};
-${reviewReplySource}
+const actorInput=['repair','review'].includes(role)?readFileSync(0,'utf8'):'';
+if(['repair','review'].includes(role)) writeFileSync(${JSON.stringify(join(root, 'received-'))}+role+'.prompt',actorInput);
+${reviewReplySource.replaceAll("readFileSync(0,'utf8')", 'actorInput')}
 if(role==='issue') console.log(mode==='issue_changed'&&existsSync(${JSON.stringify(join(root, 'issue-changed'))})?'Changed requirement':'Agreed requirement: correct source and docs');
 if(role==='capture') {
  if(mode==='capture_timeout') await new Promise(r=>setTimeout(r,10000));
@@ -91,7 +93,7 @@ if(role==='check') {
 }
 if(role==='repair') {
  if(mode==='normal') {
-  const prompt=readFileSync(0,'utf8');
+  const prompt=actorInput;
   const stdout=${JSON.stringify(join(root, 'evidence/check-1.stdout'))};
   const stderr=${JSON.stringify(join(root, 'evidence/check-1.stderr'))};
   if(!prompt.includes(stdout)||!prompt.includes(stderr)) process.exit(3);
