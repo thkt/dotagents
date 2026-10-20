@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { budgetConfig, priceProfile } from './budget.ts';
 
 const sha = z.string().regex(/^[a-f0-9]{40}$/);
 const name = z.string().regex(/^[a-z0-9][a-z0-9-]*$/);
@@ -12,7 +11,7 @@ const file = z
     'Canonical relative file path required',
   );
 const positive = z.number().int().positive();
-export const evalConfig = z.strictObject({
+export const inputConfig = z.strictObject({
   repository: z.literal('thkt/dotagents'),
   issue: z.string().regex(/^https:\/\/github\.com\/thkt\/dotagents\/(issues|pull)\/\d+$/),
   before: sha,
@@ -23,8 +22,6 @@ export const evalConfig = z.strictObject({
   workspaceFiles: z.array(file).nonempty(),
   instructionFiles: z.array(file).nonempty(),
   cases: z.array(name).nonempty(),
-  image: z.string().regex(/^[a-zA-Z0-9./:_-]+@sha256:[a-f0-9]{64}$/),
-  imageReview: z.string().min(1),
   model: z.string().regex(/^[a-zA-Z0-9._-]+$/),
   reasoning: z.enum(['low', 'medium', 'high', 'xhigh']),
   cliVersion: z.string().min(1),
@@ -32,20 +29,20 @@ export const evalConfig = z.strictObject({
   gitVersion: z.string().min(1),
   caseTimeMs: positive.max(3600000),
   totalTimeMs: positive.max(43200000),
-  maxModelRequestsPerCase: positive.max(1000),
-  maxOutputTokens: positive.max(100000),
   maxTrials: positive,
   outputDirectory: z.string().min(1),
-  budget: budgetConfig.optional(),
-  preflightDirectory: z.string().min(1).optional(),
   trialOrder: z.array(z.string().regex(/^(before|after)-[a-z0-9-]+$/)).optional(),
   disclosure: z.strictObject({
-    inputs: z.literal('reviewed-public-committed-files-only'),
+    // 旧値も固定課題入力の宣言としてのみ読む。全送信入力の保証ではない。
+    inputs: z.enum([
+      'reviewed-public-committed-files-only',
+      'fixed-public-inputs-with-common-context',
+    ]),
     raw: z.literal('local-only'),
     summary: z.literal('manual-issue-or-pr'),
   }),
 });
-export type EvalConfig = z.infer<typeof evalConfig>;
+export type InputConfig = z.infer<typeof inputConfig>;
 export const evalCase = z.strictObject({
   id: name,
   source: z.string().url(),
@@ -62,127 +59,9 @@ export const evalCase = z.strictObject({
 });
 export type EvalCase = z.infer<typeof evalCase>;
 
-const behaviorCases = [
-  'storage-fields',
-  'completion-message',
-  'retry-limit',
-  'guide-link',
-  'work-area',
-  'cli-description',
-  'history-record',
-  'save-diagnostics',
-];
-
-function validateBehaviorSuite(config: EvalConfig, selected: EvalCase[]) {
-  if (!selected.some((item) => behaviorCases.includes(item.id))) {
-    return;
-  }
-  assert(
-    selected.length === 8 && behaviorCases.every((id) => config.cases.includes(id)),
-    'Behavior cases must remain separate from the five selection cases',
-  );
-  assert(config.trialOrder, 'Behavior cases require the fixed paired order');
-  assert(config.budget, 'Behavior evaluation requires money conditions and price profile');
-  for (const path of [
-    'AGENTS.md',
-    'README.md',
-    'scripts/README.md',
-    'docs/wiki/development-policy.md',
-    'skills/scoping/SKILL.md',
-    'skills/scoping/references/sufficiency.md',
-    'skills/scoping/references/experiment.md',
-    'skills/scoping/references/session.md',
-    'skills/scoping/references/issue.md',
-    'skills/implement/SKILL.md',
-    'skills/implement/references/testing.md',
-    'skills/references/documents.md',
-    'skills/references/natural-japanese.md',
-    'skills/references/premise-validation.md',
-    'skills/references/caller-first-design.md',
-    'skills/references/mechanization.md',
-  ]) {
-    assert(config.instructionFiles.includes(path), `Missing behavior instruction: ${path}`);
-  }
-  assert(
-    config.before === 'fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092' &&
-      config.after === '6181233d17a29c711a84f20549f78507c5c3e5fb',
-    'Behavior instruction versions are fixed',
-  );
-  assert(
-    config.workspaceFiles.every((path) => path.startsWith('eval/fixtures/workspace/')),
-    'Behavior workspace must contain only the public task files',
-  );
-  assert(config.bunVersion === '1.4.3', 'Behavior evaluation requires Bun 1.4.3');
-  for (const item of selected) {
-    const implementation = [
-      'completion-message',
-      'guide-link',
-      'work-area',
-      'save-diagnostics',
-    ].includes(item.id);
-    assert(implementation === (item.actor === 'initial-implementation'), 'Incorrect actor stage');
-    assert(item.expected === (implementation ? 'implement' : 'scoping'), 'Incorrect task stage');
-  }
-}
-
-function validateMoneyPlan(config: EvalConfig) {
-  if (config.budget) {
-    assert(
-      config.model === priceProfile.model &&
-        config.reasoning === priceProfile.reasoning &&
-        config.maxOutputTokens <= priceProfile.maxOutput,
-      'Price assumptions differ',
-    );
-  }
-}
-
-export function validatePlan(config: EvalConfig, cases: EvalCase[]) {
-  validateMoneyPlan(config);
-  assert(new Set(config.cases).size === config.cases.length, 'Duplicate case');
-  assert(new Set(cases.map((item) => item.id)).size === cases.length, 'Duplicate corpus case');
-  const selected = config.cases.map((id) => {
-    const item = cases.find((item) => item.id === id);
-    assert(item, `Unknown case: ${id}`);
-    return item;
-  });
-  validateBehaviorSuite(config, selected);
-  assert(config.before !== config.after, 'Different instruction commits required');
-  assert(config.maxTrials === selected.length * 2, 'Exactly one trial per side and case required');
-  assert(config.totalTimeMs >= config.caseTimeMs, 'Total time must allow one case');
-  if (config.trialOrder) {
-    const expected = selected.flatMap((item) => [`before-${item.id}`, `after-${item.id}`]);
-    assert(
-      selected.length === 8 && config.maxTrials === 16,
-      'Explicit order requires eight paired cases',
-    );
-    assert(
-      config.trialOrder.length === 16 &&
-        new Set(config.trialOrder).size === 16 &&
-        config.trialOrder.every((trial) => expected.includes(trial)),
-      'Invalid trial order',
-    );
-    let beforeFirst = 0;
-    for (let index = 0; index < 16; index += 2) {
-      const first: string | undefined = config.trialOrder[index];
-      const second: string | undefined = config.trialOrder[index + 1];
-      assert(
-        first &&
-          second &&
-          first.slice(first.indexOf('-')) === second.slice(second.indexOf('-')) &&
-          first.startsWith('before-') !== second.startsWith('before-'),
-        'Cases must be adjacent pairs',
-      );
-      beforeFirst += Number(first.startsWith('before-'));
-    }
-    assert(beforeFirst === 4, 'Four pairs per order required');
-    assert(
-      config.caseTimeMs <= 600000 &&
-        config.totalTimeMs <= 9600000 &&
-        config.maxModelRequestsPerCase <= 20 &&
-        config.maxOutputTokens <= 8000,
-      'Eight-case limits exceeded',
-    );
-  }
+export function validateInputFiles(
+  config: Pick<InputConfig, 'workspaceFiles' | 'instructionFiles'>,
+) {
   const paths = [...config.workspaceFiles, ...config.instructionFiles];
   assert(new Set(paths).size === paths.length, 'File lists overlap or contain duplicates');
   for (const path of paths) {
@@ -226,5 +105,4 @@ export function validatePlan(config: EvalConfig, cases: EvalCase[]) {
   for (const path of ['AGENTS.md', 'skills/scoping/SKILL.md', 'skills/implement/SKILL.md']) {
     assert(config.instructionFiles.includes(path), `Missing effective instruction: ${path}`);
   }
-  return selected;
 }

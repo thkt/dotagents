@@ -3,7 +3,12 @@ import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { isRecord } from '../scripts/shared/values.ts';
-import type { EvalConfig } from './data.ts';
+import type { InputConfig } from './data.ts';
+
+type ActorConfig = Pick<
+  InputConfig,
+  'before' | 'after' | 'trialOrder' | 'workspaceCommit' | 'model' | 'reasoning'
+>;
 
 const trusted = {
   before: 'fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092',
@@ -28,7 +33,7 @@ function expression(source: string, bindings: Record<string, unknown>): unknown 
 }
 
 export async function initialActorSources(
-  config: EvalConfig,
+  config: ActorConfig,
   read: (path: string) => Promise<string>,
 ) {
   assert(
@@ -52,17 +57,19 @@ export async function initialActorSources(
 
 // 条件ごとの固定入力を一度準備し、課題別のpromptと記録だけを生成する。
 export function prepareInitialActorInput(
-  config: EvalConfig,
+  config: ActorConfig,
   files: Record<string, string>,
   sources: Awaited<ReturnType<typeof initialActorSources>>,
+  destination = '/work/repo',
 ) {
   const source = (path: string) => {
     const entry = sources[`scripts/implement/${path}.ts`];
     assert(entry, 'Missing trusted source');
     return entry.body;
   };
-  const root = '/work/repo';
-  const dir = '/work/repo/actor-records';
+  const root = destination;
+  assert(posix.isAbsolute(root) && !root.includes('\n'), 'Absolute actor destination required');
+  const dir = posix.join(root, 'actor-records');
   const repair = between(
     source('repair'),
     'export function repairInstructions(capture: { destination: string } | null) {\n  return ',
@@ -76,9 +83,14 @@ export function prepareInitialActorInput(
     },
   );
   assert(typeof instructions === 'string', 'Invalid repair instructions');
-  const absoluteReferences = [
-    ...instructions.matchAll(/\/work\/repo\/skills\/[a-zA-Z0-9/_.-]+\.md/g),
-  ].map(([path]) => path.slice(root.length + 1));
+  const absoluteReferences = instructions
+    .split(`${root}/skills/`)
+    .slice(1)
+    .map((tail) => {
+      const path = tail.match(/^[a-zA-Z0-9/_.-]+\.md/)?.[0];
+      assert(path, 'Invalid trusted actor reference');
+      return `skills/${path}`;
+    });
   for (const path of absoluteReferences) {
     assert(Object.hasOwn(files, path), `Missing trusted actor reference: ${path}`);
   }
@@ -177,14 +189,14 @@ export function prepareInitialActorInput(
       launch: {
         model: config.model,
         reasoning: config.reasoning,
-        sandbox: 'danger-full-access',
+        permissionProfile: 'eval-light',
         approvalPolicy: 'never',
-        isolation: 'verified-eval-docker',
+        isolation: 'native-chatgpt',
       },
       commonDifferences: [
-        '通常CLIを再帰起動せず、隔離evalの同一runnerから初回repair担当だけを起動する。',
+        '通常CLIを再帰起動せず、軽量evalの同一runnerから初回repair担当だけを起動する。',
         '公開の合成Issue・setupなし・課題別check・captureなし・独立準備記録を両条件へ同じ形で渡す。',
-        'eval専用Dockerを隔離境界とし、danger-full-access・承認never・ephemeral・ignore-rules・中継・有限上限をA/B共通で使う。通常のworkspace境界は保証せず、独立評価と公開は行わない。',
+        '専用permission profile・承認never・ephemeral・ignore-rules・有限上限をA/B共通で使う。独立評価と公開は行わない。',
         '通常repairの候補はgpt-6.1-sol / medium。実行時は別途合意したconfigのmodel / reasoningで全試行を固定する。',
       ],
     };
