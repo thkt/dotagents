@@ -4,8 +4,8 @@ import { readFile, writeFile, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { develop } from '../../implement/orchestrator.ts';
-import { run } from '../../implement/correction.ts';
-import { command } from '../../shared/process.ts';
+import { run, snapshot } from '../../implement/correction.ts';
+import { command, withInterrupts, interruptionMessage } from '../../shared/process.ts';
 import { gitOutput, issue, testDevelopment } from './development.ts';
 import type { DevelopmentFixture } from './development.ts';
 import { object, reviewReplySource } from './correction.ts';
@@ -41,28 +41,34 @@ export async function records(dir: string): Promise<Record<string, string>> {
 }
 
 // 応答生成側だけを変更する。対象設定・検証コマンド・checkoutは固定する。
-export async function recoveryFixture(f: DevelopmentFixture, localOnly = true) {
+export async function recoveryFixture(
+  f: DevelopmentFixture,
+  localOnly = true,
+  stop: 'invalid' | 'interrupted' = 'invalid',
+  origin: 'initial' | 'host_return' = 'initial',
+) {
   const script = join(dirname(f.dir), 'review-producer.js');
   const control = join(dirname(f.dir), 'review-control.json');
   const executions = join(dirname(f.dir), 'actor-executions.txt');
   await writeFile(executions, '');
-  await writeFile(control, JSON.stringify({ response: 'invalid' }));
+  await writeFile(control, JSON.stringify({ response: stop }));
   await writeFile(
     script,
-    `import {appendFileSync,readFileSync,writeFileSync,existsSync} from 'node:fs';
+    `import {appendFileSync,readFileSync,writeFileSync,existsSync,unlinkSync,chmodSync} from 'node:fs';
 const role=process.argv[2];
 ${reviewReplySource}
 const control=JSON.parse(readFileSync(${JSON.stringify(control)},'utf8'));
 appendFileSync(${JSON.stringify(executions)},role+'\\n');
 if(role==='check') {
  if(readFileSync('result.txt','utf8')!=='implemented'||readFileSync('setup.txt','utf8')!=='configured')process.exit(1);
- if(control.changeCheck) writeFileSync(control.changeCheck.path,control.changeCheck.content);
+ if(control.requiredArtifact && (!existsSync(control.requiredArtifact.path)||readFileSync(control.requiredArtifact.path,'utf8')!==control.requiredArtifact.content))process.exit(1);
+ if(control.changeCheck) {if(control.changeCheck.mode!==undefined) chmodSync(control.changeCheck.path,control.changeCheck.mode);else if(control.changeCheck.remove) unlinkSync(control.changeCheck.path);else writeFileSync(control.changeCheck.path,control.changeCheck.content);}
  if(control.failCheck) {writeFileSync(${JSON.stringify(control)},JSON.stringify({...control,failCheck:false}));process.exit(1);}
 }
 if(role==='test') {
  const prompt=readFileSync(0,'utf8');
  const input=JSON.parse(prompt.split('入力: ')[1].split('\\n')[0]);
- console.log(JSON.stringify({targetId:input.targetId,status:'unnecessary',findings:'要求した対照は既存checkで確認する。',files:[]}));
+ console.log(JSON.stringify({targetId:input.targetId,status:control.testHostRequired?'needs_host':'unnecessary',findings:control.testHostRequired?'独立テスト工程の模擬ホスト検証が必要です。':'要求した対照は既存checkで確認する。',files:[]}));
 }
 if(role==='repair') {
  writeFileSync('README.md','要求した操作説明');
@@ -71,7 +77,8 @@ if(role==='repair') {
   : {status:'repaired',findings:'操作説明を追加'}));
 }
 if(role==='review') {
- if(control.change) writeFileSync(control.change.path,control.change.content);
+ if(control.response==='interrupted') {process.kill(process.ppid,'SIGTERM');await new Promise(()=>{});}
+ if(control.change) {if(control.change.mode!==undefined) chmodSync(control.change.path,control.change.mode);else if(control.change.remove) unlinkSync(control.change.path);else writeFileSync(control.change.path,control.change.content);}
  const needs=control.response==='needs_changes'&&!existsSync('README.md');
  const reply=reviewReply(needs?'needs_changes':'accepted','模擬評価。実モデルの品質は未確認。');
  reply.walkthrough[0].code=[{path:'result.txt',start:1,end:control.response==='invalid'?2:1}];
@@ -119,29 +126,44 @@ if(role==='review') {
   if (localOnly) {
     f.args.push('--no-publish');
   }
-  await develop(f.args, f.io).then(
+  if (origin === 'host_return') {
+    await prepareHostOrigin(f);
+  }
+  await withInterrupts(() => develop(f.args, f.io)).then(
     () => {
       throw Error('初回不正評価を拒否する必要があります');
     },
     (error: unknown) => {
-      expect(String(error)).toContain('Verification stopped: invalid_review');
+      expect(String(error)).toContain(
+        stop === 'invalid' ? 'Verification stopped: invalid_review' : interruptionMessage,
+      );
     },
   );
-  const cwd = join(f.dir, 'checkout');
+  // 中断状態は旧stateへ残し、テストプロセス側の信号フラグだけを次の操作へ戻す。
+  if (stop === 'interrupted') {
+    await withInterrupts(async () => {});
+  }
+  const cwd = object(
+    JSON.parse(await readFile(join(f.dir, 'verification-config.json'), 'utf8')),
+  ).cwd;
+  assert(typeof cwd === 'string');
   const statePath = join(f.dir, 'verification/state.json');
   const state = object(JSON.parse(await readFile(statePath, 'utf8')));
   expect(state).toMatchObject({
-    result: 'invalid_review',
+    result: stop === 'invalid' ? 'invalid_review' : 'interrupted',
     checks: 1,
     review: 1,
     repair: 0,
     reviewHistory: [],
-    active: null,
+    active:
+      stop === 'invalid' ? null : { role: 'review', prefix: join(f.dir, 'verification/review-1') },
   });
-  expect(state.findings).toContain('コード行範囲を確認できません');
+  if (stop === 'invalid') {
+    expect(state.findings).toContain('コード行範囲を確認できません');
+  }
   expect(object(JSON.parse(await readFile(join(f.dir, 'result.json'), 'utf8')))).toMatchObject({
     status: 'stopped',
-    reasonCode: 'invalid_review',
+    ...(stop === 'invalid' ? { reasonCode: 'invalid_review' } : { reason: interruptionMessage }),
     publication: 'not_attempted',
   });
   const dir = join(dirname(f.dir), 'review-return');
@@ -156,6 +178,69 @@ if(role==='review') {
   );
   await writeFile(control, JSON.stringify({ response: 'accepted' }));
   return { cwd, dir, args, control, executions, statePath, state, script, actors };
+}
+
+// 元のホスト引継ぎから実際の既存復帰入口を通し、その初回評価だけを中断する。
+async function prepareHostOrigin(f: DevelopmentFixture) {
+  const original = f.implement;
+  f.implement = async (...args) => {
+    const result = await original(...args);
+    result.stdout = JSON.stringify({
+      status: 'needs_host',
+      findings: '模擬ホスト検証の追加証拠が必要です。',
+    });
+    await writeFile(`${args[4]}.stdout`, result.stdout);
+    return result;
+  };
+  await assert.rejects(() => develop(f.args, f.io), /Host verification required/);
+  f.implement = original;
+  f.test = async (_argv, _cwd, prompt, _timeout, prefix) => {
+    const input = object(JSON.parse(prompt.split('入力: ')[1]?.split('\n')[0] ?? ''));
+    const stdout = JSON.stringify({
+      targetId: input.targetId,
+      status: 'unnecessary',
+      findings: '既存の独立テストを維持する。',
+      files: [],
+    });
+    assert(prefix);
+    await writeFile(`${prefix}.stdout`, stdout);
+    await writeFile(`${prefix}.stderr`, '');
+    return { code: 0, stdout, stderr: '', timedOut: false, ms: 1 };
+  };
+  const previousRun = f.dir;
+  const cwd = join(previousRun, 'checkout');
+  const log = join(dirname(previousRun), 'origin-host.stdout');
+  await writeFile(log, 'fixture host observation: passed');
+  const evidence = join(dirname(previousRun), 'origin-host.json');
+  await writeFile(
+    evidence,
+    JSON.stringify({
+      status: 'passed',
+      source: await snapshot(cwd),
+      findings: '現在sourceに対する模擬観測。実サービスは未確認。',
+      logs: [
+        {
+          path: log,
+          sha256: createHash('sha256')
+            .update(await readFile(log))
+            .digest('hex'),
+        },
+      ],
+    }),
+  );
+  f.dir = join(dirname(previousRun), 'host-origin-return');
+  f.args = [
+    '99',
+    '--repo',
+    cwd,
+    '--host-run',
+    previousRun,
+    '--host-evidence',
+    evidence,
+    '--run-dir',
+    f.dir,
+    '--no-publish',
+  ];
 }
 
 // 保存設定・configHashを差し替えず、実CLIが選ぶactorの外部I/Oだけを模擬する。
@@ -217,11 +302,12 @@ mock.module(${JSON.stringify(processPath)},()=>({...original,command:async(argv,
   );
 }
 
-// CLIのmain・argv・終了コードを通す。GitHubとモデルのI/Oだけを模擬する。
+// CLIのmain・argv・終了コードを通す。新入口ではプロセスとremoteの観測も模擬する。
 export async function recoveryCli(
   f: DevelopmentFixture,
   t: Awaited<ReturnType<typeof recoveryFixture>>,
   githubReplies: Record<string, string> = {},
+  options: { observe?: boolean; publication?: boolean; allowImplementation?: boolean } = {},
 ) {
   const preload = join(dirname(f.dir), 'recovery-cli.ts');
   const modulePath = (relative: string) => new URL(relative, import.meta.url).pathname;
@@ -232,25 +318,100 @@ export async function recoveryCli(
 import {develop} from ${JSON.stringify(modulePath('../../implement/orchestrator.ts'))};
 import {run} from ${JSON.stringify(modulePath('../../implement/correction.ts'))};
 import {command} from ${JSON.stringify(modulePath('../../shared/process.ts'))};
+import * as processModule from ${JSON.stringify(modulePath('../../shared/process.ts'))};
+import {readFile,writeFile,appendFile} from 'node:fs/promises';
 import {githubTarget} from ${JSON.stringify(modulePath('./target.ts'))};
 const settings=${JSON.stringify(f.settings)};
 const actors=${JSON.stringify(actors)};
 const replies=${JSON.stringify(githubReplies)};
+const observing=${JSON.stringify(options.observe ?? t.args.includes('--interrupted-run'))};
+const publication=${JSON.stringify(options.publication ?? false)};
+const publishedFile=${JSON.stringify(join(dirname(f.dir), 'recovery-published.json'))};
+async function published() {return JSON.parse(await readFile(publishedFile,'utf8').catch(()=> 'null'));}
+async function publicationReply(argv,cwd) {
+ const pr=await published();
+ if(argv[1]==='pr'&&argv[2]==='view'&&pr) return JSON.stringify(pr);
+ if(argv[2]?.includes('/git/ref/heads/')&&pr) return JSON.stringify({object:{sha:pr.headRefOid}});
+ if(argv[2]?.endsWith('/pulls/100')&&pr) return JSON.stringify({html_url:pr.url,state:'open',draft:true,user:pr.author,head:{ref:pr.headRefName,sha:pr.headRefOid,repo:{full_name:settings.repository}},base:{ref:pr.baseRefName,repo:{full_name:settings.repository}},body:pr.body});
+ if(argv[1]==='pr'&&argv[2]==='list'||argv[2]?.endsWith('/pulls')) {
+  const prs=pr?[{html_url:pr.url,head:{ref:pr.headRefName,repo:{full_name:settings.repository}},base:{ref:pr.baseRefName},draft:true}]:[];
+  return JSON.stringify(argv.includes('--slurp')?[prs]:prs);
+ }
+ return undefined;
+}
+async function fakePush(argv) {
+ if(!publication) throw Error('Unexpected publication');
+ await appendFile(${JSON.stringify(t.executions)},'push\\n');
+ return {code:0,stdout:'',stderr:'',timedOut:false,ms:1};
+}
+const realCommand=command;
+const originalProcess={...processModule};
+if(observing) mock.module(${JSON.stringify(modulePath('../../shared/process.ts'))},()=>({...originalProcess,command:async(argv,cwd,input,timeout,prefix,env)=>{
+ if(argv[0]==='git'&&argv.includes('push')) return fakePush(argv);
+ if(argv[1]?.endsWith('/codex-actor.ts')&&['test','review','repair'].includes(argv[2])) {
+  return realCommand(actors[argv[2]],cwd,input,timeout,prefix,env);
+ }
+ const control=JSON.parse(await readFile(${JSON.stringify(t.control)},'utf8'));
+ let stdout,code=0;
+ if(argv[0]==='ps') {
+  await appendFile(${JSON.stringify(t.executions)},'observe-process\\n');
+  const start='Wed Oct 14 16:02:44 2026';
+  stdout='    1     0 '+start+'     /sbin/launchd\\n 424242     1 '+start+' /usr/bin/unrelated-fixture\\n';
+  if(control.observation==='live') stdout='424242 1 '+start+' '+process.execPath+' '+${JSON.stringify(t.script)}+' review '+${JSON.stringify(f.dir)}+'\\n';
+  if(control.observation==='process_incomplete') stdout='424242 /usr/bin/unrelated-fixture\\n';
+  if(control.observation==='process_partial') stdout+='424243 /usr/bin/unrelated-fixture\\n';
+  if(control.observation==='process_unsupported') stdout='424242 1 unsupported-start /usr/bin/unrelated-fixture\\n';
+  if(control.observation==='process_ambiguous') stdout+='424242 2 '+start+' /usr/bin/another-fixture\\n';
+  if(control.observation==='process_empty') stdout='';
+  if(control.observation==='process_failed') code=1;
+ }
+ if(argv[0]==='git'&&argv.includes('ls-remote')&&!argv.includes('--get-url')) {
+  await appendFile(${JSON.stringify(t.executions)},'observe-remote\\n');
+  const pr=publication?await published():null;
+  stdout=control.observation==='remote_present'?'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa refs/heads/codex/development-99\\n':pr?pr.headRefOid+' refs/heads/'+pr.headRefName+'\\n':'';
+  if(control.observation==='remote_failed') code=1;
+ }
+ if(argv[0]==='gh') {
+  await appendFile(${JSON.stringify(t.executions)},'observe-github\\n');
+  if(argv[1]==='issue') stdout=replies.issue??${JSON.stringify(issue)};
+  else if(argv[1]==='pr'&&argv[2]==='list'||argv[2]?.endsWith('/pulls')) {
+   const prs=control.observation==='closed_pr'?[{number:100,state:'closed',url:'https://github.com/'+settings.repository+'/pull/100',html_url:'https://github.com/'+settings.repository+'/pull/100',head:{ref:'codex/development-99',sha:'a'.repeat(40),repo:{full_name:settings.repository}}}]:[];
+   stdout=publication?await publicationReply(argv,cwd):JSON.stringify(argv.includes('--slurp')?[prs]:prs);
+   if(control.observation==='github_failed') code=1;
+  }
+  else stdout=replies[argv[2]]??(publication?await publicationReply(argv,cwd):undefined)??githubTarget(argv,settings);
+ }
+ if(argv[0]==='gh'&&stdout===undefined) throw Error('Unexpected GitHub operation');
+ if(stdout===undefined) return realCommand(argv,cwd,input,timeout,prefix,env);
+ const result={code,stdout,stderr:code?'fixture observation failed':'',timedOut:false,ms:1};
+ if(prefix) {await writeFile(prefix+'.stdout',result.stdout);await writeFile(prefix+'.stderr',result.stderr);}
+ return result;
+}}));
 const io={
  command:async(argv,cwd,input,timeout,prefix)=>{
+  if(observing&&(argv[0]==='gh'||argv[0]==='ps'||argv[0]==='git'&&argv.includes('ls-remote'))) return command(argv,cwd,input,timeout,prefix);
   if(argv[0]==='gh') {
    const key=argv[1]==='issue'?'issue':argv[2];
-   const stdout=replies[key]??(argv[1]==='issue'?${JSON.stringify(issue)}:githubTarget(argv,settings));
+   const stdout=replies[key]??(argv[1]==='issue'?${JSON.stringify(issue)}:(publication?await publicationReply(argv,cwd):undefined)??githubTarget(argv,settings));
    if(stdout===undefined) throw Error('Unexpected GitHub operation');
    return {code:0,stdout,stderr:'',timedOut:false,ms:1};
   }
-  if(argv[0]==='git'&&argv.includes('push')) throw Error('Unexpected publication');
+  if(argv[0]==='git'&&argv.includes('push')) return fakePush(argv);
   if(argv[2]==='test') return command(actors.test,cwd,input,timeout,prefix);
-  if(argv[2]==='repair') throw Error('Unexpected initial implementation');
+  if(argv[2]==='repair') {
+   if(!${JSON.stringify(t.args.includes('--previous-run') || options.allowImplementation)}) throw Error('Unexpected initial implementation');
+   return command(actors.repair,cwd,input,timeout,prefix);
+  }
   return command(argv,cwd,input,timeout,prefix);
  },
- verify:(config,publicationHead)=>run({...config,issue:actors.issue,review:actors.review,repair:actors.repair,test:actors.test},publicationHead),
- publish:()=>{throw Error('Unexpected publication');}
+ verify:(config,publicationHead)=>run(observing?config:{...config,issue:actors.issue,review:actors.review,repair:actors.repair,test:actors.test},publicationHead),
+ publish:async(input)=>{
+  if(!publication) throw Error('Unexpected publication');
+  await appendFile(${JSON.stringify(t.executions)},'publish\\n');
+  const pr={url:'https://github.com/'+settings.repository+'/pull/100',state:'OPEN',isDraft:true,body:await readFile(input.bodyFile,'utf8'),author:{login:'operator'},headRefName:input.head,headRefOid:input.commit,baseRefName:settings.baseBranch,headRepository:{name:settings.repository.split('/')[1]},headRepositoryOwner:{login:settings.repository.split('/')[0]},isCrossRepository:false,closingIssuesReferences:[],statusCheckRollup:[{name:'checks',status:'COMPLETED',conclusion:'SUCCESS'}]};
+  await writeFile(publishedFile,JSON.stringify(pr));
+  return pr.url;
+ }
 };
 const entry=develop;
 mock.module(${JSON.stringify(modulePath('../../implement/orchestrator.ts'))},()=>({develop:args=>entry(args,io)}));`,

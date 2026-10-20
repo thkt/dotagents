@@ -1,16 +1,19 @@
 import assert from 'node:assert/strict';
-import { z } from 'zod';
-import { readFile, realpath, access, readdir } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import { readFile, realpath } from 'node:fs/promises';
+import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { assertPreviousConfig, assertState } from './input.ts';
 import type { Revision } from './input.ts';
 import { isRecord } from '../shared/values.ts';
 import { issueText } from './issue.ts';
 import { readTarget } from '../shared/target.ts';
-import { assertRunning, interruptionMessage } from '../shared/process.ts';
+import { assertRunning } from '../shared/process.ts';
 import type { Reader } from '../shared/target.ts';
 import { graphQlPrPublication, matchPrPublication, referencesIssue } from './pr-identity.ts';
+import { verifyReviewReturn } from './review-recovery-records.ts';
+import { hasExecutionLock, reconcileExecutions } from './execution-history.ts';
+
+export { reconcileExecutions } from './execution-history.ts';
 
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 async function json(path: string): Promise<unknown> {
@@ -118,7 +121,23 @@ export async function checkRevision(
     target?: Awaited<ReturnType<typeof readTarget>>;
   } = {},
 ) {
-  await reconcileExecutions(revision, cwd);
+  if (revision.reviewReturn) {
+    assert(
+      revision.reviewReturn.interruption && revision.reviewReturn.branch === revision.branch,
+      '修正元の中断照合履歴が一致しません',
+    );
+    await verifyReviewReturn(
+      revision.reviewReturn,
+      cwd,
+      join(revision.runDirectory, 'verification'),
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+  } else {
+    await reconcileExecutions(revision, cwd);
+  }
   assert(
     (await readFile(revision.requestFile, 'utf8')) === revision.request,
     'Revision request changed; preserve work and obtain a new explicit request',
@@ -238,93 +257,4 @@ export function revisionContext(revision?: Revision) {
         `以前のPR本文（説明更新の参照用）:\n${revision.body}`,
       ].join('\n')
     : '';
-}
-
-export async function reconcileExecutions(
-  revision: Pick<Revision, 'previousRun' | 'runDirectory'>,
-  cwd: string,
-) {
-  const parent = dirname(revision.previousRun);
-  assert(
-    dirname(revision.runDirectory) === parent,
-    'Revision evidence must be a sibling of previous run so unfinished executions can be reconciled',
-  );
-  for (const entry of await readdir(parent, { withFileTypes: true })) {
-    const dir = join(parent, entry.name);
-    if (!entry.isDirectory() || dir === revision.runDirectory) {
-      continue;
-    }
-    const record = await optionalFile(join(dir, 'result.json'));
-    if (record === undefined) {
-      continue;
-    }
-    const result: unknown = JSON.parse(record);
-    if (!isRecord(result) || result.checkout !== cwd) {
-      continue;
-    }
-    await inactiveVerification(dir, result);
-    assert(
-      result.reason && result.publication !== 'unconfirmed',
-      `Unfinished or uncertain execution requires reconciliation: ${dir}; preserve records and check its process and GitHub state`,
-    );
-  }
-}
-
-async function optionalFile(path: string) {
-  return readFile(path, 'utf8').catch((error: unknown) => {
-    if (isRecord(error) && error.code === 'ENOENT') {
-      return undefined;
-    }
-    throw error;
-  });
-}
-
-const interruptionTimes = z.object({ startedAt: z.iso.datetime(), finishedAt: z.iso.datetime() });
-
-function terminalInterruption(dir: string, result: Record<string, unknown>) {
-  const times = interruptionTimes.safeParse(result);
-  if (!times.success) {
-    return false;
-  }
-  const started = Date.parse(times.data.startedAt);
-  const finished = Date.parse(times.data.finishedAt);
-  return (
-    result.terminal === true &&
-    result.status === 'stopped' &&
-    result.phase === 'verification' &&
-    result.reason === interruptionMessage &&
-    result.publication === 'not_attempted' &&
-    result.evidence === dir &&
-    result.details === join(dir, 'verification/state.json') &&
-    Number.isFinite(started) &&
-    Number.isFinite(finished) &&
-    finished >= started
-  );
-}
-
-async function inactiveVerification(dir: string, result: Record<string, unknown>) {
-  const state = await optionalFile(join(dir, 'verification/state.json'));
-  assert(
-    state !== undefined || result.phase !== 'verification' || result.reason !== interruptionMessage,
-    `Missing interrupted verification state requires reconciliation: ${dir}`,
-  );
-  if (state !== undefined) {
-    const value: unknown = JSON.parse(state);
-    assertState(value);
-    assert(
-      value.active === null && (value.result || terminalInterruption(dir, result)),
-      `Unfinished verification requires reconciliation: ${dir}`,
-    );
-  }
-  assert(!(await hasExecutionLock(dir)), `Active verification requires reconciliation: ${dir}`);
-}
-
-async function hasExecutionLock(dir: string) {
-  return access(join(dir, 'verification/lock')).then(
-    () => true,
-    (error: unknown) => {
-      assert(isRecord(error) && error.code === 'ENOENT', `Cannot inspect execution lock: ${dir}`);
-      return false;
-    },
-  );
 }

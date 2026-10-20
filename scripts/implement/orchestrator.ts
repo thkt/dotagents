@@ -4,6 +4,8 @@ import {
   readPreparedTestRecord,
   verifyTestArtifacts,
 } from './test-author.ts';
+import type { TestIntake } from './test-author.ts';
+import { RecordObservation } from './record-observation.ts';
 import assert from 'node:assert/strict';
 import { reviewModel } from './review.ts';
 import { issueText } from './issue.ts';
@@ -16,7 +18,14 @@ import { parseArgs } from 'node:util';
 import { previousReviewRun } from './review-recovery.ts';
 import { verifyReviewReturn } from './review-recovery-records.ts';
 import { previousHostRun, saveHostStop } from './host-handoff.ts';
-import { hostLocalRoots, hostReturnContext, hash, verifyHostReturn } from './host-records.ts';
+import {
+  hostLocalRoots,
+  interruptionReturn,
+  hostReturnContext,
+  hash,
+  verifyHostReturn,
+  readReference,
+} from './host-records.ts';
 import { run, snapshot, recordArtifacts } from './correction.ts';
 import { previousRun, checkRevision, revisionContext } from './revision.ts';
 import { parseRepairReply, repairInstructions } from './repair.ts';
@@ -202,6 +211,9 @@ async function prepareRevision(
       repositoryId: target.repositoryId,
       targetText: target.text,
       localOnly,
+      ...(interruptionReturn(prior.config)
+        ? { reviewReturn: interruptionReturn(prior.config) }
+        : {}),
     };
     assert(
       base === prior.head && (await snapshot(repo)) === prior.state.source,
@@ -242,13 +254,14 @@ function parseStart(args: string[]) {
       'previous-run': { type: 'string' },
       'request-file': { type: 'string' },
       'review-run': { type: 'string' },
+      'interrupted-run': { type: 'string' },
       'host-run': { type: 'string' },
       'host-evidence': { type: 'string' },
     },
   });
   assert(
     parsed.positionals.length === 1,
-    'Usage: bun scripts/implement/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report docs/research/NAME.md=BLOB] [--previous-run DIRECTORY --request-file PATH] [--host-run DIRECTORY --host-evidence PATH] [--review-run DIRECTORY --run-dir DIRECTORY]',
+    'Usage: bun scripts/implement/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report docs/research/NAME.md=BLOB] [--previous-run DIRECTORY --request-file PATH] [--host-run DIRECTORY --host-evidence PATH] [--review-run DIRECTORY --run-dir DIRECTORY] [--interrupted-run DIRECTORY --run-dir DIRECTORY [--host-evidence PATH]]',
   );
   assert(
     Boolean(parsed.values['previous-run']) === Boolean(parsed.values['request-file']),
@@ -259,7 +272,10 @@ function parseStart(args: string[]) {
     'Revision inherits references from previous run',
   );
   assert(
-    Boolean(parsed.values['host-run']) === Boolean(parsed.values['host-evidence']),
+    Boolean(
+      parsed.values['host-run'] ||
+      (parsed.values['interrupted-run'] && parsed.values['host-evidence']),
+    ) === Boolean(parsed.values['host-evidence']),
     'Host return requires --host-run and --host-evidence',
   );
   assert(
@@ -278,6 +294,16 @@ function parseStart(args: string[]) {
         !parsed.values['start-commit'] &&
         !parsed.values.report),
     '不正評価からの復帰は新しい--run-dirを使い、他の復帰入口・参照指定と混在できません',
+  );
+  assert(
+    !parsed.values['interrupted-run'] ||
+      (parsed.values['run-dir'] &&
+        !parsed.values['review-run'] &&
+        !parsed.values['host-run'] &&
+        !parsed.values['previous-run'] &&
+        !parsed.values['start-commit'] &&
+        !parsed.values.report),
+    '中断復帰は新しい--run-dirを使い、他の復帰入口・参照指定と混在できません',
   );
   return parsed;
 }
@@ -324,19 +350,20 @@ async function selectStart(args: string[], io: typeof runtime) {
     target,
     localOnly,
   });
-  const reviewPrior = parsed.values['review-run']
-    ? await previousReviewRun({
-        directory: parsed.values['review-run'],
-        runDirectory: parsed.values['run-dir'],
-        cwd: repo,
-        issue: number,
-        original,
-        head: base,
-        branch: await git('branch', '--show-current'),
-        target,
-        localOnly,
-      })
-    : undefined;
+  const reviewPrior =
+    parsed.values['review-run'] || parsed.values['interrupted-run']
+      ? await previousReviewRun({
+          ...reviewEntry(parsed),
+          runDirectory: parsed.values['run-dir'],
+          cwd: repo,
+          issue: number,
+          original,
+          head: base,
+          branch: await git('branch', '--show-current'),
+          target,
+          localOnly,
+        })
+      : undefined;
   reports = reviewPrior?.config.reports ?? hostPrior?.config.reports ?? reports;
   if (hostPrior) {
     assert(
@@ -631,26 +658,31 @@ async function stopForHost(
   throw Error(`Host verification required: ${findings}`);
 }
 
-async function preparedHostTests(context: Context, contents: string[]) {
+async function preparedHostTests(context: Context, contents: string[], intake: TestIntake) {
   return Promise.all(
     contents.map((content) =>
-      readPreparedTestRecord(content, issueText(context.original), context.cwd),
+      readPreparedTestRecord(content, issueText(context.original), context.cwd, intake),
     ),
   );
 }
 
 async function returnedTests(context: Context) {
+  const observation = new RecordObservation();
   const verified = context.hostReturn
-    ? await verifyHostReturn(context.hostReturn, context.cwd)
+    ? await verifyHostReturn(context.hostReturn, context.cwd, observation)
     : undefined;
-  const sourceBefore = context.hostReturn ? await snapshot(context.cwd) : undefined;
+  const manifest: Record<string, string> = {};
+  const sourceBefore = context.hostReturn ? await snapshot(context.cwd, manifest) : undefined;
   assert(
     !verified || verified.source === sourceBefore,
     'Host evidence does not match current deliverables',
   );
-  const records = await preparedHostTests(context, verified?.testRecordContents ?? []);
+  const records = await preparedHostTests(context, verified?.testRecordContents ?? [], {
+    manifest,
+    records: observation,
+  });
   const evidence = [];
-  let pendingImplementation = true;
+  const pendingImplementation = !verified?.implemented;
   let baseline: string | undefined;
   // 明示した最新の準備記録がある場合、古い記録で上書きしません。
   for (const entry of verified?.history ?? []) {
@@ -660,9 +692,6 @@ async function returnedTests(context: Context) {
     const config: unknown = JSON.parse(content);
     assertConfig(config);
     baseline ??= config.testBaseline;
-    if (entry.records.has(join(previousRun, 'implementation.prompt'))) {
-      pendingImplementation = false;
-    }
     const stateContent = entry.records.get(join(previousRun, 'verification/state.json'));
     if (records.length === 0 && stateContent) {
       const state: unknown = JSON.parse(stateContent);
@@ -786,11 +815,21 @@ async function implement(context: Context, io: typeof runtime) {
   const testConfig = verificationConfig(context);
   if (context.reviewPrior) {
     const prior = context.reviewPrior;
+    await writeFile(
+      join(dir, 'recovery-current-artifacts.json'),
+      JSON.stringify(await recordArtifacts(cwd, context.reviewBase), null, 2),
+      { flag: 'wx' },
+    );
+    await saveRecoveryProvenance(prior.reviewReturn, dir, prior.hostHistory);
     assert(prior.config.testBaseline);
     testConfig.testBaseline = prior.config.testBaseline;
     await verifyReviewReturn(prior.reviewReturn, cwd, testConfig.runDir);
-    assert((await snapshot(cwd)) === prior.reviewReturn.source, '復帰前に成果物が変わりました');
-    await verifyTestArtifacts(cwd, prior.tests);
+    const manifest: Record<string, string> = {};
+    assert(
+      (await snapshot(cwd, manifest)) === prior.reviewReturn.source,
+      '復帰前に成果物が変わりました',
+    );
+    await verifyTestArtifacts(cwd, prior.tests, manifest);
     await writeFile(join(dir, 'review-return.json'), JSON.stringify(prior.reviewReturn, null, 2), {
       flag: 'wx',
     });
@@ -1103,8 +1142,9 @@ async function ship(
     cwd,
     dir,
     ...(context.revision ? [context.revision.previousRun] : []),
-    ...(await hostLocalRoots(context.hostReturn)),
-    ...(context.reviewReturn ? [context.reviewReturn.previousRun] : []),
+    ...(await hostLocalRoots(
+      context.hostReturn ?? context.reviewReturn ?? context.revision?.reviewReturn,
+    )),
   ];
   await writeFile(
     body,
@@ -1366,4 +1406,38 @@ async function saveResult(result: DevelopmentResult, failure: unknown) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function reviewEntry(parsed: ReturnType<typeof parseStart>) {
+  return {
+    directory: parsed.values['review-run'] ?? parsed.values['interrupted-run'],
+    interrupted: Boolean(parsed.values['interrupted-run']),
+    evidenceFile: parsed.values['interrupted-run'] ? parsed.values['host-evidence'] : undefined,
+  };
+}
+
+async function saveRecoveryProvenance(
+  input: NonNullable<Config['reviewReturn']>,
+  dir: string,
+  history: NonNullable<Context['reviewPrior']>['hostHistory'],
+) {
+  if (history) {
+    await writeFile(join(dir, 'recovery-host-history.json'), JSON.stringify(history, null, 2), {
+      flag: 'wx',
+      mode: 0o600,
+    });
+  }
+  if (!input.interruption) {
+    return;
+  }
+  const observations = await Promise.all(
+    input.interruption.observations.map(async (ref) => ({
+      ...ref,
+      content: await readReference(ref),
+    })),
+  );
+  await writeFile(join(dir, 'recovery-observations.json'), JSON.stringify(observations, null, 2), {
+    flag: 'wx',
+    mode: 0o600,
+  });
 }

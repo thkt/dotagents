@@ -155,11 +155,15 @@ async function stages(
 
 async function collectRun(
   run: string,
-  visited: Set<string>,
+  collected: Set<string>,
   listing?: Awaited<ReturnType<typeof entries>>,
+  ancestors: ReadonlySet<string> = new Set(),
 ): Promise<RuntimeRecord[]> {
-  assert(!visited.has(run), 'actor runtime復帰履歴の循環');
-  visited.add(run);
+  assert(!ancestors.has(run), 'actor runtime復帰履歴の循環');
+  if (collected.has(run)) {
+    return [];
+  }
+  const lineage = new Set([...ancestors, run]);
   const runListing = listing ?? (await entries(run));
   const verification = join(run, 'verification');
   const records = await stages(run, [
@@ -170,12 +174,17 @@ async function collectRun(
   if (runListing.some((entry) => entry.name === 'verification-config.json')) {
     const config: unknown = JSON.parse(await readFile(configuration, 'utf8'));
     assert(isRecord(config), 'actor runtime復帰設定の非対応形式');
-    for (const input of [config.hostReturn, config.reviewReturn]) {
+    for (const input of [
+      config.hostReturn,
+      config.reviewReturn,
+      ...(isRecord(config.revision) ? [config.revision.reviewReturn] : []),
+    ]) {
       if (isRecord(input) && typeof input.previousRun === 'string') {
-        records.push(...(await collectRun(input.previousRun, visited)));
+        records.push(...(await collectRun(input.previousRun, collected, undefined, lineage)));
       }
     }
   }
+  collected.add(run);
   return records;
 }
 
@@ -189,7 +198,7 @@ export async function runtimeRecords(config: ReviewConfig) {
     ? await collectRun(parent, visited, parentListing)
     : await stages(dir, [{ root: dir, listing: await entries(dir) }]);
   if (!isRun) {
-    for (const input of [config.hostReturn, config.reviewReturn]) {
+    for (const input of [config.hostReturn, config.reviewReturn, config.revision?.reviewReturn]) {
       if (input) {
         records.push(...(await collectRun(input.previousRun, visited)));
       }
@@ -200,26 +209,38 @@ export async function runtimeRecords(config: ReviewConfig) {
 
 async function verifyRuntimeRecords(records: unknown, observation = new RecordObservation()) {
   assert(Array.isArray(records), 'actor runtime参照の非対応形式');
+  const paths = new Set<string>();
   for (const ref of records) {
     if (isRecord(ref) && typeof ref.path === 'string' && typeof ref.sha256 === 'string') {
       try {
         const actual = await observation.read(ref.path, true);
         assert(actual.sha256 === ref.sha256, `actor runtime内容hash不一致: ${ref.path}`);
+        paths.add(ref.path);
       } catch (error) {
         throw new Error(`actor runtime原記録の変更・取得不能: ${ref.path}: ${String(error)}`);
       }
     }
   }
+  return [...paths];
 }
 
 export async function verifyReviewedRuntime(
-  state: { events: { role: string; prefix: string }[] },
+  state: {
+    events: { role: string; prefix: string }[];
+    active?: { role: string; prefix: string } | null;
+  },
   observation = new RecordObservation(),
   current: unknown[] = [],
 ) {
   const records: unknown[] = [...current];
-  for (const event of state.events.filter((event) => event.role === 'review')) {
-    const { content } = await observation.read(`${event.prefix}.target.json`);
+  const prefixes = new Set(
+    state.events.filter((event) => event.role === 'review').map((event) => event.prefix),
+  );
+  if (state.active?.role === 'review') {
+    prefixes.add(state.active.prefix);
+  }
+  for (const prefix of prefixes) {
+    const { content } = await observation.read(`${prefix}.target.json`);
     const target: unknown = JSON.parse(content.toString('utf8'));
     assert(isRecord(target), 'actor runtime評価対象の非対応形式');
     if (target.runtimeRecords !== undefined) {
@@ -227,7 +248,7 @@ export async function verifyReviewedRuntime(
       records.push(...(target.runtimeRecords as unknown[]));
     }
   }
-  await verifyRuntimeRecords(records, observation);
+  return verifyRuntimeRecords(records, observation);
 }
 
 export async function verifySavedRuntime(
@@ -240,10 +261,12 @@ export async function verifySavedRuntime(
     const state = z
       .object({
         events: z.array(z.object({ role: z.string(), prefix: z.string() })),
+        active: z.object({ role: z.string(), prefix: z.string() }).nullable().optional(),
       })
       .parse(JSON.parse(content));
-    await verifyReviewedRuntime(state, observation);
+    return verifyReviewedRuntime(state, observation);
   }
+  return [];
 }
 
 export const runtimeInstructions =
