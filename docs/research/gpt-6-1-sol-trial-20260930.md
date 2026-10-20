@@ -4,7 +4,7 @@
 
 ## 対象と実行条件
 
-要求の正本は [Issue #338](https://github.com/thkt/dotagents/issues/338) です。確認日は2026-09-30、実行基点は `e9404327c3786246f527a087e742beb9225eeae3`、Codex CLIは0.159.0、Bunは1.4.2です。既存のChatGPT認証を使いました。共通モデル設定・制御テスト・現行CLI案内の候補差分だけを適用し、プロンプト翻訳や簡略化は行っていません。差分のSHA-256、各条件の結果、使用量、公開可能な初回成果物とホストの検証コードは[集計資料](gpt-6-1-sol-trial-20260930.json)にあります。
+要求の正本は [Issue #338](https://github.com/thkt/dotagents/issues/338) です。確認日は2026-09-30、実行基点は `e9404327c3786246f527a087e742beb9225eeae3`、Codex CLIは0.159.0、Bunは1.4.2です。既存のChatGPT認証を使いました。共通モデル設定・制御テスト・現行CLI案内の候補差分だけを適用し、プロンプト翻訳や簡略化は行っていません。差分のSHA-256、各条件の結果、使用量、公開可能な初回成果物とホストの検証コードは[集計資料](https://github.com/thkt/dotagents/blob/fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092/docs/research/gpt-6-1-sol-trial-20260930.json)にあります。
 
 Issue作成時点で未承認だった追加試行について、ホストは次の上限を提示しました。
 

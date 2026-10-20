@@ -55,7 +55,7 @@ if (import.meta.main) {
         ? [
             process.execPath,
             'test',
-            config ?? 'scripts/tests',
+            resolve(config ?? 'scripts/tests'),
             '--only-failures',
             '--reporter=junit',
             '--reporter-outfile',

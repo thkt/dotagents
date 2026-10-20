@@ -283,7 +283,7 @@ UI案を実際の画面構成・情報量に置く考え方も有用である。
 
 ### 我々との対応と追加価値
 
-我々の[scoping](../../skills/scoping/SKILL.md)は最小の解決案、完了条件、対象外、検証と合意を扱い、[Issue反映手順](../../skills/scoping/references/issue.md)も重複・範囲・根拠を照合する。[過去の整理計画](lean-workflow-plan.md)や[当時の後続候補](issue-lean-p2.md)には、先行改修後に必要性を再評価し、不要な依存を外した例がある。依存関係を考える実践がないわけではない。これらは過去のローカル記録として参照し、現在のIssue状態や未完了作業を示す資料とは扱わない。
+我々の[scoping](../../skills/scoping/SKILL.md)は最小の解決案、完了条件、対象外、検証と合意を扱い、[Issue反映手順](../../skills/scoping/references/issue.md)も重複・範囲・根拠を照合する。[過去の整理計画](lean-workflow-plan.md)や[当時の後続候補](https://github.com/thkt/dotagents/blob/fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092/docs/research/issue-lean-p2.md)には、先行改修後に必要性を再評価し、不要な依存を外した例がある。依存関係を考える実践がないわけではない。これらは過去のローカル記録として参照し、現在のIssue状態や未完了作業を示す資料とは扱わない。
 
 追加候補は、**複数Issueへ分ける場合の単位と依存理由を明示すること**。現在のscopingの汎用手順には、「単独で確かめられる成果」と「本当に着手を止める依存」を分割基準として示す説明はない。
 
@@ -1252,7 +1252,7 @@ Issueの分割、用語の曖昧さ、設計の局所性、第三者への質問
 
 | 候補 | 現行文書・既存Issueとの対応 | 今回の扱い |
 | --- | --- | --- |
-| grillingの質問の前提・依存関係 | scopingは依存作業の待機を規定するが、同じ回に出す質問の選択と、回答で不要になった質問の扱いは明示していない | [新規Issueの下書き](issue-scoping-question-dependencies.md)を用意。既存の質問段落と必要な手順例に限る |
+| grillingの質問の前提・依存関係 | scopingは依存作業の待機を規定するが、同じ回に出す質問の選択と、回答で不要になった質問の扱いは明示していない | [新規Issueの下書き](https://github.com/thkt/dotagents/blob/fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092/docs/research/issue-scoping-question-dependencies.md)を用意。既存の質問段落と必要な手順例に限る |
 | prototypeの小さな実験 | [#139](https://github.com/thkt/dotagents/issues/139)（open）が、観測で判断が変わる不明点、隔離した最小実験、人の意図・権限との区別を扱う | 新規Issueは不要。実装時の参考候補として個別評価を参照できる |
 | setup-ts-deep-modulesの違反を入れた検出確認 | [#147](https://github.com/thkt/dotagents/issues/147)（open）が、合意済み境界、意図した失敗理由、正常例、誤検出、費用まで扱う | 既存の調査範囲で足りる。追加ツールや構造規則を新しくIssue化しない |
 | writing-for-agentsの読む条件 | [#157](https://github.com/thkt/dotagents/issues/157)（closed）に対応する3件の読む条件・参照先が、現行の[research入口](README.md)にある | この観点は反映済み。全資料の索引追加や短文化は別の必要性がなければ行わない |
@@ -1302,10 +1302,10 @@ Issueの分割、用語の曖昧さ、設計の局所性、第三者への質問
 
 | 候補・下書き | 取り込む観点 | 最小の変更先と区切り |
 | --- | --- | --- |
-| [未確定の判断と質問の前提](issue-scoping-question-dependencies.md) | grillingの質問順序、wayfinderの不明点の区別、domain-modelingの用語を具体例で確かめる条件 | scopingの既存の対話・十分性判断へ統合。専用台帳や用語集を新設しない |
-| [Issueの成果単位と依存理由](issue-scoping-issue-slices.md) | to-ticketsの単独で確かめられる成果、必要な先行条件と希望順序の区別、to-specの問題・検証・対象外 | 複数Issueへ分ける場合だけ、既存のIssue反映手順を具体化。依存実行runtimeは追加しない |
-| [呼出側の知識と変更負担](issue-review-caller-contracts.md) | codebase-designの型以外の契約と削除時に戻る負担、実際の困りごとに絞るarchitecture評価 | 既存の設計・冗長性レビューの判断を具体化。別の評価欄・モデル・点数は追加しない |
-| [文書の前提・適用条件・完了判断](issue-document-reading-conditions.md) | writing-for-agentsの情報配置、writing-beats・writing-shapeの前提と段落の役割、人に頼む操作・回答の説明 | 通常の文書更新・評価に統合。索引追加だけで充足済みとはせず、全文書監査・読者試験は要求しない |
+| [未確定の判断と質問の前提](https://github.com/thkt/dotagents/blob/fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092/docs/research/issue-scoping-question-dependencies.md) | grillingの質問順序、wayfinderの不明点の区別、domain-modelingの用語を具体例で確かめる条件 | scopingの既存の対話・十分性判断へ統合。専用台帳や用語集を新設しない |
+| [Issueの成果単位と依存理由](https://github.com/thkt/dotagents/blob/fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092/docs/research/issue-scoping-issue-slices.md) | to-ticketsの単独で確かめられる成果、必要な先行条件と希望順序の区別、to-specの問題・検証・対象外 | 複数Issueへ分ける場合だけ、既存のIssue反映手順を具体化。依存実行runtimeは追加しない |
+| [呼出側の知識と変更負担](https://github.com/thkt/dotagents/blob/fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092/docs/research/issue-review-caller-contracts.md) | codebase-designの型以外の契約と削除時に戻る負担、実際の困りごとに絞るarchitecture評価 | 既存の設計・冗長性レビューの判断を具体化。別の評価欄・モデル・点数は追加しない |
+| [文書の前提・適用条件・完了判断](https://github.com/thkt/dotagents/blob/fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092/docs/research/issue-document-reading-conditions.md) | writing-for-agentsの情報配置、writing-beats・writing-shapeの前提と段落の役割、人に頼む操作・回答の説明 | 通常の文書更新・評価に統合。索引追加だけで充足済みとはせず、全文書監査・読者試験は要求しない |
 
 4件は採否検討用の下書きで、公開・採用・実装は未合意。初回の質問順序案は、同じ対話で必要な問いを選ぶ目的に合わせて用語・不明点の扱いを含める案へ改訂した。新規候補同士を実装順だけで依存付けず、着手時にはその時点の既存文書・Issueと重複を再照合する。
 

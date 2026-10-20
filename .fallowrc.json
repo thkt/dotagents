@@ -17,6 +17,9 @@
     "docs/html/workflow-guide.html"
   ],
   "includeEntryExports": true,
+  "ignorePatterns": [
+    "output/**"
+  ],
   "ignoreDependencies": [
     "@textlint-rule/textlint-rule-no-invalid-control-character",
     "textlint-rule-ja-no-redundant-expression",
