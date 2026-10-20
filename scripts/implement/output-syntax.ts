@@ -1,8 +1,9 @@
-import hljs from 'highlight.js/lib/core';
+import core from 'highlight.js/lib/core';
 import javascript from 'highlight.js/lib/languages/javascript';
 import json from 'highlight.js/lib/languages/json';
 import markdown from 'highlight.js/lib/languages/markdown';
 
+const hljs = core.newInstance();
 hljs.registerLanguage('javascript', javascript);
 hljs.registerLanguage('json', json);
 hljs.registerLanguage('markdown', markdown);
