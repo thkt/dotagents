@@ -7,6 +7,7 @@ import { isRecord } from '../shared/values.ts';
 import type { State } from './input.ts';
 import { savedWalkthrough, validateWalkthrough, walkthroughSteps } from './walkthrough.ts';
 import type { SavedWalkthrough, WalkthroughSteps } from './walkthrough.ts';
+import { walkthroughSyntax } from './walkthrough-syntax.ts';
 
 const escape = (value: string) =>
   value.replace(
@@ -123,11 +124,12 @@ function stepHtml(
     .map((ref) => {
       const savedLines = linesByPath.get(ref.path);
       assert(savedLines);
-      const lines = savedLines
-        .slice(ref.start - 1, ref.end)
-        .map((line, offset) => `${ref.start + offset}: ${line}`)
-        .join('\n');
-      return `<div class="walk-code-label"><code>${escape(`${ref.path}:${ref.start}-${ref.end}`)}</code></div><pre><code>${escape(lines)}</code></pre>`;
+      const lines = walkthroughSyntax(
+        savedLines.slice(ref.start - 1, ref.end),
+        ref.path,
+        ref.start,
+      );
+      return `<div class="walk-code-label"><code>${escape(`${ref.path}:${ref.start}-${ref.end}`)}</code></div><pre><code>${lines}</code></pre>`;
     })
     .join('');
   return `<details class="walk-disclosure"><summary><span class="walk-number">${index + 1}</span><span class="event-title">${escape(step.title)}</span><span class="event-chevron" aria-hidden="true">›</span></summary><article class="walk-step" id="walk-step-${index + 1}" tabindex="-1"><p class="walk-intent">${escape(step.intent)}</p>${code}<h4>この実装を選んだ理由</h4><p>${escape(step.rationale)}</p><div class="walk-evidence"><h4>確認結果と証拠</h4><ul>${step.evidence.map((item) => `<li>${escape(item)}</li>`).join('')}</ul><h4>未確認事項</h4>${step.limitations.length ? `<ul>${step.limitations.map((item) => `<li>${escape(item)}</li>`).join('')}</ul>` : '<p>この説明には未確認事項の記載がありません。承認を意味しません。</p>'}</div><details class="walk-question"><summary><span class="event-title">この箇所について質問する</span><span class="event-chevron" aria-hidden="true">›</span></summary><div class="detail-body"><label for="walk-question-${index + 1}">チャットに貼る質問文</label><textarea class="textarea" id="walk-question-${index + 1}" readonly>${escape(question)}</textarea><button class="btn" data-variant="outline" type="button" data-copy-question hidden>質問文をコピー</button><p role="status" aria-live="polite"></p></div></details></article></details>`;

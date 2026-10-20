@@ -57,6 +57,35 @@ async function fixture(status: 'stopped' | 'verified_local' | 'published_draft')
   return { dir, result };
 }
 
+function restoreWalkthroughCode(marked: string) {
+  const entities: Record<string, string> = {
+    amp: '&',
+    lt: '<',
+    gt: '>',
+    quot: '"',
+    '#39': "'",
+    '#x27': "'",
+  };
+  const [prefix, ...rows] = marked.split('<span class="walk-code-line">');
+  expect(prefix).toBe('');
+  expect(rows.length).toBeGreaterThan(0);
+  return rows
+    .map((row) => {
+      const columns = row.match(
+        /^<span class="walk-line-number">([0-9]+: )<\/span><span class="walk-line-text">([\s\S]*)<\/span><\/span>\n?$/,
+      );
+      assert(columns, '元の各行には独立した行番号と本文のカラムが必要です');
+      const escaped = (columns[2] ?? '').replace(/<span class="hljs-[a-z0-9_ -]+">|<\/span>/g, '');
+      expect(escaped).not.toMatch(/[<>]/);
+      const restored = escaped.replace(
+        /&(amp|lt|gt|quot|#39|#x27);/g,
+        (_, entity: string) => entities[entity] ?? '',
+      );
+      return columns[1] + restored;
+    })
+    .join('\n');
+}
+
 test('saved outputs highlight recognizable syntax without changing excerpts or trusting file extensions', async () => {
   const { dir } = await fixture('stopped');
   const json =
@@ -876,7 +905,8 @@ test('walkthrough preserves evaluated code and warns on a mismatched target with
     const statePath = join(dir, 'verification/state.json');
     const state: unknown = JSON.parse(await readFile(statePath, 'utf8'));
     assertState(state);
-    const content = 'const final = "</script><script>alert(9)</script>";\nconst next = 2;';
+    const content =
+      'const final = "</script><script>alert(9)</script> &amp;";\n\tconst next = 900719925474099312345;\n\n/* 保存したコメント\nconst inside = "<img src=x onerror=alert(8)>";\n*/';
     const sha256 = createHash('sha256').update(content).digest('hex');
     const files = [['app.ts', 33188, sha256]];
     const source = createHash('sha256').update(JSON.stringify(files)).digest('hex');
@@ -896,7 +926,7 @@ test('walkthrough preserves evaluated code and warns on a mismatched target with
       title: '次の変更',
       intent: '対応を確認',
       rationale: '別の行を示す',
-      code: [{ path: 'app.ts', start: 2, end: 2 }],
+      code: [{ path: 'app.ts', start: 2, end: 6 }],
       evidence: ['check-1.stdout: pass'],
       limitations: [],
     });
@@ -950,7 +980,25 @@ test('walkthrough preserves evaluated code and warns on a mismatched target with
     expect(html).toContain('href="./verification/review-1.target.json"');
     expect(html).toContain('&lt;/script&gt;&lt;script&gt;alert(9)&lt;/script&gt;');
     expect(html).toContain('app.ts:1-1');
-    expect(html).toContain('app.ts:2-2');
+    expect(html).toContain('app.ts:2-6');
+    const codeBlocks = [
+      ...html.matchAll(
+        /<article class="walk-step"[^>]*>[\s\S]*?<pre[^>]*><code[^>]*>([\s\S]*?)<\/code><\/pre>/g,
+      ),
+    ].map((match) => match[1] ?? '');
+    expect(codeBlocks).toHaveLength(2);
+    const expectedCode = [
+      '1: const final = "</script><script>alert(9)</script> &amp;";',
+      '2: \tconst next = 900719925474099312345;\n3: \n4: /* 保存したコメント\n5: const inside = "<img src=x onerror=alert(8)>";\n6: */',
+    ];
+    codeBlocks.forEach((marked, index) => {
+      const expected = expectedCode[index];
+      assert(expected !== undefined);
+      expect(restoreWalkthroughCode(marked)).toBe(expected);
+    });
+    expect(codeBlocks[0]).toContain('class="hljs-keyword"');
+    expect(codeBlocks[0]).toContain('class="hljs-string"');
+    expect(codeBlocks[1]).toContain('class="hljs-comment"');
     expect(html).not.toContain('data-walk-link');
     expect(html).not.toContain('<nav aria-label="ステップ');
     expect(html).toContain('readonly>変更のウォークスルーのステップ2「次の変更」');
@@ -977,7 +1025,7 @@ test('walkthrough preserves evaluated code and warns on a mismatched target with
     expect(partial).toContain('関連記録の注意');
     expect(partial).toContain('verification/review-0.json');
     expect(partial).toContain('追加修正後の説明');
-    expect(partial).toContain('app.ts:2-2');
+    expect(partial).toContain('app.ts:2-6');
     expect(await readFile(join(dir, 'verification/review-0.json'), 'utf8')).toBe(
       'broken historical JSON',
     );
@@ -1024,6 +1072,84 @@ test('walkthrough preserves evaluated code and warns on a mismatched target with
     expect(invalid).toContain('関連記録の注意');
     expect(invalid).toContain('今回の結果');
     expect(invalid).toContain('href="./verification/review-1.json"');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('ウォークスルーは未対応のファイル形式も安全な行番号付き原文として全ステップを表示する', async () => {
+  const { dir } = await fixture('verified_local');
+  try {
+    const statePath = join(dir, 'verification/state.json');
+    const state: unknown = JSON.parse(await readFile(statePath, 'utf8'));
+    assertState(state);
+    const paths = ['notes.custom', 'notes.constructor', 'notes.__proto__'];
+    const content =
+      '抜粋の対象外\n\tconst raw = "<img src=x onerror=alert(8)> &amp;";\n<script>alert("保存文字")</script>\n';
+    const sha256 = createHash('sha256').update(content).digest('hex');
+    const files = paths.map((path) => [path, 33188, sha256]);
+    const source = createHash('sha256').update(JSON.stringify(files)).digest('hex');
+    const target = { source, files };
+    const targetId = createHash('sha256').update(JSON.stringify(target)).digest('hex');
+    const steps = paths.map((path) => ({
+      title: `${path}の保存コード`,
+      intent: '未対応の種類も保存コードを読める',
+      rationale: '原文と行番号を維持する',
+      code: [{ path, start: 2, end: 3 }],
+      evidence: ['check-1.stdout: pass'],
+      limitations: [],
+    }));
+    const review = {
+      targetId,
+      status: 'accepted' as const,
+      findings: '評価済み',
+      assessments: {
+        code: 'code',
+        requirements: 'requirements',
+        tests: 'tests',
+        documentation: 'documentation',
+      },
+      items: [],
+      documents: [],
+      handoff: [],
+      walkthrough: steps,
+    };
+    state.source = source;
+    state.reviewHistory = [review];
+    await writeFile(statePath, JSON.stringify(state));
+    const prefix = join(dir, 'verification/review-1');
+    await writeFile(prefix + '.target.json', JSON.stringify({ targetId, ...target }));
+    await writeFile(
+      prefix + '.json',
+      JSON.stringify({
+        review,
+        walkthrough: {
+          targetId,
+          source,
+          files: paths.map((path) => ({ path, sha256, content })),
+        },
+      }),
+    );
+    const html = await readFile(await writeRunReport(dir), 'utf8');
+    const blocks = [
+      ...html.matchAll(
+        /<article class="walk-step"[^>]*>[\s\S]*?<pre[^>]*><code[^>]*>([\s\S]*?)<\/code><\/pre>/g,
+      ),
+    ];
+    expect(blocks).toHaveLength(3);
+    for (const path of paths) {
+      expect(html).toContain(`${path}の保存コード`);
+      expect(html).toContain(`${path}:2-3`);
+    }
+    for (const block of blocks) {
+      expect(block[1]).not.toContain('hljs-');
+      expect(restoreWalkthroughCode(block[1] ?? '')).toBe(
+        '2: \tconst raw = "<img src=x onerror=alert(8)> &amp;";\n3: <script>alert("保存文字")</script>',
+      );
+    }
+    expect(html).toContain('href="./verification/review-1.json"');
+    expect(html).toContain('href="./verification/review-1.target.json"');
+    expect(html).not.toContain('記録を確認できません。');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
