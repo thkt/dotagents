@@ -1,4 +1,5 @@
 import { expect } from 'bun:test';
+import assert from 'node:assert/strict';
 import { chmod, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -268,6 +269,81 @@ testDevelopment('中断復帰の公開後にPR修正からホスト復帰して�
     review: 1,
     repair: 0,
   });
+});
+
+// #406 保証2・6・7: 祖先の実装済み記録を今回のPR修正へ流用しない。
+testDevelopment('中断復帰公開後のPR修正テスト停止から未実施の修正へ復帰する', async (f) => {
+  const t = await firstRecovery(f, 'revision');
+  const root = dirname(f.dir);
+  const published = t.dir;
+  const retained = await Promise.all(
+    [f.dir, published].map(async (dir) => ({
+      dir,
+      records: await records(dir),
+      modes: await savedModes(dir),
+    })),
+  );
+  const testPath = join(t.cwd, 'result.test.js');
+  const testContent = await readFile(testPath);
+  const testMode = (await stat(testPath)).mode;
+  const revision = await followupArgs(t, root, 'revision');
+  const executed = await roles(t.executions);
+  await writeFile(t.control, JSON.stringify({ response: 'accepted', testHostRequired: true }));
+  t.dir = join(root, 'published-revision-test-host-stop');
+  t.args = [...revision, '--run-dir', t.dir];
+  const stopped = await recoveryCli(f, t, {}, { observe: true, publication: true });
+  expect(stopped.timedOut).toBe(false);
+  expect(stopped.code, stopped.stderr).toBe(1);
+  expect(stopped.stderr).toMatch(/Host verification required/);
+  expect((await roles(t.executions)).slice(executed.length)).toEqual(['test']);
+  await assert.rejects(readFile(join(t.cwd, 'README.md')), { code: 'ENOENT' });
+  expect(object(JSON.parse(await readFile(join(t.dir, 'result.json'), 'utf8')))).toMatchObject({
+    terminal: true,
+    reasonCode: 'host_verification_required',
+    publication: 'not_attempted',
+  });
+  const prior = t.dir;
+  retained.push({ dir: prior, records: await records(prior), modes: await savedModes(prior) });
+  const host = (await followupArgs(t, root, 'host')).filter((arg) => arg !== '--no-publish');
+  await writeFile(
+    t.control,
+    JSON.stringify({
+      response: 'accepted',
+      requiredArtifact: { path: 'README.md', content: '要求した操作説明' },
+    }),
+  );
+  const beforeReturn = await roles(t.executions);
+  t.dir = join(root, 'published-revision-test-host-return');
+  t.args = [...host, '--run-dir', t.dir];
+  const returned = await recoveryCli(
+    f,
+    t,
+    {},
+    { observe: true, publication: true, allowImplementation: true },
+  );
+  expect(returned.timedOut).toBe(false);
+  expect((await roles(t.executions)).slice(beforeReturn.length)).toEqual([
+    'test',
+    'repair',
+    'check',
+    'review',
+    'push',
+    'publish',
+  ]);
+  expect(returned.code, returned.stderr).toBe(0);
+  expect(await readFile(join(t.cwd, 'README.md'), 'utf8')).toBe('要求した操作説明');
+  expect(object(JSON.parse(await readFile(join(t.dir, 'result.json'), 'utf8')))).toMatchObject({
+    publication: 'published',
+  });
+  const state = object(JSON.parse(await readFile(join(t.dir, 'verification/state.json'), 'utf8')));
+  expect(state.result).toBe('ready_for_human_review');
+  expect(state.active).toBeNull();
+  for (const saved of retained) {
+    expect(await records(saved.dir)).toEqual(saved.records);
+    expect(await savedModes(saved.dir)).toEqual(saved.modes);
+  }
+  expect(await readFile(testPath)).toEqual(testContent);
+  expect((await stat(testPath)).mode).toBe(testMode);
 });
 
 // #406 保証6・7: 照合済みの一件を通常の後続入口へ渡す。

@@ -61,13 +61,14 @@ const control=JSON.parse(readFileSync(${JSON.stringify(control)},'utf8'));
 appendFileSync(${JSON.stringify(executions)},role+'\\n');
 if(role==='check') {
  if(readFileSync('result.txt','utf8')!=='implemented'||readFileSync('setup.txt','utf8')!=='configured')process.exit(1);
+ if(control.requiredArtifact && (!existsSync(control.requiredArtifact.path)||readFileSync(control.requiredArtifact.path,'utf8')!==control.requiredArtifact.content))process.exit(1);
  if(control.changeCheck) {if(control.changeCheck.mode!==undefined) chmodSync(control.changeCheck.path,control.changeCheck.mode);else if(control.changeCheck.remove) unlinkSync(control.changeCheck.path);else writeFileSync(control.changeCheck.path,control.changeCheck.content);}
  if(control.failCheck) {writeFileSync(${JSON.stringify(control)},JSON.stringify({...control,failCheck:false}));process.exit(1);}
 }
 if(role==='test') {
  const prompt=readFileSync(0,'utf8');
  const input=JSON.parse(prompt.split('入力: ')[1].split('\\n')[0]);
- console.log(JSON.stringify({targetId:input.targetId,status:'unnecessary',findings:'要求した対照は既存checkで確認する。',files:[]}));
+ console.log(JSON.stringify({targetId:input.targetId,status:control.testHostRequired?'needs_host':'unnecessary',findings:control.testHostRequired?'独立テスト工程の模擬ホスト検証が必要です。':'要求した対照は既存checkで確認する。',files:[]}));
 }
 if(role==='repair') {
  writeFileSync('README.md','要求した操作説明');
@@ -306,7 +307,7 @@ export async function recoveryCli(
   f: DevelopmentFixture,
   t: Awaited<ReturnType<typeof recoveryFixture>>,
   githubReplies: Record<string, string> = {},
-  options: { observe?: boolean; publication?: boolean } = {},
+  options: { observe?: boolean; publication?: boolean; allowImplementation?: boolean } = {},
 ) {
   const preload = join(dirname(f.dir), 'recovery-cli.ts');
   const modulePath = (relative: string) => new URL(relative, import.meta.url).pathname;
@@ -398,7 +399,7 @@ const io={
   if(argv[0]==='git'&&argv.includes('push')) return fakePush(argv);
   if(argv[2]==='test') return command(actors.test,cwd,input,timeout,prefix);
   if(argv[2]==='repair') {
-   if(!${JSON.stringify(t.args.includes('--previous-run'))}) throw Error('Unexpected initial implementation');
+   if(!${JSON.stringify(t.args.includes('--previous-run') || options.allowImplementation)}) throw Error('Unexpected initial implementation');
    return command(actors.repair,cwd,input,timeout,prefix);
   }
   return command(argv,cwd,input,timeout,prefix);

@@ -76,10 +76,7 @@ export async function readReference(
   );
   return content.toString('utf8');
 }
-function precedingReturns(content: string | undefined) {
-  assert(content !== undefined, 'Missing host handoff configuration reference');
-  const config: unknown = JSON.parse(content);
-  assert(isRecord(config), 'Invalid host handoff configuration');
+function precedingReturns(config: Record<string, unknown>) {
   const returns: (HostReturn | ReviewReturn)[] = [];
   if (config.hostReturn !== undefined) {
     returns.push(hostReturnShape.parse(config.hostReturn));
@@ -116,8 +113,9 @@ async function* returnHistory(
     const configRef = current.records.find((ref) => ref.path === configPath);
     assert(configRef, 'Missing host handoff configuration reference');
     observation.retain([configPath]);
-    const config = await readReference(configRef, observation);
-    yield current;
+    const config: unknown = JSON.parse(await readReference(configRef, observation));
+    assert(isRecord(config), 'Invalid host handoff configuration');
+    yield { current, config };
     const lineage = new Set([...ancestors, current.previousRun]);
     pending.push(
       ...precedingReturns(config).map((entry) => ({ current: entry, ancestors: lineage })),
@@ -127,7 +125,7 @@ async function* returnHistory(
 
 export async function hostLocalRoots(input?: HostReturn | ReviewReturn) {
   const roots: string[] = [];
-  for await (const current of returnHistory(input)) {
+  for await (const { current } of returnHistory(input)) {
     roots.push(current.previousRun);
     if ('evidence' in current) {
       const evidence = hostEvidenceShape.parse(JSON.parse(await readReference(current.evidence)));
@@ -156,13 +154,20 @@ export async function verifyHostReturn(
   let implemented = false;
   const history = [];
   const references = new Set<string>();
-  for await (const current of returnHistory(input, observation, visited)) {
+  let currentRequest: string | undefined;
+  for await (const { current, config } of returnHistory(input, observation, visited)) {
+    const request = implementationRequest(config);
+    if (current.previousRun === input.previousRun) {
+      currentRequest = request;
+    }
     const records = new Map<string, string>();
     for (const ref of current.records) {
       records.set(ref.path, await readReference(ref, observation));
       references.add(ref.path);
     }
-    implemented ||= records.has(join(current.previousRun, 'implementation.prompt'));
+    // 原記録の保全範囲と、今回の修正を実行済みとする履歴の範囲を分ける。
+    implemented ||=
+      request === currentRequest && records.has(join(current.previousRun, 'implementation.prompt'));
     assert(
       'evidence' in current || records.has(join(current.previousRun, 'verification/state.json')),
       '旧不正評価のstate記録がありません',
@@ -182,6 +187,16 @@ export async function verifyHostReturn(
   }
   assert(latest);
   return { ...latest, history, implemented, references: [...references] };
+}
+
+function implementationRequest(config: Record<string, unknown>) {
+  if (config.revision === undefined) {
+    return undefined;
+  }
+  assert(isRecord(config.revision), 'Invalid revision input');
+  const revision = config.revision;
+  // host復帰で変わる保存先ではなく、修正元と固定された依頼を照合する。
+  return JSON.stringify([revision.previousRun, revision.requestFile, revision.request]);
 }
 
 async function verifyHostEvidence(input: HostReturn, cwd: string, observation: RecordObservation) {
