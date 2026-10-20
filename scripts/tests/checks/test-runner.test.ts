@@ -114,6 +114,12 @@ async function runnerFixture(
       : `import {test,expect} from 'bun:test';
     test('first', () => expect(1).toBe(1)); ${bodies[scenario]}`;
   await writeFile(join(dir, 'probe.test.js'), source);
+  const archivedDirectory = join(cwd, 'output/archive', directory);
+  await mkdir(archivedDirectory, { recursive: true });
+  await writeFile(
+    join(archivedDirectory, 'obsolete.test.js'),
+    "import { test } from 'bun:test'; test('obsolete copy', () => { throw new Error('Archived test executed'); });",
+  );
   return temporaryReports;
 }
 
@@ -127,6 +133,7 @@ const diagnostics = {
 };
 
 const selections = [
+  { scenario: 'normal', directory: undefined } as const,
   ...(['normal', 'only', 'skip', 'failure', 'syntax', 'empty'] as const).map((scenario) => ({
     scenario,
     directory: 'scripts/tests',
@@ -137,19 +144,25 @@ const selections = [
   })),
 ];
 for (const { scenario, directory } of selections) {
-  test(`bun runner: ${directory} ${scenario}`, async () => {
+  test(`bun runner: ${directory ?? 'default'} ${scenario}`, async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'test-completion-'));
     try {
-      const temporaryReports = await runnerFixture(cwd, scenario, directory);
-      const result = spawnSync(process.execPath, [entry, 'bun', directory], {
-        cwd,
-        encoding: 'utf8',
-        timeout: 15000,
-        env: { ...process.env, CI: 'false', TMPDIR: temporaryReports },
-      });
+      const selectedDirectory = directory ?? 'scripts/tests';
+      const temporaryReports = await runnerFixture(cwd, scenario, selectedDirectory);
+      const result = spawnSync(
+        process.execPath,
+        [entry, 'bun', ...(directory ? [directory] : [])],
+        {
+          cwd,
+          encoding: 'utf8',
+          timeout: 15000,
+          env: { ...process.env, CI: 'false', TMPDIR: temporaryReports },
+        },
+      );
       expect(result.error).toBeUndefined();
       expect(result.status).toBe(scenario === 'normal' ? 0 : 1);
       const output = result.stdout + result.stderr;
+      expect(output).not.toContain('Archived test executed');
       for (const diagnostic of diagnostics[scenario]) {
         expect(output).toMatch(diagnostic);
       }
@@ -163,7 +176,7 @@ for (const { scenario, directory } of selections) {
         expect(report).toBeDefined();
         const xml = await readFile(report ?? '', 'utf8');
         expect(xml).toMatch(/<testcase\b[^>]*name="second"[^>]*>[\s\S]*?<skipped\b/);
-        expect(xml).toContain(`file="${directory}/probe.test.js"`);
+        expect(xml).toContain(`file="${selectedDirectory}/probe.test.js"`);
       } else {
         expect(await readdir(temporaryReports)).toEqual([]);
         expect(output).not.toContain('JUnit report retained:');

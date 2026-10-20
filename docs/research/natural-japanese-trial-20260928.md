@@ -10,8 +10,8 @@
 
 | 対象 | 原文 | 推敲案 |
 | --- | --- | --- |
-| 調査報告 | [Portless試行の固定版](https://github.com/thkt/dotagents/blob/8d452eade4824e300b80b7b0b874595330976b53/docs/research/portless-worktree-trial-20260923.md) | [調査報告の推敲案](natural-japanese-trial/report-after.md) |
-| PR本文 | [PR #312](https://github.com/thkt/dotagents/pull/312)の取得時本文を[保存したもの](natural-japanese-trial/pr-before.md) | [PR本文の推敲案](natural-japanese-trial/pr-after.md) |
+| 調査報告 | [Portless試行の固定版](https://github.com/thkt/dotagents/blob/8d452eade4824e300b80b7b0b874595330976b53/docs/research/portless-worktree-trial-20260923.md) | [調査報告の推敲案](https://github.com/thkt/dotagents/blob/fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092/docs/research/natural-japanese-trial/report-after.md) |
+| PR本文 | [PR #312](https://github.com/thkt/dotagents/pull/312)の取得時本文を[保存したもの](https://github.com/thkt/dotagents/blob/fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092/docs/research/natural-japanese-trial/pr-before.md) | [PR本文の推敲案](https://github.com/thkt/dotagents/blob/fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092/docs/research/natural-japanese-trial/pr-after.md) |
 
 PRの対象headは `754becb392b618c1d8befa28e135077bcfeef542`。PR本文にあるreadyへの切替予定は当時の記述として保持し、現在のPR状態の説明へは変更していない。原本とGitHub上の本文は変更していない。
 
@@ -79,4 +79,4 @@ Codex CLI 0.157.1、gpt-6-astra/high、`--ignore-user-config --ephemeral --appro
 
 操作履歴で、固定commitの照合、スキル本文の読取り、対象を指定したlintの実行結果を確認した。調査報告とPR本文の完成案は別のレビュー担当が原文と全文比較し、事実・数値・条件・未確認事項・参照・権限の欠落や断定の強化は見つからなかった。これは文章の意味の照合であり、元の実測やGitHubの現在状態の再検証ではない。
 
-今回の条件では、スキル名を直接指定しなくても参照と適用を確認できた。常時の選択・遵守、他の文書・モデル・環境での効果、読解時間や理解度の改善、子モデルを含む総費用は未確認である。初回lintの成功率や実行時間を推定する試行数も足りない。生ログ・個人パスは公開せず、この要約と[調査報告案](natural-japanese-trial/report-session.md)・[PR本文案](natural-japanese-trial/pr-session.md)を共有する。
+今回の条件では、スキル名を直接指定しなくても参照と適用を確認できた。常時の選択・遵守、他の文書・モデル・環境での効果、読解時間や理解度の改善、子モデルを含む総費用は未確認である。初回lintの成功率や実行時間を推定する試行数も足りない。生ログ・個人パスは公開せず、この要約と[調査報告案](https://github.com/thkt/dotagents/blob/fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092/docs/research/natural-japanese-trial/report-session.md)・[PR本文案](https://github.com/thkt/dotagents/blob/fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092/docs/research/natural-japanese-trial/pr-session.md)を共有する。

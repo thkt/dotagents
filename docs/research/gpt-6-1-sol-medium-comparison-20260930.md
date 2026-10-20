@@ -2,7 +2,7 @@
 
 2026-09-30、依頼者は比較結果を確認し、通常の初回実装・追加修正を `gpt-6.1-sol` / `medium`、独立評価と付属actorの手動review probeを `gpt-6.1-sol` / `high` にする方針を採用しました。mediumの実装・局所修正はホストのcheckと独立oracleを通りました。一方、独立レビューでは、highが検出した短い末尾ページのテスト不足をmediumが見落としました。モデル7回のactor時間はhighの783.075914707秒に対しmediumは593.714337085秒でした。各条件1回で環境差もあり、一般的な速度・品質・費用の優位は示しません。
 
-前回の[Sol/high報告](gpt-6-1-sol-trial-20260930.md)と[集計資料](gpt-6-1-sol-trial-20260930.json)は、全役割highの候補を試した当時の原本として保持します。今回の追加合意は、実装・修正だけをmediumへ変え、独立評価をhighに保つものです。highの条件・数値・当時の判断や過去のAstra実測、旧runを書き換えるものではありません。
+前回の[Sol/high報告](gpt-6-1-sol-trial-20260930.md)と[集計資料](https://github.com/thkt/dotagents/blob/fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092/docs/research/gpt-6-1-sol-trial-20260930.json)は、全役割highの候補を試した当時の原本として保持します。今回の追加合意は、実装・修正だけをmediumへ変え、独立評価をhighに保つものです。highの条件・数値・当時の判断や過去のAstra実測、旧runを書き換えるものではありません。
 
 ## 出典と今回に適用する範囲
 

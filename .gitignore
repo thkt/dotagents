@@ -2,3 +2,7 @@
 node_modules/
 .fallow/
 .codex/workflow-artifacts/
+/output/
+/.playwright-cli/
+/.rumdl_cache/
+/.issue-drafts/

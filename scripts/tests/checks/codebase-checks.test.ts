@@ -261,6 +261,12 @@ test('lint rejects unsafe assertions and accumulator copies while preserving che
 test('unused check detects unreachable code but preserves real entries and imported exports', async () => {
   const cwd = await fixture('graph');
   try {
+    await mkdir(join(cwd, 'output/archive'), { recursive: true });
+    await writeFile(join(cwd, 'output/archive/obsolete.ts'), 'const broken = ;\n');
+    await writeFile(
+      join(cwd, 'output/archive/package.json'),
+      JSON.stringify({ name: 'archived-probe', dependencies: { 'obsolete-dependency': '1.0.0' } }),
+    );
     expect(run(cwd, 'check:unused').status).toBe(0);
     await writeFile(join(cwd, 'scripts/trial-unused.ts'), 'export const trialUnusedFile = 712;\n');
     await writeFile(join(cwd, 'eval/trial-unused.ts'), 'export const trialUnusedFile = 712;\n');

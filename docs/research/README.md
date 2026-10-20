@@ -9,9 +9,6 @@
 | 調査の根拠を実装・修正・独立評価・PR説明へ引き継ぐ方法を見直すとき | [Issue #73の参照引き継ぎの確認](context-handoff-73.md) |
 | 独立レビューの分担や並列化を、過去の品質・時間・使用量と照らして判断するとき | [implementの独立レビュー基盤](implement-review-foundation.md) |
 | Solの役割別effort設定の合意と、限定試行の見落とし・時間・使用量・環境差を確認するとき | [Sol/highの限定試行](gpt-6-1-sol-trial-20260930.md)、[mediumとの比較](gpt-6-1-sol-medium-comparison-20260930.md) |
-| 調査成果の保存先や共有方法を変える前に、当時の背景を確認するとき | [scopingの調査成果を共有する保存先](scoping-research-storage.md) |
-| 共有モデルで用語と責任の境界を表す試行を参照するとき | [用語と責任境界の試行](domain-boundary-trial-20260920.md) |
-| fallowとKnipの採用前の比較条件・測定値を確認するとき | [fallow・Knipのローカル比較](fallow-trial-20260921.md) |
 | 実行予約と中断後の再起動をモデル化した範囲を確認するとき | [TLA+の限定試行](formal-state-trial-20260921.md) |
 | 検証後の版変更と送信の間にある競合、モデルの操作粒度を確認するとき | [Quintによる公開前の限定試行](quint-publication-trial-20260929.md) |
 | #58の撮影検証の対象版・実測・失敗と未確認範囲を確認するとき | [Issue #58の検証記録](harness-review-2026-09-14.md) |
@@ -21,7 +18,7 @@
 | 独立テスト8ケースの保証・代替・負担と、一時コピーの反例・評価対照の結果を確認するとき | [独立テスト8ケースの冗長性判断の試行](test-redundancy-pilot-20261010.md) |
 | 共有モデルの引き継ぎで確認した制御条件と、時間・手戻りの未計測範囲を確認するとき | [Issue #90の検証記録](shared-knowledge-90.md) |
 
-このディレクトリには、当時の試行記録と未採用・未合意のIssue草案も含みます。`docs/research/`への移動と公開は内容の採用や現行版での再検証を意味しません。本文中の「ローカル保存」「未公開」は記録時点の状態です。現在の要求・実装・方針を判断するときは、対象版と後続のIssue・PRを確認してください。
+このディレクトリには、再利用する調査結果と判断に必要な根拠を保存します。Issue草案はGit管理せず、必要なものだけローカルの `.issue-drafts/` に置きます。`docs/research/`への移動と公開は内容の採用や現行版での再検証を意味しません。本文中の「ローカル保存」「未公開」は記録時点の状態です。現在の要求・実装・方針を判断するときは、対象版と後続のIssue・PRを確認してください。
 
 scopingで再利用する調査成果と未採用の提案をGitで管理します。報告には、問い、出典と対象版・確認日、結論、適用条件、未解決事項を残します。別の開発者やcloneでも読める参照先を使い、ホスト内の絶対パスだけを根拠にはしません。採用した仕様や方針は、関連する既存ドキュメントやIssueへ反映します。
 
@@ -37,4 +34,6 @@ Issueの記述と出典リンクで足りる場合は報告を作りません。
 
 現在の手順は[wiki](../wiki/README.md)、重要な選択理由は[decisions](../decisions/README.md)へ残します。検証結果の現在の扱いは[検証結果を観測した範囲で使う](../wiki/evidence-scope.md)、実装・修正・独立評価への根拠の引き継ぎは[判断に使う根拠を同じ版で引き継ぐ](../wiki/reference-handoff.md)を参照してください。[共通手順](../../skills/references/documents.md)で原本と現行説明を分担してください。
 
-[Issue #382](https://github.com/thkt/dotagents/issues/382)の整理では、公開本文と同等または包含され、完了・見送りとなった草案73件と移行時の一覧・記録を現行ツリーから外しました。未合意・保留、公開本文との差が残る草案16件は保持しています。分類と本文照合の当時の根拠は[削除前の一覧](https://github.com/thkt/dotagents/blob/c539a26030b9ee575bdbce8b0ba6a66e888a9e3f/docs/research/documentation-inventory.json)から辿れます。削除は要求の変更や、過去の検証結果の再評価を意味しません。
+[Issue #382](https://github.com/thkt/dotagents/issues/382)の整理では、公開本文と同等または包含され、完了・見送りとなった草案73件と移行時の一覧・記録を現行ツリーから外しました。その時点では、未合意・保留、公開本文との差が残る草案16件を保持しました。分類と本文照合の当時の根拠は[削除前の一覧](https://github.com/thkt/dotagents/blob/c539a26030b9ee575bdbce8b0ba6a66e888a9e3f/docs/research/documentation-inventory.json)から辿れます。削除は要求の変更や、過去の検証結果の再評価を意味しません。
+
+Issue草案と、現行の手順・検証で使わない過去の調査メモは現行ツリーから外しています。原文は[整理前の固定版](https://github.com/thkt/dotagents/tree/fd28ac54d7d089f494d8d7be7ffe15bb8b5c8092/docs/research)から辿れます。報告の根拠として必要な比較用JSONと推敲前後の文書も、参照元の報告から固定版へ案内します。過去の数値・判断・未確認事項は変更していません。
