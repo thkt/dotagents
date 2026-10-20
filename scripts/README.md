@@ -622,6 +622,78 @@ SIGKILLやOS停止は捕捉できません。CLIだけが強制終了すると�
 
 準備時の分離や記録は、同一ユーザーによる悪意ある改変へのセキュリティ境界ではありません。検証定義の弱体化は独立評価と人のレビューでも確認します。
 
+### 保存結果をjqで参照する（任意）
+
+保存済みの `result.json` と `verification/state.json` を絞って読む例です。jqが導入済みの環境で任意に使い、通常check・CIの必須依存にはしません。`run_dir` は参照するrunの絶対パスへ置き換えます。入力ファイルへの書込みや旧runの再開は行いません。
+
+resultの項目は[生成側のDevelopmentResult](implement/orchestrator.ts)と[読取りSchema](implement/run-result.ts)、stateは[savedState](implement/input.ts)、最新評価は[reviewRecord](implement/review.ts)に照合します。`reasonCode` は生成側の任意項目、`evidence` は生成側が記すrun保存先で、読取りSchemaの宣言項目にはありません。旧記録などで欠ける場合は `null` のまま表示します。
+
+以下は表示対象の型と終端フラグを検査する抽出例で、完全なSchema検証や受入判定ではありません。必須の表示項目の欠落・不正型は `error` で停止します。任意項目の `null`、空配列、jqの終了0はハーネス成功を意味しません。
+
+```sh
+run_dir=/absolute/path/to/saved-run
+jq -e '
+  def optional_strings($keys):
+    . as $record | all($keys[]; . as $key |
+      ($record | has($key) | not) or ($record[$key] | type == "string"));
+  if type != "object" then error("result must be an object")
+  elif (.terminal != true
+    or (.status as $s | ["stopped", "verified_local", "published_draft"] | index($s) == null)
+    or (all(.phase, .operation, .reason, .nextAction; type == "string") | not)
+    or (.remaining | type != "array"))
+    then error("invalid result fields")
+  elif ((all(.remaining[]; type == "string") | not)
+    or (optional_strings(["reasonCode", "publication", "url", "commit", "ci", "details", "evidence"]) | not))
+    then error("invalid result field types")
+  else {status, phase, operation, reason, reasonCode, nextAction, remaining,
+    publication, url, commit, ci, details, evidence} end
+' "$run_dir/result.json"
+```
+
+`status: stopped` は停止、`verified_local` はローカル検証完了、`published_draft` はdraft公開とCI確認完了です。`remaining` が空でも、人の承認・マージを含む成功とは判定しません。`terminal` が欠ける中間保存はこの例では拒否します。読取りSchemaが要求する日時や、draft公開時の項目間の整合も別途確認してください。
+
+次はstateの要約、各コマンドの終了状態、最新評価をまとめて表示します。同じシェルの `run_dir` を使います。
+
+```sh
+jq -e '
+  def optional_string($key):
+    (has($key) | not) or (.[$key] | type == "string");
+  def valid_event:
+    if type != "object" then false
+    else has("code") and (.timedOut | type == "boolean")
+      and (all(.role, .prefix; type == "string"))
+      and (.code == null or (.code | if type == "number"
+        then . >= 0 and . == floor else false end)) end;
+  if type != "object" then error("state must be an object")
+  elif ((has("active") | not)
+    or (.active | if . == null then false
+      elif type == "object" then (all(.role, .prefix; type == "string") | not)
+      else true end)
+    or (.result != null and (.result | type != "string"))
+    or (optional_string("findings") | not)
+    or (.events | type != "array") or (.reviewHistory | type != "array"))
+    then error("invalid state fields")
+  elif (all(.events[]; valid_event) | not) then error("invalid event fields")
+  elif (all(.reviewHistory[];
+    if type != "object" then false
+    else (.status == "accepted" or .status == "needs_changes")
+      and (.findings | type == "string") end) | not)
+    then error("invalid review fields")
+  else {result, active, findings,
+    events: [.events[] | . + {exitState:
+      (if .timedOut then "timed_out"
+       elif .code == null then "exit_unknown"
+       elif .code != 0 then "nonzero_exit"
+       else "zero_exit" end)}],
+    latestReview: (if (.reviewHistory | length) == 0 then null else .reviewHistory[-1] end)}
+  end
+' "$run_dir/verification/state.json"
+```
+
+`timed_out` は時間切れを優先し、`code: 0` でも正常終了にしません。`exit_unknown` は終了コード未記録、`nonzero_exit` は非zero終了です。`zero_exit` はそのコマンドの終了コード0だけを示し、レビューのacceptedや全体の完了とは別です。非正常だけを探す場合も、`code: null` を落とさず、`select(.timedOut or .code == null or .code != 0)` とします。
+
+`active` が非nullなら実行予約が残っています。`result` の欠落・nullは成功ではなく、`reviewHistory: []` の `latestReview: null` は未評価です。配列そのものの欠落は空履歴へ補完せず拒否します。最新評価がacceptedでも、その後の版の検証や公開・CIは別途照合します。この例は履歴要素のstatusとfindingsを検査するだけなので、完全な評価内容・対象IDの整合は原記録とSchemaへ戻って確認してください。
+
 ## 検証
 
 現在の共通checkの順序やハーネスの検証範囲は[README](../README.md#セットアップと検証)を、書式や型情報を用いるlintおよびテスト完了の方針は[開発方針](../docs/wiki/development-policy.md#typescriptの書き方)を参照してください。
