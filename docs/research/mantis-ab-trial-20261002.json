@@ -1,0 +1,1676 @@
+{
+  "schemaVersion": 1,
+  "consistencyAudit": {
+    "fixtures": [
+      {
+        "key": "auth-defect",
+        "allSixHashesMatch": true,
+        "sameBaseCommit": true,
+        "sameFiles": true
+      },
+      {
+        "key": "auth-control",
+        "allSixHashesMatch": true,
+        "sameBaseCommit": true,
+        "sameFiles": true
+      },
+      {
+        "key": "state-defect",
+        "allSixHashesMatch": true,
+        "sameBaseCommit": true,
+        "sameFiles": true
+      },
+      {
+        "key": "state-control",
+        "allSixHashesMatch": true,
+        "sameBaseCommit": true,
+        "sameFiles": true
+      }
+    ],
+    "actors": [
+      {
+        "id": "case-8t8vfs7i",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "b2f91132ffc38ef277382f86c8efad472c156e6d7bb732fd9aa54aea45f721c3",
+        "trackedDirty": true,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-8r8813hh",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "b2f91132ffc38ef277382f86c8efad472c156e6d7bb732fd9aa54aea45f721c3",
+        "trackedDirty": true,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-01sjm1lh",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "b2f91132ffc38ef277382f86c8efad472c156e6d7bb732fd9aa54aea45f721c3",
+        "trackedDirty": true,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-jmg3gkjh",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "408d670e692571b4e0de6f06926f089694ad45de4324b4f600d694118ce7bc20",
+        "trackedDirty": false,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-803twc6v",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "408d670e692571b4e0de6f06926f089694ad45de4324b4f600d694118ce7bc20",
+        "trackedDirty": false,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-p2lflzj9",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "b2f91132ffc38ef277382f86c8efad472c156e6d7bb732fd9aa54aea45f721c3",
+        "trackedDirty": true,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-apg72hop",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "b2f91132ffc38ef277382f86c8efad472c156e6d7bb732fd9aa54aea45f721c3",
+        "trackedDirty": true,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-6cwhf1h8",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "408d670e692571b4e0de6f06926f089694ad45de4324b4f600d694118ce7bc20",
+        "trackedDirty": false,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-a5703g08",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "b2f91132ffc38ef277382f86c8efad472c156e6d7bb732fd9aa54aea45f721c3",
+        "trackedDirty": true,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-08ulh38k",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "b2f91132ffc38ef277382f86c8efad472c156e6d7bb732fd9aa54aea45f721c3",
+        "trackedDirty": true,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-j8ojgauk",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "408d670e692571b4e0de6f06926f089694ad45de4324b4f600d694118ce7bc20",
+        "trackedDirty": false,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-swsofcgx",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "408d670e692571b4e0de6f06926f089694ad45de4324b4f600d694118ce7bc20",
+        "trackedDirty": false,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-onk0icb0",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "b2f91132ffc38ef277382f86c8efad472c156e6d7bb732fd9aa54aea45f721c3",
+        "trackedDirty": true,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-rnq1hfle",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "b2f91132ffc38ef277382f86c8efad472c156e6d7bb732fd9aa54aea45f721c3",
+        "trackedDirty": true,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-2zgk13p5",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "408d670e692571b4e0de6f06926f089694ad45de4324b4f600d694118ce7bc20",
+        "trackedDirty": false,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-3dzh1_b3",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "408d670e692571b4e0de6f06926f089694ad45de4324b4f600d694118ce7bc20",
+        "trackedDirty": false,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-apwdlzag",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "408d670e692571b4e0de6f06926f089694ad45de4324b4f600d694118ce7bc20",
+        "trackedDirty": false,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-syt7pu10",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "b2f91132ffc38ef277382f86c8efad472c156e6d7bb732fd9aa54aea45f721c3",
+        "trackedDirty": true,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-ohbh9t2k",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "b2f91132ffc38ef277382f86c8efad472c156e6d7bb732fd9aa54aea45f721c3",
+        "trackedDirty": true,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-nu84q0cb",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "408d670e692571b4e0de6f06926f089694ad45de4324b4f600d694118ce7bc20",
+        "trackedDirty": false,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-2oo_2zio",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "408d670e692571b4e0de6f06926f089694ad45de4324b4f600d694118ce7bc20",
+        "trackedDirty": false,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-kexazbim",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "408d670e692571b4e0de6f06926f089694ad45de4324b4f600d694118ce7bc20",
+        "trackedDirty": false,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-9isqb9dk",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "408d670e692571b4e0de6f06926f089694ad45de4324b4f600d694118ce7bc20",
+        "trackedDirty": false,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-lf8q_lz7",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "b2f91132ffc38ef277382f86c8efad472c156e6d7bb732fd9aa54aea45f721c3",
+        "trackedDirty": true,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      }
+    ],
+    "candidateHashMatches": true
+  },
+  "cliVersions": [
+    "codex-cli 0.160.0"
+  ],
+  "seed": 35020261001,
+  "preflight": {
+    "result": "review_completed",
+    "reviewCount": 1,
+    "fixturesValidated": 24,
+    "modelCalls": 0,
+    "purpose": "既存のreviewOnceへ渡す設定と応答契約の模擬確認。実モデルの成功とは扱わない。"
+  },
+  "fixtureObservations": {
+    "preparedWithoutModels": true,
+    "results": [
+      {
+        "key": "auth-defect",
+        "checks": [
+          {
+            "label": "own canonical single",
+            "actual": "alpha report",
+            "expected": "alpha report"
+          },
+          {
+            "label": "own alias single",
+            "actual": "alpha report",
+            "expected": "alpha report"
+          },
+          {
+            "label": "foreign canonical single",
+            "actual": null,
+            "expected": null
+          },
+          {
+            "label": "foreign alias single",
+            "actual": null,
+            "expected": null
+          },
+          {
+            "label": "missing single",
+            "actual": null,
+            "expected": null
+          },
+          {
+            "label": "own canonical bundle",
+            "actual": [
+              "alpha report",
+              "alpha note"
+            ],
+            "expected": [
+              "alpha report",
+              "alpha note"
+            ]
+          },
+          {
+            "label": "own alias bundle",
+            "actual": [
+              "alpha report",
+              "alpha note"
+            ],
+            "expected": [
+              "alpha report",
+              "alpha note"
+            ]
+          },
+          {
+            "label": "foreign canonical bundle",
+            "actual": null,
+            "expected": null
+          },
+          {
+            "label": "foreign alias bundle",
+            "actual": [
+              "beta report"
+            ],
+            "expected": [
+              "beta report"
+            ]
+          },
+          {
+            "label": "mixed bundle",
+            "actual": [
+              "alpha report",
+              "beta report"
+            ],
+            "expected": [
+              "alpha report",
+              "beta report"
+            ]
+          },
+          {
+            "label": "missing bundle",
+            "actual": null,
+            "expected": null
+          },
+          {
+            "label": "empty bundle",
+            "actual": [],
+            "expected": []
+          },
+          {
+            "label": "other tenant own alias",
+            "actual": [
+              "beta report"
+            ],
+            "expected": [
+              "beta report"
+            ]
+          },
+          {
+            "label": "other tenant foreign alias",
+            "actual": [
+              "alpha report"
+            ],
+            "expected": [
+              "alpha report"
+            ]
+          }
+        ]
+      },
+      {
+        "key": "auth-control",
+        "checks": [
+          {
+            "label": "own canonical single",
+            "actual": "alpha report",
+            "expected": "alpha report"
+          },
+          {
+            "label": "own alias single",
+            "actual": "alpha report",
+            "expected": "alpha report"
+          },
+          {
+            "label": "foreign canonical single",
+            "actual": null,
+            "expected": null
+          },
+          {
+            "label": "foreign alias single",
+            "actual": null,
+            "expected": null
+          },
+          {
+            "label": "missing single",
+            "actual": null,
+            "expected": null
+          },
+          {
+            "label": "own canonical bundle",
+            "actual": [
+              "alpha report",
+              "alpha note"
+            ],
+            "expected": [
+              "alpha report",
+              "alpha note"
+            ]
+          },
+          {
+            "label": "own alias bundle",
+            "actual": [
+              "alpha report",
+              "alpha note"
+            ],
+            "expected": [
+              "alpha report",
+              "alpha note"
+            ]
+          },
+          {
+            "label": "foreign canonical bundle",
+            "actual": null,
+            "expected": null
+          },
+          {
+            "label": "foreign alias bundle",
+            "actual": null,
+            "expected": null
+          },
+          {
+            "label": "mixed bundle",
+            "actual": null,
+            "expected": null
+          },
+          {
+            "label": "missing bundle",
+            "actual": null,
+            "expected": null
+          },
+          {
+            "label": "empty bundle",
+            "actual": [],
+            "expected": []
+          },
+          {
+            "label": "other tenant own alias",
+            "actual": [
+              "beta report"
+            ],
+            "expected": [
+              "beta report"
+            ]
+          },
+          {
+            "label": "other tenant foreign alias",
+            "actual": null,
+            "expected": null
+          }
+        ]
+      },
+      {
+        "key": "state-defect",
+        "retryAfterFailure": true,
+        "overlapping": [
+          true,
+          true
+        ],
+        "calls": 2,
+        "otherResult": true,
+        "other": [
+          ""
+        ],
+        "consumedAgain": false
+      },
+      {
+        "key": "state-control",
+        "retryAfterFailure": true,
+        "overlapping": [
+          true,
+          false
+        ],
+        "calls": 1,
+        "otherResult": true,
+        "other": [
+          ""
+        ],
+        "consumedAgain": false
+      }
+    ]
+  },
+  "fixtureVerificationSource": "import assert from 'node:assert/strict';\nimport { readFile, writeFile } from 'node:fs/promises';\nimport { resolve } from 'node:path';\nconst manifest=JSON.parse(await readFile(resolve(import.meta.dir,'manifest.json'),'utf8'));\nconst results=[];\nfor(const entry of manifest.entries){\n  const trial=entry.trials[0];\n  const cwd=trial.config.cwd;\n  if(entry.family==='auth'){\n    const {readDocument,readBundle}=await import(resolve(cwd,'api.ts'));\n    const a={tenant:'alpha'},b={tenant:'beta'};\n    const checks=[\n      {label:'own canonical single',actual:readDocument(a,'a-report'),expected:'alpha report'},\n      {label:'own alias single',actual:readDocument(a,'latest-alpha'),expected:'alpha report'},\n      {label:'foreign canonical single',actual:readDocument(a,'b-report'),expected:null},\n      {label:'foreign alias single',actual:readDocument(a,'latest-beta'),expected:null},\n      {label:'missing single',actual:readDocument(a,'missing'),expected:null},\n      {label:'own canonical bundle',actual:readBundle(a,['a-report','a-note']),expected:['alpha report','alpha note']},\n      {label:'own alias bundle',actual:readBundle(a,['latest-alpha','a-note']),expected:['alpha report','alpha note']},\n      {label:'foreign canonical bundle',actual:readBundle(a,['b-report']),expected:null},\n      {label:'foreign alias bundle',actual:readBundle(a,['latest-beta']),expected:entry.key==='auth-defect'?['beta report']:null},\n      {label:'mixed bundle',actual:readBundle(a,['a-report','latest-beta']),expected:entry.key==='auth-defect'?['alpha report','beta report']:null},\n      {label:'missing bundle',actual:readBundle(a,['missing']),expected:null},\n      {label:'empty bundle',actual:readBundle(a,[]),expected:[]},\n      {label:'other tenant own alias',actual:readBundle(b,['latest-beta']),expected:['beta report']},\n      {label:'other tenant foreign alias',actual:readBundle(b,['latest-alpha']),expected:entry.key==='auth-defect'?['alpha report']:null},\n    ];\n    for(const c of checks)assert.deepEqual(c.actual,c.expected,c.label);\n    results.push({key:entry.key,checks});\n  }else{\n    const {createVault}=await import(resolve(cwd,'vault.ts'));\n    const vault=createVault([{id:'a',payload:'payload a'},{id:'b',payload:''}]);\n    assert.equal(await vault.redeem('a',async()=>{throw new Error('not delivered')}),false);\n    const delivered=[];assert.equal(await vault.redeem('a',async(p:any)=>{delivered.push(p)}),true);\n    assert.deepEqual(delivered,['payload a']);assert.equal(await vault.redeem('a',async()=>{throw new Error('must not call')}),false);\n    assert.equal(await vault.redeem('missing',async()=>{throw new Error('must not call')}),false);\n    const v=createVault([{id:'a',payload:'payload a'},{id:'b',payload:''}]);\n    let release!:()=>void,started!:()=>void;\n    const gate=new Promise<void>(r=>{release=r}),arrival=new Promise<void>(r=>{started=r});let calls=0;\n    const send=async(p:any)=>{assert.equal(p,'payload a');calls++;started();await gate;};\n    const first=v.redeem('a',send);await arrival;\n    const second=v.redeem('a',send);\n    const other=[];const otherResult=await v.redeem('b',async(p:any)=>{other.push(p)});\n    release();const overlapping=await Promise.all([first,second]);\n    assert.deepEqual(other,['']);assert.equal(otherResult,true);\n    const defective=entry.key==='state-defect';assert.deepEqual(overlapping,defective?[true,true]:[true,false]);assert.equal(calls,defective?2:1);\n    results.push({key:entry.key,retryAfterFailure:true,overlapping,calls,otherResult,other,consumedAgain:await v.redeem('a',async()=>{throw new Error('must not call')})});\n  }\n}\nfor(const entry of manifest.entries.filter((e:any)=>e.key.endsWith('defect'))){\n const base=resolve(import.meta.dir,'baseline-'+entry.family);await import('node:fs/promises').then(f=>f.mkdir(base,{recursive:true}));\n for(const [name,content] of Object.entries(entry.baseFiles))await writeFile(resolve(base,name),content as string);\n if(entry.family==='auth'){\n  const api=await import(resolve(base,'api.ts'));assert.equal(api.readDocument({tenant:'alpha'},'latest-beta'),'beta report');\n }else{\n  const api=await import(resolve(base,'vault.ts'));const v=api.createVault([{id:'a',payload:'sample'}]);assert.equal(await v.redeem('a',async()=>{throw new Error('no delivery')}),false);assert.equal(await v.redeem('a',async()=>{}),false);\n }\n}\nawait writeFile(resolve(import.meta.dir,'oracle-results.json'),JSON.stringify({preparedWithoutModels:true,results},null,2));console.log(JSON.stringify({fixtures:4,authChecksPerFixture:14,concurrencyControlled:true,baseRegressionsConfirmed:true}));\n",
+  "timingVerificationSource": "export function timeIsValid(wallMs:number,elapsedMs:number,limitMs:number,endedWall:number,expiresWall:number){\n  return wallMs>=0&&Math.abs(wallMs-elapsedMs)<=2000&&wallMs<=limitMs+2000&&endedWall<=expiresWall;\n}\n",
+  "purpose": "Mantis由来の追加指示の限定A/B比較",
+  "harnessCommit": "918aa6ec5a582da43a82bf831240c2f921f6d686",
+  "model": "gpt-6.1-sol",
+  "reasoningEffort": "high",
+  "candidate": "変更に関係する指摘は、支持する根拠に加えて、実際の入力主体と呼出経路、呼出元の検査、既存防御、対象の設定から反証できるか確認してください。存在しない呼出しを仮定して欠陥とせず、到達性の未確認や再現失敗だけで非該当にもせず、欠陥と懸念を区別してください。\n不具合修正では、修正前に狙った理由で不具合が起き、修正後に同じ条件で起きないことを既存の検証へ照合してください。修正後も必要な正常入力が対象の処理へ到達し、正しい結果になるか確認してください。入口の無効化、対象の欠落、環境・ビルド失敗を修正成功の証拠にしないでください。\n元の再現だけでは修正の不足を判別できない入力境界・認可・状態や競合の変更では、要求とコードから別表現の入力、境界値、操作順を選び、許可された範囲で同じ不具合の残存を確認してください。既存検証で足りる場合や関連する失敗条件がない場合は省略してください。件数を固定せず、無関係な攻撃の探索や不要なテスト追加を求めないでください。根拠と未確認の限界は既存の指摘とassessmentsへ記し、必要な検証を実行できない場合は既存のホスト検証への引き継ぎを使ってください。\n",
+  "candidateSha256": "b74e91bf9ac2ff0397d46356ff9cd3e676fc585f9a92c0052f777517fb230e3b",
+  "limits": {
+    "parentRuns": 24,
+    "perActorMs": 300000,
+    "totalParentMs": 7200000,
+    "totalWallMs": 7200000
+  },
+  "fixtures": [
+    {
+      "key": "auth-defect",
+      "family": "auth",
+      "requirements": "認証済みのContextを受け取る文書読取りAPIを修正する。Contextのtenantは上位の信頼する認証処理で確定済みで、クライアントが偽装する経路は今回の対象にない。公開入口はreadDocumentとreadBundle。利用者は任意の文書IDまたは別名を指定できる。指定した文書の実際のtenantがContextと一致する場合だけ本文を返し、別tenant・不存在ならnull。readBundleは順序を維持し、全指定文書の読取りが許される場合だけ配列を返す。一部でも許されない場合は全体でnull。空配列は空配列を返す。正しい文書IDと別名による通常の読取りを維持する。catalogは合成データで、実ファイル・ネットワーク・外部認証は対象外。以前readDocumentに別tenantの別名を渡すと本文を返していたため、その修正を評価する。既存のcheckはbun test。媒体とGitHub公開は不要。",
+      "agentInstructions": "評価対象はこのcheckoutの変更と要求です。編集せず、許可された限定検証で所見を確認してください。実データ・ネットワーク・外部サービスへのアクセスは不要です。\n",
+      "readme": "# 公開APIの契約\n\n認証済みのContextを受け取る文書読取りAPIを修正する。Contextのtenantは上位の信頼する認証処理で確定済みで、クライアントが偽装する経路は今回の対象にない。公開入口はreadDocumentとreadBundle。利用者は任意の文書IDまたは別名を指定できる。指定した文書の実際のtenantがContextと一致する場合だけ本文を返し、別tenant・不存在ならnull。readBundleは順序を維持し、全指定文書の読取りが許される場合だけ配列を返す。一部でも許されない場合は全体でnull。空配列は空配列を返す。正しい文書IDと別名による通常の読取りを維持する。catalogは合成データで、実ファイル・ネットワーク・外部認証は対象外。以前readDocumentに別tenantの別名を渡すと本文を返していたため、その修正を評価する。既存のcheckはbun test。媒体とGitHub公開は不要。\n",
+      "baseFiles": {
+        "catalog.ts": "export type Document = { id: string; tenant: string; body: string };\nconst documents = new Map<string, Document>([\n  ['a-report', { id: 'a-report', tenant: 'alpha', body: 'alpha report' }],\n  ['a-note', { id: 'a-note', tenant: 'alpha', body: 'alpha note' }],\n  ['b-report', { id: 'b-report', tenant: 'beta', body: 'beta report' }],\n]);\nconst aliases = new Map([['latest-alpha', 'a-report'], ['latest-beta', 'b-report']]);\nexport function resolveDocument(requestedId: string): Document | null {\n  return documents.get(aliases.get(requestedId) ?? requestedId) ?? null;\n}\nexport function isCanonicalId(requestedId: string): boolean {\n  return documents.has(requestedId);\n}\n",
+        "access.ts": "import { isCanonicalId, resolveDocument, type Document } from './catalog';\nexport type Context = { tenant: string };\nexport function canRead(context: Context, document: Document): boolean {\n  return context.tenant === document.tenant;\n}\nexport function requestedIdsAllowed(context: Context, ids: readonly string[]): boolean {\n  return ids.filter(isCanonicalId).every(id => {\n    const document = resolveDocument(id);\n    return document !== null && canRead(context, document);\n  });\n}\n",
+        "api.ts": "import { resolveDocument } from './catalog';\nimport { requestedIdsAllowed, type Context } from './access';\nexport function readDocument(context: Context, requestedId: string): string | null {\n  if (!requestedIdsAllowed(context, [requestedId])) return null;\n  return resolveDocument(requestedId)?.body ?? null;\n}\nexport function readBundle(context: Context, requestedIds: readonly string[]): string[] | null {\n  if (!requestedIdsAllowed(context, requestedIds)) return null;\n  const documents = requestedIds.map(resolveDocument);\n  if (documents.some(document => document === null)) return null;\n  return documents.map(document => document!.body);\n}\n"
+      },
+      "finalFiles": {
+        "catalog.ts": "export type Document = { id: string; tenant: string; body: string };\nconst documents = new Map<string, Document>([\n  ['a-report', { id: 'a-report', tenant: 'alpha', body: 'alpha report' }],\n  ['a-note', { id: 'a-note', tenant: 'alpha', body: 'alpha note' }],\n  ['b-report', { id: 'b-report', tenant: 'beta', body: 'beta report' }],\n]);\nconst aliases = new Map([['latest-alpha', 'a-report'], ['latest-beta', 'b-report']]);\nexport function resolveDocument(requestedId: string): Document | null {\n  return documents.get(aliases.get(requestedId) ?? requestedId) ?? null;\n}\nexport function isCanonicalId(requestedId: string): boolean {\n  return documents.has(requestedId);\n}\n",
+        "access.ts": "import { isCanonicalId, resolveDocument, type Document } from './catalog';\nexport type Context = { tenant: string };\nexport function canRead(context: Context, document: Document): boolean {\n  return context.tenant === document.tenant;\n}\nexport function requestedIdsAllowed(context: Context, ids: readonly string[]): boolean {\n  return ids.filter(isCanonicalId).every(id => {\n    const document = resolveDocument(id);\n    return document !== null && canRead(context, document);\n  });\n}\n",
+        "api.ts": "import { resolveDocument } from './catalog';\nimport { canRead, requestedIdsAllowed, type Context } from './access';\nexport function readDocument(context: Context, requestedId: string): string | null {\n  const document = resolveDocument(requestedId);\n  return document !== null && canRead(context, document) ? document.body : null;\n}\nexport function readBundle(context: Context, requestedIds: readonly string[]): string[] | null {\n  if (!requestedIdsAllowed(context, requestedIds)) return null;\n  const documents = requestedIds.map(resolveDocument);\n  if (documents.some(document => document === null)) return null;\n  return documents.map(document => document!.body);\n}\n"
+      },
+      "savedTest": "import { test, expect } from 'bun:test';\nimport { readDocument, readBundle } from './api';\nconst alpha = { tenant: 'alpha' };\ntest('document reading contract', () => {\n  expect(readDocument(alpha, 'latest-beta')).toBeNull();\n  expect(readDocument(alpha, 'latest-alpha')).toBe('alpha report');\n  expect(readDocument(alpha, 'missing')).toBeNull();\n  expect(readBundle(alpha, ['a-report', 'a-note'])).toEqual(['alpha report', 'alpha note']);\n  expect(readBundle(alpha, ['missing'])).toBeNull();\n});\n",
+      "fileSha256": {
+        "api.ts": "161a5b3e2fb005f6b5c7bc3bb02c7420d1dd25e1c7efe92a317f77f6968f3dad",
+        "README.md": "9f4dde1fda81f66597be9ce6d430c9211f0d14561a05d0da073ce6d75d80465c",
+        "access.ts": "8c5f320d4e6ce0b9d231893c6c9a7a2979bc242fa345d843d2bc7139be7c0e3e",
+        "contract.test.ts": "38f11c3e3c0375657d96cb95e6e8da3526ed7408650ec6da43db3c82500fcda9",
+        "AGENTS.md": "cc1b989b2abf3f257d97b5e217ec6ed732871e9e8d301da05f0a305b15fa1692",
+        "catalog.ts": "ebdda9ed3c997428064dd5569f7349f8ce611992073e148b7049c7cb5239f551"
+      },
+      "baseCommit": "cbc9d7c8a6b0bad62824a6090c86f5ea0ec65230"
+    },
+    {
+      "key": "auth-control",
+      "family": "auth",
+      "requirements": "認証済みのContextを受け取る文書読取りAPIを修正する。Contextのtenantは上位の信頼する認証処理で確定済みで、クライアントが偽装する経路は今回の対象にない。公開入口はreadDocumentとreadBundle。利用者は任意の文書IDまたは別名を指定できる。指定した文書の実際のtenantがContextと一致する場合だけ本文を返し、別tenant・不存在ならnull。readBundleは順序を維持し、全指定文書の読取りが許される場合だけ配列を返す。一部でも許されない場合は全体でnull。空配列は空配列を返す。正しい文書IDと別名による通常の読取りを維持する。catalogは合成データで、実ファイル・ネットワーク・外部認証は対象外。以前readDocumentに別tenantの別名を渡すと本文を返していたため、その修正を評価する。既存のcheckはbun test。媒体とGitHub公開は不要。",
+      "agentInstructions": "評価対象はこのcheckoutの変更と要求です。編集せず、許可された限定検証で所見を確認してください。実データ・ネットワーク・外部サービスへのアクセスは不要です。\n",
+      "readme": "# 公開APIの契約\n\n認証済みのContextを受け取る文書読取りAPIを修正する。Contextのtenantは上位の信頼する認証処理で確定済みで、クライアントが偽装する経路は今回の対象にない。公開入口はreadDocumentとreadBundle。利用者は任意の文書IDまたは別名を指定できる。指定した文書の実際のtenantがContextと一致する場合だけ本文を返し、別tenant・不存在ならnull。readBundleは順序を維持し、全指定文書の読取りが許される場合だけ配列を返す。一部でも許されない場合は全体でnull。空配列は空配列を返す。正しい文書IDと別名による通常の読取りを維持する。catalogは合成データで、実ファイル・ネットワーク・外部認証は対象外。以前readDocumentに別tenantの別名を渡すと本文を返していたため、その修正を評価する。既存のcheckはbun test。媒体とGitHub公開は不要。\n",
+      "baseFiles": {
+        "catalog.ts": "export type Document = { id: string; tenant: string; body: string };\nconst documents = new Map<string, Document>([\n  ['a-report', { id: 'a-report', tenant: 'alpha', body: 'alpha report' }],\n  ['a-note', { id: 'a-note', tenant: 'alpha', body: 'alpha note' }],\n  ['b-report', { id: 'b-report', tenant: 'beta', body: 'beta report' }],\n]);\nconst aliases = new Map([['latest-alpha', 'a-report'], ['latest-beta', 'b-report']]);\nexport function resolveDocument(requestedId: string): Document | null {\n  return documents.get(aliases.get(requestedId) ?? requestedId) ?? null;\n}\nexport function isCanonicalId(requestedId: string): boolean {\n  return documents.has(requestedId);\n}\n",
+        "access.ts": "import { isCanonicalId, resolveDocument, type Document } from './catalog';\nexport type Context = { tenant: string };\nexport function canRead(context: Context, document: Document): boolean {\n  return context.tenant === document.tenant;\n}\nexport function requestedIdsAllowed(context: Context, ids: readonly string[]): boolean {\n  return ids.filter(isCanonicalId).every(id => {\n    const document = resolveDocument(id);\n    return document !== null && canRead(context, document);\n  });\n}\n",
+        "api.ts": "import { resolveDocument } from './catalog';\nimport { requestedIdsAllowed, type Context } from './access';\nexport function readDocument(context: Context, requestedId: string): string | null {\n  if (!requestedIdsAllowed(context, [requestedId])) return null;\n  return resolveDocument(requestedId)?.body ?? null;\n}\nexport function readBundle(context: Context, requestedIds: readonly string[]): string[] | null {\n  if (!requestedIdsAllowed(context, requestedIds)) return null;\n  const documents = requestedIds.map(resolveDocument);\n  if (documents.some(document => document === null)) return null;\n  return documents.map(document => document!.body);\n}\n"
+      },
+      "finalFiles": {
+        "catalog.ts": "export type Document = { id: string; tenant: string; body: string };\nconst documents = new Map<string, Document>([\n  ['a-report', { id: 'a-report', tenant: 'alpha', body: 'alpha report' }],\n  ['a-note', { id: 'a-note', tenant: 'alpha', body: 'alpha note' }],\n  ['b-report', { id: 'b-report', tenant: 'beta', body: 'beta report' }],\n]);\nconst aliases = new Map([['latest-alpha', 'a-report'], ['latest-beta', 'b-report']]);\nexport function resolveDocument(requestedId: string): Document | null {\n  return documents.get(aliases.get(requestedId) ?? requestedId) ?? null;\n}\n",
+        "access.ts": "import { type Document } from './catalog';\nexport type Context = { tenant: string };\nexport function canRead(context: Context, document: Document): boolean {\n  return context.tenant === document.tenant;\n}\n",
+        "api.ts": "import { resolveDocument } from './catalog';\nimport { canRead, type Context } from './access';\nexport function readDocument(context: Context, requestedId: string): string | null {\n  const document = resolveDocument(requestedId);\n  return document !== null && canRead(context, document) ? document.body : null;\n}\nexport function readBundle(context: Context, requestedIds: readonly string[]): string[] | null {\n  const documents = requestedIds.map(resolveDocument);\n  if (documents.some(document => document === null || !canRead(context, document))) return null;\n  return documents.map(document => document!.body);\n}\n"
+      },
+      "savedTest": "import { test, expect } from 'bun:test';\nimport { readDocument, readBundle } from './api';\nconst alpha = { tenant: 'alpha' };\ntest('document reading contract', () => {\n  expect(readDocument(alpha, 'latest-beta')).toBeNull();\n  expect(readDocument(alpha, 'latest-alpha')).toBe('alpha report');\n  expect(readDocument(alpha, 'missing')).toBeNull();\n  expect(readBundle(alpha, ['a-report', 'a-note'])).toEqual(['alpha report', 'alpha note']);\n  expect(readBundle(alpha, ['missing'])).toBeNull();\n});\n",
+      "fileSha256": {
+        "api.ts": "5d932b95ca242d9d4ac27bbf93280e44eba720bcd01dfebef56a0f8133655488",
+        "README.md": "9f4dde1fda81f66597be9ce6d430c9211f0d14561a05d0da073ce6d75d80465c",
+        "access.ts": "e2015d17761b27c78df5183e516bef5db22b1622bba6d11f4c1a76566122a3e4",
+        "contract.test.ts": "38f11c3e3c0375657d96cb95e6e8da3526ed7408650ec6da43db3c82500fcda9",
+        "AGENTS.md": "cc1b989b2abf3f257d97b5e217ec6ed732871e9e8d301da05f0a305b15fa1692",
+        "catalog.ts": "be72dfec61fa829f05018e441e2ae6794bba4e6aafc3ed83ae98574911ca1fc3"
+      },
+      "baseCommit": "cbc9d7c8a6b0bad62824a6090c86f5ea0ec65230"
+    },
+    {
+      "key": "state-defect",
+      "family": "state",
+      "requirements": "1回限りの配布権を扱うcreateVault(seed)の修正を評価する。seedのIDは一意、payloadは任意の文字列。公開されたredeem(id, deliver)は既存の権利なら非同期deliverを呼び、成功時にtrueを返して権利を消費する。成功した配布は同じIDに対して高々1回。同じ権利が処理中なら、重なる要求はdeliverを呼ばずfalseを返す。権利が存在しない・消費済みならfalse。deliverが拒否した場合は配布が行われていないことが呼出契約で保証され、redeemはfalseを返して後の再試行を許す。他の権利の処理は妨げない。単一プロセスの合成データで、永続化・実ネットワーク・外部サービスは対象外。以前は失敗したdeliverでも権利を失い再試行できなかったため、その修正を評価する。既存のcheckはbun test。媒体とGitHub公開は不要。",
+      "agentInstructions": "評価対象はこのcheckoutの変更と要求です。編集せず、許可された限定検証で所見を確認してください。実データ・ネットワーク・外部サービスへのアクセスは不要です。\n",
+      "readme": "# 公開APIの契約\n\n1回限りの配布権を扱うcreateVault(seed)の修正を評価する。seedのIDは一意、payloadは任意の文字列。公開されたredeem(id, deliver)は既存の権利なら非同期deliverを呼び、成功時にtrueを返して権利を消費する。成功した配布は同じIDに対して高々1回。同じ権利が処理中なら、重なる要求はdeliverを呼ばずfalseを返す。権利が存在しない・消費済みならfalse。deliverが拒否した場合は配布が行われていないことが呼出契約で保証され、redeemはfalseを返して後の再試行を許す。他の権利の処理は妨げない。単一プロセスの合成データで、永続化・実ネットワーク・外部サービスは対象外。以前は失敗したdeliverでも権利を失い再試行できなかったため、その修正を評価する。既存のcheckはbun test。媒体とGitHub公開は不要。\n",
+      "baseFiles": {
+        "vault.ts": "export type Grant = { id: string; payload: string };\nexport type Deliver = (payload: string) => Promise<void>;\nexport function createVault(seed: readonly Grant[]) {\n  const grants = new Map(seed.map(grant => [grant.id, grant.payload]));\n  return {\n    async redeem(id: string, deliver: Deliver): Promise<boolean> {\n      const payload = grants.get(id);\n      if (payload === undefined) return false;\n      grants.delete(id);\n      try { await deliver(payload); return true; } catch { return false; }\n    },\n  };\n}\n"
+      },
+      "finalFiles": {
+        "vault.ts": "export type Grant = { id: string; payload: string };\nexport type Deliver = (payload: string) => Promise<void>;\nexport function createVault(seed: readonly Grant[]) {\n  const grants = new Map(seed.map(grant => [grant.id, grant.payload]));\n  return {\n    async redeem(id: string, deliver: Deliver): Promise<boolean> {\n      const payload = grants.get(id);\n      if (payload === undefined) return false;\n      try {\n        await deliver(payload);\n        grants.delete(id);\n        return true;\n      } catch { return false; }\n    },\n  };\n}\n"
+      },
+      "savedTest": "import { test, expect } from 'bun:test';\nimport { createVault } from './vault';\ntest('redemption contract', async () => {\n  const vault = createVault([{ id: 'grant-a', payload: 'sample payload' }]);\n  expect(await vault.redeem('grant-a', async () => { throw new Error('before delivery'); })).toBe(false);\n  const deliveries: string[] = [];\n  expect(await vault.redeem('grant-a', async value => { deliveries.push(value); })).toBe(true);\n  expect(deliveries).toEqual(['sample payload']);\n  expect(await vault.redeem('grant-a', async value => { deliveries.push(value); })).toBe(false);\n  expect(await vault.redeem('missing', async value => { deliveries.push(value); })).toBe(false);\n});\n",
+      "fileSha256": {
+        "vault.ts": "29c4cd582065d219de252f68f775165b6267fb1691732ab8d3d4ec726a9d5a4c",
+        "README.md": "5f7b97a55ee07d9870f37e698b984cff14633c4003c0a6013b707b9f014eaf3f",
+        "contract.test.ts": "aaf9ecceac3a9ac92a66c2cd945dd14e51e35c77f68fb0181fe0e7c7fcf760c3",
+        "AGENTS.md": "cc1b989b2abf3f257d97b5e217ec6ed732871e9e8d301da05f0a305b15fa1692"
+      },
+      "baseCommit": "9dc78c0104b4aae8f603ebccedba146fe1609986"
+    },
+    {
+      "key": "state-control",
+      "family": "state",
+      "requirements": "1回限りの配布権を扱うcreateVault(seed)の修正を評価する。seedのIDは一意、payloadは任意の文字列。公開されたredeem(id, deliver)は既存の権利なら非同期deliverを呼び、成功時にtrueを返して権利を消費する。成功した配布は同じIDに対して高々1回。同じ権利が処理中なら、重なる要求はdeliverを呼ばずfalseを返す。権利が存在しない・消費済みならfalse。deliverが拒否した場合は配布が行われていないことが呼出契約で保証され、redeemはfalseを返して後の再試行を許す。他の権利の処理は妨げない。単一プロセスの合成データで、永続化・実ネットワーク・外部サービスは対象外。以前は失敗したdeliverでも権利を失い再試行できなかったため、その修正を評価する。既存のcheckはbun test。媒体とGitHub公開は不要。",
+      "agentInstructions": "評価対象はこのcheckoutの変更と要求です。編集せず、許可された限定検証で所見を確認してください。実データ・ネットワーク・外部サービスへのアクセスは不要です。\n",
+      "readme": "# 公開APIの契約\n\n1回限りの配布権を扱うcreateVault(seed)の修正を評価する。seedのIDは一意、payloadは任意の文字列。公開されたredeem(id, deliver)は既存の権利なら非同期deliverを呼び、成功時にtrueを返して権利を消費する。成功した配布は同じIDに対して高々1回。同じ権利が処理中なら、重なる要求はdeliverを呼ばずfalseを返す。権利が存在しない・消費済みならfalse。deliverが拒否した場合は配布が行われていないことが呼出契約で保証され、redeemはfalseを返して後の再試行を許す。他の権利の処理は妨げない。単一プロセスの合成データで、永続化・実ネットワーク・外部サービスは対象外。以前は失敗したdeliverでも権利を失い再試行できなかったため、その修正を評価する。既存のcheckはbun test。媒体とGitHub公開は不要。\n",
+      "baseFiles": {
+        "vault.ts": "export type Grant = { id: string; payload: string };\nexport type Deliver = (payload: string) => Promise<void>;\nexport function createVault(seed: readonly Grant[]) {\n  const grants = new Map(seed.map(grant => [grant.id, grant.payload]));\n  return {\n    async redeem(id: string, deliver: Deliver): Promise<boolean> {\n      const payload = grants.get(id);\n      if (payload === undefined) return false;\n      grants.delete(id);\n      try { await deliver(payload); return true; } catch { return false; }\n    },\n  };\n}\n"
+      },
+      "finalFiles": {
+        "vault.ts": "export type Grant = { id: string; payload: string };\nexport type Deliver = (payload: string) => Promise<void>;\nexport function createVault(seed: readonly Grant[]) {\n  const grants = new Map(seed.map(grant => [grant.id, { payload: grant.payload, pending: false }]));\n  return {\n    async redeem(id: string, deliver: Deliver): Promise<boolean> {\n      const grant = grants.get(id);\n      if (grant === undefined || grant.pending) return false;\n      grant.pending = true;\n      try {\n        await deliver(grant.payload);\n        grants.delete(id);\n        return true;\n      } catch {\n        grant.pending = false;\n        return false;\n      }\n    },\n  };\n}\n"
+      },
+      "savedTest": "import { test, expect } from 'bun:test';\nimport { createVault } from './vault';\ntest('redemption contract', async () => {\n  const vault = createVault([{ id: 'grant-a', payload: 'sample payload' }]);\n  expect(await vault.redeem('grant-a', async () => { throw new Error('before delivery'); })).toBe(false);\n  const deliveries: string[] = [];\n  expect(await vault.redeem('grant-a', async value => { deliveries.push(value); })).toBe(true);\n  expect(deliveries).toEqual(['sample payload']);\n  expect(await vault.redeem('grant-a', async value => { deliveries.push(value); })).toBe(false);\n  expect(await vault.redeem('missing', async value => { deliveries.push(value); })).toBe(false);\n});\n",
+      "fileSha256": {
+        "vault.ts": "49a9ad01c6535bf4f6742a470188eec4df2c74eb205ff2578adbfca1e29ca706",
+        "README.md": "5f7b97a55ee07d9870f37e698b984cff14633c4003c0a6013b707b9f014eaf3f",
+        "contract.test.ts": "aaf9ecceac3a9ac92a66c2cd945dd14e51e35c77f68fb0181fe0e7c7fcf760c3",
+        "AGENTS.md": "cc1b989b2abf3f257d97b5e217ec6ed732871e9e8d301da05f0a305b15fa1692"
+      },
+      "baseCommit": "9dc78c0104b4aae8f603ebccedba146fe1609986"
+    }
+  ],
+  "trialOrder": [
+    "case-jmg3gkjh",
+    "case-lf8q_lz7",
+    "case-p2lflzj9",
+    "case-apwdlzag",
+    "case-2oo_2zio",
+    "case-8r8813hh",
+    "case-onk0icb0",
+    "case-6cwhf1h8",
+    "case-08ulh38k",
+    "case-9isqb9dk",
+    "case-nu84q0cb",
+    "case-ohbh9t2k",
+    "case-rnq1hfle",
+    "case-803twc6v",
+    "case-3dzh1_b3",
+    "case-a5703g08",
+    "case-kexazbim",
+    "case-8t8vfs7i",
+    "case-apg72hop",
+    "case-j8ojgauk",
+    "case-2zgk13p5",
+    "case-01sjm1lh",
+    "case-syt7pu10",
+    "case-swsofcgx"
+  ],
+  "trials": [
+    {
+      "id": "case-jmg3gkjh",
+      "key": "state-defect",
+      "side": "before",
+      "repetition": 1,
+      "execution": "review_completed",
+      "parentMs": 173977.83429099998,
+      "elapsedMs": 174109.096584,
+      "wallMs": 174108,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T01:14:05.866Z",
+      "endedWallUtc": "2026-10-02T01:16:59.974Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 116665,
+        "cached_input_tokens": 88960,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4857,
+        "reasoning_output_tokens": 1384
+      },
+      "completedCommandCount": 14,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 1,
+        "trueTestFindingCount": 2,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "公開redeemの重複要求と再入で2回配布・双方trueを実出力と必須code指摘で確認。同じ原因で機能不具合1件。",
+          "競合テスト不足と否定ケースの副作用未確認は別の保証で、両指摘が妥当。正常動作申告も実出力と一致。",
+          "timingValid=true。可視記録で裁定用資料・他課題・委譲アクセスなし。git showの追加ファイル不在を実検証成功にしていない。"
+        ]
+      }
+    },
+    {
+      "id": "case-lf8q_lz7",
+      "key": "state-defect",
+      "side": "after",
+      "repetition": 1,
+      "execution": "review_completed",
+      "parentMs": 231867.88520800002,
+      "elapsedMs": 231972.43245800002,
+      "wallMs": 231972,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T01:17:00.008Z",
+      "endedWallUtc": "2026-10-02T01:20:51.980Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 180688,
+        "cached_input_tokens": 150400,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 6467,
+        "reasoning_output_tokens": 2489
+      },
+      "completedCommandCount": 13,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 1,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "二重配布を公開操作順と必須code指摘で検出。競合テスト不足はcodeのaction・tests評価にも含まれ、分割件数差を見落としとしない。",
+          "否定ケースの副作用未確認をメモリ内変異で裏付け。初回のdata URL検証失敗と、その後の成功を区別している。",
+          "実出力と申告一致。可視記録で裁定用資料・他課題・委譲アクセスなし。timingValid=true。"
+        ]
+      }
+    },
+    {
+      "id": "case-p2lflzj9",
+      "key": "auth-defect",
+      "side": "after",
+      "repetition": 1,
+      "execution": "review_completed",
+      "parentMs": 164365.14375,
+      "elapsedMs": 164478.171417,
+      "wallMs": 164478,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T01:20:52.010Z",
+      "endedWallUtc": "2026-10-02T01:23:36.488Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 122061,
+        "cached_input_tokens": 93696,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4320,
+        "reasoning_output_tokens": 1414
+      },
+      "completedCommandCount": 7,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 1,
+        "trueTestFindingCount": 0,
+        "trueRedundancyCount": 1,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "readBundleの別tenant別名・混在の漏出を必須code指摘と実出力で確認。回帰検証はcodeのactionとtests評価に含まれる。",
+          "同期境界内で正規IDを重複解決する具体的冗長性の指摘が妥当。開始版単体関数を再構成した検証と全モジュール実行を混同していない。",
+          "通常入力の申告と実出力が一致。可視記録で裁定用資料・他課題・委譲アクセスなし。CLI0.160.0。"
+        ]
+      }
+    },
+    {
+      "id": "case-apwdlzag",
+      "key": "auth-defect",
+      "side": "before",
+      "repetition": 1,
+      "execution": "review_completed",
+      "parentMs": 162857.384417,
+      "elapsedMs": 162956.36187500006,
+      "wallMs": 162957,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T01:23:36.513Z",
+      "endedWallUtc": "2026-10-02T01:26:19.470Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 92909,
+        "cached_input_tokens": 78208,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4295,
+        "reasoning_output_tokens": 1139
+      },
+      "completedCommandCount": 7,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 1,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 1,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "readBundleの別tenant別名・混在・逆tenant方向の漏出を公開経路と必須code指摘で検出。14条件の実出力が申告と一致。",
+          "同期重複解決と保存テストの漏出/過剰拒否の検出不足の指摘が妥当。afterとの差は指摘の分割で、両者が主眼を充足。",
+          "可視記録で裁定用資料・他課題・委譲アクセスなし。timingValid=true。"
+        ]
+      }
+    },
+    {
+      "id": "case-2oo_2zio",
+      "key": "state-control",
+      "side": "before",
+      "repetition": 1,
+      "execution": "review_completed",
+      "parentMs": 143885.97137500008,
+      "elapsedMs": 143990.74600000004,
+      "wallMs": 143990,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T01:26:19.501Z",
+      "endedWallUtc": "2026-10-02T01:28:43.491Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 92238,
+        "cached_input_tokens": 65664,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4347,
+        "reasoning_output_tokens": 997
+      },
+      "completedCommandCount": 9,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 0,
+        "trueTestFindingCount": 2,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "独立裁定で実装の正常性と実行検証を確認。競合と否定経路の副作用に関するテスト不足2件は妥当。正常実装への誤指摘ではない。",
+          "可視記録に裁定資料・他課題へのアクセスや委譲なし。物理的読取り隔離は未保証。"
+        ]
+      }
+    },
+    {
+      "id": "case-8r8813hh",
+      "key": "state-control",
+      "side": "after",
+      "repetition": 1,
+      "execution": "review_completed",
+      "parentMs": 196378.15570799995,
+      "elapsedMs": 196497.41379200004,
+      "wallMs": 196497,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T01:28:43.520Z",
+      "endedWallUtc": "2026-10-02T01:32:00.017Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 123326,
+        "cached_input_tokens": 94592,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 5654,
+        "reasoning_output_tokens": 1724
+      },
+      "completedCommandCount": 9,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 0,
+        "trueTestFindingCount": 2,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "独立裁定で実装の正常性と実行検証を確認。競合と否定経路の副作用に関するテスト不足2件は妥当。正常実装への誤指摘ではない。",
+          "可視記録に裁定資料・他課題へのアクセスや委譲なし。物理的読取り隔離は未保証。"
+        ]
+      }
+    },
+    {
+      "id": "case-onk0icb0",
+      "key": "auth-control",
+      "side": "after",
+      "repetition": 1,
+      "execution": "review_completed",
+      "parentMs": 175429.39329200005,
+      "elapsedMs": 175545.14608299988,
+      "wallMs": 175545,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T01:32:00.049Z",
+      "endedWallUtc": "2026-10-02T01:34:55.594Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 115085,
+        "cached_input_tokens": 82176,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4533,
+        "reasoning_output_tokens": 1473
+      },
+      "completedCommandCount": 8,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 0,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "独立裁定で両公開入口の実装正常性を確認。bundleの認可条件を除く変異が既存テストを通るため、保存テスト不足の必須指摘1件は妥当。",
+          "開始版・現行版15入力と変異の実出力が申告と整合。可視記録に裁定資料・他課題へのアクセスや委譲なし。"
+        ]
+      }
+    },
+    {
+      "id": "case-6cwhf1h8",
+      "key": "auth-control",
+      "side": "before",
+      "repetition": 1,
+      "execution": "review_completed",
+      "parentMs": 179451.91358399997,
+      "elapsedMs": 179559.452667,
+      "wallMs": 179560,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T01:34:55.624Z",
+      "endedWallUtc": "2026-10-02T01:37:55.184Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 123036,
+        "cached_input_tokens": 93824,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4878,
+        "reasoning_output_tokens": 2009
+      },
+      "completedCommandCount": 11,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 0,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "独立裁定で実装正常性とbundle認可の保存テスト不足1件を確認。誤必須指摘なし。",
+          "現行10入力とbundle2期待値の模擬検証は申告と整合。保存テスト全5アサーションの変異実行とは区別されている。",
+          "このペアのafterは開始版/現行版15入力と全5アサーションの変異実行を実施。証拠は詳しいが主眼の判定差はない。可視記録に裁定資料・他課題へのアクセスや委譲なし。"
+        ]
+      }
+    },
+    {
+      "id": "case-08ulh38k",
+      "key": "auth-control",
+      "side": "after",
+      "repetition": 2,
+      "execution": "review_completed",
+      "parentMs": 160972.70429200004,
+      "elapsedMs": 161067.73045899998,
+      "wallMs": 161068,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T01:37:55.213Z",
+      "endedWallUtc": "2026-10-02T01:40:36.281Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 98541,
+        "cached_input_tokens": 82304,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4634,
+        "reasoning_output_tokens": 1679
+      },
+      "completedCommandCount": 8,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 0,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "独立裁定で実装正常性とbundle認可の保存テスト不足1件を確認。誤必須指摘なし。",
+          "現行20条件と開始版漏えい5条件、保存テスト全5アサーションの変異実行が申告と整合。",
+          "両条件とも正常な別名bundleを修正提案に含む。afterの証拠は広いが主眼差はない。可視記録に裁定資料・他課題へのアクセスや委譲なし。"
+        ]
+      }
+    },
+    {
+      "id": "case-9isqb9dk",
+      "key": "auth-control",
+      "side": "before",
+      "repetition": 2,
+      "execution": "review_completed",
+      "parentMs": 172350.9611249999,
+      "elapsedMs": 172441.9438750001,
+      "wallMs": 172442,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T01:40:36.302Z",
+      "endedWallUtc": "2026-10-02T01:43:28.744Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 122851,
+        "cached_input_tokens": 94592,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4400,
+        "reasoning_output_tokens": 1554
+      },
+      "completedCommandCount": 9,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 0,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "独立裁定で実装正常性とbundle認可の保存テスト不足1件を確認。誤必須指摘なし。",
+          "現行9条件と保存テスト全5期待値の手動変異検証が申告と整合。実際の保存テスト実行とは区別。",
+          "両条件とも正常な別名bundleを修正提案に含む。afterの証拠は広いが主眼差はない。可視記録に裁定資料・他課題へのアクセスや委譲なし。"
+        ]
+      }
+    },
+    {
+      "id": "case-nu84q0cb",
+      "key": "auth-defect",
+      "side": "before",
+      "repetition": 2,
+      "execution": "review_completed",
+      "parentMs": 174824.10154199996,
+      "elapsedMs": 174926.62762499996,
+      "wallMs": 174926,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T01:43:28.770Z",
+      "endedWallUtc": "2026-10-02T01:46:23.696Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 111803,
+        "cached_input_tokens": 80128,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4913,
+        "reasoning_output_tokens": 1637
+      },
+      "completedCommandCount": 7,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 1,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 1,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "readBundleの別tenant別名、混在、逆順、逆tenant方向の漏えいを公開APIの直接実行と必須code指摘で確認。機能欠陥は同じ原因の1件。16条件中4違反の申告は実出力と一致し、検証コマンドのexit 1は想定契約違反の検出によるもの。",
+          "正規IDの同期二重解決は内部Mapと呼出経路で裏付けられた妥当な冗長性1件。保存テストがbundle認可を検証しない指摘1件も妥当。正常な別名bundleを修正案に含む。",
+          "可視記録では当該checkout・Git開始版・指定された当該試行の入力/check記録のみを参照。裁定資料・host・他課題へのアクセスや委譲なし。隔離の保証とは区別。wall174926msとelapsed174926.627625msは整合。"
+        ]
+      }
+    },
+    {
+      "id": "case-ohbh9t2k",
+      "key": "auth-defect",
+      "side": "after",
+      "repetition": 2,
+      "execution": "review_completed",
+      "parentMs": 169600.887416,
+      "elapsedMs": 169703.85912499996,
+      "wallMs": 169704,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T01:46:23.723Z",
+      "endedWallUtc": "2026-10-02T01:49:13.427Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 122132,
+        "cached_input_tokens": 93312,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4923,
+        "reasoning_output_tokens": 1184
+      },
+      "completedCommandCount": 11,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 1,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 1,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "readBundleの別tenant別名、混在、逆tenant方向の漏えいを公開APIの直接実行と必須code指摘で確認。機能欠陥は同じ原因の1件。現行12条件の実出力と申告は一致。",
+          "開始版api.tsを未変更の依存ヘルパーで評価して単件漏えいの修正を確認。二重解決のメモリ内計測はresolve4・canonical2・authorize2で申告と一致し、速度実測とは区別。妥当な冗長性1件と保存テスト不足1件。",
+          "beforeも主眼・冗長性・保存テスト不足を同じく検出。afterは開始版単件対照と呼出回数計測を追加しているが、検証数や証拠の詳しさだけを主眼改善とはしない。",
+          "可視記録では当該checkout・Git開始版・指定された当該試行の入力/check記録のみを参照。裁定資料・host・他課題へのアクセスや委譲なし。隔離の保証とは区別。wall169704msとelapsed169703.859125msは整合。"
+        ]
+      }
+    },
+    {
+      "id": "case-rnq1hfle",
+      "key": "state-control",
+      "side": "after",
+      "repetition": 2,
+      "execution": "review_completed",
+      "parentMs": 207876.72866600007,
+      "elapsedMs": 207973.71441699984,
+      "wallMs": 207973,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T01:49:13.456Z",
+      "endedWallUtc": "2026-10-02T01:52:41.429Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 146011,
+        "cached_input_tokens": 112128,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 6033,
+        "reasoning_output_tokens": 2166
+      },
+      "completedCommandCount": 9,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 0,
+        "trueTestFindingCount": 2,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "実装の正常性を正しく判断。保留中の同ID拒否と別ID進行、遅延拒否後の再試行、成功時消費、空文字・Unicode、再入を限定実行で確認。開始版の拒否後retry=falseと現行retry=trueも実出力と一致。",
+          "必須指摘2件は競合と拒否時副作用の保存テスト不足で妥当。pending条件除去と拒否分岐でdeliverを呼ぶ変異に実際の既存テスト本文を適用し、両方通過。重複側true/配布1回とunexpected配布2件の出力が申告を支持。needs_changesは正常実装への誤指摘ではない。",
+          "beforeも同じ2不足を実証しており主眼差なし。afterは開始版対照、再入・Unicodeの直接検証を追加しているが、検証条件数だけを改善としない。",
+          "可視記録で裁定資料・host・他課題読取りや委譲なし。物理的隔離は未保証。wall207973msとelapsed207973.714417msは整合し300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-803twc6v",
+      "key": "state-control",
+      "side": "before",
+      "repetition": 2,
+      "execution": "review_completed",
+      "parentMs": 168207.88754199957,
+      "elapsedMs": 168303.58358300012,
+      "wallMs": 168304,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T01:52:41.455Z",
+      "endedWallUtc": "2026-10-02T01:55:29.759Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 91963,
+        "cached_input_tokens": 65664,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4890,
+        "reasoning_output_tokens": 1414
+      },
+      "completedCommandCount": 6,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 0,
+        "trueTestFindingCount": 2,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "実装の正常性を正しく判断。実公開APIで同IDの保留中拒否、別ID進行、遅延拒否後の再試行、空文字、成功後消費、拒否時コールバック未呼出を確認。申告と実出力は一致。",
+          "必須指摘2件は競合と拒否時副作用の保存テスト不足で妥当。2変異へ実際の既存テスト本文を適用し、両方通過。pending条件除去では重なる2要求が双方trueで配布2回、不存在分岐の変異ではfalseとdeliver呼出1回を確認。機能欠陥の誤指摘なし。",
+          "afterと主眼・誤必須指摘・保存テスト不足の裁定は同じ。テスト追加後の費用は未測定で、変異の結果を現行実装の欠陥とは扱っていない。",
+          "可視記録で裁定資料・host・他課題読取りや委譲なし。物理的隔離は未保証。wall168304msとelapsed168303.583583msは整合し300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-3dzh1_b3",
+      "key": "state-defect",
+      "side": "before",
+      "repetition": 2,
+      "execution": "review_completed",
+      "parentMs": 177925.71379199997,
+      "elapsedMs": 178023.19429200003,
+      "wallMs": 178023,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T01:55:29.785Z",
+      "endedWallUtc": "2026-10-02T01:58:27.808Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 118481,
+        "cached_input_tokens": 104064,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4588,
+        "reasoning_output_tokens": 1219
+      },
+      "completedCommandCount": 8,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 1,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "公開redeemの保留中重複とコールバック再入で双方true・二重配布を実出力と必須code指摘で検出。同じ状態予約不足による機能欠陥1件。空payload、拒否後再試行、別ID進行、消費済み/不存在の未呼出の申告も一致。",
+          "必須tests指摘1件に競合と拒否時副作用の2保証を統合。既存5期待値を手動再現し、false分岐で追加deliverを行うwrapperでも通過して追加配布2件を確認。現行実装の禁止副作用とは区別。妥当な指摘で誤必須なし。",
+          "afterは競合回帰検証をcode actionへ含め、tests itemは拒否時副作用のみ。分割位置の違いで主眼改善/見落としとはしない。",
+          "可視記録に裁定資料・host・他課題読取りや委譲なし。物理的隔離未保証。wall178023msとelapsed178023.194292msは整合し300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-a5703g08",
+      "key": "state-defect",
+      "side": "after",
+      "repetition": 2,
+      "execution": "review_completed",
+      "parentMs": 189739.234375,
+      "elapsedMs": 189868.11774999974,
+      "wallMs": 189868,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T01:58:27.835Z",
+      "endedWallUtc": "2026-10-02T02:01:37.703Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 121298,
+        "cached_input_tokens": 93184,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 5349,
+        "reasoning_output_tokens": 1560
+      },
+      "completedCommandCount": 8,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 1,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "公開redeemの保留中重複と再入で双方true・二重配布を実出力と必須code指摘で検出。同じ状態予約不足による機能欠陥1件。重複側が拒否する場合も先行完了前にdeliver2回で契約違反を確認。",
+          "code actionとtests評価に競合回帰検証を含み、正式tests item1件は拒否時副作用。不存在分岐を変えたメモリ内変異で既存相当5期待値が通りunexpected2件が追加。妥当な指摘で誤必須なし。手動相当実行という申告は正確。",
+          "開始版で拒否後retry=false、現行retry=trueを確認。空payload・別ID独立・正常拒否時未呼出も申告と一致。beforeも同じ主眼とテスト保証を指摘しており、統合/分割や追加条件数を改善とはしない。",
+          "可視記録に裁定資料・host・他課題読取りや委譲なし。物理的隔離と追加テスト費用は未検証。wall189868msとelapsed189868.11775msは整合し300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-kexazbim",
+      "key": "auth-control",
+      "side": "before",
+      "repetition": 3,
+      "execution": "review_completed",
+      "parentMs": 136498.64091600012,
+      "elapsedMs": 136614.17945800023,
+      "wallMs": 136614,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T02:01:37.734Z",
+      "endedWallUtc": "2026-10-02T02:03:54.348Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 95234,
+        "cached_input_tokens": 80256,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 3794,
+        "reasoning_output_tokens": 1032
+      },
+      "completedCommandCount": 8,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 0,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "実装の正常性を正しく判断。公開APIの単件10条件・bundle7条件が成功し、正常別名・拒否・不存在・順序/重複・空配列の申告と一致。冗長性の誤必須指摘なし。",
+          "bundle認可だけを除くメモリ内変異に既存相当5期待値を手動適用し全部成功。混在別名bundleがalpha/beta本文を返す出力で保存テスト不足1件を実証。否定ケースと正常ID/別名bundleの追加要求は妥当。実際の保存テスト本文実行という申告ではない。",
+          "afterも主眼と保存テスト不足を同じく検出。beforeは正常別名bundleの保存追加を明示し、afterは既存正常系の維持を要求。修正提案の詳しさの差はあるが主眼差ではない。",
+          "可視記録に裁定資料・host・他課題読取りや委譲なし。物理的隔離・追加テスト費用は未検証。wall136614msとelapsed136614.179458msは整合し300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-8t8vfs7i",
+      "key": "auth-control",
+      "side": "after",
+      "repetition": 3,
+      "execution": "review_completed",
+      "parentMs": 138706.1749999998,
+      "elapsedMs": 138818.67354099965,
+      "wallMs": 138833,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T02:03:54.380Z",
+      "endedWallUtc": "2026-10-02T02:06:13.213Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 97056,
+        "cached_input_tokens": 81536,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 3738,
+        "reasoning_output_tokens": 1032
+      },
+      "completedCommandCount": 7,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 0,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "実装の正常性を正しく判断。公開API12条件が成功。開始版の両入口で別tenant別名の本文露出を再現し、現行同入力拒否と対比。申告と実行証拠一致、機能/冗長性の誤必須指摘なし。",
+          "現行ソースと実際のcontract.test.tsをメモリ内で結合しbundle認可条件だけを除去。全5アサーション通過を実行し、bundle認可の保存テスト不足1件を妥当に指摘。正常な別名bundleも直接検証し、既存正常系の維持を要求している。",
+          "beforeと主眼判定差なし。afterは開始版の両入口対照と実際の保存テスト本文実行が直接的、beforeは現行17条件と既存相当5期待値の手動変異検証。証拠の強さの差を一般的品質改善とは断定しない。",
+          "可視記録に裁定資料・host・他課題読取りや委譲なし。物理的隔離・追加テスト費用は未検証。wall138833msとelapsed138818.673541msの差は約14.33msで許容内、300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-apg72hop",
+      "key": "state-defect",
+      "side": "after",
+      "repetition": 3,
+      "execution": "review_completed",
+      "parentMs": 178254.01662500016,
+      "elapsedMs": 178376.1119169998,
+      "wallMs": 178381,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T02:06:13.241Z",
+      "endedWallUtc": "2026-10-02T02:09:11.622Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 121880,
+        "cached_input_tokens": 105984,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 5175,
+        "reasoning_output_tokens": 1553
+      },
+      "completedCommandCount": 9,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 1,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "trueTestFindingCount": 2,
+        "notes": [
+          "公開redeemの保留中重複と再入で双方true・配布2回を確認。必須code指摘で状態予約不足を検出し、同じ原因の機能欠陥1件。開始版の同条件は後続falseで、拒否後retryは開始版false/現行true。同じ空payload入力で比較しており申告と一致。",
+          "正式tests指摘は競合と拒否時副作用の2件でともに妥当。不存在分岐のメモリ内変異へ実際の既存テスト本文と相当expectを適用し、全部通過し禁止呼出2回を確認。現行実装の追加欠陥とは扱っていない。",
+          "beforeは同じ2保証をtests item1件に統合しており、分割件数差は主眼改善ではない。afterの開始版対照と保存テスト本文実行は証拠が直接的だが、両条件とも主眼充足。",
+          "可視記録に裁定資料・host・他課題読取りや委譲なし。物理的隔離・追加テスト費用は未検証。wall178381msとelapsed178376.111917msは約4.89ms差で許容内、300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-j8ojgauk",
+      "key": "state-defect",
+      "side": "before",
+      "repetition": 3,
+      "execution": "review_completed",
+      "parentMs": 154216.46270799963,
+      "elapsedMs": 154375.99070800003,
+      "wallMs": 154376,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T02:09:11.652Z",
+      "endedWallUtc": "2026-10-02T02:11:46.028Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 116862,
+        "cached_input_tokens": 102912,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4194,
+        "reasoning_output_tokens": 1054
+      },
+      "completedCommandCount": 9,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 1,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "trueTestFindingCount": 1,
+        "notes": [
+          "公開redeemの保留中重複と再入で双方true・配布2回を確認。必須code指摘で状態予約不足を検出し、同じ原因の機能欠陥1件。空payload、別ID進行、拒否後retry、消費済み/不存在の未呼出も実出力と一致。",
+          "正式tests指摘1件に競合と拒否時副作用の不足を統合し、両保証の修正を要求。不存在分岐のメモリ内変異へ既存相当5期待値を手動適用し全部成功、unexpected配布2件を確認。申告は手動相当実行で正確。",
+          "afterのtests item2件との差は同じ保証の分割で、見落としや主眼改善とはしない。妥当な指摘のみで誤必須・冗長性指摘なし。",
+          "可視記録に裁定資料・host・他課題読取りや委譲なし。物理的隔離・追加テスト費用は未検証。wall154376msとelapsed154375.990708msは整合し300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-2zgk13p5",
+      "key": "state-control",
+      "side": "before",
+      "repetition": 3,
+      "execution": "review_completed",
+      "parentMs": 180618.23325000005,
+      "elapsedMs": 180833.20054199966,
+      "wallMs": 180834,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T02:11:46.114Z",
+      "endedWallUtc": "2026-10-02T02:14:46.948Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 93553,
+        "cached_input_tokens": 66304,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4956,
+        "reasoning_output_tokens": 1360
+      },
+      "completedCommandCount": 7,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 0,
+        "trueTestFindingCount": 2,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "実装の正常性を正しく判断。実公開APIで空payload、再入、保留中同ID拒否・別ID進行、成功時消費、遅延拒否・同期throw後のretry、消費済み/不存在の未呼出を確認。申告と実出力一致。",
+          "必須tests2件は競合と拒否時副作用の保存テスト不足で妥当。pending除去とfalse分岐でdeliverを呼ぶ変異に既存相当5期待値を手動適用し成功。前者は双方true/配布2回、後者は配布計3件。現行欠陥と変異は区別。",
+          "afterも同じ2保証を検出しており主眼差なし。afterは全ID一括阻止の変異と実際の保存テスト本文の簡易ハーネス実行を追加。証拠の詳しさだけで一般的品質改善としない。",
+          "可視記録に裁定資料・host・他課題読取りや委譲なし。物理的隔離・追加テスト費用は未検証。wall180834msとelapsed180833.200542msは整合し300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-01sjm1lh",
+      "key": "state-control",
+      "side": "after",
+      "repetition": 3,
+      "execution": "review_completed",
+      "parentMs": 192338.8710409999,
+      "elapsedMs": 192473.81004100014,
+      "wallMs": 192474,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T02:14:46.978Z",
+      "endedWallUtc": "2026-10-02T02:17:59.452Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 123350,
+        "cached_input_tokens": 106752,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 5622,
+        "reasoning_output_tokens": 1300
+      },
+      "completedCommandCount": 10,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 0,
+        "trueTestFindingCount": 2,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "実装の正常性を正しく判断。実公開APIで保留後成功/拒否の両分岐、同ID未呼出・別ID進行、空/NUL payload、消費済み/不存在未呼出、再入、同期throw後のretryを確認。申告と実出力一致。",
+          "必須tests2件は競合/独立進行と拒否時副作用の保存テスト不足で妥当。実際のcontract.test.tsを簡易ハーネスで実行し、開始版のみfail・現行pass。pending除去、全ID阻止、拒否時deliverの3変異はpassで各違反を別限定実行で実証（配布2回、別ID false/未呼出、拒否時呼出2回）。",
+          "beforeと主眼・誤必須・テスト不足の裁定は同じ。afterは保存テスト本文と全ID阻止変異の証拠が直接的だが、beforeも別ID進行の保存検証を要求しており追加の主眼改善とはしない。",
+          "可視記録に裁定資料・host・他課題読取りや委譲なし。物理的隔離・追加テスト費用は未検証。wall192474msとelapsed192473.810041msは整合し300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-syt7pu10",
+      "key": "auth-defect",
+      "side": "after",
+      "repetition": 3,
+      "execution": "review_completed",
+      "parentMs": 173179.78508299962,
+      "elapsedMs": 173273.94724999974,
+      "wallMs": 173275,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T02:17:59.478Z",
+      "endedWallUtc": "2026-10-02T02:20:52.753Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 94326,
+        "cached_input_tokens": 66688,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4610,
+        "reasoning_output_tokens": 1413
+      },
+      "completedCommandCount": 7,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 1,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 1,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "公開readBundleの別tenant別名単独・混在・逆順の本文漏えいを実出力と必須code指摘で検出。同じ認可漏れによる機能欠陥1件。正規ID防御、正常別名・順序・重複・不存在・空配列も実出力と一致。",
+          "単件の開始版相当処理はGit本文を確認し、未変更ヘルパーで正確に再構成。同入力5条件で現行と比較して修正を確認。開始版モジュール自体の実行とは申告しておらず、証拠に整合。",
+          "同期境界内の正規ID二重解決は内部Mapと実呼出経路で裏付ける妥当な冗長性1件。bundle認可の保存テスト不足1件もホストcheck成功と直接API漏えいで実証。正常別名bundleの保存検証を修正案に含む。",
+          "beforeも同じ3観点を指摘し主眼差なし。afterの開始版相当対照・逆順・重複の追加だけで品質改善とはしない。可視記録に裁定資料・host・他課題読取りや委譲なし。物理的隔離・速度/追加費用未検証。wall173275msとelapsed173273.94725msは整合し300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-swsofcgx",
+      "key": "auth-defect",
+      "side": "before",
+      "repetition": 3,
+      "execution": "review_completed",
+      "parentMs": 175710.79266599985,
+      "elapsedMs": 175803.75587500026,
+      "wallMs": 175805,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T02:20:52.777Z",
+      "endedWallUtc": "2026-10-02T02:23:48.582Z",
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 119117,
+        "cached_input_tokens": 104320,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4240,
+        "reasoning_output_tokens": 1102
+      },
+      "completedCommandCount": 9,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 1,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 1,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "公開readBundleの別tenant別名単独・混在の本文漏えいを実出力と必須code指摘で検出。同じ認可漏れによる機能欠陥1件。直接API9条件で単件拒否、正常別名bundle、順序、正規ID拒否、不存在・空配列の申告と一致。",
+          "同期境界内の正規ID二重解決は内部Mapと実呼出経路で裏付ける妥当な冗長性1件。bundle認可の保存テスト不足1件もホストcheck成功と直接API漏えいで実証。正常別名bundleの保存検証を修正案に含む。",
+          "afterと主眼・誤必須・指摘内容は同じ。検証条件数と対照の詳しさの差だけを改善としない。限定検証を全体checkや任意入力の保証とは扱っていない。",
+          "可視記録に裁定資料・host・他課題読取りや委譲なし。物理的隔離・速度/追加費用未検証。wall175805msとelapsed175803.755875msは整合し300秒以内。"
+        ]
+      }
+    }
+  ],
+  "runSummary": {
+    "startedWallUtc": "2026-10-02T01:14:05.793Z",
+    "endedWallUtc": "2026-10-02T02:23:48.582Z",
+    "runWallMs": 4182789,
+    "parentMs": 4179234.877663999,
+    "caseWallMs": 4182007,
+    "stopReason": null
+  },
+  "previousFailedRun": {
+    "cliVersions": [
+      "codex-cli 0.159.2"
+    ],
+    "reserved": 13,
+    "completed": 13,
+    "parentReportedMs": 301024.75025,
+    "recordTimestampSpanSeconds": 8539.40674161911,
+    "finalReviews": 0,
+    "reviewTimeouts": 12,
+    "reviewFailures": 1,
+    "notStarted": 11,
+    "usageAvailable": false,
+    "qualityComparison": "unknown",
+    "causeEvidence": [
+      "実行中のClamshell Sleep・DarkWake等の電源ログ",
+      "最後のCLIのworkspace routing discovery failed・接続失敗",
+      "performance.nowと記録時刻の不整合"
+    ]
+  }
+}

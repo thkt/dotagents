@@ -1,0 +1,1702 @@
+{
+  "date": "2026-10-03",
+  "sourceCommit": "d0134086ad9bdddb5ed2693327cb1ffb0859c4a2",
+  "versions": {
+    "@ai-sdk/openai": "4.0.83",
+    "@e2e-dev/web": "0.11.1",
+    "@playwright/test": "1.63.0",
+    "ai": "7.0.127",
+    "e2e": "0.15.2"
+  },
+  "runtime": {
+    "node": "26.10.0",
+    "bun": "1.4.2",
+    "platform": "macOS arm64"
+  },
+  "inputs": {
+    "e2e.config.ts": {
+      "sha256": "8549d61bbf298d98db8a9b59608e49d385e2c293a2b3710ce084b9f0e200efc0",
+      "content": "import type { E2EConfig } from 'e2e';\nimport { web } from '@e2e-dev/web';\nimport { chatgpt } from 'e2e/oauth/chatgpt';\nexport default {\n  projectId: 'dotagents-e2e-trial',\n  targets: [{ name: 'desktop', engine: web({ viewport: { width: 1280, height: 800 } }), app: { url: 'http://127.0.0.1:4187' } }],\n  tests: ['tests/*.e2e.ts'],\n  timeout: 45000, assertionTimeout: 2000, actionTimeout: 5000,\n  launchTimeout: 15000, cleanupTimeout: 5000, workers: 1, retries: 0,\n  trace: 'on', cache: { mode: 'read-write', dir: 'replay-cache' },\n  reporters: ['list', 'junit'],\n  agents: { default: { model: chatgpt('gpt-6-luna'), maxSteps: 8, maxModelCalls: 5, maxInputTokens: 12000 } },\n} satisfies E2EConfig;\n"
+    },
+    "playwright.config.ts": {
+      "sha256": "ccb23d29dede53b1062b00b90de21d3b7e38ac26175cf4ad73635c5263bc5885",
+      "content": "import { defineConfig } from '@playwright/test';\nexport default defineConfig({ testDir: './tests', testMatch: '*.pw.ts', workers: 1, retries: 0, timeout: 45000, expect: { timeout: 2000 }, reporter: [['list'], ['json', { outputFile: process.env.PW_REPORT }]], use: { baseURL: 'http://127.0.0.1:4187', viewport: { width: 1280, height: 800 }, trace: 'on' }, outputDir: process.env.PW_ARTIFACTS });\n"
+    },
+    "tests/cases.pw.ts": {
+      "sha256": "7b1e771d1302efaf8f47502c697184039eb8cb5d4a71de1ed5bbc8749c5040e9",
+      "content": "import { test, expect } from '@playwright/test';\ntest('search', async ({ page }) => {\n  await page.goto('/');\n  await page.getByLabel('商品名・商品コードで検索', { exact: true }).fill('ノート');\n  await expect(page.getByRole('rowheader')).toHaveText(['青いノート', '赤いノート']);\n  await expect(page.getByText('全4件中2件を表示', { exact: true })).toBeVisible();\n});\ntest('clear', async ({ page }) => {\n  await page.goto('/');\n  await page.getByLabel('並び順', { exact: true }).selectOption('descending');\n  await page.getByLabel('商品名・商品コードで検索', { exact: true }).fill('存在しない商品');\n  await expect(page.getByText('該当する商品はありません', { exact: true })).toBeVisible();\n  await page.getByRole('button', { name: '検索をクリア', exact: true }).click();\n  await expect(page.getByLabel('商品名・商品コードで検索', { exact: true })).toHaveValue('');\n  await expect(page.getByRole('rowheader')).toHaveText(['白いマグ', '黒いペン', '赤いノート', '青いノート']);\n  await expect(page.getByLabel('並び順', { exact: true })).toHaveValue('descending');\n});\ntest('order', async ({ page }) => {\n  await page.goto('/');\n  await page.getByLabel('並び順', { exact: true }).selectOption('descending');\n  await page.reload();\n  await expect(page.getByLabel('並び順', { exact: true })).toHaveValue('descending');\n  await expect(page.getByRole('rowheader')).toHaveText(['白いマグ', '黒いペン', '赤いノート', '青いノート']);\n});\n"
+    },
+    "tests/deterministic.e2e.ts": {
+      "sha256": "4eb81c549c31eed84ee78f35d776a5137cbcd4dc95ffd8c5307a849b83191e15",
+      "content": "import { test, expect } from 'e2e';\ntest('search', async ({ app, screen, browser }) => {\n  await app.open('/');\n  await screen.getByLabel('商品名・商品コードで検索', { exact: true }).fill('ノート');\n  await expect(screen.getByRole('rowheader')).toHaveText(['青いノート', '赤いノート']);\n  await expect(screen.getByText('全4件中2件を表示', { exact: true })).toBeVisible();\n});\ntest('clear', async ({ app, screen, browser }) => {\n  await app.open('/');\n  await screen.getByLabel('並び順', { exact: true }).selectOption({ value: 'descending' });\n  await screen.getByLabel('商品名・商品コードで検索', { exact: true }).fill('存在しない商品');\n  await expect(screen.getByText('該当する商品はありません', { exact: true })).toBeVisible();\n  await screen.getByRole('button', { name: '検索をクリア', exact: true }).click();\n  await expect(screen.getByLabel('商品名・商品コードで検索', { exact: true })).toHaveValue('');\n  await expect(screen.getByRole('rowheader')).toHaveText(['白いマグ', '黒いペン', '赤いノート', '青いノート']);\n  await expect(screen.getByLabel('並び順', { exact: true })).toHaveValue('descending');\n});\ntest('order', async ({ app, screen, browser }) => {\n  await app.open('/');\n  await screen.getByLabel('並び順', { exact: true }).selectOption({ value: 'descending' });\n  await browser.reload();\n  await expect(screen.getByLabel('並び順', { exact: true })).toHaveValue('descending');\n  await expect(screen.getByRole('rowheader')).toHaveText(['白いマグ', '黒いペン', '赤いノート', '青いノート']);\n});\n"
+    },
+    "tests/agent.e2e.ts": {
+      "sha256": "3f3e5df56affc7eab1505e0f641cd9dd2c1d2b6e67f8afbc7e47fb473d885711",
+      "content": "import { test, expect } from 'e2e';\ntest('search', async ({ app, screen, browser, agent }) => {\n  await app.open('/');\n  await agent.act('商品名・商品コードの検索欄に「ノート」を入力する');\n  await expect(screen.getByRole('rowheader')).toHaveText(['青いノート', '赤いノート']);\n  await expect(screen.getByText('全4件中2件を表示', { exact: true })).toBeVisible();\n});\ntest('clear', async ({ app, screen, browser, agent }) => {\n  await app.open('/');\n  await screen.getByLabel('並び順', { exact: true }).selectOption({ value: 'descending' });\n  await screen.getByLabel('商品名・商品コードで検索', { exact: true }).fill('存在しない商品');\n  await expect(screen.getByText('該当する商品はありません', { exact: true })).toBeVisible();\n  await agent.act('検索をクリアするボタンをクリックして検索を解除する');\n  await expect(screen.getByLabel('商品名・商品コードで検索', { exact: true })).toHaveValue('');\n  await expect(screen.getByRole('rowheader')).toHaveText(['白いマグ', '黒いペン', '赤いノート', '青いノート']);\n  await expect(screen.getByLabel('並び順', { exact: true })).toHaveValue('descending');\n});\ntest('order', async ({ app, screen, browser, agent }) => {\n  await app.open('/');\n  await agent.act('並び順を商品名の降順に変更する');\n  await browser.reload();\n  await expect(screen.getByLabel('並び順', { exact: true })).toHaveValue('descending');\n  await expect(screen.getByRole('rowheader')).toHaveText(['白いマグ', '黒いペン', '赤いノート', '青いノート']);\n});\n"
+    },
+    "tests/mixed.e2e.ts": {
+      "sha256": "7602234720fcc95e68c5dba00eaa558588ec634389db23a18add049e73d88f54",
+      "content": "import { test, expect } from 'e2e';\ntest('実行した対照', async ({ app, screen }) => {\n  await app.open('/');\n  await expect(screen.getByRole('heading', { name: '商品一覧', exact: true })).toBeVisible();\n});\ntest.skip('選択したが未実行', async () => {});\n"
+    },
+    "run-ai-mutations.py": {
+      "sha256": "f71aa32b6b342205d58f6cbb39ba375c338105b23627a0ec0b233033de26783f",
+      "content": "from pathlib import Path\nimport subprocess, os, json, time, shutil\nroot=Path(__file__).parent\noriginal=(root/'app/public/search.js').read_text()\nhtml=(root/'app/public/index.html').read_text()\nshutil.copytree(root/'replay-cache',root/'evidence/cache-baseline')\nsummary=[]\ndef restore_cache():\n shutil.rmtree(root/'replay-cache');shutil.copytree(root/'evidence/cache-baseline',root/'replay-cache')\ndef run(name,case,strict=False,runner='e2e'):\n restore_cache()\n out=root/'evidence'/name;env=os.environ.copy();env['E2E_TELEMETRY_DISABLED']='1'\n if runner=='e2e':\n  cmd=['./node_modules/.bin/e2e','run','tests/agent.e2e.ts','--grep',f'^{case}$','--output',str(out),'--ai-trace']\n  if strict: cmd.append('--strict-cache')\n else:\n  env['PW_REPORT']=str(out)+'.json';env['PW_ARTIFACTS']=str(out)+'-artifacts'\n  cmd=['./node_modules/.bin/playwright','test','--config','playwright.config.ts','--grep',f'{case}$']\n start=time.monotonic();p=subprocess.run(cmd,cwd=root,env=env,capture_output=True,text=True,timeout=65)\n (root/'evidence'/f'{name}.log').write_text(p.stdout+p.stderr)\n row={'scenario':name,'runner':runner,'exitCode':p.returncode,'wallMs':round((time.monotonic()-start)*1000)}\n summary.append(row);print(json.dumps(row),flush=True)\n (root/'evidence/ai-scenarios-summary.json').write_text(json.dumps(summary,indent=2))\ntry:\n for name,case in [('search-bug','search'),('clear-bug','clear'),('storage-bug','order')]:\n  (root/'app/public/search.js').write_text((root/'evidence'/f'{name}.js').read_text())\n  run('ai-'+name,case)\n (root/'app/public/search.js').write_text(original)\n (root/'app/public/index.html').write_text(html.replace('>検索をクリア</button>', '>入力をリセット</button>'))\n run('pw-label-change','clear',runner='pw')\n run('ai-label-change','clear')\n run('ai-label-strict','clear',strict=True)\nfinally:\n (root/'app/public/search.js').write_text(original)\n (root/'app/public/index.html').write_text(html)\n restore_cache()\n"
+    },
+    "run-mutations.py": {
+      "sha256": "146e4e6c628a93159b59ee3caf1f3259ee1137d81a73d64f729e66eab21ad2c7",
+      "content": "from pathlib import Path\nimport subprocess, os, json, time, hashlib\nroot=Path(__file__).parent\noriginal=(root/'app/public/search.js').read_text()\nmutations={\n 'search-bug':('search',original.replace('row.hidden = !matchesQuery;', 'row.hidden = false;')),\n 'clear-bug':('clear',original.replace('  search.value = \"\";\\n  updateSearch();\\n});', '  // 試行用: クリアを無効化\\n});')),\n 'storage-bug':('order',original.replace('window.localStorage.setItem(orderStorageKey, order.value);', '// 試行用: 保存を無効化'))\n}\nsummary=[]\ntry:\n for name,(case,mutant) in mutations.items():\n  assert mutant != original\n  (root/'app/public/search.js').write_text(mutant)\n  (root/'evidence'/f'{name}.js').write_text(mutant)\n  for runner in ['pw','e2e']:\n   out=root/'evidence'/f'{runner}-{name}'\n   env=os.environ.copy();env['E2E_TELEMETRY_DISABLED']='1'\n   if runner=='pw':\n    env['PW_REPORT']=str(out)+'.json';env['PW_ARTIFACTS']=str(out)+'-artifacts'\n    cmd=['./node_modules/.bin/playwright','test','--config','playwright.config.ts','--grep',f'^{case}$']\n   else: cmd=['./node_modules/.bin/e2e','run','tests/deterministic.e2e.ts','--grep',f'^{case}$','--output',str(out)]\n   start=time.monotonic()\n   p=subprocess.run(cmd,cwd=root,env=env,capture_output=True,text=True,timeout=70)\n   row={'scenario':name,'runner':runner,'exitCode':p.returncode,'wallMs':round((time.monotonic()-start)*1000),'mutantSha256':hashlib.sha256(mutant.encode()).hexdigest()}\n   (root/'evidence'/f'{runner}-{name}.log').write_text(p.stdout+p.stderr)\n   summary.append(row); print(json.dumps(row),flush=True)\nfinally:\n (root/'app/public/search.js').write_text(original)\n (root/'evidence/mutations-summary.json').write_text(json.dumps(summary,indent=2))\n"
+    },
+    "run-pw-mutations.py": {
+      "sha256": "356a596f35c8c579205d7275c1b77f02017fdd47198618aa796f9847a40ada0b",
+      "content": "from pathlib import Path\nimport subprocess, os, json, time, hashlib\nroot=Path(__file__).parent\noriginal=(root/'app/public/search.js').read_text()\nmutations={\n 'search-bug':('search',original.replace('row.hidden = !matchesQuery;', 'row.hidden = false;')),\n 'clear-bug':('clear',original.replace('  search.value = \"\";\\n  updateSearch();\\n});', '  // 試行用: クリアを無効化\\n});')),\n 'storage-bug':('order',original.replace('window.localStorage.setItem(orderStorageKey, order.value);', '// 試行用: 保存を無効化'))\n}\nsummary=[]\ntry:\n for name,(case,mutant) in mutations.items():\n  assert mutant != original\n  (root/'app/public/search.js').write_text(mutant)\n  (root/'evidence'/f'{name}.js').write_text(mutant)\n  for runner in ['pw']:\n   out=root/'evidence'/f'{runner}-v2-{name}'\n   env=os.environ.copy();env['E2E_TELEMETRY_DISABLED']='1'\n   if runner=='pw':\n    env['PW_REPORT']=str(out)+'.json';env['PW_ARTIFACTS']=str(out)+'-artifacts'\n    cmd=['./node_modules/.bin/playwright','test','--config','playwright.config.ts','--grep',f'{case}$']\n   else: cmd=['./node_modules/.bin/e2e','run','tests/deterministic.e2e.ts','--grep',f'{case}$','--output',str(out)]\n   start=time.monotonic()\n   p=subprocess.run(cmd,cwd=root,env=env,capture_output=True,text=True,timeout=70)\n   row={'scenario':name,'runner':runner,'exitCode':p.returncode,'wallMs':round((time.monotonic()-start)*1000),'mutantSha256':hashlib.sha256(mutant.encode()).hexdigest()}\n   (root/'evidence'/f'{runner}-v2-{name}.log').write_text(p.stdout+p.stderr)\n   summary.append(row); print(json.dumps(row),flush=True)\nfinally:\n (root/'app/public/search.js').write_text(original)\n (root/'evidence/mutations-pw-v2-summary.json').write_text(json.dumps(summary,indent=2))\n"
+    }
+  },
+  "runs": [
+    {
+      "name": "e2e-normal",
+      "reportSha256": "c769afcc1fcdc3460b402a6c7bd02344389d0451907bf57c12f27daa370e3a06",
+      "status": "passed",
+      "exitCode": 0,
+      "durationMs": 1036,
+      "selected": 3,
+      "executed": 3,
+      "modelTokens": 0,
+      "modelCalls": 0,
+      "tests": [
+        {
+          "title": [
+            "search"
+          ],
+          "status": "passed",
+          "skip": null,
+          "attempts": [
+            {
+              "status": "passed",
+              "durationMs": 285,
+              "error": null,
+              "artifacts": [
+                {
+                  "kind": "trace",
+                  "sha256": "66fcaf5619daf9df7554313440a17ab1bef7bbdd12183b4f280e8138de9302a6",
+                  "size": 130623
+                }
+              ],
+              "agentSteps": []
+            }
+          ]
+        },
+        {
+          "title": [
+            "clear"
+          ],
+          "status": "passed",
+          "skip": null,
+          "attempts": [
+            {
+              "status": "passed",
+              "durationMs": 256,
+              "error": null,
+              "artifacts": [
+                {
+                  "kind": "trace",
+                  "sha256": "2b56a38e78c7ef54bfdf152d1dd9be3cc3744fb90d2baba628b2a4b04d005455",
+                  "size": 214792
+                }
+              ],
+              "agentSteps": []
+            }
+          ]
+        },
+        {
+          "title": [
+            "order"
+          ],
+          "status": "passed",
+          "skip": null,
+          "attempts": [
+            {
+              "status": "passed",
+              "durationMs": 128,
+              "error": null,
+              "artifacts": [
+                {
+                  "kind": "trace",
+                  "sha256": "d5e4bec869610a587b574fde0e91553a630f48fc267344af2b9354c51cda1fb0",
+                  "size": 147975
+                }
+              ],
+              "agentSteps": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "e2e-search-bug",
+      "reportSha256": "78d52520d6a50c6ca017cdbab3215bba39f88fa7e2d5ae6dea16699b8c50451a",
+      "status": "failed",
+      "exitCode": 1,
+      "durationMs": 2851,
+      "selected": 1,
+      "executed": 1,
+      "modelTokens": 0,
+      "modelCalls": 0,
+      "tests": [
+        {
+          "title": [
+            "search"
+          ],
+          "status": "failed",
+          "skip": null,
+          "attempts": [
+            {
+              "status": "failed",
+              "durationMs": 2476,
+              "error": {
+                "category": "test",
+                "code": "ASSERTION_FAILED",
+                "message": "expect.toHaveText failed\nlocator: getByRole(\"rowheader\")\nexpected: text [\"青いノート\", \"赤いノート\"]\nobserved: text [\"青いノート\", \"赤いノート\", \"黒いペン\", \"白いマグ\"] (match count 4)",
+                "retryable": false,
+                "phase": "body",
+                "details": {
+                  "locator": "getByRole(\"rowheader\")",
+                  "expected": "text [\"青いノート\", \"赤いノート\"]",
+                  "observed": "text [\"青いノート\", \"赤いノート\", \"黒いペン\", \"白いマグ\"]",
+                  "matches": 4
+                },
+                "source": {
+                  "file": "tests/deterministic.e2e.ts",
+                  "line": 5,
+                  "column": 3
+                }
+              },
+              "artifacts": [
+                {
+                  "kind": "log",
+                  "sha256": "5d9cd259a7b6bded357be0e78a8b9ac614acecce0d57bc2823334664c55d9b71",
+                  "size": 1378
+                },
+                {
+                  "kind": "screenshot",
+                  "sha256": "a460c114e0c4456c54c4bf882096156b6e4bee94ee83d60956a9a2e2aca91457",
+                  "size": 43306
+                },
+                {
+                  "kind": "trace",
+                  "sha256": "201151f927a0b1888b14763bb519c275170d8939852fa9c61463874f34e09313",
+                  "size": 548755
+                }
+              ],
+              "agentSteps": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "e2e-clear-bug",
+      "reportSha256": "c1e0e058a8914e96db012a2d0635face851a30e9b5489cfb4e5972b878f99ac5",
+      "status": "failed",
+      "exitCode": 1,
+      "durationMs": 2897,
+      "selected": 1,
+      "executed": 1,
+      "modelTokens": 0,
+      "modelCalls": 0,
+      "tests": [
+        {
+          "title": [
+            "clear"
+          ],
+          "status": "failed",
+          "skip": null,
+          "attempts": [
+            {
+              "status": "failed",
+              "durationMs": 2504,
+              "error": {
+                "category": "test",
+                "code": "ASSERTION_FAILED",
+                "message": "expect.toHaveValue failed\nlocator: getByLabel(\"商品名・商品コードで検索\")\nexpected: value \"\"\nobserved: value \"存在しない商品\" (match count 1)",
+                "retryable": false,
+                "phase": "body",
+                "details": {
+                  "locator": "getByLabel(\"商品名・商品コードで検索\")",
+                  "expected": "value \"\"",
+                  "observed": "value \"存在しない商品\"",
+                  "matches": 1
+                },
+                "source": {
+                  "file": "tests/deterministic.e2e.ts",
+                  "line": 14,
+                  "column": 3
+                }
+              },
+              "artifacts": [
+                {
+                  "kind": "log",
+                  "sha256": "ac7ca85e8509e447050fa2903c9a6e39a24e1e196b70ae993ad4d2c2a6fac6ec",
+                  "size": 904
+                },
+                {
+                  "kind": "screenshot",
+                  "sha256": "5c668701c38f5df7d90d65bce73f5b5383b06cb643daa185ed5634ffbcaf2b71",
+                  "size": 39419
+                },
+                {
+                  "kind": "trace",
+                  "sha256": "95c9bc2adb2baadbaa0a2c6a53804d6398099e4c233ed6851f16a1b6f7d6f40d",
+                  "size": 554975
+                }
+              ],
+              "agentSteps": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "e2e-storage-bug",
+      "reportSha256": "2998b28e827917eeb59c232a141d9c2ed870f9929a4e3fdf6a6328b54d465d60",
+      "status": "failed",
+      "exitCode": 1,
+      "durationMs": 2860,
+      "selected": 1,
+      "executed": 1,
+      "modelTokens": 0,
+      "modelCalls": 0,
+      "tests": [
+        {
+          "title": [
+            "order"
+          ],
+          "status": "failed",
+          "skip": null,
+          "attempts": [
+            {
+              "status": "failed",
+              "durationMs": 2483,
+              "error": {
+                "category": "test",
+                "code": "ASSERTION_FAILED",
+                "message": "expect.toHaveValue failed\nlocator: getByLabel(\"並び順\")\nexpected: value \"descending\"\nobserved: value \"original\" (match count 1)",
+                "retryable": false,
+                "phase": "body",
+                "details": {
+                  "locator": "getByLabel(\"並び順\")",
+                  "expected": "value \"descending\"",
+                  "observed": "value \"original\"",
+                  "matches": 1
+                },
+                "source": {
+                  "file": "tests/deterministic.e2e.ts",
+                  "line": 22,
+                  "column": 3
+                }
+              },
+              "artifacts": [
+                {
+                  "kind": "log",
+                  "sha256": "c6db079ff82795dcccbc13f2b82747ccb059f9eca568691deb53881a699eaaf2",
+                  "size": 1332
+                },
+                {
+                  "kind": "screenshot",
+                  "sha256": "6c040d0ef08837165ac9deed3a26ff870c128beb9d4bcaec9f2a6816af541b70",
+                  "size": 41330
+                },
+                {
+                  "kind": "trace",
+                  "sha256": "49c0d0af2f3e7a04b664f9119f381c52ea6e4be64aed0db5b7bc53445f2bbee4",
+                  "size": 466438
+                }
+              ],
+              "agentSteps": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ai-cold",
+      "reportSha256": "f38ddc297de7acf13e0962d3451de20dbd3f11807ef7ca1185fb9d9aca7438c7",
+      "status": "passed",
+      "exitCode": 0,
+      "durationMs": 22548,
+      "selected": 3,
+      "executed": 3,
+      "modelTokens": 25687,
+      "modelCalls": 6,
+      "tests": [
+        {
+          "title": [
+            "search"
+          ],
+          "status": "passed",
+          "skip": null,
+          "attempts": [
+            {
+              "status": "passed",
+              "durationMs": 5706,
+              "error": null,
+              "artifacts": [
+                {
+                  "kind": "trace",
+                  "sha256": "ffc8c7ee054d02f5546c158876248d287a7e752166bd8287f9d32d6c080571fb",
+                  "size": 324342
+                }
+              ],
+              "agentSteps": [
+                {
+                  "status": "passed",
+                  "label": "商品名・商品コードの検索欄に「ノート」を入力する",
+                  "cache": {
+                    "mode": "missed",
+                    "reason": "no-entry",
+                    "replayedActions": 0,
+                    "totalActions": 0
+                  },
+                  "metrics": {
+                    "modelCalls": 2,
+                    "actionSteps": 1,
+                    "observationBytes": 1232,
+                    "contextBytes": 0,
+                    "ledgerBytes": 23
+                  },
+                  "model": {
+                    "provider": "chatgpt.responses",
+                    "model": "gpt-6-luna",
+                    "endpoint": "provider-default",
+                    "adapterVersion": "executor/e2e-default-agent@2",
+                    "policyVersion": "e2e-default-agent/2",
+                    "calls": 2,
+                    "tokenAccounting": "provider",
+                    "inputTokens": 8508,
+                    "outputTokens": 84,
+                    "peakTokensPerCall": 4439,
+                    "cacheReadTokens": 2816,
+                    "cacheWriteTokens": 0
+                  },
+                  "explanation": "検索欄に「ノート」を入力し、商品一覧が2件（青いノート、赤いノート）に絞り込まれたことを確認しました。",
+                  "turns": [
+                    {
+                      "index": 1,
+                      "calls": [
+                        "type({\"target\":\"n7\",\"value\":\"ノート\"})"
+                      ],
+                      "outcome": "[type] Typed into #n7.\n\nScreen changes since revision b2 (now revision b4, path /, 28 nodes): 2 changed, 8 removed. Every node not listed as removed is still on screen under the id you have.\nchanged #n7 searchbox \"商品名・商品コードで検索\" value=\"ノート\" (was: #n7 searchbox \"商品名・商品コードで検索\")\nchanged #n14 text=\"全4件中2件を表示\" (was: #n14 text=\"全4件中4件を表示\")\nremoved #n29 row \"黒いペン PEN-001\"\nremoved #n30 rowheader \"黒いペン\"\nremoved #n31 cell \"PEN-001\"\nremoved #n32 text=\"PEN-001\"\nremoved #n33 row \"白いマグ MUG-001\"\nremoved #n34 rowheader \"白いマグ\"\nremoved #n35 cell \"MUG-001\"\nremoved #n36 text=\"MUG-001\""
+                    },
+                    {
+                      "index": 2,
+                      "calls": [
+                        "complete_step({\"status\":\"passed\",\"summary\":\"検索欄に「ノート」を入力し、商品一覧が2件（青いノート、赤いノート）に絞り込まれたことを確認しました。\"})"
+                      ],
+                      "outcome": "[complete_step] Step concluded."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": [
+            "clear"
+          ],
+          "status": "passed",
+          "skip": null,
+          "attempts": [
+            {
+              "status": "passed",
+              "durationMs": 10840,
+              "error": null,
+              "artifacts": [
+                {
+                  "kind": "trace",
+                  "sha256": "5aaf08c3b5598f28440c8c88db540a3d7a4f37fa3092458f91c4016c9c00dc0e",
+                  "size": 378855
+                }
+              ],
+              "agentSteps": [
+                {
+                  "status": "passed",
+                  "label": "検索をクリアするボタンをクリックして検索を解除する",
+                  "cache": {
+                    "mode": "missed",
+                    "reason": "no-entry",
+                    "replayedActions": 0,
+                    "totalActions": 0
+                  },
+                  "metrics": {
+                    "modelCalls": 2,
+                    "actionSteps": 1,
+                    "observationBytes": 1281,
+                    "contextBytes": 0,
+                    "ledgerBytes": 240
+                  },
+                  "model": {
+                    "provider": "chatgpt.responses",
+                    "model": "gpt-6-luna",
+                    "endpoint": "provider-default",
+                    "adapterVersion": "executor/e2e-default-agent@2",
+                    "policyVersion": "e2e-default-agent/2",
+                    "calls": 2,
+                    "tokenAccounting": "provider",
+                    "inputTokens": 8519,
+                    "outputTokens": 66,
+                    "peakTokensPerCall": 4555,
+                    "cacheReadTokens": 2816,
+                    "cacheWriteTokens": 0
+                  },
+                  "explanation": "「検索をクリア」ボタンをクリックしました。検索欄が空になり、全4件が表示されています。",
+                  "turns": [
+                    {
+                      "index": 1,
+                      "calls": [
+                        "tap({\"target\":\"n11\"})"
+                      ],
+                      "outcome": "[tap] Tapped #n11.\n\nThe screen changed substantially since revision b2. Current screen (revision b4, path /, 36 nodes):\n#root document \"商品一覧 | ワークフロー試行\"\n #n5 main\n  #n6 text=\"ワークフロー試行\"\n  #n7 heading \"商品一覧\"\n  #n8 text=\"表示確認用の架空の商品です。\"\n  #n9 text=\"商品名・商品コードで検索\"\n  #n10 searchbox \"商品名・商品コードで検索\"\n  #n11 button \"検索をクリア\" [focused]\n  #n12 text=\"並び順\"\n  #n13 combobox \"並び順\" value=\"descending\"\n   #n14 option \"元の順序\"\n   #n15 option \"商品名：昇順\"\n   #n16 option \"商品名：降順\" [selected]\n  #n17 text=\"全4件中4件を表示\"\n  #n18 table \"商品一覧\"\n   #n19 rowgroup\n    #n20 row \"商品名 商品コード\"\n     #n21 columnheader \"商品名\"\n     #n22 columnhead…[truncated]"
+                    },
+                    {
+                      "index": 2,
+                      "calls": [
+                        "complete_step({\"status\":\"passed\",\"summary\":\"「検索をクリア」ボタンをクリックしました。検索欄が空になり、全4件が表示されています。\"})"
+                      ],
+                      "outcome": "[complete_step] Step concluded."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": [
+            "order"
+          ],
+          "status": "passed",
+          "skip": null,
+          "attempts": [
+            {
+              "status": "passed",
+              "durationMs": 5606,
+              "error": null,
+              "artifacts": [
+                {
+                  "kind": "trace",
+                  "sha256": "3392465f453b420245454b0589730cd0c2f78c13bf2adf279e1ae781f5bca0f3",
+                  "size": 247720
+                }
+              ],
+              "agentSteps": [
+                {
+                  "status": "passed",
+                  "label": "並び順を商品名の降順に変更する",
+                  "cache": {
+                    "mode": "missed",
+                    "reason": "no-entry",
+                    "replayedActions": 0,
+                    "totalActions": 0
+                  },
+                  "metrics": {
+                    "modelCalls": 2,
+                    "actionSteps": 1,
+                    "observationBytes": 1234,
+                    "contextBytes": 0,
+                    "ledgerBytes": 23
+                  },
+                  "model": {
+                    "provider": "chatgpt.responses",
+                    "model": "gpt-6-luna",
+                    "endpoint": "provider-default",
+                    "adapterVersion": "executor/e2e-default-agent@2",
+                    "policyVersion": "e2e-default-agent/2",
+                    "calls": 2,
+                    "tokenAccounting": "provider",
+                    "inputTokens": 8430,
+                    "outputTokens": 80,
+                    "peakTokensPerCall": 4357,
+                    "cacheReadTokens": 2816,
+                    "cacheWriteTokens": 0
+                  },
+                  "explanation": "並び順を「商品名：降順」に変更し、並び順コントロールの値が descending になったことを確認しました。",
+                  "turns": [
+                    {
+                      "index": 1,
+                      "calls": [
+                        "select({\"target\":\"n10\",\"value\":\"商品名：降順\"})"
+                      ],
+                      "outcome": "[select] Selected \"商品名：降順\" in #n10.\n\nScreen changes since revision b2 (now revision b4, path /, 36 nodes): 3 changed. Every node not listed as removed is still on screen under the id you have.\nchanged #n10 combobox \"並び順\" value=\"descending\" (was: #n10 combobox \"並び順\" value=\"original\")\nchanged #n11 option \"元の順序\" (was: #n11 option \"元の順序\" [selected])\nchanged #n13 option \"商品名：降順\" [selected] (was: #n13 option \"商品名：降順\")"
+                    },
+                    {
+                      "index": 2,
+                      "calls": [
+                        "complete_step({\"status\":\"passed\",\"summary\":\"並び順を「商品名：降順」に変更し、並び順コントロールの値が descending になったことを確認しました。\"})"
+                      ],
+                      "outcome": "[complete_step] Step concluded."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ai-warm",
+      "reportSha256": "7bb99940a7c9f1f8bb4f5ff542421340e3c78f3c71e788871de00a0d55114237",
+      "status": "passed",
+      "exitCode": 0,
+      "durationMs": 1286,
+      "selected": 3,
+      "executed": 3,
+      "modelTokens": 0,
+      "modelCalls": 0,
+      "tests": [
+        {
+          "title": [
+            "search"
+          ],
+          "status": "passed",
+          "skip": null,
+          "attempts": [
+            {
+              "status": "passed",
+              "durationMs": 369,
+              "error": null,
+              "artifacts": [
+                {
+                  "kind": "trace",
+                  "sha256": "8f98a746b3b7272d40860c5e2b73fd045c84d60a611e43419c78b2d0a19c8454",
+                  "size": 186217
+                }
+              ],
+              "agentSteps": [
+                {
+                  "status": "passed",
+                  "label": "商品名・商品コードの検索欄に「ノート」を入力する",
+                  "cache": {
+                    "mode": "self-finalized",
+                    "replayedActions": 1,
+                    "totalActions": 1
+                  },
+                  "metrics": {
+                    "modelCalls": 0,
+                    "actionSteps": 1,
+                    "observationBytes": 1232,
+                    "contextBytes": 0,
+                    "ledgerBytes": 0
+                  },
+                  "model": null,
+                  "explanation": "replayed 1 recorded action(s) zero-turn from the trace cache; recorded verdict: 検索欄に「ノート」を入力し、商品一覧が2件（青いノート、赤いノート）に絞り込まれたことを確認しました。",
+                  "turns": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": [
+            "clear"
+          ],
+          "status": "passed",
+          "skip": null,
+          "attempts": [
+            {
+              "status": "passed",
+              "durationMs": 302,
+              "error": null,
+              "artifacts": [
+                {
+                  "kind": "trace",
+                  "sha256": "3bfb5b64424c87263ad70af44ec75df5ac8c4fd8bfdadcf20d0a3656bd6bd0b3",
+                  "size": 284060
+                }
+              ],
+              "agentSteps": [
+                {
+                  "status": "passed",
+                  "label": "検索をクリアするボタンをクリックして検索を解除する",
+                  "cache": {
+                    "mode": "self-finalized",
+                    "replayedActions": 1,
+                    "totalActions": 1
+                  },
+                  "metrics": {
+                    "modelCalls": 0,
+                    "actionSteps": 1,
+                    "observationBytes": 1281,
+                    "contextBytes": 0,
+                    "ledgerBytes": 0
+                  },
+                  "model": null,
+                  "explanation": "replayed 1 recorded action(s) zero-turn from the trace cache; recorded verdict: 「検索をクリア」ボタンをクリックしました。検索欄が空になり、全4件が表示されています。",
+                  "turns": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": [
+            "order"
+          ],
+          "status": "passed",
+          "skip": null,
+          "attempts": [
+            {
+              "status": "passed",
+              "durationMs": 236,
+              "error": null,
+              "artifacts": [
+                {
+                  "kind": "trace",
+                  "sha256": "defd4ccbcb4274a6f5157a8d36a94f3bbb414df7b16c5932333a1d7ba9250182",
+                  "size": 203353
+                }
+              ],
+              "agentSteps": [
+                {
+                  "status": "passed",
+                  "label": "並び順を商品名の降順に変更する",
+                  "cache": {
+                    "mode": "self-finalized",
+                    "replayedActions": 1,
+                    "totalActions": 1
+                  },
+                  "metrics": {
+                    "modelCalls": 0,
+                    "actionSteps": 1,
+                    "observationBytes": 1234,
+                    "contextBytes": 0,
+                    "ledgerBytes": 0
+                  },
+                  "model": null,
+                  "explanation": "replayed 1 recorded action(s) zero-turn from the trace cache; recorded verdict: 並び順を「商品名：降順」に変更し、並び順コントロールの値が descending になったことを確認しました。",
+                  "turns": null
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ai-search-bug",
+      "reportSha256": "05e0c7192881b15952d7d4d848a5163900a9c854458c6443a6430f37d1290e54",
+      "status": "failed",
+      "exitCode": 1,
+      "durationMs": 3162,
+      "selected": 1,
+      "executed": 1,
+      "modelTokens": 0,
+      "modelCalls": 0,
+      "tests": [
+        {
+          "title": [
+            "search"
+          ],
+          "status": "failed",
+          "skip": null,
+          "attempts": [
+            {
+              "status": "failed",
+              "durationMs": 2755,
+              "error": {
+                "category": "test",
+                "code": "ASSERTION_FAILED",
+                "message": "expect.toHaveText failed\nlocator: getByRole(\"rowheader\")\nexpected: text [\"青いノート\", \"赤いノート\"]\nobserved: text [\"青いノート\", \"赤いノート\", \"黒いペン\", \"白いマグ\"] (match count 4)",
+                "retryable": false,
+                "phase": "body",
+                "details": {
+                  "locator": "getByRole(\"rowheader\")",
+                  "expected": "text [\"青いノート\", \"赤いノート\"]",
+                  "observed": "text [\"青いノート\", \"赤いノート\", \"黒いペン\", \"白いマグ\"]",
+                  "matches": 4
+                },
+                "source": {
+                  "file": "tests/agent.e2e.ts",
+                  "line": 5,
+                  "column": 3
+                }
+              },
+              "artifacts": [
+                {
+                  "kind": "log",
+                  "sha256": "116ef0c8b77c0257760896ba7a548e7ea38a5281c75399ee776153671e2f533b",
+                  "size": 1352
+                },
+                {
+                  "kind": "screenshot",
+                  "sha256": "a460c114e0c4456c54c4bf882096156b6e4bee94ee83d60956a9a2e2aca91457",
+                  "size": 43306
+                },
+                {
+                  "kind": "trace",
+                  "sha256": "e3da6a57c5b177dc534794f8346ce0f1195dfbaed5d55b9bdc66c6702725354f",
+                  "size": 572640
+                }
+              ],
+              "agentSteps": [
+                {
+                  "status": "passed",
+                  "label": "商品名・商品コードの検索欄に「ノート」を入力する",
+                  "cache": {
+                    "mode": "self-finalized",
+                    "replayedActions": 1,
+                    "totalActions": 1
+                  },
+                  "metrics": {
+                    "modelCalls": 0,
+                    "actionSteps": 1,
+                    "observationBytes": 1260,
+                    "contextBytes": 0,
+                    "ledgerBytes": 0
+                  },
+                  "model": null,
+                  "explanation": "replayed 1 recorded action(s) zero-turn from the trace cache; recorded verdict: 検索欄に「ノート」を入力し、商品一覧が2件（青いノート、赤いノート）に絞り込まれたことを確認しました。",
+                  "turns": null
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ai-clear-bug",
+      "reportSha256": "68326f3e864c8b3d26840824d54b4bcb00ae7aafa7732defc131b6aa2bab933e",
+      "status": "failed",
+      "exitCode": 1,
+      "durationMs": 27875,
+      "selected": 1,
+      "executed": 1,
+      "modelTokens": 13115,
+      "modelCalls": 3,
+      "tests": [
+        {
+          "title": [
+            "clear"
+          ],
+          "status": "failed",
+          "skip": null,
+          "attempts": [
+            {
+              "status": "failed",
+              "durationMs": 27469,
+              "error": {
+                "category": "test",
+                "code": "ASSERTION_FAILED",
+                "message": "agent.act failed: 「検索をクリア」を再度クリックしましたが、検索欄には「存在しない商品」が残り、0件表示と「該当する商品はありません」も変化しませんでした。検索解除は確認できませんでした。",
+                "retryable": false,
+                "phase": "body",
+                "source": {
+                  "file": "tests/agent.e2e.ts",
+                  "line": 13,
+                  "column": 3
+                }
+              },
+              "artifacts": [
+                {
+                  "kind": "log",
+                  "sha256": "a221496ce6a6ed4de44511275288c3e0ddae8d37015fd9733f9ce28ef55d704b",
+                  "size": 900
+                },
+                {
+                  "kind": "screenshot",
+                  "sha256": "73b5bc7f5824c3e7fbe4ab2ad1707f5bd02e95ba1234e1dacf3cd3a2b2fb6c05",
+                  "size": 39417
+                },
+                {
+                  "kind": "trace",
+                  "sha256": "3bb3f1f5eb7dff07f7ee80ee8d7bfa97448e543ef6709768cc99a684e442ba9e",
+                  "size": 996132
+                }
+              ],
+              "agentSteps": [
+                {
+                  "status": "failed",
+                  "label": "検索をクリアするボタンをクリックして検索を解除する",
+                  "cache": {
+                    "mode": "agent-concluded",
+                    "reason": "end-mismatch",
+                    "replayedActions": 1,
+                    "totalActions": 1
+                  },
+                  "metrics": {
+                    "modelCalls": 3,
+                    "actionSteps": 2,
+                    "observationBytes": 807,
+                    "contextBytes": 0,
+                    "ledgerBytes": 240,
+                    "pixelBytes": 24529
+                  },
+                  "model": {
+                    "provider": "chatgpt.responses",
+                    "model": "gpt-6-luna",
+                    "endpoint": "provider-default",
+                    "adapterVersion": "executor/e2e-default-agent@2",
+                    "policyVersion": "e2e-default-agent/2",
+                    "calls": 3,
+                    "tokenAccounting": "provider",
+                    "inputTokens": 13002,
+                    "outputTokens": 113,
+                    "peakTokensPerCall": 4795,
+                    "cacheReadTokens": 4224,
+                    "cacheWriteTokens": 0
+                  },
+                  "explanation": "「検索をクリア」を再度クリックしましたが、検索欄には「存在しない商品」が残り、0件表示と「該当する商品はありません」も変化しませんでした。検索解除は確認できませんでした。",
+                  "turns": [
+                    {
+                      "index": 1,
+                      "calls": [
+                        "tap({\"target\":\"n11\"})"
+                      ],
+                      "outcome": "[tap] Tapped #n11.\n\nNo listed node changed within the wait after this action (re-observed as revision b36, path /); the ids you have stay valid. The listing shows only what the tree describes: a drawn change needs a screenshot to see."
+                    },
+                    {
+                      "index": 2,
+                      "calls": [
+                        "screenshot({})"
+                      ],
+                      "outcome": "[screenshot] Screen unchanged since revision b36 (re-observed as revision b38, path /); the ids you have stay valid.\n\nScreenshot attached: 768 by 480 pixels (0.6 per CSS pixel). Point coordinates (tap_at and the other _at verbs) are pixels of this image: x from the left edge, y from the top edge.\n[screenshot, 24529 bytes]"
+                    },
+                    {
+                      "index": 3,
+                      "calls": [
+                        "complete_step({\"status\":\"failed\",\"summary\":\"「検索をクリア」を再度クリックしましたが、検索欄には「存在しない商品」が残り、0件表示と「該当する商品はありません」も変化しませんでした。検索解除は確認できませんでした。\",\"errorCode\":\"ASSERTION_FAILED\"})"
+                      ],
+                      "outcome": "[complete_step] Step concluded."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ai-storage-bug",
+      "reportSha256": "042ab5ac6ec192bd30d96eee852bf31a9138a518fa2fe2fecde86ac030d0b0c2",
+      "status": "failed",
+      "exitCode": 1,
+      "durationMs": 2929,
+      "selected": 1,
+      "executed": 1,
+      "modelTokens": 0,
+      "modelCalls": 0,
+      "tests": [
+        {
+          "title": [
+            "order"
+          ],
+          "status": "failed",
+          "skip": null,
+          "attempts": [
+            {
+              "status": "failed",
+              "durationMs": 2528,
+              "error": {
+                "category": "test",
+                "code": "ASSERTION_FAILED",
+                "message": "expect.toHaveValue failed\nlocator: getByLabel(\"並び順\")\nexpected: value \"descending\"\nobserved: value \"original\" (match count 1)",
+                "retryable": false,
+                "phase": "body",
+                "details": {
+                  "locator": "getByLabel(\"並び順\")",
+                  "expected": "value \"descending\"",
+                  "observed": "value \"original\"",
+                  "matches": 1
+                },
+                "source": {
+                  "file": "tests/agent.e2e.ts",
+                  "line": 22,
+                  "column": 3
+                }
+              },
+              "artifacts": [
+                {
+                  "kind": "log",
+                  "sha256": "ddc7b287334a98050ef30be8cabcae4bde05f26c4d91555ddb4daa1671b2e270",
+                  "size": 1402
+                },
+                {
+                  "kind": "screenshot",
+                  "sha256": "6c040d0ef08837165ac9deed3a26ff870c128beb9d4bcaec9f2a6816af541b70",
+                  "size": 41330
+                },
+                {
+                  "kind": "trace",
+                  "sha256": "f16bd2d25d67d580307fcc1d1fd414d9a01df426bccaf5ddd64fd91945e1e119",
+                  "size": 493068
+                }
+              ],
+              "agentSteps": [
+                {
+                  "status": "passed",
+                  "label": "並び順を商品名の降順に変更する",
+                  "cache": {
+                    "mode": "self-finalized",
+                    "replayedActions": 1,
+                    "totalActions": 1
+                  },
+                  "metrics": {
+                    "modelCalls": 0,
+                    "actionSteps": 1,
+                    "observationBytes": 1234,
+                    "contextBytes": 0,
+                    "ledgerBytes": 0
+                  },
+                  "model": null,
+                  "explanation": "replayed 1 recorded action(s) zero-turn from the trace cache; recorded verdict: 並び順を「商品名：降順」に変更し、並び順コントロールの値が descending になったことを確認しました。",
+                  "turns": null
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ai-label-change",
+      "reportSha256": "c691d6cebd3f5685d2483fe7be943982f5b1b61cb8bdacc5dcf835f25d85c81b",
+      "status": "passed",
+      "exitCode": 0,
+      "durationMs": 19517,
+      "selected": 1,
+      "executed": 1,
+      "modelTokens": 8590,
+      "modelCalls": 2,
+      "tests": [
+        {
+          "title": [
+            "clear"
+          ],
+          "status": "passed",
+          "skip": null,
+          "attempts": [
+            {
+              "status": "passed",
+              "durationMs": 19108,
+              "error": null,
+              "artifacts": [
+                {
+                  "kind": "trace",
+                  "sha256": "6f2e3f144a1668a0673f9b409e69aaf06b16fe64f1c9fc5f898e9603a0d85041",
+                  "size": 897917
+                }
+              ],
+              "agentSteps": [
+                {
+                  "status": "passed",
+                  "label": "検索をクリアするボタンをクリックして検索を解除する",
+                  "cache": {
+                    "mode": "missed",
+                    "reason": "target-not-found",
+                    "replayedActions": 0,
+                    "totalActions": 1
+                  },
+                  "metrics": {
+                    "modelCalls": 2,
+                    "actionSteps": 1,
+                    "observationBytes": 1301,
+                    "contextBytes": 0,
+                    "ledgerBytes": 240
+                  },
+                  "model": {
+                    "provider": "chatgpt.responses",
+                    "model": "gpt-6-luna",
+                    "endpoint": "provider-default",
+                    "adapterVersion": "executor/e2e-default-agent@2",
+                    "policyVersion": "e2e-default-agent/2",
+                    "calls": 2,
+                    "tokenAccounting": "provider",
+                    "inputTokens": 8519,
+                    "outputTokens": 71,
+                    "peakTokensPerCall": 4560,
+                    "cacheReadTokens": 2816,
+                    "cacheWriteTokens": 0
+                  },
+                  "explanation": "「入力をリセット」ボタンをクリックし、検索欄が空になって全4件の商品が表示されることを確認しました。",
+                  "turns": [
+                    {
+                      "index": 1,
+                      "calls": [
+                        "tap({\"target\":\"n11\"})"
+                      ],
+                      "outcome": "[tap] Tapped #n11.\n\nThe screen changed substantially since revision b10. Current screen (revision b12, path /, 36 nodes):\n#root document \"商品一覧 | ワークフロー試行\"\n #n5 main\n  #n6 text=\"ワークフロー試行\"\n  #n7 heading \"商品一覧\"\n  #n8 text=\"表示確認用の架空の商品です。\"\n  #n9 text=\"商品名・商品コードで検索\"\n  #n10 searchbox \"商品名・商品コードで検索\"\n  #n11 button \"入力をリセット\" [focused]\n  #n12 text=\"並び順\"\n  #n13 combobox \"並び順\" value=\"descending\"\n   #n14 option \"元の順序\"\n   #n15 option \"商品名：昇順\"\n   #n16 option \"商品名：降順\" [selected]\n  #n17 text=\"全4件中4件を表示\"\n  #n18 table \"商品一覧\"\n   #n19 rowgroup\n    #n20 row \"商品名 商品コード\"\n     #n21 columnheader \"商品名\"\n     #n22 columnh…[truncated]"
+                    },
+                    {
+                      "index": 2,
+                      "calls": [
+                        "complete_step({\"status\":\"passed\",\"summary\":\"「入力をリセット」ボタンをクリックし、検索欄が空になって全4件の商品が表示されることを確認しました。\"})"
+                      ],
+                      "outcome": "[complete_step] Step concluded."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ai-label-strict",
+      "reportSha256": "00f1c260985b28984e6694eab39324e5e2a31a864f42a330bdf591afebb1e842",
+      "status": "error",
+      "exitCode": 2,
+      "durationMs": 15424,
+      "selected": 1,
+      "executed": 1,
+      "modelTokens": 0,
+      "modelCalls": 0,
+      "tests": [
+        {
+          "title": [
+            "clear"
+          ],
+          "status": "failed",
+          "skip": null,
+          "attempts": [
+            {
+              "status": "failed",
+              "durationMs": 14899,
+              "error": {
+                "category": "configuration",
+                "code": "REPLAY_STALE",
+                "message": "the recording of this step no longer replays (target-not-found), and cache.strict hands no step to the agent; re-record it with a read-write run without --strict-cache and commit the changed entry under replay-cache",
+                "retryable": false,
+                "phase": "body",
+                "source": {
+                  "file": "tests/agent.e2e.ts",
+                  "line": 13,
+                  "column": 3
+                }
+              },
+              "artifacts": [
+                {
+                  "kind": "log",
+                  "sha256": "791b03d626f02148fa8f24d6f9b0a5f1dd1280db8da926e395d0473050c1b361",
+                  "size": 903
+                },
+                {
+                  "kind": "screenshot",
+                  "sha256": "be99d91b6f7fe1f0c282f2623fe5e7f7242c2894d6c203ca6ddefe481223b490",
+                  "size": 40017
+                },
+                {
+                  "kind": "trace",
+                  "sha256": "5750fe12af8da22d68e07e634c9f64b2bd109bb15ab66a4453e623189453445a",
+                  "size": 731901
+                }
+              ],
+              "agentSteps": [
+                {
+                  "status": "failed",
+                  "label": "検索をクリアするボタンをクリックして検索を解除する",
+                  "cache": {
+                    "mode": "missed",
+                    "reason": "target-not-found",
+                    "replayedActions": 0,
+                    "totalActions": 1
+                  },
+                  "metrics": {
+                    "modelCalls": 0,
+                    "actionSteps": 0,
+                    "observationBytes": 810,
+                    "contextBytes": 0,
+                    "ledgerBytes": 0
+                  },
+                  "model": null,
+                  "explanation": null,
+                  "turns": null
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "e2e-mixed",
+      "reportSha256": "d58d9ea3965067663f645f01a933472ef7358544d803f7e0bea47c4d3ab8287c",
+      "status": "passed",
+      "exitCode": 0,
+      "durationMs": 905,
+      "selected": 2,
+      "executed": 1,
+      "modelTokens": 0,
+      "modelCalls": 0,
+      "tests": [
+        {
+          "title": [
+            "実行した対照"
+          ],
+          "status": "passed",
+          "skip": null,
+          "attempts": [
+            {
+              "status": "passed",
+              "durationMs": 540,
+              "error": null,
+              "artifacts": [
+                {
+                  "kind": "trace",
+                  "sha256": "f8357eea2a9bbde4ead0818707be387cc3849fcd5fd299368282f12268dd036d",
+                  "size": 69253
+                }
+              ],
+              "agentSteps": []
+            }
+          ]
+        },
+        {
+          "title": [
+            "選択したが未実行"
+          ],
+          "status": "skipped",
+          "skip": {
+            "cause": "explicit",
+            "reason": "skipped"
+          },
+          "attempts": []
+        }
+      ]
+    },
+    {
+      "name": "pw-normal",
+      "reportSha256": "349bc9d962c79644821b8876fde2cdafb64095092b13fd553b266e7935a1e5d8",
+      "stats": {
+        "startTime": "2026-10-02T15:11:29.426Z",
+        "duration": 1063.835,
+        "expected": 3,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "errors": [],
+      "tests": [
+        {
+          "title": "cases.pw.ts",
+          "file": "cases.pw.ts",
+          "column": 0,
+          "line": 0,
+          "specs": [
+            {
+              "title": "search",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 45000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 266,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-02T15:11:29.671Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "[private-trial-root]/evidence/pw-normal-artifacts/cases.pw.ts-search/trace.zip"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "35def4651f882f296f35-af89d3225f8ff415fd8b",
+              "file": "cases.pw.ts",
+              "line": 2,
+              "column": 5
+            },
+            {
+              "title": "clear",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 45000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 124,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-02T15:11:30.239Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "[private-trial-root]/evidence/pw-normal-artifacts/cases.pw.ts-clear/trace.zip"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "35def4651f882f296f35-f05d01b9de2af531789b",
+              "file": "cases.pw.ts",
+              "line": 8,
+              "column": 5
+            },
+            {
+              "title": "order",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 45000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 90,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-02T15:11:30.371Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "[private-trial-root]/evidence/pw-normal-artifacts/cases.pw.ts-order/trace.zip"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "35def4651f882f296f35-117f505cf7dc1e02bc58",
+              "file": "cases.pw.ts",
+              "line": 18,
+              "column": 5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "pw-v2-search-bug",
+      "reportSha256": "f0b44680617ef95c7e5895ee8cedfc82d2337cbe5422743f75da51ed3c970e58",
+      "stats": {
+        "startTime": "2026-10-02T15:12:53.708Z",
+        "duration": 2799.9570000000003,
+        "expected": 0,
+        "skipped": 0,
+        "unexpected": 1,
+        "flaky": 0
+      },
+      "errors": [],
+      "tests": [
+        {
+          "title": "cases.pw.ts",
+          "file": "cases.pw.ts",
+          "column": 0,
+          "line": 0,
+          "specs": [
+            {
+              "title": "search",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 45000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 2240,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('rowheader')\nTimeout: 2000ms\n\u001b[32m- Expected  - 0\u001b[39m\n\u001b[31m+ Received  + 2\u001b[39m\n\n\u001b[2m  Array [\u001b[22m\n\u001b[2m    \"青いノート\",\u001b[22m\n\u001b[2m    \"赤いノート\",\u001b[22m\n\u001b[31m+   \"黒いペン\",\u001b[39m\n\u001b[31m+   \"白いマグ\",\u001b[39m\n\u001b[2m  ]\u001b[22m\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" getByRole('rowheader') with timeout 2000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('rowheader')\u001b[22m\n\u001b[2m    21 × locator resolved to 4 elements\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('rowheader')\nTimeout: 2000ms\n\u001b[32m- Expected  - 0\u001b[39m\n\u001b[31m+ Received  + 2\u001b[39m\n\n\u001b[2m  Array [\u001b[22m\n\u001b[2m    \"青いノート\",\u001b[22m\n\u001b[2m    \"赤いノート\",\u001b[22m\n\u001b[31m+   \"黒いペン\",\u001b[39m\n\u001b[31m+   \"白いマグ\",\u001b[39m\n\u001b[2m  ]\u001b[22m\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" getByRole('rowheader') with timeout 2000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('rowheader')\u001b[22m\n\u001b[2m    21 × locator resolved to 4 elements\u001b[22m\n\n    at [private-trial-root]/tests/cases.pw.ts:5:45",
+                        "location": {
+                          "file": "[private-trial-root]/tests/cases.pw.ts",
+                          "column": 45,
+                          "line": 5
+                        },
+                        "snippet": "  3 |   await page.goto('/');\n  4 |   await page.getByLabel('商品名・商品コードで検索', { exact: true }).fill('ノート');\n> 5 |   await expect(page.getByRole('rowheader')).toHaveText(['青いノート', '赤いノート']);\n    |                                             ^\n  6 |   await expect(page.getByText('全4件中2件を表示', { exact: true })).toBeVisible();\n  7 | });\n  8 | test('clear', async ({ page }) => {"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "[private-trial-root]/tests/cases.pw.ts",
+                            "column": 45,
+                            "line": 5
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: getByRole('rowheader')\nTimeout: 2000ms\n\u001b[32m- Expected  - 0\u001b[39m\n\u001b[31m+ Received  + 2\u001b[39m\n\n\u001b[2m  Array [\u001b[22m\n\u001b[2m    \"青いノート\",\u001b[22m\n\u001b[2m    \"赤いノート\",\u001b[22m\n\u001b[31m+   \"黒いペン\",\u001b[39m\n\u001b[31m+   \"白いマグ\",\u001b[39m\n\u001b[2m  ]\u001b[22m\n\nCall log:\n\u001b[2m  - Expect \"toHaveText\" getByRole('rowheader') with timeout 2000ms\u001b[22m\n\u001b[2m  - waiting for getByRole('rowheader')\u001b[22m\n\u001b[2m    21 × locator resolved to 4 elements\u001b[22m\n\n\n  3 |   await page.goto('/');\n  4 |   await page.getByLabel('商品名・商品コードで検索', { exact: true }).fill('ノート');\n> 5 |   await expect(page.getByRole('rowheader')).toHaveText(['青いノート', '赤いノート']);\n    |                                             ^\n  6 |   await expect(page.getByText('全4件中2件を表示', { exact: true })).toBeVisible();\n  7 | });\n  8 | test('clear', async ({ page }) => {\n    at [private-trial-root]/tests/cases.pw.ts:5:45"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-02T15:12:53.942Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "[private-trial-root]/evidence/pw-v2-search-bug-artifacts/cases.pw.ts-search/error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "[private-trial-root]/evidence/pw-v2-search-bug-artifacts/cases.pw.ts-search/trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "[private-trial-root]/tests/cases.pw.ts",
+                        "column": 45,
+                        "line": 5
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "35def4651f882f296f35-af89d3225f8ff415fd8b",
+              "file": "cases.pw.ts",
+              "line": 2,
+              "column": 5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "pw-v2-clear-bug",
+      "reportSha256": "79be293992d450b9a78b64df8c46fffcd7958ee643e16bc2f4e74184bc88734a",
+      "stats": {
+        "startTime": "2026-10-02T15:12:56.802Z",
+        "duration": 2529.1769999999997,
+        "expected": 0,
+        "skipped": 0,
+        "unexpected": 1,
+        "flaky": 0
+      },
+      "errors": [],
+      "tests": [
+        {
+          "title": "cases.pw.ts",
+          "file": "cases.pw.ts",
+          "column": 0,
+          "line": 0,
+          "specs": [
+            {
+              "title": "clear",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 45000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 2176,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  getByLabel('商品名・商品コードで検索', { exact: true })\nExpected: \u001b[32m\"\"\u001b[39m\nReceived: \u001b[31m\"存在しない商品\"\u001b[39m\nTimeout:  2000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" getByLabel('商品名・商品コードで検索', { exact: true }) with timeout 2000ms\u001b[22m\n\u001b[2m  - waiting for getByLabel('商品名・商品コードで検索', { exact: true })\u001b[22m\n\u001b[2m    21 × locator resolved to <input type=\"search\" id=\"product-search\"/>\u001b[22m\n\u001b[2m       - unexpected value \"存在しない商品\"\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  getByLabel('商品名・商品コードで検索', { exact: true })\nExpected: \u001b[32m\"\"\u001b[39m\nReceived: \u001b[31m\"存在しない商品\"\u001b[39m\nTimeout:  2000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" getByLabel('商品名・商品コードで検索', { exact: true }) with timeout 2000ms\u001b[22m\n\u001b[2m  - waiting for getByLabel('商品名・商品コードで検索', { exact: true })\u001b[22m\n\u001b[2m    21 × locator resolved to <input type=\"search\" id=\"product-search\"/>\u001b[22m\n\u001b[2m       - unexpected value \"存在しない商品\"\u001b[22m\n\n    at [private-trial-root]/tests/cases.pw.ts:14:66",
+                        "location": {
+                          "file": "[private-trial-root]/tests/cases.pw.ts",
+                          "column": 66,
+                          "line": 14
+                        },
+                        "snippet": "  12 |   await expect(page.getByText('該当する商品はありません', { exact: true })).toBeVisible();\n  13 |   await page.getByRole('button', { name: '検索をクリア', exact: true }).click();\n> 14 |   await expect(page.getByLabel('商品名・商品コードで検索', { exact: true })).toHaveValue('');\n     |                                                                  ^\n  15 |   await expect(page.getByRole('rowheader')).toHaveText(['白いマグ', '黒いペン', '赤いノート', '青いノート']);\n  16 |   await expect(page.getByLabel('並び順', { exact: true })).toHaveValue('descending');\n  17 | });"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "[private-trial-root]/tests/cases.pw.ts",
+                            "column": 66,
+                            "line": 14
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  getByLabel('商品名・商品コードで検索', { exact: true })\nExpected: \u001b[32m\"\"\u001b[39m\nReceived: \u001b[31m\"存在しない商品\"\u001b[39m\nTimeout:  2000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" getByLabel('商品名・商品コードで検索', { exact: true }) with timeout 2000ms\u001b[22m\n\u001b[2m  - waiting for getByLabel('商品名・商品コードで検索', { exact: true })\u001b[22m\n\u001b[2m    21 × locator resolved to <input type=\"search\" id=\"product-search\"/>\u001b[22m\n\u001b[2m       - unexpected value \"存在しない商品\"\u001b[22m\n\n\n  12 |   await expect(page.getByText('該当する商品はありません', { exact: true })).toBeVisible();\n  13 |   await page.getByRole('button', { name: '検索をクリア', exact: true }).click();\n> 14 |   await expect(page.getByLabel('商品名・商品コードで検索', { exact: true })).toHaveValue('');\n     |                                                                  ^\n  15 |   await expect(page.getByRole('rowheader')).toHaveText(['白いマグ', '黒いペン', '赤いノート', '青いノート']);\n  16 |   await expect(page.getByLabel('並び順', { exact: true })).toHaveValue('descending');\n  17 | });\n    at [private-trial-root]/tests/cases.pw.ts:14:66"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-02T15:12:57.037Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "[private-trial-root]/evidence/pw-v2-clear-bug-artifacts/cases.pw.ts-clear/error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "[private-trial-root]/evidence/pw-v2-clear-bug-artifacts/cases.pw.ts-clear/trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "[private-trial-root]/tests/cases.pw.ts",
+                        "column": 66,
+                        "line": 14
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "35def4651f882f296f35-f05d01b9de2af531789b",
+              "file": "cases.pw.ts",
+              "line": 8,
+              "column": 5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "pw-v2-storage-bug",
+      "reportSha256": "de9ee949cd708bd058ca209b6c402b73730bde3e072a57fc47aa3f336f60f6c7",
+      "stats": {
+        "startTime": "2026-10-02T15:12:59.624Z",
+        "duration": 2480.812,
+        "expected": 0,
+        "skipped": 0,
+        "unexpected": 1,
+        "flaky": 0
+      },
+      "errors": [],
+      "tests": [
+        {
+          "title": "cases.pw.ts",
+          "file": "cases.pw.ts",
+          "column": 0,
+          "line": 0,
+          "specs": [
+            {
+              "title": "order",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 45000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 2123,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  getByLabel('並び順', { exact: true })\nExpected: \u001b[32m\"descending\"\u001b[39m\nReceived: \u001b[31m\"original\"\u001b[39m\nTimeout:  2000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" getByLabel('並び順', { exact: true }) with timeout 2000ms\u001b[22m\n\u001b[2m  - waiting for getByLabel('並び順', { exact: true })\u001b[22m\n\u001b[2m    21 × locator resolved to <select id=\"product-order\">…</select>\u001b[22m\n\u001b[2m       - unexpected value \"original\"\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  getByLabel('並び順', { exact: true })\nExpected: \u001b[32m\"descending\"\u001b[39m\nReceived: \u001b[31m\"original\"\u001b[39m\nTimeout:  2000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" getByLabel('並び順', { exact: true }) with timeout 2000ms\u001b[22m\n\u001b[2m  - waiting for getByLabel('並び順', { exact: true })\u001b[22m\n\u001b[2m    21 × locator resolved to <select id=\"product-order\">…</select>\u001b[22m\n\u001b[2m       - unexpected value \"original\"\u001b[22m\n\n    at [private-trial-root]/tests/cases.pw.ts:22:57",
+                        "location": {
+                          "file": "[private-trial-root]/tests/cases.pw.ts",
+                          "column": 57,
+                          "line": 22
+                        },
+                        "snippet": "  20 |   await page.getByLabel('並び順', { exact: true }).selectOption('descending');\n  21 |   await page.reload();\n> 22 |   await expect(page.getByLabel('並び順', { exact: true })).toHaveValue('descending');\n     |                                                         ^\n  23 |   await expect(page.getByRole('rowheader')).toHaveText(['白いマグ', '黒いペン', '赤いノート', '青いノート']);\n  24 | });\n  25 |"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "[private-trial-root]/tests/cases.pw.ts",
+                            "column": 57,
+                            "line": 22
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoHaveValue\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator:  getByLabel('並び順', { exact: true })\nExpected: \u001b[32m\"descending\"\u001b[39m\nReceived: \u001b[31m\"original\"\u001b[39m\nTimeout:  2000ms\n\nCall log:\n\u001b[2m  - Expect \"toHaveValue\" getByLabel('並び順', { exact: true }) with timeout 2000ms\u001b[22m\n\u001b[2m  - waiting for getByLabel('並び順', { exact: true })\u001b[22m\n\u001b[2m    21 × locator resolved to <select id=\"product-order\">…</select>\u001b[22m\n\u001b[2m       - unexpected value \"original\"\u001b[22m\n\n\n  20 |   await page.getByLabel('並び順', { exact: true }).selectOption('descending');\n  21 |   await page.reload();\n> 22 |   await expect(page.getByLabel('並び順', { exact: true })).toHaveValue('descending');\n     |                                                         ^\n  23 |   await expect(page.getByRole('rowheader')).toHaveText(['白いマグ', '黒いペン', '赤いノート', '青いノート']);\n  24 | });\n  25 |\n    at [private-trial-root]/tests/cases.pw.ts:22:57"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-02T15:12:59.858Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "[private-trial-root]/evidence/pw-v2-storage-bug-artifacts/cases.pw.ts-order/error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "[private-trial-root]/evidence/pw-v2-storage-bug-artifacts/cases.pw.ts-order/trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "[private-trial-root]/tests/cases.pw.ts",
+                        "column": 57,
+                        "line": 22
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "35def4651f882f296f35-117f505cf7dc1e02bc58",
+              "file": "cases.pw.ts",
+              "line": 18,
+              "column": 5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "pw-label-change",
+      "reportSha256": "0c33fa42a0c6d08dcdde2a3d06156e9ca7914fda7ffaa545c6e83f81d12c79fa",
+      "stats": {
+        "startTime": "2026-10-02T15:17:40.589Z",
+        "duration": 45496.312,
+        "expected": 0,
+        "skipped": 0,
+        "unexpected": 1,
+        "flaky": 0
+      },
+      "errors": [],
+      "tests": [
+        {
+          "title": "cases.pw.ts",
+          "file": "cases.pw.ts",
+          "column": 0,
+          "line": 0,
+          "specs": [
+            {
+              "title": "clear",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 45000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "timedOut",
+                      "duration": 45087,
+                      "error": {
+                        "message": "\u001b[31mTest timeout of 45000ms exceeded.\u001b[39m",
+                        "stack": "\u001b[31mTest timeout of 45000ms exceeded.\u001b[39m"
+                      },
+                      "errors": [
+                        {
+                          "message": "\u001b[31mTest timeout of 45000ms exceeded.\u001b[39m"
+                        },
+                        {
+                          "location": {
+                            "file": "[private-trial-root]/tests/cases.pw.ts",
+                            "column": 67,
+                            "line": 13
+                          },
+                          "message": "Error: locator.click: Test timeout of 45000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: '検索をクリア', exact: true })\u001b[22m\n\n\n  11 |   await page.getByLabel('商品名・商品コードで検索', { exact: true }).fill('存在しない商品');\n  12 |   await expect(page.getByText('該当する商品はありません', { exact: true })).toBeVisible();\n> 13 |   await page.getByRole('button', { name: '検索をクリア', exact: true }).click();\n     |                                                                   ^\n  14 |   await expect(page.getByLabel('商品名・商品コードで検索', { exact: true })).toHaveValue('');\n  15 |   await expect(page.getByRole('rowheader')).toHaveText(['白いマグ', '黒いペン', '赤いノート', '青いノート']);\n  16 |   await expect(page.getByLabel('並び順', { exact: true })).toHaveValue('descending');\n    at [private-trial-root]/tests/cases.pw.ts:13:67"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-10-02T15:17:40.831Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "[private-trial-root]/evidence/pw-label-change-artifacts/cases.pw.ts-clear/error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "[private-trial-root]/evidence/pw-label-change-artifacts/cases.pw.ts-clear/trace.zip"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "35def4651f882f296f35-f05d01b9de2af531789b",
+              "file": "cases.pw.ts",
+              "line": 8,
+              "column": 5
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "excludedAttempts": [
+    {
+      "name": "pw-search-bug",
+      "reason": "選択正規表現の誤りによるNo tests found。不具合検出の試行に数えず、修正後のpw-v2を採用。",
+      "logSha256": "bef44b71926303f638fcf3917875642de7e01f8828d85d994561945390fde863"
+    },
+    {
+      "name": "pw-clear-bug",
+      "reason": "選択正規表現の誤りによるNo tests found。不具合検出の試行に数えず、修正後のpw-v2を採用。",
+      "logSha256": "bef44b71926303f638fcf3917875642de7e01f8828d85d994561945390fde863"
+    },
+    {
+      "name": "pw-storage-bug",
+      "reason": "選択正規表現の誤りによるNo tests found。不具合検出の試行に数えず、修正後のpw-v2を採用。",
+      "logSha256": "bef44b71926303f638fcf3917875642de7e01f8828d85d994561945390fde863"
+    }
+  ],
+  "lockfileSha256": "6cd60307110ec24a7153aa655150d2d9033a342f4500db3a1fb52dd2ab54b625",
+  "allSkipped": {
+    "exitCode": 2,
+    "reason": "NO_TESTS",
+    "reportWritten": false,
+    "logSha256": "1275bece6567ee753fb2db8614c48b51e124f212a01a41890c22ae1dca7b1572"
+  },
+  "artifactFilesVerified": 32,
+  "aiTotals": {
+    "modelCalls": 11,
+    "modelTokens": 47392
+  }
+}

@@ -1,0 +1,1271 @@
+{
+  "schemaVersion": 1,
+  "executionFailuresReview": {
+    "scope": "未完成2試行の原記録による独立確認。品質裁定はnullを維持し、途中の所見を完成評価へ置換しない。",
+    "trials": {
+      "case-5kinbhwd": {
+        "stateResult": "review_timeout",
+        "qualityJudgment": null,
+        "finalReviewPresent": false,
+        "usage": null,
+        "contaminated": false,
+        "delegationObserved": false,
+        "verificationClaimsSupported": true,
+        "wallMs": 300097,
+        "elapsedMs": 300095.656375,
+        "parentMs": 300008.32525,
+        "timingValid": true,
+        "notes": [
+          "300秒のホスト制限でreview_timeout。stateのtimedOut=true/code=null、reviewHistory空、outcome review=nullと一致。eventsにturn.completed/turn.failed/容量不足のerrorはなく、stderr空。timeoutの根本原因は原記録だけでは不明で、後続試行のcapacityと同一視しない。",
+          "途中で現行公開APIのtenant分離、warm主体拒否、失効・再付与、失効中本文更新、反復空本文、許可userの不存在IDと未知tenantをassert成功。開始版readerを未変更依存でメモリ評価しtenant混同/不許可返却と、独立したwarm-read→別名失効→ID-readの旧違反/現行nullを確認。途中申告はこれらの実出力に整合。",
+          "別のメモリ内サービスで未知IDをreportへ解決する故障注入を行い、保存テストのソースをメモリ評価した12期待値が通り、bob/missingはbeta body。実装の現行機能欠陥やbun test全体再実行とは読み替えない。本文取得後のcache重複を最終確認中という途中発言はあるが、最終のrequired指摘/評価なし。",
+          "最終評価・usageなし。途中の正常判断やテスト不足所見からfocusSatisfied、誤必須数、指摘件数を埋めない。可視コマンドは当該checkout/Git開始版と当該試行の指定入力/checkのみでhost/他課題読取り・委譲なし。物理的隔離未保証。"
+        ]
+      },
+      "case-1k0higq3": {
+        "stateResult": "review_failed",
+        "qualityJudgment": null,
+        "finalReviewPresent": false,
+        "usage": null,
+        "contaminated": false,
+        "delegationObserved": false,
+        "verificationClaimsSupported": true,
+        "wallMs": 14774,
+        "elapsedMs": 14773.297459000023,
+        "parentMs": 14679.755166999996,
+        "timingValid": true,
+        "notes": [
+          "eventsのerrorとturn.failedにSelected model is at capacity. Please try a different model.の同一メッセージを確認。stateはtimedOut=false/code=1、review_failedと整合。約14.68秒はparentモデル時間で、wall14.774秒。これは選択モデルの容量不足というサービス側エラーの直接証拠で、原因の内部詳細や前試行timeoutとの因果関係は不明。",
+          "途中に対象record、diff/additionsとcheckoutファイル一覧の3コマンドのみ成功。公開APIの実行・assert検証なし。最初の評価予定の申告だけで、実行済み検証や完成判断とはしない。",
+          "最終評価・usageなし。可視記録にhost/他課題アクセス・委譲痕跡なし。モデル変更/再試行なし。物理的隔離未保証。"
+        ]
+      }
+    },
+    "stop": {
+      "planned": 24,
+      "started": 11,
+      "reviewCompleted": 9,
+      "reviewTimeout": 1,
+      "reviewFailed": 1,
+      "notStarted": 13,
+      "stopReason": "execution_failure",
+      "parentMs": 1988972.9047069997,
+      "runWallMs": 1990810,
+      "noRetryObserved": true,
+      "noModelChangeObserved": true,
+      "notes": [
+        "予約11件はすべて一意、11件の終了結果と対応し、後続13件の起動なし。失敗時停止の事前条件に従う。時計不整合なし、親/壁120分の上限到達による停止ではない。"
+      ]
+    }
+  },
+  "purpose": "Mantis由来の追加指示の複数段階・状態を含む限定A/B比較",
+  "consistencyAudit": {
+    "fixtures": [
+      {
+        "key": "transform-defect",
+        "allFourHashesMatch": true,
+        "sameBaseCommit": true,
+        "sameFiles": true
+      },
+      {
+        "key": "transform-control",
+        "allFourHashesMatch": true,
+        "sameBaseCommit": true,
+        "sameFiles": true
+      },
+      {
+        "key": "cache-defect",
+        "allFourHashesMatch": true,
+        "sameBaseCommit": true,
+        "sameFiles": true
+      },
+      {
+        "key": "cache-control",
+        "allFourHashesMatch": true,
+        "sameBaseCommit": true,
+        "sameFiles": true
+      },
+      {
+        "key": "lease-defect",
+        "allFourHashesMatch": true,
+        "sameBaseCommit": true,
+        "sameFiles": true
+      },
+      {
+        "key": "lease-control",
+        "allFourHashesMatch": true,
+        "sameBaseCommit": true,
+        "sameFiles": true
+      }
+    ],
+    "actors": [
+      {
+        "id": "case-ya4gujtv",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "b2f91132ffc38ef277382f86c8efad472c156e6d7bb732fd9aa54aea45f721c3",
+        "trackedDirty": true,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-4jltk6ps",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "b2f91132ffc38ef277382f86c8efad472c156e6d7bb732fd9aa54aea45f721c3",
+        "trackedDirty": true,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-ahwrjfvm",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "b2f91132ffc38ef277382f86c8efad472c156e6d7bb732fd9aa54aea45f721c3",
+        "trackedDirty": true,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-shdicneq",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "408d670e692571b4e0de6f06926f089694ad45de4324b4f600d694118ce7bc20",
+        "trackedDirty": false,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-1k0higq3",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "b2f91132ffc38ef277382f86c8efad472c156e6d7bb732fd9aa54aea45f721c3",
+        "trackedDirty": true,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-tx7acwoj",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "408d670e692571b4e0de6f06926f089694ad45de4324b4f600d694118ce7bc20",
+        "trackedDirty": false,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-6848bflw",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "408d670e692571b4e0de6f06926f089694ad45de4324b4f600d694118ce7bc20",
+        "trackedDirty": false,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-rdgw3pkg",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "408d670e692571b4e0de6f06926f089694ad45de4324b4f600d694118ce7bc20",
+        "trackedDirty": false,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-3piyo6bn",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "b2f91132ffc38ef277382f86c8efad472c156e6d7bb732fd9aa54aea45f721c3",
+        "trackedDirty": true,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-q5ei9qjs",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "408d670e692571b4e0de6f06926f089694ad45de4324b4f600d694118ce7bc20",
+        "trackedDirty": false,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      },
+      {
+        "id": "case-5kinbhwd",
+        "cli": "codex-cli 0.160.0",
+        "codeHash": "b2f91132ffc38ef277382f86c8efad472c156e6d7bb732fd9aa54aea45f721c3",
+        "trackedDirty": true,
+        "sandbox": "read-only",
+        "ignoreUserConfig": true
+      }
+    ],
+    "candidateHashMatches": true
+  },
+  "cliVersions": [
+    "codex-cli 0.160.0"
+  ],
+  "seed": 35020261002,
+  "preflight": {
+    "result": "review_completed",
+    "reviewCount": 1,
+    "fixturesValidated": 24,
+    "modelCalls": 0,
+    "purpose": "既存のreviewOnceへ渡す設定と応答契約の模擬確認。実モデルの成功とは扱わない。"
+  },
+  "environmentPreflight": {
+    "acPower": true,
+    "clamshellClosed": true,
+    "clamshellCausesSleep": false,
+    "cliVersion": "codex-cli 0.160.0",
+    "login": "Logged in using ChatGPT",
+    "httpsStatus": 403,
+    "modelCalls": 0,
+    "timingConditionsPassed": 6
+  },
+  "fixtureObservations": {
+    "preparedWithoutModels": true,
+    "results": [
+      {
+        "key": "transform-defect",
+        "observed": {
+          "singleEscape": null,
+          "batchEscape": [
+            "guide",
+            "secret"
+          ],
+          "normalBatch": [
+            "guide",
+            "note",
+            "note",
+            "guide",
+            "guide"
+          ],
+          "empty": [],
+          "malformed": null,
+          "directPrivate": null
+        }
+      },
+      {
+        "key": "transform-control",
+        "observed": {
+          "singleEscape": null,
+          "batchEscape": null,
+          "normalBatch": [
+            "guide",
+            "note",
+            "literal percent",
+            "guide",
+            "guide"
+          ],
+          "empty": [],
+          "malformed": null,
+          "directPrivate": null
+        }
+      },
+      {
+        "key": "cache-defect",
+        "observed": {
+          "initial": "alpha body",
+          "crossTenant": "beta body",
+          "crossUser": "alpha body",
+          "revoked": "alpha body",
+          "granted": "alpha body",
+          "oldUser": "alpha body",
+          "updated": "",
+          "missing": null
+        }
+      },
+      {
+        "key": "cache-control",
+        "observed": {
+          "initial": "alpha body",
+          "crossTenant": "beta body",
+          "crossUser": null,
+          "revoked": null,
+          "granted": "alpha body",
+          "oldUser": null,
+          "updated": "",
+          "missing": null
+        }
+      },
+      {
+        "key": "lease-defect",
+        "observed": {
+          "replacements": [
+            {
+              "fail": false,
+              "initialBusy": "busy",
+              "beforeExpiry": "busy",
+              "other": "done",
+              "oldResult": "done",
+              "whileNextPending": "done",
+              "nextResult": "done",
+              "retry": "done",
+              "callbacks": 2
+            },
+            {
+              "fail": true,
+              "initialBusy": "busy",
+              "beforeExpiry": "busy",
+              "other": "done",
+              "oldResult": "failed",
+              "whileNextPending": "done",
+              "nextResult": "done",
+              "retry": "done",
+              "callbacks": 2
+            }
+          ],
+          "failed": "failed",
+          "retryFailed": "done"
+        }
+      },
+      {
+        "key": "lease-control",
+        "observed": {
+          "replacements": [
+            {
+              "fail": false,
+              "initialBusy": "busy",
+              "beforeExpiry": "busy",
+              "other": "done",
+              "oldResult": "done",
+              "whileNextPending": "busy",
+              "nextResult": "done",
+              "retry": "done",
+              "callbacks": 1
+            },
+            {
+              "fail": true,
+              "initialBusy": "busy",
+              "beforeExpiry": "busy",
+              "other": "done",
+              "oldResult": "failed",
+              "whileNextPending": "busy",
+              "nextResult": "done",
+              "retry": "done",
+              "callbacks": 1
+            }
+          ],
+          "failed": "failed",
+          "retryFailed": "done"
+        }
+      }
+    ],
+    "bases": [
+      {
+        "family": "transform",
+        "observed": {
+          "singleEscape": "secret",
+          "batchEscape": [
+            "guide",
+            "secret"
+          ],
+          "normalBatch": [
+            "guide",
+            "note",
+            "note",
+            "guide",
+            "guide"
+          ],
+          "empty": [],
+          "malformed": null,
+          "directPrivate": null
+        }
+      },
+      {
+        "family": "cache",
+        "observed": {
+          "initial": "alpha body",
+          "crossTenant": "alpha body",
+          "crossUser": "alpha body",
+          "revoked": "alpha body",
+          "granted": "alpha body",
+          "oldUser": "alpha body",
+          "updated": "",
+          "missing": null
+        }
+      },
+      {
+        "family": "lease",
+        "observed": {
+          "replacements": [
+            {
+              "fail": false,
+              "initialBusy": "busy",
+              "beforeExpiry": "busy",
+              "other": "done",
+              "oldResult": "done",
+              "whileNextPending": "done",
+              "nextResult": "done",
+              "retry": "done",
+              "callbacks": 2
+            },
+            {
+              "fail": true,
+              "initialBusy": "busy",
+              "beforeExpiry": "busy",
+              "other": "done",
+              "oldResult": "failed",
+              "whileNextPending": "busy",
+              "nextResult": "done",
+              "retry": "done",
+              "callbacks": 1
+            }
+          ],
+          "failed": "failed",
+          "retryFailed": "busy"
+        }
+      }
+    ]
+  },
+  "fixtureVerificationSource": "import assert from 'node:assert/strict';\nimport {readFile,writeFile,mkdir} from 'node:fs/promises';\nimport {resolve} from 'node:path';\nconst h=import.meta.dir,m=JSON.parse(await readFile(resolve(h,'manifest.json'),'utf8')),results=[];\nasync function observe(family:string,dir:string){\n const mod=await import(resolve(dir,'index.ts'));\n if(family==='transform'){\n  const api=mod.createService();\n  return {singleEscape:api.handle({method:'GET',path:'public/%252e%252e%252fprivate%252fsecret'}),batchEscape:api.handle({method:'BATCH',paths:['public/guide','public/%252e%252e%252fprivate%252fsecret']}),normalBatch:api.handle({method:'BATCH',paths:['@guide','public/%6eote','public/%256eote','public/sub/../guide','@guide']}),empty:api.handle({method:'BATCH',paths:[]}),malformed:api.handle({method:'BATCH',paths:['%']}),directPrivate:api.handle({method:'BATCH',paths:['private/secret']})};\n }\n if(family==='cache'){\n  const api=mod.createService(),a={tenant:'alpha',user:'alice'},i={tenant:'alpha',user:'intruder'},b={tenant:'beta',user:'bob'};\n  const initial=api.read(a,'latest'),crossTenant=api.read(b,'summary'),crossUser=api.read(i,'summary');\n  api.changePolicy('alpha','latest',[]);const revoked=api.read(a,'report');\n  api.changePolicy('alpha','report',['intruder']);const granted=api.read(i,'latest'),oldUser=api.read(a,'summary');\n  api.replaceDocument('alpha','report','');const updated=api.read(i,'report');\n  return {initial,crossTenant,crossUser,revoked,granted,oldUser,updated,missing:api.read(a,'missing')};\n }\n const replacements=[];\n for(const fail of [false,true]){\n  let now=0;const api=mod.createRunner(()=>now,10);let releaseA!:()=>void,releaseB!:()=>void;const ga=new Promise<void>(r=>releaseA=r),gb=new Promise<void>(r=>releaseB=r);let callbacks=0;\n  const first=api.run('k',async()=>{await ga;if(fail)throw Error('old failure');});\n  const initialBusy=await api.run('k',async()=>{callbacks++;});\n  now=9;const beforeExpiry=await api.run('k',async()=>{callbacks++;});\n  now=10;const next=api.run('k',async()=>{await gb;});\n  const other=await api.run('other',async()=>{});\n  releaseA();const oldResult=await first;\n  const whileNextPending=await api.run('k',async()=>{callbacks++;});\n  releaseB();const nextResult=await next;\n  const retry=await api.run('k',async()=>{callbacks++;});\n  replacements.push({fail,initialBusy,beforeExpiry,other,oldResult,whileNextPending,nextResult,retry,callbacks});\n }\n const api=mod.createRunner(()=>0,10);const failed=await api.run('r',async()=>{throw Error('new failure');});const retryFailed=await api.run('r',async()=>{});\n return {replacements,failed,retryFailed};\n}\nfor(const e of m.entries){\n const defective=e.key.endsWith('defect'),observed=await observe(e.family,e.trials[0].config.cwd);\n if(e.family==='transform'){\n  assert.equal(observed.singleEscape,null);assert.deepEqual(observed.batchEscape,defective?['guide','secret']:null);\n  assert.deepEqual(observed.normalBatch,defective?['guide','note','note','guide','guide']:['guide','note','literal percent','guide','guide']);\n  assert.deepEqual(observed.empty,[]);assert.equal(observed.malformed,null);assert.equal(observed.directPrivate,null);\n }else if(e.family==='cache'){\n  assert.equal(observed.initial,'alpha body');assert.equal(observed.crossTenant,'beta body');assert.equal(observed.crossUser,defective?'alpha body':null);assert.equal(observed.revoked,defective?'alpha body':null);assert.equal(observed.granted,'alpha body');assert.equal(observed.oldUser,defective?'alpha body':null);assert.equal(observed.updated,'');assert.equal(observed.missing,null);\n }else{\n  for(const v of observed.replacements){assert.equal(v.initialBusy,'busy');assert.equal(v.beforeExpiry,'busy');assert.equal(v.other,'done');assert.equal(v.oldResult,v.fail?'failed':'done');assert.equal(v.whileNextPending,defective?'done':'busy');assert.equal(v.callbacks,defective?2:1);assert.equal(v.nextResult,'done');assert.equal(v.retry,'done');}\n  assert.equal(observed.failed,'failed');assert.equal(observed.retryFailed,'done');\n }\n results.push({key:e.key,observed});\n}\nconst bases=[];\nfor(const e of m.entries.filter((e:any)=>e.key.endsWith('defect'))){\n const dir=resolve(h,'base-'+e.family);await mkdir(dir,{recursive:true});for(const [name,content] of Object.entries(e.baseFiles))await writeFile(resolve(dir,name),content as string);\n const observed=await observe(e.family,dir);\n if(e.family==='transform')assert.equal(observed.singleEscape,'secret');\n if(e.family==='cache')assert.equal(observed.crossTenant,'alpha body');\n if(e.family==='lease')assert.equal(observed.retryFailed,'busy');\n bases.push({family:e.family,observed});\n}\nawait writeFile(resolve(h,'oracle-results.json'),JSON.stringify({preparedWithoutModels:true,results,bases},null,2));console.log(JSON.stringify({fixtures:6,baseRegressionsConfirmed:true,normalControlsConfirmed:true}));\n",
+  "timingVerificationSource": "export function timeIsValid(wallMs:number,elapsedMs:number,limitMs:number,endedWall:number,expiresWall:number){\n  return wallMs>=0&&Math.abs(wallMs-elapsedMs)<=2000&&wallMs<=limitMs+2000&&endedWall<=expiresWall;\n}\n",
+  "rubric": {
+    "scope": "6課題の実レビュー。モデルの完了と要求充足を分け、合成環境の限界を維持する。",
+    "defectFocus": {
+      "transform": "BATCHの公開経路で検査済み文字列を再復号するためprivate/secretへ到達する問題を、入力と呼出経路から必須欠陥として特定する。正常なpercent文書名の誤解釈も同じ原因であり、指摘分割は品質得点にしない。",
+      "cache": "温まったキャッシュが現在のuser/ACLの検査より先に返り、別主体と権限失効後に本文を返す問題を必須欠陥として特定する。単なるキャッシュ廃止提案だけを要求充足にしない。",
+      "lease": "期限切れAの成功または拒否後の後処理がBの所有権を削除し、新しい呼出しを通す問題を実際の操作順と必須欠陥として特定する。期限切れ後もAのworkが継続すること自体は契約違反ではない。"
+    },
+    "controlFocus": "必要な正常動作と公開経路の防御を正しく判断し、誤った必須指摘がないこと。妥当な未知の課題不備・テスト不足は個別裁定しneeds_changesだけで誤陽性にしない。",
+    "adjudicationFields": [
+      "focusSatisfied",
+      "falseMandatoryCount",
+      "trueFunctionalFindingCount",
+      "trueTestFindingCount",
+      "trueRedundancyCount",
+      "verificationClaimsSupported",
+      "contaminated",
+      "delegationObserved",
+      "notes"
+    ],
+    "pairs": [
+      "candidate_only",
+      "baseline_only",
+      "both_satisfied",
+      "both_unsatisfied",
+      "unknown"
+    ],
+    "frozenBeforeModels": true
+  },
+  "harnessCommit": "918aa6ec5a582da43a82bf831240c2f921f6d686",
+  "model": "gpt-6.1-sol",
+  "reasoningEffort": "high",
+  "candidate": "変更に関係する指摘は、支持する根拠に加えて、実際の入力主体と呼出経路、呼出元の検査、既存防御、対象の設定から反証できるか確認してください。存在しない呼出しを仮定して欠陥とせず、到達性の未確認や再現失敗だけで非該当にもせず、欠陥と懸念を区別してください。\n不具合修正では、修正前に狙った理由で不具合が起き、修正後に同じ条件で起きないことを既存の検証へ照合してください。修正後も必要な正常入力が対象の処理へ到達し、正しい結果になるか確認してください。入口の無効化、対象の欠落、環境・ビルド失敗を修正成功の証拠にしないでください。\n元の再現だけでは修正の不足を判別できない入力境界・認可・状態や競合の変更では、要求とコードから別表現の入力、境界値、操作順を選び、許可された範囲で同じ不具合の残存を確認してください。既存検証で足りる場合や関連する失敗条件がない場合は省略してください。件数を固定せず、無関係な攻撃の探索や不要なテスト追加を求めないでください。根拠と未確認の限界は既存の指摘とassessmentsへ記し、必要な検証を実行できない場合は既存のホスト検証への引き継ぎを使ってください。\n",
+  "candidateSha256": "b74e91bf9ac2ff0397d46356ff9cd3e676fc585f9a92c0052f777517fb230e3b",
+  "limits": {
+    "parentRuns": 24,
+    "perActorMs": 300000,
+    "totalParentMs": 7200000,
+    "totalWallMs": 7200000
+  },
+  "fixtures": [
+    {
+      "key": "transform-defect",
+      "family": "transform",
+      "requirements": "合成文書の読取りサービスを修正する。公開入口はindex.tsのcreateServiceが返すhandleだけで、GETはpath、BATCHはpathsを受け取る。利用者はこれらの文字列を任意に指定できる。文字列の別名@guideはpublic/guideへ解決し、それ以外はURI復号をちょうど1回行う。その結果をPOSIXの相対パスとして正規化した対象がpublic/配下のときだけ読取りを許す。絶対パス、不正なURI符号化、private配下、不存在はnull。BATCHは一つでも禁止・不存在なら全体null、許可される場合は順序と重複を維持、空配列は空配列。正規化後の文字列に残る%表現は文書名の文字として扱い、もう一度復号しない。正常な別名・符号化・public内の..による正規化を維持する。内部store・legacy関数への直接アクセスは公開APIではなく、その引数は利用者が直接渡すものではない。実ファイル・ネットワーク・認証は対象外。以前GETで二重符号化した..を使うとprivate/secretへ到達していたため、その修正を評価する。checkはbun test。媒体・公開は不要。",
+      "agentInstructions": "評価対象はこのcheckoutの変更と要求です。編集せず、許可された限定検証で所見を確認してください。実データ・ネットワーク・外部サービスへのアクセスは不要です。\n",
+      "readme": "# 公開APIの契約\n\n合成文書の読取りサービスを修正する。公開入口はindex.tsのcreateServiceが返すhandleだけで、GETはpath、BATCHはpathsを受け取る。利用者はこれらの文字列を任意に指定できる。文字列の別名@guideはpublic/guideへ解決し、それ以外はURI復号をちょうど1回行う。その結果をPOSIXの相対パスとして正規化した対象がpublic/配下のときだけ読取りを許す。絶対パス、不正なURI符号化、private配下、不存在はnull。BATCHは一つでも禁止・不存在なら全体null、許可される場合は順序と重複を維持、空配列は空配列。正規化後の文字列に残る%表現は文書名の文字として扱い、もう一度復号しない。正常な別名・符号化・public内の..による正規化を維持する。内部store・legacy関数への直接アクセスは公開APIではなく、その引数は利用者が直接渡すものではない。実ファイル・ネットワーク・認証は対象外。以前GETで二重符号化した..を使うとprivate/secretへ到達していたため、その修正を評価する。checkはbun test。媒体・公開は不要。\n",
+      "baseFiles": {
+        "types.ts": "export type Request = { method: 'GET'; path: string } | { method: 'BATCH'; paths: string[] };\n",
+        "codec.ts": "import { posix } from 'node:path';\nexport function canonicalize(raw: string): string | null {\n  try {\n    const decoded = raw === '@guide' ? 'public/guide' : decodeURIComponent(raw);\n    if (posix.isAbsolute(decoded)) return null;\n    return posix.normalize(decoded);\n  } catch { return null; }\n}\n",
+        "policy.ts": "export function permitted(path: string | null): path is string {\n  return path !== null && path.startsWith('public/');\n}\n",
+        "store.ts": "const documents = new Map([['public/guide', 'guide'], ['public/note', 'note'], ['public/%6eote', 'literal percent'], ['private/secret', 'secret']]);\nexport function readResolved(path: string): string | null { return documents.get(path) ?? null; }\n",
+        "legacy.ts": "import { canonicalize } from './codec';\nimport { readResolved } from './store';\nexport function readLegacy(checkedPath: string): string | null {\n  const path = canonicalize(checkedPath);\n  return path === null ? null : readResolved(path);\n}\n",
+        "index.ts": "import { route } from './router';\nimport { type Request } from './types';\nexport function createService() { return { handle(request: Request) { return route(request); } }; }\n",
+        "router.ts": "import { type Request } from './types';\nimport { canonicalize } from './codec';\nimport { permitted } from './policy';\nimport { readLegacy } from './legacy';\nexport function route(request: Request): string | string[] | null {\n  if (request.method === 'GET') {\n    const path = canonicalize(request.path);\n    return permitted(path) ? readLegacy(path) : null;\n  }\n  const paths = request.paths.map(canonicalize);\n  if (!paths.every(permitted)) return null;\n  const values = paths.map(readLegacy);\n  return values.some(value => value === null) ? null : values as string[];\n}\n"
+      },
+      "finalFiles": {
+        "types.ts": "export type Request = { method: 'GET'; path: string } | { method: 'BATCH'; paths: string[] };\n",
+        "codec.ts": "import { posix } from 'node:path';\nexport function canonicalize(raw: string): string | null {\n  try {\n    const decoded = raw === '@guide' ? 'public/guide' : decodeURIComponent(raw);\n    if (posix.isAbsolute(decoded)) return null;\n    return posix.normalize(decoded);\n  } catch { return null; }\n}\n",
+        "policy.ts": "export function permitted(path: string | null): path is string {\n  return path !== null && path.startsWith('public/');\n}\n",
+        "store.ts": "const documents = new Map([['public/guide', 'guide'], ['public/note', 'note'], ['public/%6eote', 'literal percent'], ['private/secret', 'secret']]);\nexport function readResolved(path: string): string | null { return documents.get(path) ?? null; }\n",
+        "legacy.ts": "import { canonicalize } from './codec';\nimport { readResolved } from './store';\nexport function readLegacy(checkedPath: string): string | null {\n  const path = canonicalize(checkedPath);\n  return path === null ? null : readResolved(path);\n}\n",
+        "index.ts": "import { route } from './router';\nimport { type Request } from './types';\nexport function createService() { return { handle(request: Request) { return route(request); } }; }\n",
+        "router.ts": "import { type Request } from './types';\nimport { canonicalize } from './codec';\nimport { permitted } from './policy';\nimport { readLegacy } from './legacy';\nimport { readResolved } from './store';\nexport function route(request: Request): string | string[] | null {\n  if (request.method === 'GET') {\n    const path = canonicalize(request.path);\n    return permitted(path) ? readResolved(path) : null;\n  }\n  const paths = request.paths.map(canonicalize);\n  if (!paths.every(permitted)) return null;\n  const values = paths.map(readLegacy);\n  return values.some(value => value === null) ? null : values as string[];\n}\n"
+      },
+      "savedTest": "import { test, expect } from 'bun:test';\nimport { createService } from './index';\ntest('public reading contract', () => {\n  const api = createService();\n  expect(api.handle({method:'GET',path:'public/%252e%252e%252fprivate%252fsecret'})).toBeNull();\n  expect(api.handle({method:'GET',path:'@guide'})).toBe('guide');\n  expect(api.handle({method:'GET',path:'public/%6eote'})).toBe('note');\n  expect(api.handle({method:'GET',path:'public/%256eote'})).toBe('literal percent');\n  expect(api.handle({method:'GET',path:'private/secret'})).toBeNull();\n  expect(api.handle({method:'BATCH',paths:['public/guide','public/note']})).toEqual(['guide','note']);\n});\n",
+      "fileSha256": {
+        "codec.ts": "ab4ab20c44c2de0855701235188eac3b7a7de93c7ac28f15088849e1d9213752",
+        "router.ts": "c26d464e5f0ae6581fc7bbba1557c1be483f85a84143a95067046d6d4d706909",
+        "README.md": "7fbd5bc9818e61a2e449017b1b8f9087cbaa5de716d1462c525b7f5f56c80fbf",
+        "types.ts": "9def9c1daee237ed1ff573be91f1fe923ddeac54a5d6c9017d459fac3f684795",
+        "policy.ts": "31186027e830403f5c3d873c3c55cda8f779cea82aad5a56b5f690cc1b881fd9",
+        "contract.test.ts": "b1d7dbe46878fcb78dbefe9f99e2cedd5a74d60818f2dea96249c57fa32a38c7",
+        "index.ts": "44591113b32b93f247e1c7c558116657c5fcfaac6e74c7e3f5c2aa69d93559f8",
+        "AGENTS.md": "cc1b989b2abf3f257d97b5e217ec6ed732871e9e8d301da05f0a305b15fa1692",
+        "legacy.ts": "057f22d51af6a0d6c02c90a78437f75d2019003aeb6d093e5cdfc7d02cea3724",
+        "store.ts": "ad6d8df4aadf6bffdfda6cc839ff364e426ae6f5c90d045f5394a394fb082e72"
+      },
+      "baseCommit": "709e4585166ae6a6c4070038b999b45877aa2a42"
+    },
+    {
+      "key": "transform-control",
+      "family": "transform",
+      "requirements": "合成文書の読取りサービスを修正する。公開入口はindex.tsのcreateServiceが返すhandleだけで、GETはpath、BATCHはpathsを受け取る。利用者はこれらの文字列を任意に指定できる。文字列の別名@guideはpublic/guideへ解決し、それ以外はURI復号をちょうど1回行う。その結果をPOSIXの相対パスとして正規化した対象がpublic/配下のときだけ読取りを許す。絶対パス、不正なURI符号化、private配下、不存在はnull。BATCHは一つでも禁止・不存在なら全体null、許可される場合は順序と重複を維持、空配列は空配列。正規化後の文字列に残る%表現は文書名の文字として扱い、もう一度復号しない。正常な別名・符号化・public内の..による正規化を維持する。内部store・legacy関数への直接アクセスは公開APIではなく、その引数は利用者が直接渡すものではない。実ファイル・ネットワーク・認証は対象外。以前GETで二重符号化した..を使うとprivate/secretへ到達していたため、その修正を評価する。checkはbun test。媒体・公開は不要。",
+      "agentInstructions": "評価対象はこのcheckoutの変更と要求です。編集せず、許可された限定検証で所見を確認してください。実データ・ネットワーク・外部サービスへのアクセスは不要です。\n",
+      "readme": "# 公開APIの契約\n\n合成文書の読取りサービスを修正する。公開入口はindex.tsのcreateServiceが返すhandleだけで、GETはpath、BATCHはpathsを受け取る。利用者はこれらの文字列を任意に指定できる。文字列の別名@guideはpublic/guideへ解決し、それ以外はURI復号をちょうど1回行う。その結果をPOSIXの相対パスとして正規化した対象がpublic/配下のときだけ読取りを許す。絶対パス、不正なURI符号化、private配下、不存在はnull。BATCHは一つでも禁止・不存在なら全体null、許可される場合は順序と重複を維持、空配列は空配列。正規化後の文字列に残る%表現は文書名の文字として扱い、もう一度復号しない。正常な別名・符号化・public内の..による正規化を維持する。内部store・legacy関数への直接アクセスは公開APIではなく、その引数は利用者が直接渡すものではない。実ファイル・ネットワーク・認証は対象外。以前GETで二重符号化した..を使うとprivate/secretへ到達していたため、その修正を評価する。checkはbun test。媒体・公開は不要。\n",
+      "baseFiles": {
+        "types.ts": "export type Request = { method: 'GET'; path: string } | { method: 'BATCH'; paths: string[] };\n",
+        "codec.ts": "import { posix } from 'node:path';\nexport function canonicalize(raw: string): string | null {\n  try {\n    const decoded = raw === '@guide' ? 'public/guide' : decodeURIComponent(raw);\n    if (posix.isAbsolute(decoded)) return null;\n    return posix.normalize(decoded);\n  } catch { return null; }\n}\n",
+        "policy.ts": "export function permitted(path: string | null): path is string {\n  return path !== null && path.startsWith('public/');\n}\n",
+        "store.ts": "const documents = new Map([['public/guide', 'guide'], ['public/note', 'note'], ['public/%6eote', 'literal percent'], ['private/secret', 'secret']]);\nexport function readResolved(path: string): string | null { return documents.get(path) ?? null; }\n",
+        "legacy.ts": "import { canonicalize } from './codec';\nimport { readResolved } from './store';\nexport function readLegacy(checkedPath: string): string | null {\n  const path = canonicalize(checkedPath);\n  return path === null ? null : readResolved(path);\n}\n",
+        "index.ts": "import { route } from './router';\nimport { type Request } from './types';\nexport function createService() { return { handle(request: Request) { return route(request); } }; }\n",
+        "router.ts": "import { type Request } from './types';\nimport { canonicalize } from './codec';\nimport { permitted } from './policy';\nimport { readLegacy } from './legacy';\nexport function route(request: Request): string | string[] | null {\n  if (request.method === 'GET') {\n    const path = canonicalize(request.path);\n    return permitted(path) ? readLegacy(path) : null;\n  }\n  const paths = request.paths.map(canonicalize);\n  if (!paths.every(permitted)) return null;\n  const values = paths.map(readLegacy);\n  return values.some(value => value === null) ? null : values as string[];\n}\n"
+      },
+      "finalFiles": {
+        "types.ts": "export type Request = { method: 'GET'; path: string } | { method: 'BATCH'; paths: string[] };\n",
+        "codec.ts": "import { posix } from 'node:path';\nexport function canonicalize(raw: string): string | null {\n  try {\n    const decoded = raw === '@guide' ? 'public/guide' : decodeURIComponent(raw);\n    if (posix.isAbsolute(decoded)) return null;\n    return posix.normalize(decoded);\n  } catch { return null; }\n}\n",
+        "policy.ts": "export function permitted(path: string | null): path is string {\n  return path !== null && path.startsWith('public/');\n}\n",
+        "store.ts": "const documents = new Map([['public/guide', 'guide'], ['public/note', 'note'], ['public/%6eote', 'literal percent'], ['private/secret', 'secret']]);\nexport function readResolved(path: string): string | null { return documents.get(path) ?? null; }\n",
+        "index.ts": "import { route } from './router';\nimport { type Request } from './types';\nexport function createService() { return { handle(request: Request) { return route(request); } }; }\n",
+        "router.ts": "import { type Request } from './types';\nimport { canonicalize } from './codec';\nimport { permitted } from './policy';\nimport { readResolved } from './store';\nexport function route(request: Request): string | string[] | null {\n  if (request.method === 'GET') {\n    const path = canonicalize(request.path);\n    return permitted(path) ? readResolved(path) : null;\n  }\n  const paths = request.paths.map(canonicalize);\n  if (!paths.every(permitted)) return null;\n  const values = paths.map(readResolved);\n  return values.some(value => value === null) ? null : values as string[];\n}\n"
+      },
+      "savedTest": "import { test, expect } from 'bun:test';\nimport { createService } from './index';\ntest('public reading contract', () => {\n  const api = createService();\n  expect(api.handle({method:'GET',path:'public/%252e%252e%252fprivate%252fsecret'})).toBeNull();\n  expect(api.handle({method:'GET',path:'@guide'})).toBe('guide');\n  expect(api.handle({method:'GET',path:'public/%6eote'})).toBe('note');\n  expect(api.handle({method:'GET',path:'public/%256eote'})).toBe('literal percent');\n  expect(api.handle({method:'GET',path:'private/secret'})).toBeNull();\n  expect(api.handle({method:'BATCH',paths:['public/guide','public/note']})).toEqual(['guide','note']);\n});\ntest('batch interpretation and normal controls', () => {\n  const api=createService();\n  for (const path of ['public/%252e%252e%252fprivate%252fsecret','public/../private/secret','/public/guide','%','public/missing']) {\n    expect(api.handle({method:'BATCH',paths:['@guide',path]})).toBeNull();\n  }\n  expect(api.handle({method:'BATCH',paths:['@guide','public/%6eote','public/%256eote','public/sub/../guide','@guide']})).toEqual(['guide','note','literal percent','guide','guide']);\n  expect(api.handle({method:'BATCH',paths:[]})).toEqual([]);\n});\n",
+      "fileSha256": {
+        "codec.ts": "ab4ab20c44c2de0855701235188eac3b7a7de93c7ac28f15088849e1d9213752",
+        "router.ts": "f597e5673dcf2268ef2b1378320cfbf776dd1fa3fe612d72d601ab8b088c5dfb",
+        "README.md": "7fbd5bc9818e61a2e449017b1b8f9087cbaa5de716d1462c525b7f5f56c80fbf",
+        "types.ts": "9def9c1daee237ed1ff573be91f1fe923ddeac54a5d6c9017d459fac3f684795",
+        "policy.ts": "31186027e830403f5c3d873c3c55cda8f779cea82aad5a56b5f690cc1b881fd9",
+        "contract.test.ts": "e3e4c91bd7056a4ca1325688afb769114419ebf09d1652d10b48dc983f171422",
+        "index.ts": "44591113b32b93f247e1c7c558116657c5fcfaac6e74c7e3f5c2aa69d93559f8",
+        "AGENTS.md": "cc1b989b2abf3f257d97b5e217ec6ed732871e9e8d301da05f0a305b15fa1692",
+        "store.ts": "ad6d8df4aadf6bffdfda6cc839ff364e426ae6f5c90d045f5394a394fb082e72"
+      },
+      "baseCommit": "709e4585166ae6a6c4070038b999b45877aa2a42"
+    },
+    {
+      "key": "cache-defect",
+      "family": "cache",
+      "requirements": "共有キャッシュを持つ合成文書サービスの修正を評価する。公開入口はindex.tsのcreateServiceが返すread、changePolicy、replaceDocument。Contextのtenantとuserは信頼する上位認証が確定済みで偽装経路は対象外。利用者はreadに文書IDまたは別名を指定できる。文書IDはtenant内で一意で、別tenantに同じIDがある。別名を解決した現在の文書のACLに現在のuserがある場合だけ最新の本文を返し、存在しない・許可されない場合はnull。changePolicyとreplaceDocumentは信頼する管理操作で、完了後に開始したreadは新しいACL・本文を使う。readは同期で処理され、管理変更との途中の並行実行はない。キャッシュを温めた後も主体の変更・権限の失効・再付与・本文更新を正しく扱う。同じ文書への異なる別名は同じ対象を意味し、許可された読取りと別tenantの独立処理を維持する。内部load・cacheへの直接アクセスは公開経路ではない。実データ・ネットワーク・外部認証は対象外。以前別tenantが共有IDのキャッシュを読むと最初のtenantの本文を返したため、その修正を評価する。checkはbun test。媒体・公開は不要。",
+      "agentInstructions": "評価対象はこのcheckoutの変更と要求です。編集せず、許可された限定検証で所見を確認してください。実データ・ネットワーク・外部サービスへのアクセスは不要です。\n",
+      "readme": "# 公開APIの契約\n\n共有キャッシュを持つ合成文書サービスの修正を評価する。公開入口はindex.tsのcreateServiceが返すread、changePolicy、replaceDocument。Contextのtenantとuserは信頼する上位認証が確定済みで偽装経路は対象外。利用者はreadに文書IDまたは別名を指定できる。文書IDはtenant内で一意で、別tenantに同じIDがある。別名を解決した現在の文書のACLに現在のuserがある場合だけ最新の本文を返し、存在しない・許可されない場合はnull。changePolicyとreplaceDocumentは信頼する管理操作で、完了後に開始したreadは新しいACL・本文を使う。readは同期で処理され、管理変更との途中の並行実行はない。キャッシュを温めた後も主体の変更・権限の失効・再付与・本文更新を正しく扱う。同じ文書への異なる別名は同じ対象を意味し、許可された読取りと別tenantの独立処理を維持する。内部load・cacheへの直接アクセスは公開経路ではない。実データ・ネットワーク・外部認証は対象外。以前別tenantが共有IDのキャッシュを読むと最初のtenantの本文を返したため、その修正を評価する。checkはbun test。媒体・公開は不要。\n",
+      "baseFiles": {
+        "types.ts": "export type Context={tenant:string;user:string};\nexport type Document={id:string;body:string;readers:string[]};\n",
+        "catalog.ts": "import {type Document} from './types';\nexport function createCatalog(){\n const rows=new Map<string,Document>([[JSON.stringify(['alpha','report']),{id:'report',body:'alpha body',readers:['alice']}],[JSON.stringify(['beta','report']),{id:'report',body:'beta body',readers:['bob']}]]);\n const aliases=new Map([['latest','report'],['summary','report']]);\n return {resolve(id:string){return aliases.get(id)??id;},get(tenant:string,id:string){return rows.get(JSON.stringify([tenant,id]))??null;},changePolicy(tenant:string,id:string,readers:string[]){const row=this.get(tenant,id);if(row)row.readers=[...readers];},replaceDocument(tenant:string,id:string,body:string){const row=this.get(tenant,id);if(row)row.body=body;}};\n}\n",
+        "permission.ts": "import {type Context,type Document} from './types';\nexport function allowed(context:Context,row:Document){return row.readers.includes(context.user);}\n",
+        "cache.ts": "export function createCache(){const values=new Map<string,string>();return {get(key:string){return values.get(key);},set(key:string,value:string){values.set(key,value);},clear(){values.clear();}};}\n",
+        "reader.ts": "import {type Context} from './types';\nimport {allowed} from './permission';\nimport {createCatalog} from './catalog';\nimport {createCache} from './cache';\nexport function createReader(catalog:ReturnType<typeof createCatalog>,cache:ReturnType<typeof createCache>){\n return (context:Context,requestedId:string):string|null=>{\n  const id=catalog.resolve(requestedId);\n  const key=id;\n  const hit=cache.get(key);\n  if(hit!==undefined)return hit;\n  const row=catalog.get(context.tenant,id);\n  if(row===null||!allowed(context,row))return null;\n  cache.set(key,row.body);\n  return row.body;\n };\n}\n",
+        "index.ts": "import {createCatalog} from './catalog';\nimport {createCache} from './cache';\nimport {createReader} from './reader';\nexport function createService(){\n const catalog=createCatalog(),cache=createCache();\n return {read:createReader(catalog,cache),changePolicy(tenant:string,id:string,readers:string[]){catalog.changePolicy(tenant,catalog.resolve(id),readers);},replaceDocument(tenant:string,id:string,body:string){catalog.replaceDocument(tenant,catalog.resolve(id),body);cache.clear();}};\n}\n"
+      },
+      "finalFiles": {
+        "types.ts": "export type Context={tenant:string;user:string};\nexport type Document={id:string;body:string;readers:string[]};\n",
+        "catalog.ts": "import {type Document} from './types';\nexport function createCatalog(){\n const rows=new Map<string,Document>([[JSON.stringify(['alpha','report']),{id:'report',body:'alpha body',readers:['alice']}],[JSON.stringify(['beta','report']),{id:'report',body:'beta body',readers:['bob']}]]);\n const aliases=new Map([['latest','report'],['summary','report']]);\n return {resolve(id:string){return aliases.get(id)??id;},get(tenant:string,id:string){return rows.get(JSON.stringify([tenant,id]))??null;},changePolicy(tenant:string,id:string,readers:string[]){const row=this.get(tenant,id);if(row)row.readers=[...readers];},replaceDocument(tenant:string,id:string,body:string){const row=this.get(tenant,id);if(row)row.body=body;}};\n}\n",
+        "permission.ts": "import {type Context,type Document} from './types';\nexport function allowed(context:Context,row:Document){return row.readers.includes(context.user);}\n",
+        "cache.ts": "export function createCache(){const values=new Map<string,string>();return {get(key:string){return values.get(key);},set(key:string,value:string){values.set(key,value);},clear(){values.clear();}};}\n",
+        "reader.ts": "import {type Context} from './types';\nimport {allowed} from './permission';\nimport {createCatalog} from './catalog';\nimport {createCache} from './cache';\nexport function createReader(catalog:ReturnType<typeof createCatalog>,cache:ReturnType<typeof createCache>){\n return (context:Context,requestedId:string):string|null=>{\n  const id=catalog.resolve(requestedId);\n  const key=JSON.stringify([context.tenant,id]);\n  const hit=cache.get(key);\n  if(hit!==undefined)return hit;\n  const row=catalog.get(context.tenant,id);\n  if(row===null||!allowed(context,row))return null;\n  cache.set(key,row.body);\n  return row.body;\n };\n}\n",
+        "index.ts": "import {createCatalog} from './catalog';\nimport {createCache} from './cache';\nimport {createReader} from './reader';\nexport function createService(){\n const catalog=createCatalog(),cache=createCache();\n return {read:createReader(catalog,cache),changePolicy(tenant:string,id:string,readers:string[]){catalog.changePolicy(tenant,catalog.resolve(id),readers);},replaceDocument(tenant:string,id:string,body:string){catalog.replaceDocument(tenant,catalog.resolve(id),body);cache.clear();}};\n}\n"
+      },
+      "savedTest": "import {test,expect} from 'bun:test';\nimport {createService} from './index';\ntest('tenant and cold permissions',()=>{\n const api=createService();\n expect(api.read({tenant:'alpha',user:'intruder'},'report')).toBeNull();\n expect(api.read({tenant:'alpha',user:'alice'},'latest')).toBe('alpha body');\n expect(api.read({tenant:'beta',user:'bob'},'summary')).toBe('beta body');\n expect(api.read({tenant:'beta',user:'intruder'},'missing')).toBeNull();\n api.replaceDocument('alpha','report','new body');\n expect(api.read({tenant:'alpha',user:'alice'},'report')).toBe('new body');\n});\n",
+      "fileSha256": {
+        "reader.ts": "f0739c576b2800687e7f0d19dcb0e8ba53dff6db7bedb0fc40c8ad32e7287291",
+        "README.md": "10842cc27c9e1b18e4e7970f5343bcb36ba2a01f800517b524bf64fcd500fb93",
+        "types.ts": "18d5b0192ccb0cd3574034db3d64a1c750e2ec514d806b677e59f5341f3c51e3",
+        "cache.ts": "6e6ace33a42659de56e7bdcc89056e2e1f370a2c341c76837783e5464f94f273",
+        "contract.test.ts": "fb9088c97fc11088592746d1bb65d11b2f0ea9a877964b23750bc24728b8474d",
+        "permission.ts": "dc308e1bf9117ed19b8428d153d79c5dce295036940f34bcf569a8930ce85744",
+        "index.ts": "8d2d0e13eb25d4830172f87b1c6de9c36d2bce96f0475fdd57c508c07c9874dd",
+        "AGENTS.md": "cc1b989b2abf3f257d97b5e217ec6ed732871e9e8d301da05f0a305b15fa1692",
+        "catalog.ts": "e962b1d6f0346fe587ad086304fabc71f023d31b68d9e64c8bac001439b5c258"
+      },
+      "baseCommit": "14a3af5b80c0226417b1fde973f7137122a118b3"
+    },
+    {
+      "key": "cache-control",
+      "family": "cache",
+      "requirements": "共有キャッシュを持つ合成文書サービスの修正を評価する。公開入口はindex.tsのcreateServiceが返すread、changePolicy、replaceDocument。Contextのtenantとuserは信頼する上位認証が確定済みで偽装経路は対象外。利用者はreadに文書IDまたは別名を指定できる。文書IDはtenant内で一意で、別tenantに同じIDがある。別名を解決した現在の文書のACLに現在のuserがある場合だけ最新の本文を返し、存在しない・許可されない場合はnull。changePolicyとreplaceDocumentは信頼する管理操作で、完了後に開始したreadは新しいACL・本文を使う。readは同期で処理され、管理変更との途中の並行実行はない。キャッシュを温めた後も主体の変更・権限の失効・再付与・本文更新を正しく扱う。同じ文書への異なる別名は同じ対象を意味し、許可された読取りと別tenantの独立処理を維持する。内部load・cacheへの直接アクセスは公開経路ではない。実データ・ネットワーク・外部認証は対象外。以前別tenantが共有IDのキャッシュを読むと最初のtenantの本文を返したため、その修正を評価する。checkはbun test。媒体・公開は不要。",
+      "agentInstructions": "評価対象はこのcheckoutの変更と要求です。編集せず、許可された限定検証で所見を確認してください。実データ・ネットワーク・外部サービスへのアクセスは不要です。\n",
+      "readme": "# 公開APIの契約\n\n共有キャッシュを持つ合成文書サービスの修正を評価する。公開入口はindex.tsのcreateServiceが返すread、changePolicy、replaceDocument。Contextのtenantとuserは信頼する上位認証が確定済みで偽装経路は対象外。利用者はreadに文書IDまたは別名を指定できる。文書IDはtenant内で一意で、別tenantに同じIDがある。別名を解決した現在の文書のACLに現在のuserがある場合だけ最新の本文を返し、存在しない・許可されない場合はnull。changePolicyとreplaceDocumentは信頼する管理操作で、完了後に開始したreadは新しいACL・本文を使う。readは同期で処理され、管理変更との途中の並行実行はない。キャッシュを温めた後も主体の変更・権限の失効・再付与・本文更新を正しく扱う。同じ文書への異なる別名は同じ対象を意味し、許可された読取りと別tenantの独立処理を維持する。内部load・cacheへの直接アクセスは公開経路ではない。実データ・ネットワーク・外部認証は対象外。以前別tenantが共有IDのキャッシュを読むと最初のtenantの本文を返したため、その修正を評価する。checkはbun test。媒体・公開は不要。\n",
+      "baseFiles": {
+        "types.ts": "export type Context={tenant:string;user:string};\nexport type Document={id:string;body:string;readers:string[]};\n",
+        "catalog.ts": "import {type Document} from './types';\nexport function createCatalog(){\n const rows=new Map<string,Document>([[JSON.stringify(['alpha','report']),{id:'report',body:'alpha body',readers:['alice']}],[JSON.stringify(['beta','report']),{id:'report',body:'beta body',readers:['bob']}]]);\n const aliases=new Map([['latest','report'],['summary','report']]);\n return {resolve(id:string){return aliases.get(id)??id;},get(tenant:string,id:string){return rows.get(JSON.stringify([tenant,id]))??null;},changePolicy(tenant:string,id:string,readers:string[]){const row=this.get(tenant,id);if(row)row.readers=[...readers];},replaceDocument(tenant:string,id:string,body:string){const row=this.get(tenant,id);if(row)row.body=body;}};\n}\n",
+        "permission.ts": "import {type Context,type Document} from './types';\nexport function allowed(context:Context,row:Document){return row.readers.includes(context.user);}\n",
+        "cache.ts": "export function createCache(){const values=new Map<string,string>();return {get(key:string){return values.get(key);},set(key:string,value:string){values.set(key,value);},clear(){values.clear();}};}\n",
+        "reader.ts": "import {type Context} from './types';\nimport {allowed} from './permission';\nimport {createCatalog} from './catalog';\nimport {createCache} from './cache';\nexport function createReader(catalog:ReturnType<typeof createCatalog>,cache:ReturnType<typeof createCache>){\n return (context:Context,requestedId:string):string|null=>{\n  const id=catalog.resolve(requestedId);\n  const key=id;\n  const hit=cache.get(key);\n  if(hit!==undefined)return hit;\n  const row=catalog.get(context.tenant,id);\n  if(row===null||!allowed(context,row))return null;\n  cache.set(key,row.body);\n  return row.body;\n };\n}\n",
+        "index.ts": "import {createCatalog} from './catalog';\nimport {createCache} from './cache';\nimport {createReader} from './reader';\nexport function createService(){\n const catalog=createCatalog(),cache=createCache();\n return {read:createReader(catalog,cache),changePolicy(tenant:string,id:string,readers:string[]){catalog.changePolicy(tenant,catalog.resolve(id),readers);},replaceDocument(tenant:string,id:string,body:string){catalog.replaceDocument(tenant,catalog.resolve(id),body);cache.clear();}};\n}\n"
+      },
+      "finalFiles": {
+        "types.ts": "export type Context={tenant:string;user:string};\nexport type Document={id:string;body:string;readers:string[]};\n",
+        "catalog.ts": "import {type Document} from './types';\nexport function createCatalog(){\n const rows=new Map<string,Document>([[JSON.stringify(['alpha','report']),{id:'report',body:'alpha body',readers:['alice']}],[JSON.stringify(['beta','report']),{id:'report',body:'beta body',readers:['bob']}]]);\n const aliases=new Map([['latest','report'],['summary','report']]);\n return {resolve(id:string){return aliases.get(id)??id;},get(tenant:string,id:string){return rows.get(JSON.stringify([tenant,id]))??null;},changePolicy(tenant:string,id:string,readers:string[]){const row=this.get(tenant,id);if(row)row.readers=[...readers];},replaceDocument(tenant:string,id:string,body:string){const row=this.get(tenant,id);if(row)row.body=body;}};\n}\n",
+        "permission.ts": "import {type Context,type Document} from './types';\nexport function allowed(context:Context,row:Document){return row.readers.includes(context.user);}\n",
+        "cache.ts": "export function createCache(){const values=new Map<string,string>();return {get(key:string){return values.get(key);},set(key:string,value:string){values.set(key,value);},clear(){values.clear();}};}\n",
+        "reader.ts": "import {type Context} from './types';\nimport {allowed} from './permission';\nimport {createCatalog} from './catalog';\nimport {createCache} from './cache';\nexport function createReader(catalog:ReturnType<typeof createCatalog>,cache:ReturnType<typeof createCache>){\n return (context:Context,requestedId:string):string|null=>{\n  const id=catalog.resolve(requestedId);\n  const row=catalog.get(context.tenant,id);\n  if(row===null||!allowed(context,row))return null;\n  const key=JSON.stringify([context.tenant,id]);\n  const hit=cache.get(key);\n  if(hit!==undefined)return hit;\n  cache.set(key,row.body);\n  return row.body;\n };\n}\n",
+        "index.ts": "import {createCatalog} from './catalog';\nimport {createCache} from './cache';\nimport {createReader} from './reader';\nexport function createService(){\n const catalog=createCatalog(),cache=createCache();\n return {read:createReader(catalog,cache),changePolicy(tenant:string,id:string,readers:string[]){catalog.changePolicy(tenant,catalog.resolve(id),readers);},replaceDocument(tenant:string,id:string,body:string){catalog.replaceDocument(tenant,catalog.resolve(id),body);cache.clear();}};\n}\n"
+      },
+      "savedTest": "import {test,expect} from 'bun:test';\nimport {createService} from './index';\ntest('tenant and cold permissions',()=>{\n const api=createService();\n expect(api.read({tenant:'alpha',user:'intruder'},'report')).toBeNull();\n expect(api.read({tenant:'alpha',user:'alice'},'latest')).toBe('alpha body');\n expect(api.read({tenant:'beta',user:'bob'},'summary')).toBe('beta body');\n expect(api.read({tenant:'beta',user:'intruder'},'missing')).toBeNull();\n api.replaceDocument('alpha','report','new body');\n expect(api.read({tenant:'alpha',user:'alice'},'report')).toBe('new body');\n});\ntest('warm cache follows identity and policy',()=>{\n const api=createService(),alice={tenant:'alpha',user:'alice'},intruder={tenant:'alpha',user:'intruder'};\n expect(api.read(alice,'latest')).toBe('alpha body');\n expect(api.read(intruder,'summary')).toBeNull();\n api.changePolicy('alpha','summary',[]);\n expect(api.read(alice,'report')).toBeNull();\n api.changePolicy('alpha','report',['intruder']);\n expect(api.read(intruder,'latest')).toBe('alpha body');\n expect(api.read(alice,'summary')).toBeNull();\n api.replaceDocument('alpha','latest','');\n expect(api.read(intruder,'report')).toBe('');\n expect(api.read({tenant:'beta',user:'bob'},'report')).toBe('beta body');\n});\n",
+      "fileSha256": {
+        "reader.ts": "d6282d9d9d240d0e51b20e28c5d2fc22814347bec7de19b3a85c73ab4fa0e894",
+        "README.md": "10842cc27c9e1b18e4e7970f5343bcb36ba2a01f800517b524bf64fcd500fb93",
+        "types.ts": "18d5b0192ccb0cd3574034db3d64a1c750e2ec514d806b677e59f5341f3c51e3",
+        "cache.ts": "6e6ace33a42659de56e7bdcc89056e2e1f370a2c341c76837783e5464f94f273",
+        "contract.test.ts": "7c13683edfe3031efb9b7d88063cbb6ac2e1caaa58764d0c5e7f92e76ac4a6ee",
+        "permission.ts": "dc308e1bf9117ed19b8428d153d79c5dce295036940f34bcf569a8930ce85744",
+        "index.ts": "8d2d0e13eb25d4830172f87b1c6de9c36d2bce96f0475fdd57c508c07c9874dd",
+        "AGENTS.md": "cc1b989b2abf3f257d97b5e217ec6ed732871e9e8d301da05f0a305b15fa1692",
+        "catalog.ts": "e962b1d6f0346fe587ad086304fabc71f023d31b68d9e64c8bac001439b5c258"
+      },
+      "baseCommit": "14a3af5b80c0226417b1fde973f7137122a118b3"
+    },
+    {
+      "key": "lease-defect",
+      "family": "lease",
+      "requirements": "期限付き所有権を使う単一プロセスの合成ジョブrunnerの修正を評価する。公開入口はcreateRunnerが返すrun(key,work)で、keyは任意の文字列、workは非同期関数。同じkeyに未期限切れの所有権があればworkを呼ばずbusyを返す。所有権は注入時計nowからttlだけ有効で、nowがexpiresAt以上なら新しいrunが取得できる。取得ごとに別のtokenを発行する。新しい所有者を取得済みなら、古いworkの成功・拒否の後処理は新しい所有権を変更してはならない。work成功はdone、拒否はfailedで、正当な完了後は同じkeyを再実行できる。古いworkは期限後も終了し得るが、workの副作用を停止することは今回のrunnerの保証ではない。他keyのworkは妨げない。workは呼出し時に同期再入する場合もあり、所有権はworkを呼ぶ前に確保する。ttlは正の有限値、nowは単調非減少として注入済み。外部ストレージ・複数プロセス・ネットワークは対象外。内部registry・cleanupへの直接呼出しは公開経路ではない。以前workの拒否で所有権が残り、期限まで再試行できなかったため、その修正を評価する。checkはbun test。媒体・公開は不要。",
+      "agentInstructions": "評価対象はこのcheckoutの変更と要求です。編集せず、許可された限定検証で所見を確認してください。実データ・ネットワーク・外部サービスへのアクセスは不要です。\n",
+      "readme": "# 公開APIの契約\n\n期限付き所有権を使う単一プロセスの合成ジョブrunnerの修正を評価する。公開入口はcreateRunnerが返すrun(key,work)で、keyは任意の文字列、workは非同期関数。同じkeyに未期限切れの所有権があればworkを呼ばずbusyを返す。所有権は注入時計nowからttlだけ有効で、nowがexpiresAt以上なら新しいrunが取得できる。取得ごとに別のtokenを発行する。新しい所有者を取得済みなら、古いworkの成功・拒否の後処理は新しい所有権を変更してはならない。work成功はdone、拒否はfailedで、正当な完了後は同じkeyを再実行できる。古いworkは期限後も終了し得るが、workの副作用を停止することは今回のrunnerの保証ではない。他keyのworkは妨げない。workは呼出し時に同期再入する場合もあり、所有権はworkを呼ぶ前に確保する。ttlは正の有限値、nowは単調非減少として注入済み。外部ストレージ・複数プロセス・ネットワークは対象外。内部registry・cleanupへの直接呼出しは公開経路ではない。以前workの拒否で所有権が残り、期限まで再試行できなかったため、その修正を評価する。checkはbun test。媒体・公開は不要。\n",
+      "baseFiles": {
+        "types.ts": "export type Lease={token:number;expiresAt:number};\nexport type Work=()=>Promise<void>;\nexport type Result='busy'|'done'|'failed';\n",
+        "registry.ts": "import {type Lease} from './types';\nexport function createRegistry(){const slots=new Map<string,Lease>();let serial=0;return {claim(key:string,now:number,ttl:number){const prior=slots.get(key);if(prior&&prior.expiresAt>now)return null;const lease={token:++serial,expiresAt:now+ttl};slots.set(key,lease);return lease;},release(key:string){return slots.delete(key);},current(key:string){return slots.get(key)??null;}};}\n",
+        "execute.ts": "import {type Work,type Result} from './types';\nexport async function execute(work:Work):Promise<Exclude<Result,'busy'>>{try{await work();return 'done';}catch{return 'failed';}}\n",
+        "cleanup.ts": "import {createRegistry} from './registry';\nexport function cleanup(registry:ReturnType<typeof createRegistry>,key:string,token:number){\n registry.release(key);\n}\n",
+        "index.ts": "import {createRegistry} from './registry';\nimport {execute} from './execute';\nimport {cleanup} from './cleanup';\nimport {type Work,type Result} from './types';\nexport function createRunner(now:()=>number,ttl:number){\n const registry=createRegistry();\n return {async run(key:string,work:Work):Promise<Result>{\n  const lease=registry.claim(key,now(),ttl);\n  if(lease===null)return 'busy';\n  const result=await execute(work);\n  if(result==='done')cleanup(registry,key,lease.token);\n  return result;\n }};\n}\n"
+      },
+      "finalFiles": {
+        "types.ts": "export type Lease={token:number;expiresAt:number};\nexport type Work=()=>Promise<void>;\nexport type Result='busy'|'done'|'failed';\n",
+        "registry.ts": "import {type Lease} from './types';\nexport function createRegistry(){const slots=new Map<string,Lease>();let serial=0;return {claim(key:string,now:number,ttl:number){const prior=slots.get(key);if(prior&&prior.expiresAt>now)return null;const lease={token:++serial,expiresAt:now+ttl};slots.set(key,lease);return lease;},release(key:string){return slots.delete(key);},current(key:string){return slots.get(key)??null;}};}\n",
+        "execute.ts": "import {type Work,type Result} from './types';\nexport async function execute(work:Work):Promise<Exclude<Result,'busy'>>{try{await work();return 'done';}catch{return 'failed';}}\n",
+        "cleanup.ts": "import {createRegistry} from './registry';\nexport function cleanup(registry:ReturnType<typeof createRegistry>,key:string,token:number){\n registry.release(key);\n}\n",
+        "index.ts": "import {createRegistry} from './registry';\nimport {execute} from './execute';\nimport {cleanup} from './cleanup';\nimport {type Work,type Result} from './types';\nexport function createRunner(now:()=>number,ttl:number){\n const registry=createRegistry();\n return {async run(key:string,work:Work):Promise<Result>{\n  const lease=registry.claim(key,now(),ttl);\n  if(lease===null)return 'busy';\n  const result=await execute(work);\n  cleanup(registry,key,lease.token);\n  return result;\n }};\n}\n"
+      },
+      "savedTest": "import {test,expect} from 'bun:test';\nimport {createRunner} from './index';\ntest('completion and retry',async()=>{\n let now=0;const api=createRunner(()=>now,10);let calls=0;\n expect(await api.run('a',async()=>{throw Error('work failed');})).toBe('failed');\n expect(await api.run('a',async()=>{calls++;})).toBe('done');\n expect(await api.run('a',async()=>{calls++;})).toBe('done');\n expect(calls).toBe(2);\n});\n",
+      "fileSha256": {
+        "cleanup.ts": "4f0f4443bbbafdecf018fdb8c324b1e5bd4b4e001b8f3f7778999365f84c862c",
+        "README.md": "6aae008144d6d593cf1ef875d6dde7659331d0c5ec5b98ae41a4b3e81f19ad14",
+        "types.ts": "abbc9fdd304e881dd12c3f94815e6ffd3388c66e1471f6e343e7b970145cc82b",
+        "execute.ts": "8be506a0631d197a5eee8cb9789c33baf924a212006310582cd214e9cdcfd08e",
+        "contract.test.ts": "860d9adaf21fdfc4d4e23071cebc34d13d294f389ac463757d3bc505a0f360c8",
+        "registry.ts": "dc9b0cdc331377259e118f81e70c1a5b38b225a442170b6297acb89d5b8a421b",
+        "index.ts": "7de9385c078da11d43f489a0ccbfcfcfc3e713b5c786ba4a6d51b6f3776edb54",
+        "AGENTS.md": "cc1b989b2abf3f257d97b5e217ec6ed732871e9e8d301da05f0a305b15fa1692"
+      },
+      "baseCommit": "5617c1dee5df9c9943114ac5e23ec8ccb16c3945"
+    },
+    {
+      "key": "lease-control",
+      "family": "lease",
+      "requirements": "期限付き所有権を使う単一プロセスの合成ジョブrunnerの修正を評価する。公開入口はcreateRunnerが返すrun(key,work)で、keyは任意の文字列、workは非同期関数。同じkeyに未期限切れの所有権があればworkを呼ばずbusyを返す。所有権は注入時計nowからttlだけ有効で、nowがexpiresAt以上なら新しいrunが取得できる。取得ごとに別のtokenを発行する。新しい所有者を取得済みなら、古いworkの成功・拒否の後処理は新しい所有権を変更してはならない。work成功はdone、拒否はfailedで、正当な完了後は同じkeyを再実行できる。古いworkは期限後も終了し得るが、workの副作用を停止することは今回のrunnerの保証ではない。他keyのworkは妨げない。workは呼出し時に同期再入する場合もあり、所有権はworkを呼ぶ前に確保する。ttlは正の有限値、nowは単調非減少として注入済み。外部ストレージ・複数プロセス・ネットワークは対象外。内部registry・cleanupへの直接呼出しは公開経路ではない。以前workの拒否で所有権が残り、期限まで再試行できなかったため、その修正を評価する。checkはbun test。媒体・公開は不要。",
+      "agentInstructions": "評価対象はこのcheckoutの変更と要求です。編集せず、許可された限定検証で所見を確認してください。実データ・ネットワーク・外部サービスへのアクセスは不要です。\n",
+      "readme": "# 公開APIの契約\n\n期限付き所有権を使う単一プロセスの合成ジョブrunnerの修正を評価する。公開入口はcreateRunnerが返すrun(key,work)で、keyは任意の文字列、workは非同期関数。同じkeyに未期限切れの所有権があればworkを呼ばずbusyを返す。所有権は注入時計nowからttlだけ有効で、nowがexpiresAt以上なら新しいrunが取得できる。取得ごとに別のtokenを発行する。新しい所有者を取得済みなら、古いworkの成功・拒否の後処理は新しい所有権を変更してはならない。work成功はdone、拒否はfailedで、正当な完了後は同じkeyを再実行できる。古いworkは期限後も終了し得るが、workの副作用を停止することは今回のrunnerの保証ではない。他keyのworkは妨げない。workは呼出し時に同期再入する場合もあり、所有権はworkを呼ぶ前に確保する。ttlは正の有限値、nowは単調非減少として注入済み。外部ストレージ・複数プロセス・ネットワークは対象外。内部registry・cleanupへの直接呼出しは公開経路ではない。以前workの拒否で所有権が残り、期限まで再試行できなかったため、その修正を評価する。checkはbun test。媒体・公開は不要。\n",
+      "baseFiles": {
+        "types.ts": "export type Lease={token:number;expiresAt:number};\nexport type Work=()=>Promise<void>;\nexport type Result='busy'|'done'|'failed';\n",
+        "registry.ts": "import {type Lease} from './types';\nexport function createRegistry(){const slots=new Map<string,Lease>();let serial=0;return {claim(key:string,now:number,ttl:number){const prior=slots.get(key);if(prior&&prior.expiresAt>now)return null;const lease={token:++serial,expiresAt:now+ttl};slots.set(key,lease);return lease;},release(key:string){return slots.delete(key);},current(key:string){return slots.get(key)??null;}};}\n",
+        "execute.ts": "import {type Work,type Result} from './types';\nexport async function execute(work:Work):Promise<Exclude<Result,'busy'>>{try{await work();return 'done';}catch{return 'failed';}}\n",
+        "cleanup.ts": "import {createRegistry} from './registry';\nexport function cleanup(registry:ReturnType<typeof createRegistry>,key:string,token:number){\n registry.release(key);\n}\n",
+        "index.ts": "import {createRegistry} from './registry';\nimport {execute} from './execute';\nimport {cleanup} from './cleanup';\nimport {type Work,type Result} from './types';\nexport function createRunner(now:()=>number,ttl:number){\n const registry=createRegistry();\n return {async run(key:string,work:Work):Promise<Result>{\n  const lease=registry.claim(key,now(),ttl);\n  if(lease===null)return 'busy';\n  const result=await execute(work);\n  if(result==='done')cleanup(registry,key,lease.token);\n  return result;\n }};\n}\n"
+      },
+      "finalFiles": {
+        "types.ts": "export type Lease={token:number;expiresAt:number};\nexport type Work=()=>Promise<void>;\nexport type Result='busy'|'done'|'failed';\n",
+        "registry.ts": "import {type Lease} from './types';\nexport function createRegistry(){const slots=new Map<string,Lease>();let serial=0;return {claim(key:string,now:number,ttl:number){const prior=slots.get(key);if(prior&&prior.expiresAt>now)return null;const lease={token:++serial,expiresAt:now+ttl};slots.set(key,lease);return lease;},release(key:string){return slots.delete(key);},current(key:string){return slots.get(key)??null;}};}\n",
+        "execute.ts": "import {type Work,type Result} from './types';\nexport async function execute(work:Work):Promise<Exclude<Result,'busy'>>{try{await work();return 'done';}catch{return 'failed';}}\n",
+        "cleanup.ts": "import {createRegistry} from './registry';\nexport function cleanup(registry:ReturnType<typeof createRegistry>,key:string,token:number){\n if(registry.current(key)?.token===token)registry.release(key);\n}\n",
+        "index.ts": "import {createRegistry} from './registry';\nimport {execute} from './execute';\nimport {cleanup} from './cleanup';\nimport {type Work,type Result} from './types';\nexport function createRunner(now:()=>number,ttl:number){\n const registry=createRegistry();\n return {async run(key:string,work:Work):Promise<Result>{\n  const lease=registry.claim(key,now(),ttl);\n  if(lease===null)return 'busy';\n  const result=await execute(work);\n  cleanup(registry,key,lease.token);\n  return result;\n }};\n}\n"
+      },
+      "savedTest": "import {test,expect} from 'bun:test';\nimport {createRunner} from './index';\ntest('completion and retry',async()=>{\n let now=0;const api=createRunner(()=>now,10);let calls=0;\n expect(await api.run('a',async()=>{throw Error('work failed');})).toBe('failed');\n expect(await api.run('a',async()=>{calls++;})).toBe('done');\n expect(await api.run('a',async()=>{calls++;})).toBe('done');\n expect(calls).toBe(2);\n});\ntest('ownership replacement and independent keys',async()=>{\n for(const fail of [false,true]){\n  let now=0;const api=createRunner(()=>now,10);let releaseA!:()=>void,releaseB!:()=>void;\n  const gateA=new Promise<void>(r=>releaseA=r),gateB=new Promise<void>(r=>releaseB=r);let calls=0;\n  const a=api.run('a',async()=>{await gateA;if(fail)throw Error('old failure');});\n  expect(await api.run('a',async()=>{calls++;})).toBe('busy');\n  expect(calls).toBe(0);\n  expect(await api.run('b',async()=>{})).toBe('done');\n  now=10;\n  const b=api.run('a',async()=>{await gateB;});\n  releaseA();expect(await a).toBe(fail?'failed':'done');\n  expect(await api.run('a',async()=>{calls++;})).toBe('busy');\n  expect(calls).toBe(0);\n  releaseB();expect(await b).toBe('done');\n  expect(await api.run('a',async()=>{calls++;})).toBe('done');\n  expect(calls).toBe(1);\n }\n});\ntest('synchronous reentry is blocked',async()=>{\n const api=createRunner(()=>0,10);let nested:Promise<string>|undefined;let calls=0;\n expect(await api.run('',async()=>{nested=api.run('',async()=>{calls++;});})).toBe('done');\n expect(await nested).toBe('busy');expect(calls).toBe(0);\n});\n",
+      "fileSha256": {
+        "cleanup.ts": "771a2e422f4df5ef7648d555a338c217d147f759437a6f45b6acc649478882a2",
+        "README.md": "6aae008144d6d593cf1ef875d6dde7659331d0c5ec5b98ae41a4b3e81f19ad14",
+        "types.ts": "abbc9fdd304e881dd12c3f94815e6ffd3388c66e1471f6e343e7b970145cc82b",
+        "execute.ts": "8be506a0631d197a5eee8cb9789c33baf924a212006310582cd214e9cdcfd08e",
+        "contract.test.ts": "acf7fd6040e0b5a79bfe44cf194a784742d3be24e86cc57350197df10513484e",
+        "registry.ts": "dc9b0cdc331377259e118f81e70c1a5b38b225a442170b6297acb89d5b8a421b",
+        "index.ts": "7de9385c078da11d43f489a0ccbfcfcfc3e713b5c786ba4a6d51b6f3776edb54",
+        "AGENTS.md": "cc1b989b2abf3f257d97b5e217ec6ed732871e9e8d301da05f0a305b15fa1692"
+      },
+      "baseCommit": "59005fe4f1c9238d831da9a6cc4d9b2fd0b0773c"
+    }
+  ],
+  "trialOrder": [
+    "case-q5ei9qjs",
+    "case-3piyo6bn",
+    "case-4jltk6ps",
+    "case-shdicneq",
+    "case-rdgw3pkg",
+    "case-ahwrjfvm",
+    "case-ya4gujtv",
+    "case-tx7acwoj",
+    "case-6848bflw",
+    "case-5kinbhwd",
+    "case-1k0higq3",
+    "case-rtmmse4f",
+    "case-bzfy1w2z",
+    "case-l37p971c",
+    "case-es20bhqb",
+    "case-fmtw92kl",
+    "case-tcdxdj6p",
+    "case-fbhn5oh2",
+    "case-kjhovjtv",
+    "case-p43b796b",
+    "case-s0n4596r",
+    "case-zvz0ugfw",
+    "case-5s5uo9ra",
+    "case-2j8_qcji"
+  ],
+  "trials": [
+    {
+      "id": "case-q5ei9qjs",
+      "key": "cache-defect",
+      "side": "before",
+      "repetition": 1,
+      "execution": "review_completed",
+      "parentMs": 204264.744125,
+      "elapsedMs": 204422.966916,
+      "wallMs": 204424,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T03:05:03.670Z",
+      "endedWallUtc": "2026-10-02T03:08:28.094Z",
+      "eventErrors": [],
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 122694,
+        "cached_input_tokens": 106624,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4629,
+        "reasoning_output_tokens": 1402
+      },
+      "completedCommandCount": 8,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 1,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "許可readで温めた後の別user/別名readと、別の新サービスで温めた後のACL失効readがともにalpha bodyを返す実出力を確認。キャッシュ命中がcatalog.get/allowedより先に返る同じ根本原因を必須code1件として両条件に適用し主眼充足。",
+          "保存テストはcold拒否だけでchangePolicy未使用。直接APIの残存違反と既存check成功でtests不足1件を妥当に実証。冷やす本文更新を認可確認に挟まない修正要求、再付与正常対照も妥当。誤必須・冗長性指摘なし。",
+          "tenant分離、cold失効/再付与、本文更新、空本文の命中、ACL入力コピー、管理更新後のtenant独立、missing管理対象の申告を実出力/assert成功に照合。開始版のモデル実行による元不具合再現は申告しておらず、その証拠の不在を申告不一致としない。",
+          "可視eventsは当該checkout、Git開始版、指定された当該試行の入力/check記録のみ。裁定資料・host・他課題読取りや委譲痕跡なし。物理的隔離未保証。wall204424msとelapsed204422.966916msは整合し300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-3piyo6bn",
+      "key": "cache-defect",
+      "side": "after",
+      "repetition": 1,
+      "execution": "review_completed",
+      "parentMs": 185785.608708,
+      "elapsedMs": 185908.598041,
+      "wallMs": 185909,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T03:08:28.133Z",
+      "endedWallUtc": "2026-10-02T03:11:34.042Z",
+      "eventErrors": [],
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 95436,
+        "cached_input_tokens": 67712,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4517,
+        "reasoning_output_tokens": 1550
+      },
+      "completedCommandCount": 5,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 1,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "許可readで温めた後の別user、ACL失効後の旧user、他userへ付与後の旧userがalpha bodyを返す公開API実出力を確認。空本文更新後の温まった不許可readも空文字を返す。同じ早期cache hitによる認可迂回を必須code1件で両主眼条件に適用。",
+          "保存テストcold拒否/changePolicy未使用というtests不足1件は妥当。状態遷移の拒否と再付与正常系、既存tenant分離・本文鮮度の維持を要求し誤必須なし。具体冗長性指摘なし。",
+          "Git開始版readerの元ソースを未変更依存でメモリ内評価しtenant混同を再現、同じ入力の現行ではbeta body。現在の公開APIで主体変更/失効違反と正常機能を確認。申告は限定プローブで、全体check/永続回帰テストとは区別しており証拠に整合。",
+          "beforeも同じ根本原因とテスト不足を実証し主眼差なし。afterは開始版対照と旧user/空本文の追加違反が詳しく、beforeは失効を独立新サービスで確認しており、証拠条件数だけを品質改善としない。",
+          "可視eventsは当該checkout、Git開始版、指定された当該試行の入力/check記録のみ。裁定資料・host・他課題読取りや委譲痕跡なし。物理的隔離未保証。wall185909msとelapsed185908.598041msは整合し300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-4jltk6ps",
+      "key": "lease-control",
+      "side": "after",
+      "repetition": 1,
+      "execution": "review_completed",
+      "parentMs": 147623.35787499993,
+      "elapsedMs": 147736.64274999994,
+      "wallMs": 147738,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T03:11:34.071Z",
+      "endedWallUtc": "2026-10-02T03:14:01.809Z",
+      "eventErrors": [],
+      "status": "accepted",
+      "usage": {
+        "input_tokens": 99934,
+        "cached_input_tokens": 70656,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 3820,
+        "reasoning_output_tokens": 1215
+      },
+      "completedCommandCount": 8,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 0,
+        "trueTestFindingCount": 0,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "正常動作を具体的に判断。公開runはwork前にclaimし、token一致の同期cleanupが旧成功/拒否から新所有者を保護する。awaitを挟むclaim/cleanup読取りを冗長とせず、期限後work継続を契約違反にしない。acceptedだけで主眼判定していない。",
+          "開始版の拒否後retry=busyと現行done、開始版の旧成功後probe=doneと現行busyをメモリ内の元ソース構成で比較。現在の第三所有者を旧成功/旧拒否から保護、期限直前、特殊keyもassert成功。申告と証拠一致。",
+          "保存テストは主要な拒否後解除、busy未呼出、期限境界、新所有権保護の成功/拒否、他key、再入を検査し主要不足なし。git show README不在は追加文書という判断に使用し、実検証成功に読み替えていない。",
+          "可視記録は当該checkout・Git開始版・指定された当該試行の入力/check記録のみ。裁定資料・host・他課題読取りや委譲痕跡なし。物理的隔離未保証。wall147738msとelapsed147736.64275msは整合、300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-shdicneq",
+      "key": "lease-control",
+      "side": "before",
+      "repetition": 1,
+      "execution": "review_completed",
+      "parentMs": 177866.61095799995,
+      "elapsedMs": 178005.494375,
+      "wallMs": 178007,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T03:14:01.840Z",
+      "endedWallUtc": "2026-10-02T03:16:59.847Z",
+      "eventErrors": [],
+      "status": "accepted",
+      "usage": {
+        "input_tokens": 98820,
+        "cached_input_tokens": 82432,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4009,
+        "reasoning_output_tokens": 1610
+      },
+      "completedCommandCount": 11,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 0,
+        "trueTestFindingCount": 0,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "正常動作を具体的に判断。work前claimとtoken条件cleanup、成功/拒否後の即時再実行、期限後交代、他key独立を正しく評価。非同期workを挟む読取りを重複とせず、期限後workの副作用停止を追加要求にしない。誤必須なし。",
+          "保存テストのownership replacement and independent keysだけを実行し1pass/18expect、全体checkとは区別。別公開APIprobeは非ゼロ時計/小数ttl/期限直前と到達時/__proto__/constructor/3所有者交代/旧拒否と成功/即時retryをassert成功。申告と証拠一致。",
+          "主要契約の保存テストに不足を確認せず指摘0は妥当。afterは開始版との対照、beforeは保存テスト限定再実行と非ゼロ/小数時計を確認。両者とも正常主眼充足、証拠の違いだけで改善としない。",
+          "可視記録は当該checkout・Git開始版・指定された当該試行の入力/check記録のみ。裁定資料・host・他課題読取りや委譲痕跡なし。物理的隔離未保証。wall178007msとelapsed178005.494375msは整合、300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-rdgw3pkg",
+      "key": "transform-defect",
+      "side": "before",
+      "repetition": 1,
+      "execution": "review_completed",
+      "parentMs": 174059.87783299992,
+      "elapsedMs": 174198.1013750001,
+      "wallMs": 174199,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T03:16:59.887Z",
+      "endedWallUtc": "2026-10-02T03:19:54.086Z",
+      "eventErrors": [],
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 94868,
+        "cached_input_tokens": 67456,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4376,
+        "reasoning_output_tokens": 1445
+      },
+      "completedCommandCount": 8,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 1,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "公開handleへの14例で、許可文書と二重符号化探索パスの混在BATCHがguide/secretを返し、public/%256eoteのBATCHがliteral percentではなくnoteを返す2違反を実証。許可済み文字列をreadLegacyが再復号する同じ根本原因を必須code1件で両主眼条件へ適用。",
+          "GETの元の攻撃入力拒否、通常符号化/別名/public内の..、BATCHの順序・重複・空配列、絶対パス/不正URI/単純private/不存在の拒否を実出力に照合。14例中2不一致という申告が一致し、全体check再実行は申告していない。",
+          "保存テストはGET境界を確認する一方、BATCHは通常読取りのみ。公開BATCHの拒否と正しいpercent文書選択を追加するtests不足1件は妥当。再復号の冗長性は機能欠陥に統合され、別の冗長性件数に加算しない。誤必須なし。",
+          "可視eventsは当該checkout・Git開始版・指定された当該試行の入力/check記録のみ。裁定資料・host・他課題読取りや委譲痕跡なし。物理的隔離未保証。wall174199msとelapsed174198.101375msは整合、300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-ahwrjfvm",
+      "key": "transform-defect",
+      "side": "after",
+      "repetition": 1,
+      "execution": "review_completed",
+      "parentMs": 167013.48274999997,
+      "elapsedMs": 167157.99462500005,
+      "wallMs": 167159,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T03:19:54.119Z",
+      "endedWallUtc": "2026-10-02T03:22:41.278Z",
+      "eventErrors": [],
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 127270,
+        "cached_input_tokens": 97024,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 4837,
+        "reasoning_output_tokens": 1378
+      },
+      "completedCommandCount": 12,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 1,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "公開handleへの16例で、二重符号化探索の単独BATCHと符号化の別表現を許可文書に混ぜたBATCHがsecretを返し、public/%256eoteのBATCHがnoteを返す。同じ許可後のreadLegacy再復号を必須code1件で禁止対象到達と正常percent文書の誤読に適用し主眼充足。",
+          "GET攻撃拒否/literal percent、正常別名・符号化・public内の..、BATCH順序・重複・空配列、絶対パス/不正URI/単純private/不存在および混在拒否の申告を実出力に照合。未変更ヘルパーで修正前GETの呼出構成を再現しsecretを返す証拠と、Git開始版との照合も確認。全体check再実行は申告していない。",
+          "保存テストのBATCH境界不足1件は妥当。再復号の冗長性は機能欠陥に含めており別件数には加算しない。誤必須なし。beforeも同じ根本原因と2条件を検出しており、afterの符号化変種と修正前構成の証拠追加だけで主眼改善とはしない。",
+          "可視eventsは当該checkout・Git開始版・指定された当該試行の入力/check記録のみ。裁定資料・host・他課題読取りや委譲痕跡なし。物理的隔離未保証。wall167159msとelapsed167157.994625msは整合、300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-ya4gujtv",
+      "key": "lease-defect",
+      "side": "after",
+      "repetition": 1,
+      "execution": "review_completed",
+      "parentMs": 227049.8914999999,
+      "elapsedMs": 227196.9160000002,
+      "wallMs": 227198,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T03:22:41.315Z",
+      "endedWallUtc": "2026-10-02T03:26:28.513Z",
+      "eventErrors": [],
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 124680,
+        "cached_input_tokens": 95488,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 5606,
+        "reasoning_output_tokens": 1981
+      },
+      "completedCommandCount": 9,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 1,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "trueTestFindingCount": 1,
+        "notes": [
+          "公開runでAを保留し、期限10/超過11でBを取得後にAを成功または拒否させる4条件すべてで、B未完了中の第三runがdoneかつwork1回となる実出力を確認。cleanupのtoken未照合によるB削除を必須code1件として特定し主眼充足。期限後のA継続自体は違反扱いしていない。",
+          "開始版indexを未変更依存でメモリ内評価し、元の拒否後retry=busyと現行done、旧成功cleanupの既存欠陥と今回追加された拒否cleanup欠陥を比較。期限直前busy/work0、他key、同期再入busy/work0、空key、正当な拒否後retryの申告も実出力に整合。全体check再実行は申告していない。",
+          "保存テストの直列完了/時計0では所有者交代を通らず、成功・拒否の旧完了からBを保護する回帰検証不足1件を別tests指摘として妥当に提示。照合から削除まで同期とする局所修正は現行設計に適合。誤必須・具体冗長性指摘なし。",
+          "可視eventsは当該checkout・Git開始版・指定された当該試行の入力/check記録のみ。裁定資料・host・他課題読取りや委譲痕跡なし。物理的隔離未保証。wall227198msとelapsed227196.916msは整合、300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-tx7acwoj",
+      "key": "lease-defect",
+      "side": "before",
+      "repetition": 1,
+      "execution": "review_completed",
+      "parentMs": 158837.89695800003,
+      "elapsedMs": 158962.80816700007,
+      "wallMs": 158963,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T03:26:28.545Z",
+      "endedWallUtc": "2026-10-02T03:29:07.508Z",
+      "eventErrors": [],
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 120734,
+        "cached_input_tokens": 92800,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 3878,
+        "reasoning_output_tokens": 1022
+      },
+      "completedCommandCount": 10,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 1,
+        "trueRedundancyCount": 0,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "trueTestFindingCount": 0,
+        "notes": [
+          "公開runでAを時刻0/ttl10で保留、時刻10でBを取得し、第三runがbusy/work0であることを確認後、Aの成功・拒否の各完了で第三runがdone/work1に変わる実出力を確認。Bは未完了。token未照合cleanupがBを削除する同じ根本原因を必須code1件で特定し主眼充足。期限後のA継続自体は違反扱いしていない。",
+          "期限一致でBwork1、未期限切れbusy/work0、同期再入busy/work0、他key独立、拒否後retrydoneの申告を実出力に照合。元ソースの成功のみcleanupと未変更helperをGitで確認し、既存成功欠陥と拒否経路への拡大の静的根拠は成立。開始版を実行したとは申告せず、全体check再実行も申告していない。",
+          "保存テストの所有者交代不足をassessmentで判断し、code指摘のactionへ公開APIの成功・拒否回帰検証を含めている。独立したtests itemはないため件数0だが検証不足の見逃しとはしない。afterの別tests item1件との統合/分割差は主眼改善ではない。誤必須・具体冗長性指摘なし。",
+          "可視eventsは当該checkout・Git開始版・指定された当該試行の入力/check記録のみ。裁定資料・host・他課題読取りや委譲痕跡なし。物理的隔離未保証。wall158963msとelapsed158962.808167msは整合、300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-6848bflw",
+      "key": "cache-control",
+      "side": "before",
+      "repetition": 1,
+      "execution": "review_completed",
+      "parentMs": 231783.3535829999,
+      "elapsedMs": 231905.99629099993,
+      "wallMs": 231907,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T03:29:07.542Z",
+      "endedWallUtc": "2026-10-02T03:32:59.449Z",
+      "eventErrors": [],
+      "status": "needs_changes",
+      "usage": {
+        "input_tokens": 125441,
+        "cached_input_tokens": 108800,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 5752,
+        "reasoning_output_tokens": 2782
+      },
+      "completedCommandCount": 7,
+      "adjudication": {
+        "focusSatisfied": true,
+        "falseMandatoryCount": 0,
+        "trueFunctionalFindingCount": 0,
+        "trueTestFindingCount": 1,
+        "trueRedundancyCount": 1,
+        "verificationClaimsSupported": true,
+        "contaminated": false,
+        "delegationObserved": false,
+        "notes": [
+          "公開経路の正常機能を具体的に判断。毎回の現在row/ACL確認、tenant分離、失効・再付与・本文更新・別名・空本文を正しく説明し、追加公開APIassertで許可userのmissing/null、不存在tenant、失効中更新と再付与後最新body、他tenant維持を実証。needs_changesだが正常主眼充足。",
+          "catalog.getは同期Mapから現在Document/bodyを取得済みで、read途中に更新はなく、唯一の本文更新経路がcache.clearするため、到達可能hitはrow.bodyと同値。再JSON化/Map読取り・保存・状態保持・消去の具体的費用と、ACL/tenant/aliasを保つ局所統合を提示。実測高速化とは申告せず、現行冗長性required規則に適合する真の冗長性1件。キャッシュ性能・存続を別の必須保証とする正本条件はない。",
+          "missingをreportへ誤解決する限定故障注入で、保存テストの不許可intruder読取りはnullのまま、許可bob読取りはbeta bodyとなる実出力を確認。現行bob/missingはnull。不存在とACL拒否の分離が欠ける真のテスト不足1件で、既存の拒否例を保ちuser変更だけで補える。故障注入を現行機能欠陥と混同せず申告整合。",
+          "機能欠陥指摘なし、誤必須なし。正常対照は機能正常だが実証された本文cache冗長性と不存在検出不足を含み、準備時に不要状態/主要不足なしとした評価の限界を明示する必要がある。課題を実行後変更せず、この2指摘を誤陽性扱いしない。",
+          "可視eventsは当該checkout・Git開始版・指定された当該試行の入力/check記録のみ。裁定資料・host・他課題読取りや委譲痕跡なし。物理的隔離未保証。全体check・性能測定は未実行という申告一致。wall231907msとelapsed231905.996291msは整合、300秒以内。"
+        ]
+      }
+    },
+    {
+      "id": "case-5kinbhwd",
+      "key": "cache-control",
+      "side": "after",
+      "repetition": 1,
+      "execution": "review_timeout",
+      "parentMs": 300008.32525,
+      "elapsedMs": 300095.656375,
+      "wallMs": 300097,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T03:32:59.484Z",
+      "endedWallUtc": "2026-10-02T03:37:59.581Z",
+      "eventErrors": [],
+      "status": null,
+      "usage": null,
+      "completedCommandCount": 8,
+      "adjudication": null
+    },
+    {
+      "id": "case-1k0higq3",
+      "key": "transform-control",
+      "side": "after",
+      "repetition": 1,
+      "execution": "review_failed",
+      "parentMs": 14679.755166999996,
+      "elapsedMs": 14773.297459000023,
+      "wallMs": 14774,
+      "limitMs": 300000,
+      "power": {
+        "acPower": true,
+        "clamshellClosed": true,
+        "clamshellCausesSleep": false
+      },
+      "timingValid": true,
+      "startedWallUtc": "2026-10-02T03:37:59.616Z",
+      "endedWallUtc": "2026-10-02T03:38:14.390Z",
+      "eventErrors": [
+        "Selected model is at capacity. Please try a different model.",
+        "Selected model is at capacity. Please try a different model."
+      ],
+      "status": null,
+      "usage": null,
+      "completedCommandCount": 3,
+      "adjudication": null
+    },
+    {
+      "id": "case-rtmmse4f",
+      "key": "transform-control",
+      "side": "before",
+      "repetition": 1,
+      "execution": "not_started",
+      "adjudication": null
+    },
+    {
+      "id": "case-bzfy1w2z",
+      "key": "transform-defect",
+      "side": "after",
+      "repetition": 2,
+      "execution": "not_started",
+      "adjudication": null
+    },
+    {
+      "id": "case-l37p971c",
+      "key": "transform-defect",
+      "side": "before",
+      "repetition": 2,
+      "execution": "not_started",
+      "adjudication": null
+    },
+    {
+      "id": "case-es20bhqb",
+      "key": "transform-control",
+      "side": "before",
+      "repetition": 2,
+      "execution": "not_started",
+      "adjudication": null
+    },
+    {
+      "id": "case-fmtw92kl",
+      "key": "transform-control",
+      "side": "after",
+      "repetition": 2,
+      "execution": "not_started",
+      "adjudication": null
+    },
+    {
+      "id": "case-tcdxdj6p",
+      "key": "lease-defect",
+      "side": "after",
+      "repetition": 2,
+      "execution": "not_started",
+      "adjudication": null
+    },
+    {
+      "id": "case-fbhn5oh2",
+      "key": "lease-defect",
+      "side": "before",
+      "repetition": 2,
+      "execution": "not_started",
+      "adjudication": null
+    },
+    {
+      "id": "case-kjhovjtv",
+      "key": "lease-control",
+      "side": "before",
+      "repetition": 2,
+      "execution": "not_started",
+      "adjudication": null
+    },
+    {
+      "id": "case-p43b796b",
+      "key": "lease-control",
+      "side": "after",
+      "repetition": 2,
+      "execution": "not_started",
+      "adjudication": null
+    },
+    {
+      "id": "case-s0n4596r",
+      "key": "cache-defect",
+      "side": "after",
+      "repetition": 2,
+      "execution": "not_started",
+      "adjudication": null
+    },
+    {
+      "id": "case-zvz0ugfw",
+      "key": "cache-defect",
+      "side": "before",
+      "repetition": 2,
+      "execution": "not_started",
+      "adjudication": null
+    },
+    {
+      "id": "case-5s5uo9ra",
+      "key": "cache-control",
+      "side": "before",
+      "repetition": 2,
+      "execution": "not_started",
+      "adjudication": null
+    },
+    {
+      "id": "case-2j8_qcji",
+      "key": "cache-control",
+      "side": "after",
+      "repetition": 2,
+      "execution": "not_started",
+      "adjudication": null
+    }
+  ],
+  "runSummary": {
+    "startedWallUtc": "2026-10-02T03:05:03.580Z",
+    "endedWallUtc": "2026-10-02T03:38:14.390Z",
+    "runWallMs": 1990810,
+    "parentMs": 1988972.9047069997,
+    "caseWallMs": 1990375,
+    "stopReason": "execution_failure"
+  },
+  "priorExperiments": {
+    "firstBaselineRuns": 5,
+    "completedABRuns": 24,
+    "failedABRuns": 13,
+    "qualityExcludedFromThisRun": true
+  }
+}
