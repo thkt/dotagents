@@ -6,3 +6,7 @@ node_modules/
 /.playwright-cli/
 /.rumdl_cache/
 /.issue-drafts/
+
+.yomiyasu/
+__pycache__/
+*.py[cod]
