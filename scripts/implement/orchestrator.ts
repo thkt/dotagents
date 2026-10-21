@@ -51,7 +51,7 @@ const runtime: {
   publish: typeof publish;
 } = { command, verify: run, publish };
 // Applied separately to each local verification command.
-const checkTimeMs = 540000;
+const checkTimeMs = 900000;
 // General commands and post-publication target checks retain their 11-minute limit.
 const hostCommandTimeMs = 660000;
 
@@ -254,6 +254,7 @@ function parseStart(args: string[]) {
       'previous-run': { type: 'string' },
       'request-file': { type: 'string' },
       'review-run': { type: 'string' },
+      'check-timeout-run': { type: 'string' },
       'interrupted-run': { type: 'string' },
       'host-run': { type: 'string' },
       'host-evidence': { type: 'string' },
@@ -261,7 +262,7 @@ function parseStart(args: string[]) {
   });
   assert(
     parsed.positionals.length === 1,
-    'Usage: bun scripts/implement/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report docs/research/NAME.md=BLOB] [--previous-run DIRECTORY --request-file PATH] [--host-run DIRECTORY --host-evidence PATH] [--review-run DIRECTORY --run-dir DIRECTORY] [--interrupted-run DIRECTORY --run-dir DIRECTORY [--host-evidence PATH]]',
+    'Usage: bun scripts/implement/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report docs/research/NAME.md=BLOB] [--previous-run DIRECTORY --request-file PATH] [--host-run DIRECTORY --host-evidence PATH] [--check-timeout-run DIRECTORY --run-dir DIRECTORY] [--review-run DIRECTORY --run-dir DIRECTORY] [--interrupted-run DIRECTORY --run-dir DIRECTORY [--host-evidence PATH]]',
   );
   assert(
     Boolean(parsed.values['previous-run']) === Boolean(parsed.values['request-file']),
@@ -304,6 +305,25 @@ function parseStart(args: string[]) {
         !parsed.values['start-commit'] &&
         !parsed.values.report),
     '中断復帰は新しい--run-dirを使い、他の復帰入口・参照指定と混在できません',
+  );
+  const recoveryEntries = [
+    'review-run',
+    'interrupted-run',
+    'check-timeout-run',
+    'host-run',
+    'previous-run',
+  ] as const;
+  assert(
+    recoveryEntries.filter((name) => parsed.values[name]).length <= 1,
+    '復帰入口は併用できません',
+  );
+  assert(
+    !parsed.values['check-timeout-run'] ||
+      (parsed.values['run-dir'] &&
+        !parsed.values['start-commit'] &&
+        !parsed.values.report &&
+        !parsed.values['host-evidence']),
+    'check時間切れ復帰には新しい--run-dirが必要で、参照・追加証拠を指定できません',
   );
   return parsed;
 }
@@ -351,7 +371,9 @@ async function selectStart(args: string[], io: typeof runtime) {
     localOnly,
   });
   const reviewPrior =
-    parsed.values['review-run'] || parsed.values['interrupted-run']
+    parsed.values['review-run'] ||
+    parsed.values['interrupted-run'] ||
+    parsed.values['check-timeout-run']
       ? await previousReviewRun({
           ...reviewEntry(parsed),
           runDirectory: parsed.values['run-dir'],
@@ -984,7 +1006,7 @@ const verificationActions: Record<Exclude<StopReason, 'ready_for_human_review'>,
   source_changed:
     'Assigned AI: identify the source changes against the recorded review target and check for concurrent writers; verify the intended deliverables again.',
   check_unavailable:
-    'Assigned AI: investigate check startup or timeout from its command logs; the host must resolve execution environment problems within existing authorization before verification.',
+    '担当AI: checkの起動失敗・時間切れを原ログで調べてください。未公開・初回check時間切れ・未評価・未修正だけは、独立評価済みハーネスの--check-timeout-runと同じ親の新保存先で再検証できます。旧記録を編集せず、他の停止を転用しないでください。',
   capture_unavailable:
     'Assigned AI: inspect capture logs and configured runtime; the host must resolve missing browser, display or dependency support before required capture and verification.',
   capture_timeout:
@@ -1410,7 +1432,11 @@ function errorMessage(error: unknown) {
 
 function reviewEntry(parsed: ReturnType<typeof parseStart>) {
   return {
-    directory: parsed.values['review-run'] ?? parsed.values['interrupted-run'],
+    directory:
+      parsed.values['review-run'] ??
+      parsed.values['interrupted-run'] ??
+      parsed.values['check-timeout-run'],
+    checkTimeout: Boolean(parsed.values['check-timeout-run']),
     interrupted: Boolean(parsed.values['interrupted-run']),
     evidenceFile: parsed.values['interrupted-run'] ? parsed.values['host-evidence'] : undefined,
   };
@@ -1427,11 +1453,12 @@ async function saveRecoveryProvenance(
       mode: 0o600,
     });
   }
-  if (!input.interruption) {
+  const stopped = input.interruption ?? input.checkTimeout;
+  if (!stopped) {
     return;
   }
   const observations = await Promise.all(
-    input.interruption.observations.map(async (ref) => ({
+    stopped.observations.map(async (ref) => ({
       ...ref,
       content: await readReference(ref),
     })),

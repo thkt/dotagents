@@ -1,3 +1,4 @@
+import { verifyCommandContract } from './review-recovery.ts';
 import assert from 'node:assert/strict';
 import { readFile, writeFile, readdir, realpath } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -154,6 +155,7 @@ export async function previousHostRun(input: {
   };
   const config: unknown = JSON.parse(saved('verification-config.json'));
   assertConfig(config);
+  verifyCommandContract(config, input.target);
   assert(
     config.baseCommit === stop.baseCommit &&
       config.cwd === input.cwd &&

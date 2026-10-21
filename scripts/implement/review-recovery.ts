@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { realpath } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { prepareCheckTimeout } from './check-timeout-recovery.ts';
+import type { TestRecord } from './test-author.ts';
+import { testRecordPaths } from './test-author.ts';
 import type { ReviewReturn } from './host-records.ts';
 import type { Config, State } from './input.ts';
 import { assertConfig, assertPreviousConfig, assertState, testRecordsShape } from './input.ts';
@@ -8,7 +11,7 @@ import { hash, verifyHostReturn } from './host-records.ts';
 import { reviewRecoveryRecords, verifyReviewReturn } from './review-recovery-records.ts';
 import { RecordObservation } from './record-observation.ts';
 import { snapshot } from './correction.ts';
-import { verifyTestArtifacts, verifyTestBaseline } from './test-author.ts';
+import { verifyTestArtifacts } from './test-author.ts';
 import { isRecord, outside } from '../shared/values.ts';
 import {
   prepareInterruption,
@@ -65,6 +68,7 @@ async function verifyStoppedCheck(
 export async function previousReviewRun(input: {
   directory?: string;
   interrupted?: boolean;
+  checkTimeout?: boolean;
   evidenceFile?: string;
   runDirectory?: string;
   cwd: string;
@@ -78,7 +82,7 @@ export async function previousReviewRun(input: {
   if (!input.directory) {
     return undefined;
   }
-  assert(input.runDirectory, '不正評価からの復帰には新しい--run-dirが必要です');
+  assert(input.runDirectory, '停止からの復帰には新しい--run-dirが必要です');
   const dir = await realpath(input.directory);
   assert(outside(dir, resolve(input.runDirectory)), '新runは旧runの外に保存してください');
   const observation = new RecordObservation();
@@ -110,7 +114,7 @@ export async function previousReviewRun(input: {
   }
   assertState(state);
   assert(isRecord(result) && isRecord(target), '旧runの対象記録が不正です');
-  verifyEligibility(result, state, input.interrupted, dir);
+  verifyEligibility(result, state, input.interrupted, dir, input.checkTimeout);
   assert(
     config.cwd === input.cwd &&
       config.runDir === join(dir, 'verification') &&
@@ -137,33 +141,9 @@ export async function previousReviewRun(input: {
     '合意済みIssueが変わりました',
   );
   verifyCommandContract(config, input.target);
-  const review: unknown = JSON.parse(await text('verification/review-1.target.json'));
-  assert(isRecord(review), '旧評価対象が不正です');
-  assert(
-    review.source === state.source &&
-      review.baseCommit === state.baseCommit &&
-      review.configHash === state.configHash &&
-      review.latestRepair === null &&
-      JSON.stringify(review.repairsSinceReview) === '[]' &&
-      isRecord(review.issue) &&
-      review.issue.hash === state.issueHash &&
-      review.issue.content === input.original &&
-      JSON.stringify(review.tests) === JSON.stringify(state.testRecords),
-    '旧評価対象と停止記録が一致しません',
-  );
-  const { targetId, ...payload } = review;
-  assert(
-    targetId === hash(JSON.stringify(payload)) &&
-      hash(JSON.stringify(review.files)) === state.source,
-    '旧評価対象の識別値が一致しません',
-  );
-  verifyFirstExecution(state, input.interrupted, dir);
-  await verifyStoppedCheck(review.check, config, state, dir, text);
-  await text('verification/review-1.stdout');
-  await text('verification/review-1.stderr');
-  await text('verification/review-1.additions.json');
-  await text('verification/review-1.prompt');
-  await text('verification/review-1.diff');
+  if (!input.checkTimeout) {
+    await verifyReviewTarget(config, state, dir, text, input.original, input.interrupted);
+  }
   const originalTests = testRecordsShape.parse(JSON.parse(await text('test-records.json')));
   assert(
     JSON.stringify(originalTests) === JSON.stringify(state.testRecords),
@@ -179,7 +159,6 @@ export async function previousReviewRun(input: {
   const runtimePaths = await verifyReviewedRuntime(state, observation);
   const history = await verifyInitialHistory(config, input.cwd, observation);
   assert(config.testBaseline, '旧独立テストの修正前入力がありません');
-  await verifyTestBaseline(config.testBaseline);
   verifyAuthority(result, input.localOnly);
   const interruption = input.interrupted
     ? await prepareInterruption({
@@ -212,9 +191,19 @@ export async function previousReviewRun(input: {
     head: input.head,
     branch: input.branch,
   };
-  const returned: ReviewReturn = interruption
-    ? { ...reviewReturn, interruption: await retainInterruptionTestModes(interruption, tests) }
-    : reviewReturn;
+  const checkTimeout = input.checkTimeout
+    ? await prepareCheckTimeout({
+        dir,
+        config,
+        state,
+        result,
+        text,
+        branch: input.branch,
+        runDirectory: resolve(input.runDirectory),
+        references: [...runtimePaths, ...(history?.references ?? []), ...testRecordPaths(tests)],
+      })
+    : undefined;
+  const returned = await stoppedReturn(reviewReturn, interruption, checkTimeout, tests);
   await verifyReviewReturn(
     returned,
     input.cwd,
@@ -222,6 +211,8 @@ export async function previousReviewRun(input: {
     undefined,
     new Set<string>(),
     new RecordObservation(),
+    false,
+    checkTimeout,
   );
   return {
     dir,
@@ -239,7 +230,20 @@ function verifyEligibility(
   state: State,
   interrupted: boolean | undefined,
   dir: string,
+  checkTimeout?: boolean,
 ) {
+  if (checkTimeout) {
+    assert(
+      result.terminal === true &&
+        result.status === 'stopped' &&
+        result.phase === 'verification' &&
+        result.publication === 'not_attempted' &&
+        !result.url &&
+        !result.commit,
+      '未公開の終端verification停止だけを指定してください',
+    );
+    return;
+  }
   assert(
     result.terminal === true &&
       result.status === 'stopped' &&
@@ -275,10 +279,13 @@ function verifyFirstExecution(state: State, interrupted: boolean | undefined, di
   );
 }
 
-function verifyCommandContract(config: Config, target: Awaited<ReturnType<typeof readTarget>>) {
+export function verifyCommandContract(
+  config: Config,
+  target: Awaited<ReturnType<typeof readTarget>>,
+) {
   assert(
     JSON.stringify(config.check) === JSON.stringify(targetCommand(target.config.check)) &&
-      config.checkTimeMs === 540000 &&
+      (config.checkTimeMs === 540000 || config.checkTimeMs === 900000) &&
       JSON.stringify(config.setup) === JSON.stringify(target.config.setup.map(targetCommand)) &&
       JSON.stringify(config.capture) ===
         JSON.stringify(
@@ -297,4 +304,55 @@ function verifyAuthority(result: Record<string, unknown>, currentLocalOnly: bool
   );
   const localOnly = typeof result.localOnly === 'boolean' ? result.localOnly : true; // 旧記録で権限が判別できなければ公開しない範囲に限定する。
   assert(!localOnly || currentLocalOnly, '復帰で公開権限を拡大できません');
+}
+
+async function verifyReviewTarget(
+  config: Config,
+  state: State,
+  dir: string,
+  text: (name: string) => Promise<string>,
+  original: string,
+  interrupted?: boolean,
+) {
+  const review: unknown = JSON.parse(await text('verification/review-1.target.json'));
+  assert(isRecord(review), '旧評価対象が不正です');
+  assert(
+    review.source === state.source &&
+      review.baseCommit === state.baseCommit &&
+      review.configHash === state.configHash &&
+      review.latestRepair === null &&
+      JSON.stringify(review.repairsSinceReview) === '[]' &&
+      isRecord(review.issue) &&
+      review.issue.hash === state.issueHash &&
+      review.issue.content === original &&
+      JSON.stringify(review.tests) === JSON.stringify(state.testRecords),
+    '旧評価対象と停止記録が一致しません',
+  );
+  const { targetId, ...payload } = review;
+  assert(
+    targetId === hash(JSON.stringify(payload)) &&
+      hash(JSON.stringify(review.files)) === state.source,
+    '旧評価対象の識別値が一致しません',
+  );
+  verifyFirstExecution(state, interrupted, dir);
+  await verifyStoppedCheck(review.check, config, state, dir, text);
+  await text('verification/review-1.stdout');
+  await text('verification/review-1.stderr');
+  await text('verification/review-1.additions.json');
+  await text('verification/review-1.prompt');
+  await text('verification/review-1.diff');
+}
+
+async function stoppedReturn(
+  base: ReviewReturn,
+  interruption: ReviewReturn['interruption'],
+  checkTimeout: ReviewReturn['checkTimeout'],
+  tests: TestRecord[],
+): Promise<ReviewReturn> {
+  if (checkTimeout) {
+    return { ...base, checkTimeout };
+  }
+  return interruption
+    ? { ...base, interruption: await retainInterruptionTestModes(interruption, tests) }
+    : base;
 }

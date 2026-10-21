@@ -20,6 +20,14 @@ export const reviewReturnShape = z.strictObject({
   source: z.string().regex(/^[a-f0-9]{64}$/),
   head: nonblank,
   branch: nonblank,
+  checkTimeout: z
+    .strictObject({
+      version: z.literal(1),
+      state: nonblank,
+      modes: z.array(z.strictObject({ path: absolutePath, mode: z.number().int() })),
+      observations: z.array(reference).min(3),
+    })
+    .optional(),
   interruption: z
     .strictObject({
       version: z.literal(1),
@@ -37,7 +45,9 @@ export const hostReturnShape = z.strictObject({
   previousRun: absolutePath,
   records: z.array(reference).min(1),
   evidence: reference,
-  reviewReturn: reviewReturnShape.refine((value) => Boolean(value.interruption)).optional(),
+  reviewReturn: reviewReturnShape
+    .refine((value) => Boolean(value.interruption || value.checkTimeout))
+    .optional(),
 });
 export type HostReturn = z.infer<typeof hostReturnShape>;
 
@@ -46,7 +56,7 @@ export function interruptionReturn(config: {
   hostReturn?: HostReturn;
   revision?: { reviewReturn?: ReviewReturn };
 }) {
-  return config.reviewReturn?.interruption
+  return config.reviewReturn?.interruption || config.reviewReturn?.checkTimeout
     ? config.reviewReturn
     : (config.hostReturn?.reviewReturn ?? config.revision?.reviewReturn);
 }
@@ -130,6 +140,9 @@ export async function hostLocalRoots(input?: HostReturn | ReviewReturn) {
     if ('evidence' in current) {
       const evidence = hostEvidenceShape.parse(JSON.parse(await readReference(current.evidence)));
       roots.push(current.evidence.path, ...evidence.logs.map((ref) => ref.path));
+    }
+    if ('checkTimeout' in current && current.checkTimeout) {
+      roots.push(...current.checkTimeout.observations.map((ref) => dirname(ref.path)));
     }
     if ('interruption' in current && current.interruption) {
       const interrupted = current.interruption;

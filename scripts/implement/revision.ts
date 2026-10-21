@@ -11,6 +11,7 @@ import { assertRunning } from '../shared/process.ts';
 import type { Reader } from '../shared/target.ts';
 import { graphQlPrPublication, matchPrPublication, referencesIssue } from './pr-identity.ts';
 import { verifyReviewReturn } from './review-recovery-records.ts';
+import { interruptionReturn } from './host-records.ts';
 import { hasExecutionLock, reconcileExecutions } from './execution-history.ts';
 
 export { reconcileExecutions } from './execution-history.ts';
@@ -123,8 +124,8 @@ export async function checkRevision(
 ) {
   if (revision.reviewReturn) {
     assert(
-      revision.reviewReturn.interruption && revision.reviewReturn.branch === revision.branch,
-      '修正元の中断照合履歴が一致しません',
+      interruptionReturn(revision) && revision.reviewReturn.branch === revision.branch,
+      '修正元の停止照合履歴が一致しません',
     );
     await verifyReviewReturn(
       revision.reviewReturn,

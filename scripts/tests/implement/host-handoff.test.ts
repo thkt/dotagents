@@ -23,6 +23,7 @@ async function prepareStop(
   f: DevelopmentFixture,
   stage: 'initial' | 'repair' = 'initial',
   localOnly = true,
+  savedBudget?: number,
 ) {
   if (localOnly) {
     f.args.push('--no-publish');
@@ -64,6 +65,9 @@ async function prepareStop(
     );
     const actual = {
       ...config,
+      ...(savedBudget !== undefined && config.runDir === join(f.dir, 'verification')
+        ? { checkTimeMs: savedBudget }
+        : {}),
       issue: [process.execPath, '-e', `process.stdout.write(${JSON.stringify(issue)})`],
       review: [process.execPath, script, 'review'],
       repair: [process.execPath, script, 'repair'],
@@ -142,6 +146,47 @@ async function runRecords(dir: string): Promise<Record<string, string>> {
   );
   Object.assign(records, ...entries);
   return records;
+}
+
+for (const budget of [540000, 900000, 540001]) {
+  testDevelopment(`host復帰は正規の旧check予算だけを引き継ぐ: ${budget}`, async (f) => {
+    // 旧run生成時だけ通常入口の現行予算assertを外し、保存後は編集しない。
+    f.io.verify = (config, head) => {
+      f.calls.verificationEntries++;
+      return f.verify(config, head);
+    };
+    const cwd = await prepareStop(f, 'repair', true, budget);
+    const before = await runRecords(f.dir);
+    const m = await measurement(f, cwd);
+    const calls = { ...f.calls };
+    const originalVerify = f.verify;
+    let freshChecks = 0;
+    f.verify = async (config, head) => {
+      freshChecks++;
+      expect(config.checkTimeMs).toBe(900000);
+      return originalVerify(config, head);
+    };
+    const outcome: unknown = await develop(m.args, f.io).catch((error: unknown) => error);
+    expect(await runRecords(f.dir)).toEqual(before);
+    expect(f.calls.implementations).toBe(calls.implementations);
+    expect(f.calls.pushes).toBe(0);
+    expect(f.calls.publications).toBe(0);
+    if (budget === 540001) {
+      expect(outcome).toBeInstanceOf(Error);
+      expect(freshChecks).toBe(0);
+      expect(f.calls.tests).toBe(calls.tests);
+    } else {
+      expect(outcome).toMatchObject({ status: 'verified_local' });
+      expect(freshChecks).toBe(1);
+      const state = object(
+        JSON.parse(await readFile(join(m.dir, 'verification/state.json'), 'utf8')),
+      );
+      expect(state).toMatchObject({ checks: 1, review: 1, repair: 0 });
+      expect(
+        object(JSON.parse(await readFile(join(m.dir, 'verification-config.json'), 'utf8'))),
+      ).toMatchObject({ checkTimeMs: 900000 });
+    }
+  });
 }
 
 testDevelopment('初回テストのホスト支援後に新しい独立判定と初回実装を行う', async (f) => {
