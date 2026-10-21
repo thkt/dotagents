@@ -18,7 +18,6 @@
 | 入口 | 利用条件と参照先 |
 | --- | --- |
 | `scoping` | 要求・検証方法・合意を整理し、Issueまたは公開しない下書きに渡します。必要な参照は[スキル](skills/scoping/SKILL.md)から辿ります |
-| `yomiyasu` | このrepoの日本語ドキュメントの作成・更新とPR本文に使います。同梱2.1.1とPython 3標準ライブラリを使う[適用手順](skills/references/yomiyasu.md)に従います。通常の会話や無関係なrepoへの自動適用・登録変更は行いません |
 | `implement` | 合意済みIssueを受け取り、テスト作成と実装を別セッションで扱います。方針は[開発方針](docs/wiki/development-policy.md#実装とテストの整理)に従います。信頼するスキル実体からCLIを解決し、対象repoを指定します。[スキル](skills/implement/SKILL.md)、[通常起動](scripts/README.md#issueからpr作成)、[既存PR修正](scripts/README.md#既存prの修正)に従います |
 | 対象repoの `.dotagents.json` | checkoutルートの設定は必須です。commit・pushは任意で、リポジトリへの登録による共有を推奨します。repo・remote・base branch、setup・check・CI、必要な媒体を明示します。[設定形式と拒否条件](scripts/README.md#対象repoの設定)が正本です |
 | 文書で案内するCLI・package script | 呼び出し方と用途は[CLI手順](scripts/README.md)、導入とcheckは[セットアップと検証](#セットアップと検証)で確認します。通常の開発と、担当者向けの1回レビュー試行は区別します |
@@ -36,7 +35,7 @@ bun install --frozen-lockfile --ignore-scripts
 bun run check
 ```
 
-日本語確認にはPython 3も必要です。版の条件とrun／verify、ローカル記録とGit共有の区別は[適用手順](skills/references/yomiyasu.md)を参照してください。同梱Pythonの振る舞いは共通checkの網羅対象ではありません。
+このrepoの日本語ドキュメントの作成・更新とPR本文の確認には、外部からインストールした`yomiyasu`とPython 3も必要です。本体はこのrepoに同梱せず、各ホストで用意します。スキル実体の確認、run／verify、ローカル記録とGit共有の区別は[適用手順](skills/references/yomiyasu.md)に従います。外部スキルの動作は共通checkの網羅対象ではありません。
 
 Bun 1.4.3 を使います。check は次の順に実行します。ツールごとに検査する対象を分けています。fallow 3.32.0 もバージョンを固定した開発依存で、上記の setup で導入します。
 

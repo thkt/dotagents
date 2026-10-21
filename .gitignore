@@ -6,6 +6,7 @@ node_modules/
 /.playwright-cli/
 /.rumdl_cache/
 /.issue-drafts/
+/skills/yomiyasu/
 
 .yomiyasu/
 __pycache__/
