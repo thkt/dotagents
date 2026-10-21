@@ -35,6 +35,8 @@ bun install --frozen-lockfile --ignore-scripts
 bun run check
 ```
 
+このrepoの日本語ドキュメントの作成・更新とPR本文の確認には、外部からインストールした`yomiyasu`とPython 3も必要です。本体はこのrepoに同梱せず、各ホストで用意します。スキル実体の確認、run／verify、ローカル記録とGit共有の区別は[適用手順](skills/references/yomiyasu.md)に従います。外部スキルの動作は共通checkの網羅対象ではありません。
+
 Bun 1.4.3 を使います。check は次の順に実行します。ツールごとに検査する対象を分けています。fallow 3.32.0 もバージョンを固定した開発依存で、上記の setup で導入します。
 
 | 順 | package script | ツール | 検査する対象 |

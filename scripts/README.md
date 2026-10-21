@@ -870,7 +870,7 @@ flowchart TD
 
 ホストはdraft公開・機械照合・同じheadのCI確認までを行い、CI成功だけでreadyへ移しません。担当AIは新規PR・既存PRの修正とも次を行います。CLIの`published_draft`や独立評価の`ready_for_human_review`は、この作業や人の承認の完了を意味しません。
 
-日本語のPR本文には、次の本文照合・編集の中で[natural-japaneseの適用手順](../skills/references/natural-japanese.md)を使います。完成した最新本文にlintを実行し、推敲が必要ならdraftで編集します。CLIが参照するaccepted評価や保存済みの証拠を書き換えず、本文の修正後は原資料との意味の照合と読戻しを行います。専用モデルや新しい公開工程は追加しません。
+日本語のPR本文には、次の本文照合・編集の中で[yomiyasuの適用手順](../skills/references/yomiyasu.md)を使います。原文と最終稿を別保存し、完成した最新本文に対象を明示したrun／verifyを実行します。推敲が必要ならdraftで編集します。全文を含むローカル記録をGit共有と混同しません。CLIが参照するaccepted評価や保存済みの証拠を書き換えず、本文の修正後は原資料との意味の照合と読戻しを行います。専用モデルや新しい公開工程は追加しません。
 
 1. 実際の最新本文と対象（URL、repo、作者、OPEN・draft状態、head branch・commit、base、Issue参照）を読み、Issue・accepted評価・検証結果と照合します。事実、数量、条件、範囲、否定、権限、未確認事項、リンクと必要な説明を確認し、生成時の省略・内部パス置換・整形で意味が変わっていないか読みます。必要な媒体は[実表示確認](#prへの画像動画の添付)も完了します。draftの本文は閲覧可能で、後の修正は開示を取り消しません。
 2. 本文を直接編集する場合も、対象・主体・権限と現在の本文・head・根拠を照合してからdraftを確認します。readyなら`gh pr ready PR_NUMBER --repo OWNER/REPO --undo`で戻し、切替後の対象・本文・head・draft状態を読み戻します。書込み直前にも変更案と最新本文・head・根拠を照合し、他担当の変更があれば上書きせず取り込み方を確認します。`gh pr edit PR_NUMBER --repo OWNER/REPO --body-file /absolute/path/pr.md`の後は、最新本文を読み戻して内容とリンク・必要媒体を再確認します。変更前の成功は流用しません。
