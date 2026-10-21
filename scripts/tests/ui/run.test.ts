@@ -35,6 +35,9 @@ test('Bun entry uses target Playwright and rejects successful tests without comp
       `
       import { writeFileSync } from 'node:fs';
       import { join } from 'node:path';
+      const {default: config} = await import(process.argv[process.argv.indexOf('--config') + 1]);
+      const selected = join(process.cwd(), 'width.spec.ts');
+      if (!config.testMatch.test(selected)) throw Error('指定specが生成設定から選択されない');
       const out = process.env.WIDTH_SWEEP_OUTPUT;
       const tests = ['chromium', ...(process.env.SWEEP_TEST_MODE.startsWith('multi-') ? ['firefox'] : [])].map(projectName => ({projectName,status:'expected',expectedStatus:'passed',results:[{status:'passed'}]}));
       writeFileSync(out + '.report.json', JSON.stringify({
@@ -55,12 +58,12 @@ test('Bun entry uses target Playwright and rejects successful tests without comp
       }
     `,
     );
+    const normal = execute('normal');
+    expect(normal.status).toBe(0);
     const partial = execute('multi-missing');
     expect(partial.status).toBe(1);
     expect(partial.stderr).toContain('Missing sweep record for selected test target');
     expect(execute('multi-complete').status).toBe(0);
-    const normal = execute('normal');
-    expect(normal.status).toBe(0);
     const source = await readFile(join(root, 'normal.config.mjs'), 'utf8');
     expect(source).toContain('captureConfig');
     expect(source).toContain('playwright.config.ts');

@@ -1668,9 +1668,7 @@ for (const location of ['checkout', 'git', 'symlink'] as const) {
         /Run directory.*result not saved: no safe new run directory/,
       );
       expect(hooks.setups).toBe(0);
-      expect(existsSync(join(dir, 'result.json'))).toBe(false);
-      expect(existsSync(join(dir, 'issue.json'))).toBe(false);
-      expect(existsSync(join(dir, 'checkout'))).toBe(false);
+      expect(existsSync(dir)).toBe(false);
     },
   );
 }

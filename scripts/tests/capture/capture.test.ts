@@ -162,6 +162,22 @@ test('capture report rejects non-execution and failures; only launch failures ar
       spec,
     ),
   ).toBe(false);
+  for (const execution of [
+    { expectedStatus: 'failed', results: [{ status: 'passed' }] },
+    { expectedStatus: 'passed', results: [{ status: 'failed' }] },
+    { expectedStatus: 'passed', results: [{ status: 'passed' }, { status: 'failed' }] },
+    { expectedStatus: 'passed', results: [] },
+  ]) {
+    expect(
+      capturePassed(
+        {
+          ...report,
+          suites: [{ specs: [{ file: spec, tests: [{ status: 'expected', ...execution }] }] }],
+        },
+        spec,
+      ),
+    ).toBe(false);
+  }
   expect(capturePassed(report, '/target/config/tests/missing.spec.ts')).toBe(false);
   for (const stats of [{ expected: 0 }, { skipped: 1 }, { unexpected: 1 }, { flaky: 1 }]) {
     expect(capturePassed({ ...report, stats: { ...report.stats, ...stats } }, spec)).toBe(false);
@@ -344,3 +360,49 @@ writeFileSync(output + '/view.png', Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAA
     }
   });
 }
+
+for (const [extension, hex] of [
+  ['png', '89504e470d0a1a0a0000000000'],
+  ['jpg', 'ffd8ff00000000000000000000'],
+  ['jpeg', 'ffd8ff00000000000000000000'],
+  ['webp', '52494646000000005745425000'],
+  ['mp4', '00000000667479700000000000'],
+  ['webm', '1a45dfa3000000000000000000'],
+] as const) {
+  test(`撮影媒体の${extension}署名と12・13バイト境界を確認する`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'capture-signature-'));
+    try {
+      const file = join(root, `media.${extension}`);
+      const bytes = Buffer.from(hex, 'hex');
+      await writeFile(file, bytes);
+      await validateCaptureMedia(root);
+      await writeFile(file, bytes.subarray(0, 12));
+      await assert.rejects(() => validateCaptureMedia(root), /Invalid capture media/);
+      await writeFile(file, Buffer.alloc(13));
+      await assert.rejects(() => validateCaptureMedia(root), /Invalid capture media/);
+      if (extension === 'webp') {
+        for (const offset of [0, 8]) {
+          const disguised = Buffer.from(bytes);
+          disguised[offset] = 0;
+          await writeFile(file, disguised);
+          await assert.rejects(() => validateCaptureMedia(root), /Invalid capture media/);
+        }
+      }
+      await rm(file);
+      await mkdir(file);
+      await assert.rejects(() => validateCaptureMedia(root), /Invalid capture output/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test('撮影媒体は未知の拡張子に正しい署名があっても拒否する', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'capture-extension-'));
+  try {
+    await writeFile(join(root, 'media.txt'), Buffer.from('89504e470d0a1a0a0000000000', 'hex'));
+    await assert.rejects(() => validateCaptureMedia(root), /Invalid capture media/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
