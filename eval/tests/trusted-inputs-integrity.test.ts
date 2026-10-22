@@ -45,7 +45,7 @@ console.log('NEXT_COMPLETE');
   });
   expect(result.error).toBeUndefined();
   expect(result.signal).toBeNull();
-  expect(result.stdout).toContain('NORMAL_COMPLETE');
+  expect(result.stdout, result.stderr).toContain('NORMAL_COMPLETE');
   return result;
 }
 
@@ -143,7 +143,8 @@ if (result.status === 0 && process.cwd().endsWith('/next') && process.argv[2] ==
     }
   }
 }
-process.exit(result.status ?? 1);
+// pipeへの出力が完了するまで自然終了を待つ。
+process.exitCode = result.status ?? 1;
 `,
         { mode: 0o755 },
       );
