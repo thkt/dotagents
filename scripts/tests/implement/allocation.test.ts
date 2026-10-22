@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { isRecord } from '../../shared/values.ts';
 import { test, expect } from 'bun:test';
-import { mkdtemp, mkdir, readFile, writeFile, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, realpath, rm, symlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -43,6 +43,14 @@ test('開始準備はcheckoutとGit領域内のディレクトリを作成前に
       );
       expect(existsSync(parent)).toBe(false);
     }
+    const link = join(root, 'git-link');
+    await symlink(common, link);
+    const parent = join(common, 'symlink-parent');
+    await assert.rejects(
+      () => allocateDirectory(repo, common, join(link, 'symlink-parent', 'run')),
+      /Run directory resolves inside repository storage/,
+    );
+    expect(existsSync(parent)).toBe(false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
