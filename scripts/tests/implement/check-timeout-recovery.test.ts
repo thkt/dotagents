@@ -165,6 +165,47 @@ for (const response of ['accepted', 'invalid', 'needs_changes', 'check_repair'] 
   );
 }
 
+for (const field of ['source', 'prefix'] as const) {
+  testDevelopment(`初回checkイベントの不一致だけで復帰を拒否する: ${field}`, async (f) => {
+    const t = await fixture(f, false);
+    const check = object(events(t.state.events).find((event) => object(event).role === 'check'));
+    const prefix = join(f.dir, 'verification/check-alternate');
+    if (field === 'prefix') {
+      // 参照先のログも揃え、ログ欠落による拒否と区別する。
+      for (const extension of ['stdout', 'stderr']) {
+        await writeFile(
+          `${prefix}.${extension}`,
+          await readFile(join(f.dir, `verification/check-1.${extension}`)),
+        );
+      }
+    }
+    const value = field === 'source' ? '0'.repeat(64) : prefix;
+    expect(check[field]).not.toBe(value);
+    await patch(join(f.dir, 'verification/state.json'), {
+      events: events(t.state.events).map((event) =>
+        object(event).role === 'check' ? { ...object(event), [field]: value } : event,
+      ),
+    });
+    const original = await records(f.dir);
+    const originalModes = await modes(f.dir);
+    const before = await readFile(t.executions, 'utf8');
+    await writeFile(t.control, JSON.stringify({ response: 'accepted', traceSetup: true }));
+    const returned = await recoveryCli(f, t, {}, { observe: true, publication: true });
+    expect(returned.timedOut).toBe(false);
+    validEntry(returned.stderr);
+    expect(returned.stderr).toContain('初回check時間切れの実行記録が一致しません');
+    expect(returned.code).toBe(1);
+    const roles = (await readFile(t.executions, 'utf8'))
+      .slice(before.length)
+      .split('\n')
+      .filter((role) => role && !role.startsWith('observe-'));
+    expect(roles).toEqual([]);
+    expect(await Bun.file(join(t.dir, 'verification/check-1.stdout')).exists()).toBe(false);
+    expect(await records(f.dir)).toEqual(original);
+    expect(await modes(f.dir)).toEqual(originalModes);
+  });
+}
+
 for (const change of [
   'spawn',
   'failed',
