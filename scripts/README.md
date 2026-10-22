@@ -479,11 +479,11 @@ developmentの停止runには`host-stop.json`を保存します。元の差分�
 
 **Bunを使う試行の環境指定**
 
-固定Bunの絶対パスで起動しても、package script内の子`bun`はPATHから別の版を選ぶ場合があります。固定実体のディレクトリをPATH先頭へ加えた同じ環境で、入口確認とpackage scriptを起動します。このrepoの実行版はBun 1.4.3です。例のパスは利用する固定実体へ置き換えてください。対象repoのコマンドや環境を共通ハーネスが自動補正するものではありません。
+固定Bunの絶対パスで起動しても、package script内の子`bun`はPATHから別の版を選ぶ場合があります。固定実体のディレクトリをPATH先頭へ加えた同じ環境で、入口確認とpackage scriptを起動します。このrepoの実行版はBun 1.4.4です。例のパスは利用する固定実体へ置き換えてください。対象repoのコマンドや環境を共通ハーネスが自動補正するものではありません。
 
 ```sh
 (
-  trial_bun=/absolute/path/to/bun-1.4.3/bin/bun
+  trial_bun=/absolute/path/to/bun-1.4.4/bin/bun
   export PATH="$(dirname "$trial_bun"):$PATH"
   "$trial_bun" --version
   "$trial_bun" install --frozen-lockfile --ignore-scripts
@@ -764,7 +764,7 @@ SIGKILLのテストでは残存プロセスをテスト側で後片付けして�
 
 [.fallowrc.json](../.fallowrc.json)の`entry`には、外部から起動する CLI を、自動発見への追加の入口として指定します。バージョンを固定した fallow 3.32.0 では、`scripts/tests/**/*.test.ts`を Bun プラグインが、Oxlint が読み込む[ローカルプラグイン](lint/local/index.ts)を Oxlint プラグインが自動で検出します。`includeEntryExports`で入口の export も検査します。カスタム`framework`の`usedExports`と`enablers`では、Oxlint が有効なときの`default` export の利用を宣言します。この export の利用は、通常の lint の実行テストでも確認します。未使用のファイル・export・型と通常の依存には既定の`error`を使い、既定が`warn`の dev・optional 依存は明示的に`error`にします。他の export と、ファイル・依存の未使用検査も維持します。fallow のバージョンを更新するときは、既定の重大度と入口の自動検出を再確認してください。使用判定を調べるには、入口を`bunx --no-install fallow list`で、export の参照を`bunx --no-install fallow dead-code --trace scripts/shared/values.ts:isRecord`で確認してください。
 
-整形は`bun run format`、書式の確認は`bun run format:check`を使います。Oxfmt には`scripts`を渡し、[.oxfmtrc.json](../.oxfmtrc.json)の ignore 指定で、従来どおり`scripts/**/*.ts`だけを対象にします。package script に TS の glob を渡すと、fallow が整形対象を入口として追加し、未参照のファイルを見逃すためです。CLI・テストや format 設定を変えたときは、入口と検出条件も確認してください。
+整形は`bun run format`、書式の確認は`bun run format:check`を使います。Bun 1.4.4標準の`bun fmt`に`scripts eval`を渡し、[.oxfmtrc.json](../.oxfmtrc.json)の`singleQuote`と除外指定を使います。対象は`scripts/**/*.ts`と`eval/**/*.ts`で、JavaScript・Markdown・合成課題fixtureは除外します。package script に TS の glob を渡すと、fallow が整形対象を入口として追加し、未参照のファイルを見逃すためです。CLI・テストや format 設定を変えたときは、入口と検出条件も確認してください。
 
 静的解析の参照と推定 coverage は、実行時の利用やテストの網羅を証明しません。CRAP の推定値や類似コードだけで、自動削除や強制分割はしません。呼び出し元、実際の利用条件、既存のテストと突き合わせて判断します。追加調査で指摘がなくても、除外対象を含む全コードの健全性は保証されません。fallow の認知的複雑度と Biome の判定が常に一致するとは扱いません。
 
