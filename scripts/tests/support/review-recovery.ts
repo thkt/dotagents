@@ -23,20 +23,28 @@ export function testReviewRecovery(
   testDevelopment(name, execute, {}, 30000);
 }
 
-export async function records(dir: string): Promise<Record<string, string>> {
-  const result: Record<string, string> = {};
+export async function recordPaths(dir: string): Promise<string[]> {
+  const paths: string[] = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     if (entry.name === 'checkout') {
       continue;
     }
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
-      Object.assign(result, await records(path));
+      paths.push(...(await recordPaths(path)));
     } else {
-      result[path] = createHash('sha256')
-        .update(await readFile(path))
-        .digest('hex');
+      paths.push(path);
     }
+  }
+  return paths;
+}
+
+export async function records(dir: string): Promise<Record<string, string>> {
+  const result: Record<string, string> = {};
+  for (const path of await recordPaths(dir)) {
+    result[path] = createHash('sha256')
+      .update(await readFile(path))
+      .digest('hex');
   }
   return result;
 }

@@ -3,6 +3,7 @@ import { expect, test, spyOn } from 'bun:test';
 import { chmod, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { develop } from '../../implement/orchestrator.ts';
 import * as processModule from '../../shared/process.ts';
 import { events, object } from '../support/correction.ts';
 import { gitOutput, issue } from '../support/development.ts';
@@ -10,6 +11,7 @@ import {
   recoveryFixture,
   recoveryCli,
   records,
+  recordPaths,
   testReviewRecovery as testDevelopment,
 } from '../support/review-recovery.ts';
 
@@ -49,7 +51,7 @@ async function fixture(f: Parameters<Parameters<typeof testDevelopment>[1]>[0], 
 
 async function modes(dir: string) {
   const result: Record<string, number> = {};
-  for (const path of Object.keys(await records(dir))) {
+  for (const path of await recordPaths(dir)) {
     result[path] = (await stat(path)).mode;
   }
   return result;
@@ -150,7 +152,7 @@ for (const response of ['accepted', 'invalid', 'needs_changes', 'check_repair'] 
       expect(f.calls.publications).toBe(0);
       const text = (
         await Promise.all(
-          Object.keys(await records(t.dir))
+          (await recordPaths(t.dir))
             .filter((path) => path.endsWith('.json'))
             .map((path) => readFile(path, 'utf8')),
         )
@@ -558,3 +560,48 @@ for (const change of ['none', 'content', 'mode'] as const) {
     expect(await records(prior)).toEqual(immediate);
   });
 }
+
+testDevelopment('復帰入口の全組合せを後続処理の起動前に拒否する', async (f) => {
+  const entries = [
+    'previous-run',
+    'host-run',
+    'review-run',
+    'interrupted-run',
+    'check-timeout-run',
+  ];
+  let commands = 0;
+  f.io.command = async () => {
+    commands++;
+    throw Error('fixture: unexpected downstream command');
+  };
+  for (const [index, first] of entries.entries()) {
+    for (const second of entries.slice(index + 1)) {
+      const args = [
+        '99',
+        '--repo',
+        f.repo,
+        '--run-dir',
+        f.dir,
+        `--${first}`,
+        join(dirname(f.dir), first),
+        `--${second}`,
+        join(dirname(f.dir), second),
+      ];
+      if (first === 'previous-run' || second === 'previous-run') {
+        args.push('--request-file', join(dirname(f.dir), 'request.json'));
+      }
+      if (first === 'host-run' || second === 'host-run') {
+        args.push('--host-evidence', join(dirname(f.dir), 'evidence.json'));
+      }
+      await assert.rejects(
+        () => develop(args, f.io),
+        /併用|混在|Host return requires a new --run-dir/,
+      );
+      expect(commands).toBe(0);
+      expect(f.calls.implementations).toBe(0);
+      expect(f.calls.verificationEntries).toBe(0);
+      expect(f.calls.publications).toBe(0);
+      expect(f.calls.pushes).toBe(0);
+    }
+  }
+});

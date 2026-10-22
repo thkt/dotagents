@@ -7,6 +7,7 @@ import { snapshot } from '../../implement/correction.ts';
 import { object } from '../support/correction.ts';
 import {
   records,
+  recordPaths,
   recoveryCli,
   recoveryFixture,
   testReviewRecovery as testDevelopment,
@@ -16,7 +17,7 @@ const hash = (content: Buffer) => createHash('sha256').update(content).digest('h
 
 async function savedModes(dir: string): Promise<Record<string, number>> {
   const result: Record<string, number> = {};
-  for (const path of Object.keys(await records(dir))) {
+  for (const path of await recordPaths(dir)) {
     result[path] = (await stat(path)).mode;
   }
   return result;

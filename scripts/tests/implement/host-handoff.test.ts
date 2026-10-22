@@ -7,6 +7,7 @@ import { run, snapshot } from '../../implement/correction.ts';
 import { hash, hostReturnShape } from '../../implement/host-records.ts';
 import { command } from '../../shared/process.ts';
 import { testDevelopment, gitOutput, issue, ok } from '../support/development.ts';
+import { testReviewRecovery } from '../support/review-recovery.ts';
 import type { DevelopmentFixture } from '../support/development.ts';
 import { object, reviewReplySource } from '../support/correction.ts';
 import { expectTestStage } from '../support/test-stage.ts';
@@ -541,7 +542,7 @@ for (const stage of ['initial', 'repair'] as const) {
   );
 }
 
-testDevelopment(
+testReviewRecovery(
   'repeated host return redacts all prior runs and evidence from publication',
   async (f) => {
     // 復帰履歴の除去を検査するため、準備では初回の検証・修正を繰り返さない。
@@ -610,7 +611,7 @@ testDevelopment(
 
 for (const boundary of ['return', 'publication'] as const) {
   for (const damaged of ['record', 'log'] as const) {
-    testDevelopment(
+    testReviewRecovery(
       `repeated host return rejects ancestor ${damaged} at ${boundary}`,
       async (f) => {
         // 祖先の破損拒否を検査するため、初回の検証・修正を重ねて準備しない。
@@ -1067,7 +1068,7 @@ testDevelopment('run直下のruntime原記録が停止後に変われば復帰�
   expect(f.calls.pushes).toBe(0);
 });
 
-testDevelopment('複数回のホスト復帰は祖先と検証工程の原記録を評価へ引き継ぐ', async (f) => {
+testReviewRecovery('複数回のホスト復帰は祖先と検証工程の原記録を評価へ引き継ぐ', async (f) => {
   const implementation = f.implement;
   let ancestor = '';
   f.implement = async (...args) => {

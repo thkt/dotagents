@@ -264,6 +264,17 @@ function parseStart(args: string[]) {
     parsed.positionals.length === 1,
     'Usage: bun scripts/implement/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report docs/research/NAME.md=BLOB] [--previous-run DIRECTORY --request-file PATH] [--host-run DIRECTORY --host-evidence PATH] [--check-timeout-run DIRECTORY --run-dir DIRECTORY] [--review-run DIRECTORY --run-dir DIRECTORY] [--interrupted-run DIRECTORY --run-dir DIRECTORY [--host-evidence PATH]]',
   );
+  const recoveryEntries = [
+    'review-run',
+    'interrupted-run',
+    'check-timeout-run',
+    'host-run',
+    'previous-run',
+  ] as const;
+  assert(
+    recoveryEntries.filter((name) => parsed.values[name]).length <= 1,
+    '復帰入口は併用できません',
+  );
   assert(
     Boolean(parsed.values['previous-run']) === Boolean(parsed.values['request-file']),
     'Revision requires --previous-run and --request-file',
@@ -281,41 +292,18 @@ function parseStart(args: string[]) {
   );
   assert(
     !parsed.values['host-run'] ||
-      (parsed.values['run-dir'] &&
-        !parsed.values['previous-run'] &&
-        !parsed.values['start-commit'] &&
-        !parsed.values.report),
+      (parsed.values['run-dir'] && !parsed.values['start-commit'] && !parsed.values.report),
     'Host return requires a new --run-dir and inherits its original references',
   );
   assert(
     !parsed.values['review-run'] ||
-      (parsed.values['run-dir'] &&
-        !parsed.values['host-run'] &&
-        !parsed.values['previous-run'] &&
-        !parsed.values['start-commit'] &&
-        !parsed.values.report),
+      (parsed.values['run-dir'] && !parsed.values['start-commit'] && !parsed.values.report),
     '不正評価からの復帰は新しい--run-dirを使い、他の復帰入口・参照指定と混在できません',
   );
   assert(
     !parsed.values['interrupted-run'] ||
-      (parsed.values['run-dir'] &&
-        !parsed.values['review-run'] &&
-        !parsed.values['host-run'] &&
-        !parsed.values['previous-run'] &&
-        !parsed.values['start-commit'] &&
-        !parsed.values.report),
+      (parsed.values['run-dir'] && !parsed.values['start-commit'] && !parsed.values.report),
     '中断復帰は新しい--run-dirを使い、他の復帰入口・参照指定と混在できません',
-  );
-  const recoveryEntries = [
-    'review-run',
-    'interrupted-run',
-    'check-timeout-run',
-    'host-run',
-    'previous-run',
-  ] as const;
-  assert(
-    recoveryEntries.filter((name) => parsed.values[name]).length <= 1,
-    '復帰入口は併用できません',
   );
   assert(
     !parsed.values['check-timeout-run'] ||
@@ -587,9 +575,14 @@ async function unchangedTarget(
   head = context.base,
   target?: Context['target'],
 ) {
+  const identity = await checked(
+    io,
+    ['git', 'rev-parse', 'HEAD', '--symbolic-full-name', 'HEAD'],
+    context.cwd,
+  );
   assert(
-    (await checked(io, ['git', 'rev-parse', 'HEAD'], context.cwd)) === head &&
-      (await checked(io, ['git', 'branch', '--show-current'], context.cwd)) === context.branch,
+    JSON.stringify(identity.split(/\r?\n/)) ===
+      JSON.stringify([head, `refs/heads/${context.branch}`]),
     'Actor changed branch or HEAD',
   );
   const current =
