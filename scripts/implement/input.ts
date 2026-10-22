@@ -41,7 +41,10 @@ function assertRevision(value: unknown): asserts value is Revision | undefined {
   );
   if (value.reviewReturn !== undefined) {
     const returned = reviewReturnShape.parse(value.reviewReturn);
-    assert(returned.interruption, '修正へ引き継ぐ対象は照合済み中断だけです');
+    assert(
+      returned.interruption || returned.checkTimeout,
+      '修正へ引き継ぐ対象は照合済みの中断またはcheck時間切れだけです',
+    );
   }
 }
 

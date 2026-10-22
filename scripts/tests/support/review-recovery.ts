@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { expect } from 'bun:test';
+import { expect, spyOn } from 'bun:test';
+import * as processModule from '../../shared/process.ts';
 import { readFile, writeFile, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -22,20 +23,28 @@ export function testReviewRecovery(
   testDevelopment(name, execute, {}, 30000);
 }
 
-export async function records(dir: string): Promise<Record<string, string>> {
-  const result: Record<string, string> = {};
+export async function recordPaths(dir: string): Promise<string[]> {
+  const paths: string[] = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     if (entry.name === 'checkout') {
       continue;
     }
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
-      Object.assign(result, await records(path));
+      paths.push(...(await recordPaths(path)));
     } else {
-      result[path] = createHash('sha256')
-        .update(await readFile(path))
-        .digest('hex');
+      paths.push(path);
     }
+  }
+  return paths;
+}
+
+export async function records(dir: string): Promise<Record<string, string>> {
+  const result: Record<string, string> = {};
+  for (const path of await recordPaths(dir)) {
+    result[path] = createHash('sha256')
+      .update(await readFile(path))
+      .digest('hex');
   }
   return result;
 }
@@ -44,8 +53,9 @@ export async function records(dir: string): Promise<Record<string, string>> {
 export async function recoveryFixture(
   f: DevelopmentFixture,
   localOnly = true,
-  stop: 'invalid' | 'interrupted' = 'invalid',
+  stop: 'invalid' | 'interrupted' | 'timeout' = 'invalid',
   origin: 'initial' | 'host_return' = 'initial',
+  savedBudget?: number,
 ) {
   const script = join(dirname(f.dir), 'review-producer.js');
   const control = join(dirname(f.dir), 'review-control.json');
@@ -92,6 +102,9 @@ if(role==='review') {
   f.verify = async (config, publicationHead) => {
     const actual = {
       ...config,
+      ...(savedBudget !== undefined || stop === 'timeout'
+        ? { checkTimeMs: savedBudget ?? 540000 }
+        : {}),
       issue: [process.execPath, '-e', `process.stdout.write(${JSON.stringify(issue)})`],
       review: [process.execPath, script, 'review'],
       repair: [process.execPath, script, 'repair'],
@@ -101,7 +114,32 @@ if(role==='review') {
       join(dirname(config.runDir), 'verification-config.json'),
       JSON.stringify(actual),
     );
-    return verifyRun(actual, publicationHead);
+    if (stop !== 'timeout') {
+      return verifyRun(actual, publicationHead);
+    }
+    // 旧9分版の保存契約を生成する。保存後のstate/configは修復しない。
+    const execute = processModule.command;
+    const timer = spyOn(processModule, 'command').mockImplementation(async (...args) => {
+      if (args[0][2] !== 'check') {
+        return execute(...args);
+      }
+      expect(args[3]).toBe(540000);
+      assert(args[4]);
+      await writeFile(`${args[4]}.stdout`, 'fixture: partial check output');
+      await writeFile(`${args[4]}.stderr`, 'fixture: timeout');
+      return {
+        code: null,
+        stdout: 'fixture: partial check output',
+        stderr: 'fixture: timeout',
+        timedOut: true,
+        ms: 540000,
+      };
+    });
+    try {
+      return await verifyRun(actual, publicationHead);
+    } finally {
+      timer.mockRestore();
+    }
   };
   // 初回の独立テストを実際に転送して、内容・実行モードの維持を検証する。
   f.test = async (_argv, cwd, prompt, _timeout, prefix) => {
@@ -135,7 +173,11 @@ if(role==='review') {
     },
     (error: unknown) => {
       expect(String(error)).toContain(
-        stop === 'invalid' ? 'Verification stopped: invalid_review' : interruptionMessage,
+        stop === 'timeout'
+          ? 'Verification stopped: check_unavailable'
+          : stop === 'invalid'
+            ? 'Verification stopped: invalid_review'
+            : interruptionMessage,
       );
     },
   );
@@ -150,20 +192,31 @@ if(role==='review') {
   const statePath = join(f.dir, 'verification/state.json');
   const state = object(JSON.parse(await readFile(statePath, 'utf8')));
   expect(state).toMatchObject({
-    result: stop === 'invalid' ? 'invalid_review' : 'interrupted',
+    result:
+      stop === 'timeout'
+        ? 'check_unavailable'
+        : stop === 'invalid'
+          ? 'invalid_review'
+          : 'interrupted',
     checks: 1,
-    review: 1,
+    review: stop === 'timeout' ? 0 : 1,
     repair: 0,
     reviewHistory: [],
     active:
-      stop === 'invalid' ? null : { role: 'review', prefix: join(f.dir, 'verification/review-1') },
+      stop !== 'interrupted'
+        ? null
+        : { role: 'review', prefix: join(f.dir, 'verification/review-1') },
   });
   if (stop === 'invalid') {
     expect(state.findings).toContain('コード行範囲を確認できません');
   }
   expect(object(JSON.parse(await readFile(join(f.dir, 'result.json'), 'utf8')))).toMatchObject({
     status: 'stopped',
-    ...(stop === 'invalid' ? { reasonCode: 'invalid_review' } : { reason: interruptionMessage }),
+    ...(stop === 'timeout'
+      ? { reasonCode: 'check_unavailable' }
+      : stop === 'invalid'
+        ? { reasonCode: 'invalid_review' }
+        : { reason: interruptionMessage }),
     publication: 'not_attempted',
   });
   const dir = join(dirname(f.dir), 'review-return');
@@ -352,6 +405,14 @@ if(observing) mock.module(${JSON.stringify(modulePath('../../shared/process.ts')
   return realCommand(actors[argv[2]],cwd,input,timeout,prefix,env);
  }
  const control=JSON.parse(await readFile(${JSON.stringify(t.control)},'utf8'));
+ if(control.traceSetup&&argv[0]==='sh'&&argv.includes('printf configured > setup.txt')) await appendFile(${JSON.stringify(t.executions)},'setup\\n');
+ if(argv[2]==='check'&&control.expectedBudget!==undefined&&timeout!==control.expectedBudget) throw Error('fixture: check budget mismatch '+timeout);
+ if(argv[2]==='check'&&control.timeoutCheck) {
+  await appendFile(${JSON.stringify(t.executions)},'check\\n');
+  const result={code:null,stdout:'fixture: partial fresh check',stderr:'fixture: timeout',timedOut:true,ms:timeout};
+  await writeFile(prefix+'.stdout',result.stdout);await writeFile(prefix+'.stderr',result.stderr);
+  return result;
+ }
  let stdout,code=0;
  if(argv[0]==='ps') {
   await appendFile(${JSON.stringify(t.executions)},'observe-process\\n');
@@ -364,6 +425,15 @@ if(observing) mock.module(${JSON.stringify(modulePath('../../shared/process.ts')
   if(control.observation==='process_ambiguous') stdout+='424242 2 '+start+' /usr/bin/another-fixture\\n';
   if(control.observation==='process_empty') stdout='';
   if(control.observation==='process_failed') code=1;
+  // psの時刻は観測コマンドのTZ、未指定なら観測する子CLIのローカル時刻で生成する。
+  // bun test側の既定時刻帯とホストの時刻帯が違っても、同じ瞬間を対応付ける。
+  if(control.processStartedAt!==undefined) {
+   const parts=new Intl.DateTimeFormat('en-US',{timeZone:env?.TZ,weekday:'short',month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(new Date(control.processStartedAt));
+   const part=type=>parts.find(value=>value.type===type).value;
+   const start=part('weekday')+' '+part('month')+' '+part('day')+' '+part('hour')+':'+part('minute')+':'+part('second')+' '+part('year');
+   stdout='100000001 1 '+start+' '+control.processCommand;
+  }
+  if(control.processStdout!==undefined) stdout=control.processStdout;
  }
  if(argv[0]==='git'&&argv.includes('ls-remote')&&!argv.includes('--get-url')) {
   await appendFile(${JSON.stringify(t.executions)},'observe-remote\\n');

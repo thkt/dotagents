@@ -26,7 +26,13 @@ scenes: ["plan", "implement"]
 
 [中断した初回評価の照合と新しい検証](../../scripts/README.md#中断した初回評価の照合と新しい検証)では、未公開・終端のverification中断で初回review予約が残るrunを明示します。通常初回とホスト復帰後を扱い、旧内容・モード・未完了の予約を保ったまま実プロセス・remote ref・全状態のPRを照合します。同じ要求・主体・checkout・HEAD・branch・差分基準・検証契約・公開権限を保ち、同じ親の新しい保存先で現在成果物をcheck・独立評価へ渡します。初回実装は繰り返さず、過去の成功・受入を移しません。中断分の不明時間・usageはゼロにせず、旧記録と今回分を区別します。復帰自身の再中断や他の未完了runを自動で飛び越えず、観測失敗や記録・対象・証拠の不一致で停止します。
 
+[初回check時間切れ後の新しい検証](../../scripts/README.md#初回check時間切れ後の新しい検証)では、`--check-timeout-run`で未公開・終端・初回check時間切れ・review/repairなし・activeなしの旧runを指定します。要求・対象・主体・設定・保護テスト・成果物・旧記録の内容とモードを照合し、remote ref・全状態のPR・稼働プロセスとlockを確認します。同じ親の新runでsetup・15分のcheck・独立評価へ進み、初回実装は繰り返しません。旧9分設定と原記録は保全し、旧成功を受入へ流用しません。再度停止しても自動連鎖せず、既存の他の復帰入口の条件は維持します。独立評価済みの利用版と実体パスを記録して適用し、実runへの適用と公開後の同じheadのCIは別に確認します。
+
 ## 過去の観測と未検証事項
+
+2026-10-22（日本時間）の[Issue #422](https://github.com/thkt/dotagents/issues/422)のホスト検証では、独立評価済みの候補ハーネス`0b8ad31298ba130ac853109611f4c720ea7a8a67`（実体`/private/tmp/dotagents-422-harness-candidate`、source `4fea878eadaf1753cc8fafe5b4828e8145147b4c766695c1ed55d071b38284e7`）を#421の初回check時間切れへ適用しました。旧runの540000msと原記録を保全し、新run`check-return-issue421-20261022`で900000msのcheckと通常の独立評価へ進みました。初回実装は繰り返していません。最初の評価で指摘されたテストの包含assertは独立テスト・修正工程で解消し、最終checkは制御805件・eval189件成功、失敗0、最終評価は`accepted`でした。設定のcheckは`["/bin/sh", "-c", "bun run check"]`で、子の制御・eval起動ログはいずれもBun 1.4.3です。親のactor runtimeから子の版を補完した結果ではありません。
+
+[PR #423](https://github.com/thkt/dotagents/pull/423)のhead `1939e403616cf088682bdf8818d897a6584b1069`で`checks`・`verify`の成功とready切替後の読戻しが記録されています。承認・マージはしていません。根拠はホスト保存の`dotagents-422-real-application-proof.json`（SHA-256: `361f8359ab015a9fc5c041ef08074979893d38b569c510e17b3a21663022e974`）と、同新runの設定・check・評価原記録、`dotagents-pr423-after-ready.json`です。これは当該候補版を使った#421の観測で、#422の現在差分のcheck・独立評価・公開を代替しません。候補評価後にはhost復帰の予算互換テストが追加され、要求にない診断文の特定語のassertが独立テスト工程で削除されています。現在差分の成功は別に確認します。15分以内の完了や高速化、未設定のcaptureの実撮影は保証しません。
 
 2026-10-12の[Issue #373](https://github.com/thkt/dotagents/issues/373)のローカル試行では、基準commit `04892d99f070953b17525e9b2bdf1746c5aa8fff`から実装した#351の初回`invalid_review`を保全し、変更後のハーネスの通常CLIから新しい兄弟runで検証しました。Bun 1.4.2のcheckは605成功・失敗0、新しい独立評価は`accepted`・指摘0件で、4ステップの10参照が実在する行範囲を指していました。追加修正はありません。旧runは`invalid_review`・評価1回・追加修正0回・有効な評価履歴なしのままで、旧応答を有効な評価へ移していません。
 

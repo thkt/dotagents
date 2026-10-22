@@ -52,7 +52,13 @@ function processRows(stdout: string) {
 
 export async function verifyInterruptedProcesses(
   stdout: string,
-  input: { previousRun: string; runDirectory: string; review: string[] },
+  input: {
+    previousRun: string;
+    runDirectory: string;
+    review: string[];
+    entry?: '--interrupted-run' | '--check-timeout-run';
+    check?: string[];
+  },
 ) {
   const saved = timesShape.parse(
     JSON.parse(await readFile(join(input.previousRun, 'result.json'), 'utf8')),
@@ -63,6 +69,9 @@ export async function verifyInterruptedProcesses(
   const executable = input.review[0];
   assert(executable, '保存された評価コマンドがありません');
   const names = new Set([basename(executable)]);
+  if (input.check?.[0]) {
+    names.add(basename(input.check[0]));
+  }
   if (input.review.some((argument) => argument.endsWith('/codex-actor.ts'))) {
     names.add('codex');
   }
@@ -73,7 +82,7 @@ export async function verifyInterruptedProcesses(
     // psの開始時刻は秒単位。旧停止後に始まった明示的な新CLIだけを除く。
     const returning =
       row.startedAt >= Math.floor(finished / 1000) * 1000 &&
-      cliArgument(row.command, '--interrupted-run', input.previousRun) &&
+      cliArgument(row.command, input.entry ?? '--interrupted-run', input.previousRun) &&
       cliArgument(row.command, '--run-dir', input.runDirectory) &&
       !cliArgument(row.command, '--run-dir', input.previousRun);
     assert(
@@ -82,9 +91,10 @@ export async function verifyInterruptedProcesses(
       `旧runまたは旧評価に対応する稼働プロセスがあります: PID=${row.pid}, PPID=${row.parent}, start=${new Date(row.startedAt).toISOString()}`,
     );
     const name = basename((row.command.split(/\s+/)[0] ?? '').replace(/^["']|["']$/g, ''));
+    const sameCheck = input.check && row.command.includes(input.check.join(' '));
     assert(
       returning ||
-        !names.has(name) ||
+        (!names.has(name) && !sameCheck) ||
         row.startedAt < Math.floor(started / 1000) * 1000 ||
         row.startedAt > finished,
       `旧実行期間内の同種プロセスを対応付けられません: PID=${row.pid}。追加観測が必要です`,

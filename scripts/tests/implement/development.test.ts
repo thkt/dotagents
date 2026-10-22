@@ -737,7 +737,7 @@ for (const [name, reply, reason] of [
 for (const [result, nextAction] of [
   ['review_storage_failed', 'writable evidence storage'],
   ['invalid_review', null],
-  ['check_unavailable', 'check startup or timeout'],
+  ['check_unavailable', null],
   ['capture_unavailable', 'capture logs and configured runtime'],
   ['human_decision_required', 'human decision described in the repair findings'],
 ] as const) {
@@ -761,6 +761,11 @@ for (const [result, nextAction] of [
       expect(saved.nextAction).toMatch(
         /旧応答.*編集.*再投入.*ない|(?:do not|never).*edit.*re.?submit/i,
       );
+    } else if (result === 'check_unavailable') {
+      expect(saved.nextAction).toMatch(/check/i);
+      expect(saved.nextAction).toMatch(/起動失敗|startup/i);
+      expect(saved.nextAction).toMatch(/時間切れ|timeout/i);
+      expect(saved.nextAction).toMatch(/原ログ|command logs/i);
     } else {
       expect(saved.nextAction).toContain(nextAction);
     }
@@ -1294,7 +1299,7 @@ testDevelopment(
     });
     expect(JSON.parse(await readFile(join(dir, 'verification-config.json'), 'utf8'))).toMatchObject(
       {
-        checkTimeMs: 540000,
+        checkTimeMs: 900000,
       },
     );
     expect(result.url).toContain('/pull/100');
