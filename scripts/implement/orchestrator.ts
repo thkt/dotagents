@@ -11,7 +11,7 @@ import { reviewModel } from './review.ts';
 import { issueText } from './issue.ts';
 import { prBody } from './pr-body.ts';
 import { mkdir, readFile, writeFile, realpath, rename } from 'node:fs/promises';
-import { resolve, join } from 'node:path';
+import { resolve, join, dirname, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { parseArgs } from 'node:util';
@@ -433,10 +433,26 @@ function reusesCheckout(prior: unknown, hostPrior: unknown, reviewPrior: unknown
   return Boolean(prior || hostPrior || reviewPrior);
 }
 
+async function prospectiveRealpath(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch (error) {
+    if (!isRecord(error) || error.code !== 'ENOENT') {
+      throw error;
+    }
+    return resolve(await prospectiveRealpath(dirname(path)), basename(path));
+  }
+}
+
 async function allocateDirectory(repo: string, common: string, dir: string, previous?: string) {
   assert(
     outside(repo, dir) && outside(common, dir),
     'Run directory must be outside checkout and Git storage',
+  );
+  const destination = await prospectiveRealpath(dir);
+  assert(
+    outside(repo, destination) && outside(common, destination),
+    'Run directory resolves inside repository storage',
   );
   await mkdir(resolve(dir, '..'), { recursive: true });
   await mkdir(dir); // Never reset an existing execution, budget, or uncertain publication.

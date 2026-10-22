@@ -1,6 +1,6 @@
 import { writeCaptureConfig } from './write-config.ts';
 import assert from 'node:assert/strict';
-import { access, readFile, realpath, readdir, lstat } from 'node:fs/promises';
+import { access, readFile, realpath, readdir, lstat, open } from 'node:fs/promises';
 import { resolve, isAbsolute } from 'node:path';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
@@ -90,8 +90,21 @@ export async function validateCaptureMedia(output: string) {
   for (const name of names) {
     const file = resolve(output, name);
     assert((await lstat(file)).isFile(), `Invalid capture output: ${name}`);
-    const bytes = await readFile(file);
-    assert(bytes.length > 12 && mediaSignature(name, bytes), `Invalid capture media: ${name}`);
+    const handle = await open(file, 'r');
+    try {
+      const bytes = Buffer.alloc(13);
+      let length = 0;
+      while (length < bytes.length) {
+        const { bytesRead } = await handle.read(bytes, length, bytes.length - length, length);
+        if (bytesRead === 0) {
+          break;
+        }
+        length += bytesRead;
+      }
+      assert(length > 12 && mediaSignature(name, bytes), `Invalid capture media: ${name}`);
+    } finally {
+      await handle.close();
+    }
   }
 }
 
