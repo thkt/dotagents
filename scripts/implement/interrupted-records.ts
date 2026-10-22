@@ -18,7 +18,7 @@ export { cliArgument } from './interrupted-processes.ts';
 
 type Interruption = NonNullable<ReviewReturn['interruption']>;
 
-async function modes(dir: string): Promise<Interruption['modes']> {
+export async function modes(dir: string): Promise<Interruption['modes']> {
   const result: Interruption['modes'] = [{ path: dir, mode: (await lstat(dir)).mode }];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     if (entry.name === 'checkout' || entry.name.endsWith('-workspace')) {
@@ -38,7 +38,7 @@ async function modes(dir: string): Promise<Interruption['modes']> {
   return result;
 }
 
-async function includeReferenceModes(initial: Interruption['modes'], paths: string[]) {
+export async function includeReferenceModes(initial: Interruption['modes'], paths: string[]) {
   const result = new Map(initial.map((entry) => [entry.path, entry]));
   for (const path of new Set(paths)) {
     if (!result.has(path)) {
@@ -82,6 +82,7 @@ export async function observeInterruptedProcess(
   config: Config,
   directory: string,
   runDirectory: string,
+  entry: '--interrupted-run' | '--check-timeout-run' = '--interrupted-run',
 ) {
   const ps = await observe(
     ['ps', '-ww', '-axo', 'pid=,ppid=,lstart=,command='],
@@ -92,6 +93,8 @@ export async function observeInterruptedProcess(
     previousRun: input.previousRun,
     runDirectory,
     review: config.review,
+    entry,
+    ...(entry === '--check-timeout-run' ? { check: config.check } : {}),
   });
   return ps.ref;
 }
@@ -101,8 +104,9 @@ export async function observeInterruption(
   config: Config,
   directory: string,
   runDirectory: string,
+  entry: '--interrupted-run' | '--check-timeout-run' = '--interrupted-run',
 ) {
-  const process = await observeInterruptedProcess(input, config, directory, runDirectory);
+  const process = await observeInterruptedProcess(input, config, directory, runDirectory, entry);
   const target: unknown = JSON.parse(config.targetText ?? '{}');
   assert(
     typeof target === 'object' &&
