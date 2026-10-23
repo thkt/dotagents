@@ -1,0 +1,189 @@
+{
+  "metadata": {
+    "head": "6e470b33eddc303a35728df9854fd0a7cb41da33",
+    "bun": "1.4.4",
+    "hashes": {
+      "scripts/implement/ci.ts": "7b85ade9055cfb9d8b2582a51f6001365b2dea809432c1bc56abb6061fef1ca5",
+      "scripts/implement/usage-events.ts": "dc5cad801b3bfdd8096ad9c73b2b4fa8f65552b59ac6f2ead91f86b97f05eac9",
+      "scripts/implement/pr-identity.ts": "bf5082df20c650b7783064bb51b737bf3015e44bc85aea5c866c87394cd5b8ba",
+      "scripts/shared/token-usage.ts": "ca80b878695d5f8b7f681d99a04e012040f11f63b72c972e10165d2d5261fe19",
+      "scripts/implement/review-probe.ts": "4166ac92e5736928f2f9d3d2585480fb80406c6bd8363d4d1ee892b8c7f29d10"
+    }
+  },
+  "suites": {
+    "ci": {
+      "cases": 24700,
+      "encodedCases": 8,
+      "malformed": 7,
+      "mismatches": 0,
+      "maxChecks": 3,
+      "requiredSets": 4
+    },
+    "tokens": {
+      "parseCases": 2744,
+      "additionCases": 15625,
+      "representationMismatches": 0,
+      "subsetDivergences": 50,
+      "subsetWitness": {
+        "input_tokens": 0,
+        "cached_input_tokens": 1,
+        "output_tokens": 0
+      }
+    },
+    "lifecycle": {
+      "cases": 111111,
+      "maxLength": 5,
+      "symbols": [
+        "thread",
+        "start",
+        "done0",
+        "done1",
+        "invalidUsage",
+        "fail",
+        "error",
+        "noise",
+        "broken",
+        "invalidEvent"
+      ],
+      "mismatches": 0,
+      "omitted": "Exact English diagnostics, cryptographic SHA correctness, unbounded traces and overflow accumulation are not part of the state oracle."
+    },
+    "identity": {
+      "targetCases": 270,
+      "publicationCases": 256,
+      "restTargetCases": 324,
+      "restPublicationCases": 256,
+      "mismatches": 0,
+      "issueReferenceObservations": [
+        {
+          "body": "Closes #99",
+          "matched": true
+        },
+        {
+          "body": "Closes #990",
+          "matched": false
+        },
+        {
+          "body": "Closes #991",
+          "matched": false
+        },
+        {
+          "body": "Closes #99x",
+          "matched": true
+        },
+        {
+          "body": "NotCloses #99",
+          "matched": true
+        },
+        {
+          "body": "`Closes #99`",
+          "matched": true
+        },
+        {
+          "body": "closes #99",
+          "matched": false
+        }
+      ],
+      "issueReferenceLimit": "Only exact expected literal plus no further decimal digit is currently specified. Markdown/closing-keyword semantics are not verified here."
+    },
+    "ciTraces": {
+      "cases": 9,
+      "mismatches": 0,
+      "note": "Final target changes/retrieval failure override prior passed or failed classification. Existing tests already cover the success overrides."
+    }
+  },
+  "witnesses": {
+    "ciMutant": {
+      "input": [
+        {
+          "context": "r",
+          "state": "SUCCESS"
+        },
+        {
+          "context": "r",
+          "state": "PENDING"
+        }
+      ],
+      "required": [
+        "r"
+      ],
+      "actual": "running",
+      "mutant": "passed",
+      "existingCoverage": "ci.test.ts already exercises duplicate pending with a missing second required name, but never settles that duplicate while all required names exist; existing other-pending case detects broader ignoring of optional pending."
+    },
+    "cacheSubset": [
+      {
+        "sample": {
+          "input_tokens": 0,
+          "cached_input_tokens": 1,
+          "output_tokens": 0
+        },
+        "parser": {
+          "input_tokens": 0,
+          "cached_input_tokens": 1,
+          "output_tokens": 0
+        },
+        "reviewer": {
+          "totals": {
+            "input_tokens": 0,
+            "cached_input_tokens": 1,
+            "output_tokens": 0
+          },
+          "completedTurns": 1,
+          "scope": "Reviewer CLI completed-turn usage; host has no model usage. Any delegated model usage requires separate reconciliation from retained events before claiming a parent/child total."
+        },
+        "usageEvents": {
+          "threadId": "t",
+          "turns": [],
+          "observed": null,
+          "problems": [
+            "line 3: Missing or invalid turn usage; remaining events not counted",
+            "No completed turn usage"
+          ]
+        }
+      },
+      {
+        "sample": {
+          "input_tokens": 2,
+          "cached_input_tokens": 1,
+          "output_tokens": 0
+        },
+        "parser": {
+          "input_tokens": 2,
+          "cached_input_tokens": 1,
+          "output_tokens": 0
+        },
+        "reviewer": {
+          "totals": {
+            "input_tokens": 2,
+            "cached_input_tokens": 1,
+            "output_tokens": 0
+          },
+          "completedTurns": 1,
+          "scope": "Reviewer CLI completed-turn usage; host has no model usage. Any delegated model usage requires separate reconciliation from retained events before claiming a parent/child total."
+        },
+        "usageEvents": {
+          "threadId": "t",
+          "turns": [
+            {
+              "ordinal": 1,
+              "line": 3,
+              "sha256": "dc77da0c922efba9d8ab0018c231838c5e27518699d224abd962bdec58f7eb48",
+              "usage": {
+                "input_tokens": 2,
+                "cached_input_tokens": 1,
+                "output_tokens": 0
+              }
+            }
+          ],
+          "observed": {
+            "input_tokens": 2,
+            "cached_input_tokens": 1,
+            "output_tokens": 0
+          },
+          "problems": []
+        }
+      }
+    ]
+  }
+}

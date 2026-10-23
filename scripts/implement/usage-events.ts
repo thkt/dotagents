@@ -52,10 +52,7 @@ function consume(stream: Stream, event: Record<string, unknown>, line: number, r
       assert(stream.active, 'Duplicate or unmatched turn completion');
       stream.active = false;
       const usage = parseTokenUsage(event.usage);
-      assert(
-        usage && usage.cached_input_tokens <= usage.input_tokens,
-        'Missing or invalid turn usage',
-      );
+      assert(usage, 'Missing or invalid turn usage');
       stream.turns.push({ ordinal: stream.ordinal, line, sha256: hash(raw), usage });
       break;
     }

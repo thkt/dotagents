@@ -1,0 +1,182 @@
+import assert from 'node:assert/strict';
+import { readFile, writeFile, mkdir, mkdtemp } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+const root=process.env.DOTAGENTS_ROOT ?? process.cwd();
+const { readUsageEvents }=await import(join(root,'scripts/implement/usage-events.ts'));
+const { parseTokenUsage, addTokenUsage }=await import(join(root,'scripts/shared/token-usage.ts'));
+const { readReviewerUsage }=await import(join(root,'scripts/implement/review-probe.ts'));
+const identity=await import(join(root,'scripts/implement/pr-identity.ts'));
+const out=process.env.DOTAGENTS_OUT;
+assert(out, 'DOTAGENTS_OUT is required');
+await mkdir(out,{recursive:true});
+const started=performance.now();
+const keys=['input_tokens','cached_input_tokens','output_tokens'] as const;
+const usage=(a=1,b=0,c=1)=>({input_tokens:a,cached_input_tokens:b,output_tokens:c});
+const zero=usage(0,0,0);
+const sources=['scripts/implement/ci.ts','scripts/implement/usage-events.ts','scripts/implement/pr-identity.ts','scripts/shared/token-usage.ts','scripts/implement/review-probe.ts'];
+const hashes=Object.fromEntries(await Promise.all(sources.map(async p=>[p,createHash('sha256').update(await readFile(join(root,p))).digest('hex')])));
+const source=await readFile(join(root,sources[0]),'utf8');
+// Private functions are exposed only in this temporary copy; function bodies remain unchanged.
+const adapted=source.replaceAll("'../shared/",`'${root}/scripts/shared/`).replaceAll("'./pr-identity.ts'",`'${root}/scripts/implement/pr-identity.ts'`)+'\nexport { checkStatus, parseTarget };\n';
+await writeFile(join(out,'ci-adapter.ts'),adapted);
+const ci=await import(join(out,'ci-adapter.ts'));
+const findings:any={metadata:{head:process.env.DOTAGENTS_COMMIT ?? spawnSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).stdout.trim(),bun:Bun.version,hashes}, suites:{},witnesses:{}};
+function* tuples<T>(alphabet:T[],n:number,prefix:T[]=[]):Generator<T[]>{if(n===0){yield prefix;return;}for(const x of alphabet)yield*tuples(alphabet,n-1,[...prefix,x]);}
+function* bounded<T>(alphabet:T[],max:number){for(let n=0;n<=max;n++)yield*tuples(alphabet,n);}
+
+// Independent declarative oracle: required names must occur, every required occurrence must
+// succeed, and optional occurrences may only succeed/skip/be neutral. Pending prevents pass.
+function ciSpec(values:any[],required:string[]){
+  const checks=values.map(v=>({name:v.context,state:v.state}));
+  const failed=checks.filter(c=>required.includes(c.name)?!['SUCCESS','PENDING'].includes(c.state):!['SUCCESS','SKIPPED','NEUTRAL','PENDING'].includes(c.state));
+  const missing=required.filter(n=>!checks.some(c=>c.name===n));
+  const running=checks.filter(c=>c.state==='PENDING');
+  const unmet=required.filter(n=>!checks.some(c=>c.name===n)||!checks.filter(c=>c.name===n).every(c=>c.state==='SUCCESS'));
+  return {status:failed.length?'failed':missing.length?'missing':running.length?'running':'passed',checks,missing,running,failed,unmet};
+}
+let ciCases=0;
+const states=['SUCCESS','SKIPPED','NEUTRAL','PENDING','FAILURE','UNRECOGNIZED'];
+const alphabet=['r','s','optional'].flatMap(context=>states.map(state=>({context,state})));
+for(const required of [[],['r'],['s'],['r','s']])for(const observations of bounded(alphabet,3)){
+  assert.deepEqual(ci.checkStatus(observations,required),ciSpec(observations,required));ciCases++;
+}
+let encodings=0;
+for(const state of states){
+  if(state==='PENDING')continue;
+  const run=[{name:'r',status:'COMPLETED',conclusion:state}];
+  assert.deepEqual(ci.checkStatus(run,['r']),ciSpec([{context:'r',state}],['r']));encodings++;
+}
+for(const status of ['QUEUED','IN_PROGRESS','WAITING']){
+  assert.equal(ci.checkStatus([{name:'r',status}],['r']).status,'running');encodings++;
+}
+const malformed=[null,0,'x',{}, {name:0,state:'SUCCESS'},{name:'r',state:0},{name:'r',status:'COMPLETED',conclusion:null}];
+for(const x of malformed)assert.throws(()=>ci.checkStatus([x],['r']));
+findings.suites.ci={cases:ciCases,encodedCases:encodings,malformed:malformed.length,mismatches:0,maxChecks:3,requiredSets:4};
+
+// A real-code mutant incorrectly accepts one SUCCESS occurrence for a duplicated required name.
+const old="checks.some((check) => check.name === name && check.state !== 'SUCCESS')";
+assert(adapted.includes(old));
+// The unsafe mutation is applied to final classification too, so duplicate PENDING is hidden.
+const mutant=adapted.replace('const running = checks.filter((check) => check.state === \'PENDING\');',"const running = checks.filter((check) => check.state === 'PENDING' && !checks.some((other) => other.name === check.name && other.state === 'SUCCESS'));");
+await writeFile(join(out,'ci-duplicate-pending-mutant.ts'),mutant);
+const mc=await import(join(out,'ci-duplicate-pending-mutant.ts'));
+const duplicate=[{context:'r',state:'SUCCESS'},{context:'r',state:'PENDING'}];
+assert.equal(ci.checkStatus(duplicate,['r']).status,'running');
+assert.equal(mc.checkStatus(duplicate,['r']).status,'passed');
+findings.witnesses.ciMutant={input:duplicate,required:['r'],actual:'running',mutant:'passed',existingCoverage:'ci.test.ts already exercises duplicate pending with a missing second required name, but never settles that duplicate while all required names exist; existing other-pending case detects broader ignoring of optional pending.'};
+
+// Token parsing checks representation; BigInt is the independent exact-sum oracle.
+const boundary:any[]=[undefined,null,'1',NaN,Infinity,-1,-0.5,0,0.5,1,2,Number.MAX_SAFE_INTEGER-1,Number.MAX_SAFE_INTEGER,Number.MAX_SAFE_INTEGER+1];
+let parseCases=0,subsetDivergences=0;let subsetWitness:any;
+for(const t of tuples(boundary,3)){
+  const v={input_tokens:t[0],cached_input_tokens:t[1],output_tokens:t[2]};
+  const numeric=t.every(x=>typeof x==='number'&&Number.isInteger(x)&&x>=0&&x<=Number.MAX_SAFE_INTEGER);
+  assert.equal(parseTokenUsage(v)!==null,numeric);parseCases++;
+  if(numeric&&t[1]>t[0]){subsetDivergences++;subsetWitness??=v;}
+}
+const safe=[0,1,2,Number.MAX_SAFE_INTEGER-1,Number.MAX_SAFE_INTEGER];
+let additionCases=0;
+for(const counts of tuples(safe,6)){
+  const a=usage(...counts.slice(0,3) as [number,number,number]);
+  const b=usage(...counts.slice(3) as [number,number,number]);
+  const exact=keys.map(k=>BigInt(a[k])+BigInt(b[k]));
+  const expected=exact.every(x=>x<=BigInt(Number.MAX_SAFE_INTEGER))?usage(...exact.map(Number) as [number,number,number]):null;
+  assert.deepEqual(addTokenUsage(a,b),expected);additionCases++;
+}
+findings.suites.tokens={parseCases,additionCases,representationMismatches:0,subsetDivergences,subsetWitness};
+
+// Lifecycle oracle uses explicit states and a transition table rather than copied branches.
+const symbols=['thread','start','done0','done1','invalidUsage','fail','error','noise','broken','invalidEvent'];
+const event={thread:JSON.stringify({type:'thread.started',thread_id:'t'}),start:JSON.stringify({type:'turn.started'}),done0:JSON.stringify({type:'turn.completed',usage:zero}),done1:JSON.stringify({type:'turn.completed',usage:usage()}),invalidUsage:JSON.stringify({type:'turn.completed',usage:usage(0,1,0)}),fail:JSON.stringify({type:'turn.failed'}),error:JSON.stringify({type:'error'}),noise:JSON.stringify({type:'item.completed'}),broken:'{',invalidEvent:'{}'};
+function lifecycleSpec(trace:string[]){
+  let state='unidentified',threadId:string|null=null,ordinal=0,problem=false;const turns:any[]=[];
+  const transitions:any={unidentified:{thread:'idle'},idle:{start:'active'},active:{done0:'idle',done1:'idle',fail:'idle'}};
+  for(const [index,s]of trace.entries()){
+    if(s==='noise')continue;
+    if(s==='error'){problem=true;continue;}
+    const next=transitions[state]?.[s];
+    if(!next){problem=true;break;}
+    if(s==='thread')threadId='t';
+    if(s==='start')ordinal++;
+    if(s==='fail')problem=true;
+    if(s.startsWith('done'))turns.push({ordinal,line:index+1,usage:s==='done0'?zero:usage()});
+    state=next;
+  }
+  if(!threadId||state==='active'||turns.length===0)problem=true;
+  const observed=turns.length?usage(turns.reduce((n,t)=>n+t.usage.input_tokens,0),0,turns.reduce((n,t)=>n+t.usage.output_tokens,0)):null;
+  return {threadId,turns,observed,problem};
+}
+let lifecycleCases=0;
+for(const trace of bounded(symbols,5)){
+  const actual=readUsageEvents(trace.map(s=>event[s as keyof typeof event]).join('\n'));
+  const projected={threadId:actual.threadId,turns:actual.turns.map(({ordinal,line,usage})=>({ordinal,line,usage})),observed:actual.observed,problem:actual.problems.length>0};
+  assert.deepEqual(projected,lifecycleSpec(trace),JSON.stringify(trace));lifecycleCases++;
+}
+findings.suites.lifecycle={cases:lifecycleCases,maxLength:5,symbols,mismatches:0,omitted:'Exact English diagnostics, cryptographic SHA correctness, unbounded traces and overflow accumulation are not part of the state oracle.'};
+
+// PR target finite products include missing, wrong type, non-exact casing and mismatched values.
+const commits=['sha','other',undefined],bases=['main','other',undefined],drafts=[true,false,undefined,'true',1,null],prstates=['OPEN','CLOSED','MERGED','open',undefined];
+let targetCases=0;
+for(const state of prstates)for(const commit of commits)for(const base of bases)for(const draft of drafts){
+  const actual=identity.matchPrTarget(identity.graphQlPrTarget({state,headRefOid:commit,baseRefName:base,isDraft:draft}),{commit:'sha',base:'main'});
+  const expected={target:state==='OPEN'&&commit==='sha'&&base==='main',draft:draft===true};
+  assert.deepEqual(actual,expected);targetCases++;
+}
+let publicationCases=0;
+const expected={commit:'sha',base:'main',url:'url',actor:'actor',branch:'branch',repository:'org/repo',body:'body'};
+for(const bits of tuples([false,true],8)){
+  const [s,c,b,u,a,h,r,body]=bits;
+  const pr={state:s?'OPEN':'CLOSED',headRefOid:c?'sha':'other',baseRefName:b?'main':'other',isDraft:true,url:u?'url':'other',author:{login:a?'actor':'other'},headRefName:h?'branch':'other',headRepositoryOwner:{login:'org'},headRepository:{name:r?'repo':'other'},body:body?'body':'other'};
+  assert.deepEqual(identity.matchPrPublication(identity.graphQlPrPublication(pr),expected),{target:s&&c&&b&&u&&h&&r,draft:true,author:a,body});publicationCases++;
+}
+let restTargetCases=0,restPublicationCases=0;
+for(const state of ['open','closed','OPEN','Closed',undefined,null])for(const commit of commits)for(const base of bases)for(const draft of drafts){
+  const pr={state,head:{sha:commit},base:{ref:base},draft};
+  const actual=identity.matchPrTarget(identity.restPrPublication(pr),{commit:'sha',base:'main'});
+  assert.deepEqual(actual,{target:state==='open'&&commit==='sha'&&base==='main',draft:draft===true});restTargetCases++;
+}
+for(const bits of tuples([false,true],8)){
+  const [s,c,b,u,a,h,r,body]=bits;
+  const pr={state:s?'open':'closed',head:{sha:c?'sha':'other',ref:h?'branch':'other',repo:{full_name:r?'org/repo':'other'}},base:{ref:b?'main':'other'},draft:true,html_url:u?'url':'other',user:{login:a?'actor':'other'},body:body?'body':'other'};
+  assert.deepEqual(identity.matchPrPublication(identity.restPrPublication(pr),expected),{target:s&&c&&b&&u&&h&&r,draft:true,author:a,body});restPublicationCases++;
+}
+const issueBodies=['Closes #99','Closes #990','Closes #991','Closes #99x','NotCloses #99','`Closes #99`','closes #99'];
+findings.suites.identity={targetCases,publicationCases,restTargetCases,restPublicationCases,mismatches:0,issueReferenceObservations:issueBodies.map(body=>({body,matched:identity.referencesIssue(body,'99')})),issueReferenceLimit:'Only exact expected literal plus no further decimal digit is currently specified. Markdown/closing-keyword semantics are not verified here.'};
+
+// Short real waitForCi traces exercise the final-target observation, with no external commands.
+let traceCases=0;
+const dir=await mkdtemp(join(out,'ci-traces-'));findings.ciTraceDirectory=dir;
+const frame=(checks:any[],isDraft=true)=>({url:'url',body:'Closes #99',headRefOid:'sha',baseRefName:'main',state:'OPEN',isDraft,statusCheckRollup:checks});
+for(const initial of ['success','failed','pending'])for(const final of ['same','changed','offline']){
+  const path=join(dir,`${initial}-${final}`);await mkdir(path,{recursive:true});
+  let calls=0,polls=0;const inputs:any[]=[];
+  const result=await ci.waitForCi({cwd:root,repository:'org/repo',url:'url',commit:'sha',baseBranch:'main',dir:path,ciChecks:['r'],issue:'99'},async(args:any[])=>{
+    calls++;const isFinal=args.at(-1)==='headRefOid,baseRefName,state,isDraft';
+    const state=isFinal?'SUCCESS':initial==='pending'&&polls++===0?'PENDING':initial==='failed'?'FAILURE':'SUCCESS';
+    const value=frame([{context:'r',state}],!(isFinal&&final==='changed'));inputs.push({isFinal,value});
+    return {stdout:JSON.stringify(value),stderr:'',code:isFinal&&final==='offline'?1:0,timedOut:false,ms:1};
+  },1000,async()=>{});
+  const expected=final==='changed'?'target_changed':final==='offline'?'unavailable':initial==='failed'?'failed':'passed';
+  assert.equal(result.status,expected);traceCases++;
+  await writeFile(join(path,'trace.json'),JSON.stringify({inputs,result,calls},null,2)+'\n');
+}
+findings.suites.ciTraces={cases:traceCases,mismatches:0,note:'Final target changes/retrieval failure override prior passed or failed classification. Existing tests already cover the success overrides.'};
+
+// Real second-consumer witness and normal control for the shared cache subset constraint.
+const reviewerRoot=join(out,'reviewer-witness');const reviewerDir=join(reviewerRoot,'review-codex-case');await mkdir(reviewerDir,{recursive:true});
+const subsetResults=[];
+for(const sample of [usage(0,1,0),usage(2,1,0)]){
+  await writeFile(join(reviewerDir,'events.jsonl'),JSON.stringify({type:'turn.completed',usage:sample})+'\n');
+  const reviewer=await readReviewerUsage(reviewerRoot);
+  const strict=readUsageEvents([event.thread,event.start,JSON.stringify({type:'turn.completed',usage:sample})].join('\n'));
+  subsetResults.push({sample,parser:parseTokenUsage(sample),reviewer,usageEvents:strict});
+}
+assert.equal(subsetResults[0].reviewer.totals?.cached_input_tokens,1);
+assert.equal(subsetResults[0].usageEvents.observed,null);
+assert.deepEqual(subsetResults[1].reviewer.totals,subsetResults[1].sample);
+findings.witnesses.cacheSubset=subsetResults;
+findings.elapsedMs=performance.now()-started;
+await writeFile(join(out,'results.json'),JSON.stringify(findings,null,2)+'\n');
+console.log(JSON.stringify({suites:findings.suites,elapsedMs:findings.elapsedMs},null,2));

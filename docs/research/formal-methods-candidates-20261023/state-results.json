@@ -1,0 +1,63 @@
+{
+  "publication": {
+    "preserveUnknown": {
+      "states": 13,
+      "counterexample": null
+    },
+    "retryUnknownControl": {
+      "states": 11,
+      "counterexample": [
+        "send(effect=False)",
+        "lose-response",
+        "retry-without-reconciliation"
+      ],
+      "violatingState": [
+        "inflight",
+        false,
+        "unknown",
+        2,
+        true
+      ]
+    }
+  },
+  "version": {
+    "pinnedCurrent": {
+      "states": 12,
+      "counterexample": null
+    },
+    "branchPushControl": {
+      "states": 13,
+      "counterexample": [
+        "verify",
+        "inspect",
+        "external-change",
+        "send-branch"
+      ],
+      "violatingState": [
+        1,
+        0,
+        "sent",
+        1
+      ]
+    }
+  },
+  "authority": {
+    "parentCheckCurrent": {
+      "states": 7,
+      "counterexample": null
+    },
+    "rootOnlyControl": {
+      "states": 8,
+      "counterexample": [
+        "return(publish=False)",
+        "return(publish=True)"
+      ],
+      "violatingState": [
+        true,
+        true,
+        true,
+        2
+      ]
+    }
+  }
+}

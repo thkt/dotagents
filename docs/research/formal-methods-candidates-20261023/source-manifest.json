@@ -1,0 +1,17 @@
+{
+  "startCommit": "6e470b33eddc303a35728df9854fd0a7cb41da33",
+  "historicalCommit": "bd7a013a60a26a6389b962f789fe6c450d3dbc8c",
+  "bun": "1.4.4",
+  "originalScripts": {
+    "controls.ts": "ec711beafac58f323dd8e87b7986d4a5518d9681032bbe459c7fc7f52856569b",
+    "state-models.py": "e0f840deb2a8ba7b21bdd9ce7efb6cc48cd37334c4919d64d163119f19f0fd43",
+    "trial.ts": "a67011a08e1deb818a2bc6307fe1d6ccb601c1e41951c5d7e2e34559e7789f8a",
+    "compare-proposal.ts": "f1d39a0b24be699bec045fbcaf66a3d59e1769a4e33b3556d9845048f704325e"
+  },
+  "implementedSources": {
+    "scripts/implement/interrupted-processes.ts": "d8054b6af06f540d3485220e7a1acc6e7d2084ce94f5369ae9eec3873252de7b",
+    "scripts/shared/token-usage.ts": "9548b52509e0779d18f9043f9b0a940bb1db17876aec98baba98f6efdf358a70",
+    "scripts/implement/usage-events.ts": "f38bd0e7b64ed99620622661525007542bf6cbc5717304a3e9cf40754ccb030a",
+    "scripts/implement/review-probe.ts": "4166ac92e5736928f2f9d3d2585480fb80406c6bd8363d4d1ee892b8c7f29d10"
+  }
+}
