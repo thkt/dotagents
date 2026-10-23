@@ -4,11 +4,14 @@ import { existsSync } from 'node:fs';
 import { appendFile, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import assert from 'node:assert/strict';
+import { isRecord } from '../../shared/values.ts';
 
 const repo = resolve(import.meta.dir, '../../..');
 
 async function fixture(scope: 'graph' | 'lint' | 'format') {
   const cwd = await mkdtemp(join(tmpdir(), 'codebase-checks-'));
+  const formatter = ['.oxfmtrc.json', 'bunfig.toml'].filter((path) => existsSync(join(repo, path)));
   const inputs = {
     // Fallow needs the real reference graph, entry points and tool configuration.
     graph: [
@@ -17,14 +20,14 @@ async function fixture(scope: 'graph' | 'lint' | 'format') {
       // 移動前の接続も再現できるよう、現在のrepoに残るfixtureを含める。
       ...(existsSync(join(repo, 'fixtures/workspace')) ? ['fixtures/workspace'] : []),
       '.fallowrc.json',
-      '.oxfmtrc.json',
+      ...formatter,
       '.oxlintrc.json',
       'biome.json',
       'tsconfig.json',
     ],
     // Local checks use the production configuration and plugin, plus each test's probes.
     lint: ['scripts/lint/local', '.oxlintrc.json', 'tsconfig.json'],
-    format: ['.oxfmtrc.json'],
+    format: formatter,
   };
   for (const path of ['package.json', '.gitignore', ...inputs[scope]]) {
     await cp(join(repo, path), join(cwd, path), { recursive: true });
@@ -43,6 +46,37 @@ function run(cwd: string, script: string, ...args: string[]) {
   expect(result.error).toBeUndefined();
   return result;
 }
+
+test('型検査は同名check scriptを実行せず、importされないTSの型不整合を拒否する', async () => {
+  const cwd = await fixture('graph');
+  try {
+    const manifest: unknown = JSON.parse(await readFile(join(cwd, 'package.json'), 'utf8'));
+    // package scriptのcheckへ誤接続すると、正常対照でもこのmarkerで失敗する。
+    assert(isRecord(manifest) && isRecord(manifest.scripts));
+    await writeFile(
+      join(cwd, 'package.json'),
+      JSON.stringify({
+        ...manifest,
+        scripts: {
+          ...manifest.scripts,
+          check: `${process.execPath} -e 'console.error("WRONG_CHECK_SCRIPT"); process.exit(43)'`,
+        },
+      }),
+    );
+    const path = join(cwd, 'scripts/trial-typecheck.ts');
+    await writeFile(path, 'export const marker: number = 1;\n');
+    const normal = run(cwd, 'typecheck');
+    expect(normal.status, normal.stdout + normal.stderr).toBe(0);
+    await writeFile(path, "export const marker: number = 'invalid';\n");
+    const failure = run(cwd, 'typecheck');
+    expect(failure.status, failure.stdout + failure.stderr).toBe(1);
+    expect(failure.stdout + failure.stderr).toContain('trial-typecheck.ts');
+    expect(failure.stdout + failure.stderr).toContain('TS2322');
+    expect(failure.stdout + failure.stderr).not.toContain('WRONG_CHECK_SCRIPT');
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
 
 test('CLIの通常入力と同名のローカル変数を許可し、ブラウザー処理もlintできる', async () => {
   const cwd = await fixture('graph');

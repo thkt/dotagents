@@ -63,20 +63,81 @@ async function installPack(repo: string, file: string, expectedHash: string) {
   const result = spawnSync('git', ['index-pack', '--stdin'], { cwd: repo, input: pack });
   assert.equal(result.status, 0, result.stderr.toString());
   assert(Array.isArray(manifest.entries));
-  for (const entry of manifest.entries) {
-    verifyEntry(repo, entry);
-  }
+  verifyEntries(repo, manifest.entries);
 }
 
-function verifyEntry(repo: string, entry: unknown) {
-  assert(isRecord(entry) && typeof entry.commit === 'string' && typeof entry.path === 'string');
-  const tree = git(repo, 'ls-tree', entry.commit, '--', entry.path);
-  if (entry.absent === true) {
-    assert.equal(tree, '', `Aに存在しない新設資料: ${entry.path}`);
-    return;
+type TrustedEntry = Record<string, unknown> & { commit: string; path: string };
+type TreeEntry = { mode: string; type: string; id: string };
+type TrustedBlob = { entry: TrustedEntry; id: string };
+
+function readTree(repo: string, commit: string, entries: TrustedEntry[]) {
+  const result = spawnSync(
+    'git',
+    ['ls-tree', '-z', commit, '--', ...entries.map((entry) => entry.path)],
+    { cwd: repo, encoding: 'utf8' },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const tree = new Map<string, TreeEntry>();
+  for (const line of result.stdout.split('\0').filter(Boolean)) {
+    const tab = line.indexOf('\t');
+    assert(tab > 0);
+    const [mode, type, id] = line.slice(0, tab).split(' ');
+    assert(mode && type && id);
+    tree.set(line.slice(tab + 1), { mode, type, id });
   }
-  assert.equal(tree, `${String(entry.mode)} blob ${String(entry.gitBlob)}\t${entry.path}`);
-  const blob = spawnSync('git', ['show', `${entry.commit}:${entry.path}`], { cwd: repo });
-  assert.equal(blob.status, 0, blob.stderr.toString());
-  assert.equal(createHash('sha256').update(blob.stdout).digest('hex'), entry.sha256);
+  return tree;
+}
+
+function verifyEntries(repo: string, entries: unknown[]) {
+  const commits = new Map<string, TrustedEntry[]>();
+  for (const entry of entries) {
+    assert(isRecord(entry) && typeof entry.commit === 'string' && typeof entry.path === 'string');
+    const group = commits.get(entry.commit) ?? [];
+    group.push({ ...entry, commit: entry.commit, path: entry.path });
+    commits.set(entry.commit, group);
+  }
+  const blobs: TrustedBlob[] = [];
+  for (const [commit, group] of commits) {
+    const tree = readTree(repo, commit, group);
+    for (const entry of group) {
+      const actual = tree.get(entry.path);
+      if (entry.absent === true) {
+        assert.equal(actual, undefined, `Aに存在しない新設資料: ${entry.path}`);
+      } else {
+        assert(actual, entry.path);
+        assert.equal(actual.type, 'blob', entry.path);
+        assert.equal(actual.mode, entry.mode, entry.path);
+        assert.equal(actual.id, entry.gitBlob, entry.path);
+        blobs.push({ entry, id: actual.id });
+      }
+    }
+  }
+  verifyBlobs(repo, blobs);
+}
+
+function verifyBlobs(repo: string, blobs: TrustedBlob[]) {
+  const result = spawnSync('git', ['cat-file', '--batch'], {
+    cwd: repo,
+    input: blobs.map((blob) => `${blob.id}\n`).join(''),
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  assert.equal(result.status, 0, result.stderr.toString());
+  let offset = 0;
+  for (const { entry, id } of blobs) {
+    const end = result.stdout.indexOf('\n', offset);
+    assert(end >= offset);
+    const [actualId, type, size] = result.stdout.subarray(offset, end).toString().split(' ');
+    assert.equal(actualId, id);
+    assert.equal(type, 'blob');
+    const length = Number(size);
+    assert(Number.isSafeInteger(length) && length >= 0);
+    offset = end + 1;
+    const body = result.stdout.subarray(offset, offset + length);
+    assert.equal(body.length, length);
+    assert.equal(createHash('sha256').update(body).digest('hex'), entry.sha256);
+    offset += length;
+    assert.equal(result.stdout[offset], 10);
+    offset += 1;
+  }
+  assert.equal(offset, result.stdout.length);
 }

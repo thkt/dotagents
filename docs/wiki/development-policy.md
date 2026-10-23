@@ -234,7 +234,7 @@ CIの`checks`は依存を固定して導入し、このハーネスの`bun run c
 
 ## TypeScriptの書き方
 
-`scripts/**/*.ts`の書式は固定したOxfmt版と[.oxfmtrc.json](../../.oxfmtrc.json)に従い、`bun run format:check`で確認します。型検査は[tsconfig.json](../../tsconfig.json)、lintは[.oxlintrc.json](../../.oxlintrc.json)と[Biome設定](../../biome.json)を正本とします。ルールやツールの版を変える場合は、既定値と検出力への影響を確認します。
+`scripts/**/*.ts`と`eval/**/*.ts`の書式（合成課題fixtureを除く）はBun 1.4.4標準の`bun fmt`と[.oxfmtrc.json](../../.oxfmtrc.json)に従い、`bun run format:check`で確認します。型検査は[tsconfig.json](../../tsconfig.json)、lintは[.oxlintrc.json](../../.oxlintrc.json)と[Biome設定](../../biome.json)を正本とします。ルールやツールの版を変える場合は、既定値と検出力への影響を確認します。
 
 外部データは`unknown`から値を検査して扱います。型アサーションやdisableで不正入力・型エラーを隠しません。型検査だけで保存履歴の真正性や意味の整合は保証されません。
 

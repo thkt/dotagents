@@ -24,7 +24,7 @@
 | 指示変更のeval | 関連する改善作業で、バージョン・ケース・モデル・有限の上限を固定して比較します。[実行条件と報告](eval/README.md)から手動で開始します。定期実行や全PRの必須ゲートにはしません |
 | 実行結果 | developmentのrun保存先にある `result.json` から、理由・次の対応・証拠を辿ります。`report.html`は保存結果の表示です。下位state・生ログと、生成できない条件は[結果と再実行](scripts/README.md#結果と再実行)で確認します |
 
-共通登録されたスキルが、信頼する同じハーネス実体を参照することが前提です。利用するハーネスの commit と実体パスを確認し、そのバージョンの手順と lockfile を使います。必要なのは Bun 1.4.3、Git、gh、Codex CLI で、対応環境は macOS ホストと github.com です。Git・gh・Codex CLI の最低バージョンは定めていません。必要な機能と既存の認証は[CLI手順](scripts/README.md#issueからpr作成)で確認します。登録を変更するときは[保全と登録変更の方針](docs/wiki/development-policy.md#旧資産の保全と登録変更)に従います。
+共通登録されたスキルが、信頼する同じハーネス実体を参照することが前提です。利用するハーネスの commit と実体パスを確認し、そのバージョンの手順と lockfile を使います。必要なのは Bun 1.4.4、Git、gh、Codex CLI で、対応環境は macOS ホストと github.com です。Git・gh・Codex CLI の最低バージョンは定めていません。必要な機能と既存の認証は[CLI手順](scripts/README.md#issueからpr作成)で確認します。登録を変更するときは[保全と登録変更の方針](docs/wiki/development-policy.md#旧資産の保全と登録変更)に従います。
 
 内部の TypeScript export、参照されているだけのファイル、fallow の`entry`全体は、公開契約にしません。repo 外から内部 export を使う実例は未確認です。利用が見つかったら、対象と必要な保証を明示し、合意する範囲を見直します。
 
@@ -37,12 +37,12 @@ bun run check
 
 このrepoの日本語ドキュメントの作成・更新とPR本文の確認には、外部からインストールした`yomiyasu`とPython 3も必要です。本体はこのrepoに同梱せず、各ホストで用意します。スキル実体の確認、run／verify、ローカル記録とGit共有の区別は[適用手順](skills/references/yomiyasu.md)に従います。外部スキルの動作は共通checkの網羅対象ではありません。
 
-Bun 1.4.3 を使います。check は次の順に実行します。ツールごとに検査する対象を分けています。fallow 3.32.0 もバージョンを固定した開発依存で、上記の setup で導入します。
+Bun 1.4.4 を使います。check は次の順に実行します。ツールごとに検査する対象を分けています。fallow 3.32.0 もバージョンを固定した開発依存で、上記の setup で導入します。
 
 | 順 | package script | ツール | 検査する対象 |
 | --- | --- | --- | --- |
 | 1 | `lint` | oxlint | 型情報を使う正しさの検査と、[ローカルプラグイン](scripts/lint/local/index.ts)の規則。警告も失敗にします |
-| 2 | `format:check` | oxfmt | `scripts/`と`eval/`のTypeScriptの書式（合成課題fixtureを除く） |
+| 2 | `format:check` | `bun fmt` | `scripts/`と`eval/`のTypeScriptの書式（合成課題fixtureを除く） |
 | 3 | `complexity` | Biome | 認知的複雑度の上限 15 だけ。formatter と他の規則は無効です |
 | 4 | `typecheck` | `bun --check` | `tsconfig.json`に従う通常ハーネスとeval実行コード・模擬テストの型の整合。テストからimportされないCLIも含みます |
 | 5 | `check:unused` | fallow | 未使用のファイル・export・型・依存と、実行時 import の循環 |
