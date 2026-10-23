@@ -1,0 +1,105 @@
+import assert from 'node:assert/strict';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+const root = process.env.DOTAGENTS_ROOT ?? process.cwd();
+const { cliArgument, verifyInterruptedProcesses } = await import(join(root, 'scripts/implement/interrupted-processes.ts'));
+const { readReference, hash } = await import(join(root, 'scripts/implement/host-records.ts'));
+const { RecordObservation } = await import(join(root, 'scripts/implement/record-observation.ts'));
+const { verifyTestArtifacts } = await import(join(root, 'scripts/implement/test-author.ts'));
+const { pushArguments } = await import(join(root, 'scripts/shared/target.ts'));
+
+const dir = process.env.DOTAGENTS_OUT;
+assert(dir, 'DOTAGENTS_OUT is required');
+await mkdir(dir, { recursive: true });
+const result: Record<string, unknown> = {};
+const option = '--interrupted-run';
+const path = `${dir}/old`;
+const mismatches: unknown[] = [];
+let cases = 0;
+for (const prefix of ['', 'x', '--other', 'worker']) {
+  for (const separator of [' ', '=']) {
+    for (const quote of ['', "'", '"']) {
+      for (const suffix of ['', '/child', 'x']) {
+        const command = `bun worker ${prefix}${option}${separator}${quote}${path}${suffix}${quote}`;
+        const expected = prefix === '' && suffix === '';
+        const actual = cliArgument(command, option, path);
+        cases++;
+        if (actual !== expected) mismatches.push({ command, expected, actual });
+      }
+    }
+  }
+}
+result.processArguments = { cases, mismatches };
+
+await mkdir(path, { recursive: true });
+await writeFile(`${path}/result.json`, JSON.stringify({startedAt:'2020-01-01T00:00:00.500Z', finishedAt:'2020-01-01T00:10:00.500Z'}));
+const date = new Date('2020-01-01T00:10:02Z');
+const [weekday, month, day, year, time] = date.toString().split(' ');
+const commands = [
+  `bun development.ts --interrupted-run=${path} --run-dir=${dir}/new`,
+  `bun worker --other--interrupted-run=${path} --other--run-dir=${dir}/new`,
+];
+result.processBoundary = [];
+for (const command of commands) {
+  let accepted = true;
+  try {
+    await verifyInterruptedProcesses(`100000001 1 ${weekday} ${month} ${day} ${time} ${year} ${command}`, {previousRun:path, runDirectory:`${dir}/new`, review:['bun','review.ts']});
+  } catch { accepted = false; }
+  (result.processBoundary as unknown[]).push({command, accepted});
+}
+
+// 同一の観測結果にも、参照ごとの期待hashを必ず照合する。
+const evidencePath = `${dir}/evidence.txt`;
+await writeFile(evidencePath, 'v0');
+const observation = new RecordObservation();
+observation.retain([evidencePath]);
+const evidence = [];
+for (const expected of ['v0','v1']) {
+  let accepted = true;
+  try { await readReference({path:evidencePath,sha256:hash(expected)}, observation); }
+  catch { accepted = false; }
+  evidence.push({expected, accepted});
+}
+await writeFile(evidencePath, 'v1');
+let newBoundaryRejects = false;
+try { await readReference({path:evidencePath,sha256:hash('v0')}, new RecordObservation()); }
+catch { newBoundaryRejects = true; }
+result.evidence = {cases:3, evidence, newBoundaryRejects};
+assert(evidence[0]?.accepted && !evidence[1]?.accepted && newBoundaryRejects);
+
+const prefix = `${dir}/test-1`;
+const raw = '{"status":"unnecessary"}';
+await writeFile(`${prefix}.stdout`, raw);
+const artifactCases = [];
+for (const fileMatches of [false,true]) {
+  for (const stdoutMatches of [false,true]) {
+    let accepted = true;
+    try {
+      await verifyTestArtifacts(dir, [{prefix,targetId:'trial',stdoutHash:hash(stdoutMatches ? raw : 'different'),files:{'a.test.ts':'protected'}}], {'a.test.ts':fileMatches ? 'protected' : 'changed'});
+    } catch { accepted = false; }
+    assert.equal(accepted, fileMatches && stdoutMatches);
+    artifactCases.push({fileMatches,stdoutMatches,accepted});
+  }
+}
+result.protectedArtifacts = {cases:4, artifactCases};
+const recovery = await readFile(join(root, 'scripts/implement/review-recovery.ts'),'utf8');
+const definition = recovery.slice(recovery.indexOf('function verifyAuthority('), recovery.indexOf('\nasync function verifyReviewTarget('));
+const translated = new Bun.Transpiler({loader:'ts'}).transformSync(definition);
+const authorityGuard = new Function('assert', `${translated}; return verifyAuthority;`)(assert);
+const authorityCases = [];
+for (const previous of [undefined, false, true, null, 'false', 0]) {
+  for (const current of [false,true]) {
+    const expected = (previous === undefined || typeof previous === 'boolean') && (previous === false || current);
+    let accepted = true;
+    try { authorityGuard({localOnly:previous},current); } catch { accepted=false; }
+    assert.equal(accepted,expected);
+    authorityCases.push({previous:previous === undefined ? 'missing' : previous,current,accepted});
+  }
+}
+result.authority = {cases:authorityCases.length, mismatches:0, authorityCases};
+const commit = 'a'.repeat(40);
+const push = await pushArguments('team/component','codex/trial',commit,dir,async()=> 'https://github.com/team/component.git');
+assert.equal(push.at(-1), `${commit}:refs/heads/codex/trial`);
+result.versionBinding = {refspec:push.at(-1),verifiedCommit:commit};
+await writeFile(`${dir}/control-results.json`, JSON.stringify(result,null,2));
+console.log(JSON.stringify({processCases:cases,processMismatches:mismatches.length,processBoundary:result.processBoundary,evidence:result.evidence,protectedArtifacts:result.protectedArtifacts},null,2));

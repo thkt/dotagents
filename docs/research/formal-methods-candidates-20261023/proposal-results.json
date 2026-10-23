@@ -1,0 +1,38 @@
+{
+  "cases": 125,
+  "intendedRejects": 50,
+  "unchangedValid": 75,
+  "lifecycleOneTurnComparisons": 125,
+  "reviewerResults": [
+    {
+      "v": {
+        "input_tokens": 0,
+        "cached_input_tokens": 1,
+        "output_tokens": 0
+      },
+      "status": "refused",
+      "reason": "Incomplete model usage"
+    },
+    {
+      "v": {
+        "input_tokens": 2,
+        "cached_input_tokens": 1,
+        "output_tokens": 0
+      },
+      "status": "accepted"
+    },
+    {
+      "v": {
+        "input_tokens": 2,
+        "cached_input_tokens": 2,
+        "output_tokens": 0
+      },
+      "status": "accepted"
+    }
+  ],
+  "ciTests": {
+    "baseline": 0,
+    "mutant": 1,
+    "note": "Existing test detects duplicate pending mutant through expectedObservation.running; no new detection gain for this defect."
+  }
+}

@@ -19,6 +19,7 @@
 | 独立レビューの分担や並列化を、過去の品質・時間・使用量と照らして判断するとき | [implementの独立レビュー基盤](implement-review-foundation.md) |
 | 正常ケースのテスト不足に関する判断の違いと、2ケース各1回のモデル比較の限界を確認するとき | [Astra/high・Sol/highの原報告](review-model-comparison-20260923.md)（2026-09-23、原ログ未再照合） |
 | Solの役割別effort設定の合意と、限定試行の見落とし・時間・使用量・環境差を確認するとき | [Sol/highの限定試行](gpt-6-1-sol-trial-20260930.md)、[mediumとの比較](gpt-6-1-sol-medium-comparison-20260930.md) |
+| 既存のTLA+・Quint活用から広げた9候補の比較、追加2修正と再実行資料を確認するとき | [形式手法の既存活用を広げた9候補の限定比較](formal-methods-candidates-20261023.md) |
 | 実行予約と中断後の再起動をモデル化した範囲を確認するとき | [TLA+の限定試行](formal-state-trial-20260921.md) |
 | 検証後の版変更と送信の間にある競合、モデルの操作粒度を確認するとき | [Quintによる公開前の限定試行](quint-publication-trial-20260929.md) |
 | #58の撮影検証の対象版・実測・失敗と未確認範囲を確認するとき | [Issue #58の検証記録](harness-review-2026-09-14.md) |

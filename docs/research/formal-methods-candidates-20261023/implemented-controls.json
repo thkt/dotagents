@@ -1,0 +1,125 @@
+{
+  "processArguments": {
+    "cases": 72,
+    "mismatches": []
+  },
+  "processBoundary": [
+    {
+      "command": "bun development.ts --interrupted-run=$OUTPUT/old --run-dir=$OUTPUT/new",
+      "accepted": true
+    },
+    {
+      "command": "bun worker --other--interrupted-run=$OUTPUT/old --other--run-dir=$OUTPUT/new",
+      "accepted": false
+    }
+  ],
+  "evidence": {
+    "cases": 3,
+    "evidence": [
+      {
+        "expected": "v0",
+        "accepted": true
+      },
+      {
+        "expected": "v1",
+        "accepted": false
+      }
+    ],
+    "newBoundaryRejects": true
+  },
+  "protectedArtifacts": {
+    "cases": 4,
+    "artifactCases": [
+      {
+        "fileMatches": false,
+        "stdoutMatches": false,
+        "accepted": false
+      },
+      {
+        "fileMatches": false,
+        "stdoutMatches": true,
+        "accepted": false
+      },
+      {
+        "fileMatches": true,
+        "stdoutMatches": false,
+        "accepted": false
+      },
+      {
+        "fileMatches": true,
+        "stdoutMatches": true,
+        "accepted": true
+      }
+    ]
+  },
+  "authority": {
+    "cases": 12,
+    "mismatches": 0,
+    "authorityCases": [
+      {
+        "previous": "missing",
+        "current": false,
+        "accepted": false
+      },
+      {
+        "previous": "missing",
+        "current": true,
+        "accepted": true
+      },
+      {
+        "previous": false,
+        "current": false,
+        "accepted": true
+      },
+      {
+        "previous": false,
+        "current": true,
+        "accepted": true
+      },
+      {
+        "previous": true,
+        "current": false,
+        "accepted": false
+      },
+      {
+        "previous": true,
+        "current": true,
+        "accepted": true
+      },
+      {
+        "previous": null,
+        "current": false,
+        "accepted": false
+      },
+      {
+        "previous": null,
+        "current": true,
+        "accepted": false
+      },
+      {
+        "previous": "false",
+        "current": false,
+        "accepted": false
+      },
+      {
+        "previous": "false",
+        "current": true,
+        "accepted": false
+      },
+      {
+        "previous": 0,
+        "current": false,
+        "accepted": false
+      },
+      {
+        "previous": 0,
+        "current": true,
+        "accepted": false
+      }
+    ]
+  },
+  "versionBinding": {
+    "refspec": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:refs/heads/codex/trial",
+    "verifiedCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}

@@ -15,7 +15,12 @@ export function parseTokenUsage(value: unknown): TokenUsage | null {
     return null;
   }
   const { input_tokens, cached_input_tokens, output_tokens } = value;
-  if (!isCount(input_tokens) || !isCount(cached_input_tokens) || !isCount(output_tokens)) {
+  if (
+    !isCount(input_tokens) ||
+    !isCount(cached_input_tokens) ||
+    !isCount(output_tokens) ||
+    cached_input_tokens > input_tokens
+  ) {
     return null;
   }
   return {

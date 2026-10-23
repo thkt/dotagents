@@ -1,0 +1,54 @@
+import assert from 'node:assert/strict';
+import {readFile,writeFile,mkdir}from'node:fs/promises';
+import {join,resolve,dirname}from'node:path';
+import {spawnSync}from'node:child_process';
+const root=process.env.DOTAGENTS_ROOT ?? process.cwd(),out=process.env.DOTAGENTS_OUT;
+assert(out, 'DOTAGENTS_OUT is required');
+await mkdir(out,{recursive:true});
+const {parseTokenUsage}=await import(join(root,'scripts/shared/token-usage.ts'));
+const {readUsageEvents}=await import(join(root,'scripts/implement/usage-events.ts'));
+const absolute=(text:string,path:string)=>text.replace(/from '([.][^']+)'/g,(_all,p)=>`from '${resolve(dirname(path),p)}'`);
+const tokenFile=join(root,'scripts/shared/token-usage.ts');
+const tokenSource=await readFile(tokenFile,'utf8');
+const search='!isCount(input_tokens) || !isCount(cached_input_tokens) || !isCount(output_tokens)';
+assert(tokenSource.includes(search));
+const proposed=absolute(tokenSource.replace(search,search+' || cached_input_tokens > input_tokens'),tokenFile);
+await writeFile(join(out,'token-proposal.ts'),proposed);
+const usageFile=join(root,'scripts/implement/usage-events.ts');
+const usageSource=await readFile(usageFile,'utf8');
+const usageProposed=absolute(usageSource,usageFile).replaceAll(`${root}/scripts/shared/token-usage.ts`,join(out,'token-proposal.ts')).replace('usage && usage.cached_input_tokens <= usage.input_tokens','usage');
+await writeFile(join(out,'usage-proposal.ts'),usageProposed);
+const reviewFile=join(root,'scripts/implement/review-probe.ts');
+const reviewSource=await readFile(reviewFile,'utf8');
+await writeFile(join(out,'review-proposal.ts'),absolute(reviewSource,reviewFile).replaceAll(`${root}/scripts/shared/token-usage.ts`,join(out,'token-proposal.ts')));
+const token=await import(join(out,'token-proposal.ts'));
+const events=await import(join(out,'usage-proposal.ts'));
+const review=await import(join(out,'review-proposal.ts'));
+const values=[0,1,2,Number.MAX_SAFE_INTEGER-1,Number.MAX_SAFE_INTEGER];
+let cases=0,intendedRejects=0,unchangedValid=0;
+for(const a of values)for(const b of values)for(const c of values){
+ const v={input_tokens:a,cached_input_tokens:b,output_tokens:c};
+ assert.deepEqual(token.parseTokenUsage(v),b<=a?v:null);cases++;
+ if(b>a){assert(parseTokenUsage(v)!==null);intendedRejects++;}else{assert.deepEqual(token.parseTokenUsage(v),parseTokenUsage(v));unchangedValid++;}
+ const raw=[{type:'thread.started',thread_id:'t'},{type:'turn.started'},{type:'turn.completed',usage:v}].map(x=>JSON.stringify(x)).join('\n');
+ assert.deepEqual(events.readUsageEvents(raw),readUsageEvents(raw));
+}
+const path=join(out,'proposal-review-witness');await mkdir(join(path,'review-codex-case'),{recursive:true});
+const reviewerResults=[];
+for(const [a,b]of [[0,1],[2,1],[2,2]]){
+ const v={input_tokens:a,cached_input_tokens:b,output_tokens:0};await writeFile(join(path,'review-codex-case/events.jsonl'),JSON.stringify({type:'turn.completed',usage:v}));
+ if(b>a){await assert.rejects(()=>review.readReviewerUsage(path),/Incomplete model usage/);reviewerResults.push({v,status:'refused',reason:'Incomplete model usage'});}else{const r=await review.readReviewerUsage(path);assert.deepEqual(r.totals,v);reviewerResults.push({v,status:'accepted'});}
+}
+// Existing CI test is copied unchanged except the module import paths. Mutated production
+// module is isolated in /private/tmp; no tracked fixtures or test files are edited.
+const testFile=join(root,'scripts/tests/implement/ci.test.ts');
+const existingTest=await readFile(testFile,'utf8');
+await writeFile(join(out,'ci-mutant-existing.test.ts'),absolute(existingTest,testFile).replaceAll(`${root}/scripts/implement/ci.ts`,join(out,'ci-duplicate-pending-mutant.ts')));
+const baseline=spawnSync(process.execPath,['test',testFile],{cwd:root,encoding:'utf8'});
+const mutant=spawnSync(process.execPath,['test',join(out,'ci-mutant-existing.test.ts')],{cwd:root,encoding:'utf8'});
+await writeFile(join(out,'ci-existing-baseline.log'),baseline.stdout+baseline.stderr);
+await writeFile(join(out,'ci-existing-mutant.log'),mutant.stdout+mutant.stderr);
+assert.equal(baseline.status,0);assert.notEqual(mutant.status,0);
+const results={cases,intendedRejects,unchangedValid,lifecycleOneTurnComparisons:cases,reviewerResults,ciTests:{baseline:baseline.status,mutant:mutant.status,note:'Existing test detects duplicate pending mutant through expectedObservation.running; no new detection gain for this defect.'}};
+await writeFile(join(out,'proposal-results.json'),JSON.stringify(results,null,2)+'\n');
+console.log(JSON.stringify(results,null,2));

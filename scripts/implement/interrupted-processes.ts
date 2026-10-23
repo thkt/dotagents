@@ -104,5 +104,5 @@ export async function verifyInterruptedProcesses(
 
 export function cliArgument(argv: string, option: string, path: string) {
   const literal = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`${option}(?:=|\\s+)["']?${literal}["']?(?:\\s|$)`).test(argv);
+  return new RegExp(`(?:^|\\s)${option}(?:=|\\s+)["']?${literal}["']?(?:\\s|$)`).test(argv);
 }
