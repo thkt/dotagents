@@ -141,7 +141,7 @@ const modes = [
 type Mode = (typeof modes)[number];
 
 const testResponse = {
-  targetId: 'independent-test-fixture',
+  targetId: '9a'.repeat(32),
   status: 'unnecessary',
   findings: '既存検証で要求を確認できるため追加テストは不要です。',
   files: [],
@@ -159,17 +159,24 @@ function expectTestResponseSchema(value: unknown) {
     'prepared',
     'unnecessary',
   ]);
-  for (const field of ['targetId', 'findings']) {
-    expect(object(properties[field])).toMatchObject({
-      type: 'string',
-      minLength: 1,
-      pattern: '\\S',
-    });
-  }
+  expect(object(properties.findings)).toMatchObject({
+    type: 'string',
+    minLength: 1,
+    pattern: '\\S',
+  });
+  const target = object(properties.targetId);
+  expect(target.enum ?? (target.const === undefined ? [] : [target.const])).toEqual([
+    testResponse.targetId,
+  ]);
   expect(object(properties.files)).toMatchObject({ type: 'array', items: { type: 'string' } });
 }
 
-async function mockCodex(root: string, mode: Mode, bytes: number) {
+async function mockCodex(
+  root: string,
+  mode: Mode,
+  bytes: number,
+  targetId = testResponse.targetId,
+) {
   if (mode !== 'missing') {
     await writeFile(
       join(root, 'codex'),
@@ -198,7 +205,7 @@ if(args[0] === '--version') {
 const schemaIndex = args.indexOf('--output-schema');
 const schema = schemaIndex < 0 ? null : JSON.parse(readFileSync(args[schemaIndex + 1], 'utf8'));
 writeFileSync(${JSON.stringify(join(root, 'invocation.json'))}, JSON.stringify({...conditions, args, schema, inheritedPrefix: process.env.DOTAGENTS_ACTOR_PREFIX ?? null}));
-writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify(${JSON.stringify(mode === 'test' ? testResponse : { status: 'accepted', findings: '' })}));
+writeFileSync(args[args.indexOf('-o') + 1], JSON.stringify(${JSON.stringify(mode === 'test' ? { ...testResponse, targetId } : { status: 'accepted', findings: '' })}));
 process.stdout.write('x'.repeat(${bytes}) + 'stdout-end');
 process.stderr.write('y'.repeat(${bytes}) + 'stderr-end');
 }
@@ -345,7 +352,10 @@ for (const mode of modes) {
             DOTAGENTS_FIXTURE_ENV: 'fixture-339',
             DOTAGENTS_ACTOR_PREFIX: join(root, 'verification/actor-1'),
           },
-          input: 'Review fixture',
+          input:
+            role === 'test'
+              ? `入力: ${JSON.stringify({ targetId: testResponse.targetId })}`
+              : 'Review fixture',
           encoding: 'utf8',
           timeout: 10000,
         },
@@ -401,6 +411,35 @@ for (const mode of modes) {
       }
     } finally {
       await cleanupDescendant(root);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const targetId of ['a1'.repeat(32), 'f09c'.repeat(16)]) {
+  test(`独立テストactorは入力IDを生成schemaで固定する: ${targetId}`, async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'test-schema-')));
+    try {
+      await mockCodex(root, 'test', 64, targetId);
+      const result = spawnSync(
+        process.execPath,
+        [resolve('scripts/implement/codex-actor.ts'), 'test', root],
+        {
+          cwd: root,
+          env: { PATH: root },
+          input: `入力: ${JSON.stringify({ targetId })}\n要求: 固定した要求`,
+          encoding: 'utf8',
+          timeout: 10000,
+        },
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(0);
+      const invocation = object(JSON.parse(await readFile(join(root, 'invocation.json'), 'utf8')));
+      const field = object(object(object(invocation.schema).properties).targetId);
+      // singleton enumとconstは同じ生成制約として許容する。ホストの拒否は別テストで守る。
+      expect(field.enum ?? (field.const === undefined ? [] : [field.const])).toEqual([targetId]);
+      expect(JSON.parse(result.stdout)).toEqual({ ...testResponse, targetId });
+    } finally {
       await rm(root, { recursive: true, force: true });
     }
   });

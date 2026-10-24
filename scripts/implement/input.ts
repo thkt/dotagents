@@ -1,3 +1,9 @@
+import { initialTestReturnShape } from './host-records.ts';
+import type { InitialTestReturn } from './host-records.ts';
+import { humanDecisionShape, fixedSupplementShape } from './human-decision-schema.ts';
+import type { HumanDecision, FixedSupplement } from './human-decision-schema.ts';
+import { testInterruptionShape } from './test-interruption-schema.ts';
+import type { TestInterruption } from './test-interruption-schema.ts';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
 import { hostPreparationShape, hostReturnShape, reviewReturnShape } from './host-records.ts';
@@ -99,6 +105,11 @@ const stopReasons = [
 ] as const;
 export type StopReason = (typeof stopReasons)[number];
 export interface ReviewConfig {
+  initialTestReturn?: InitialTestReturn;
+  humanDecision?: HumanDecision;
+  humanDecisionOwner?: string;
+  supplement?: FixedSupplement;
+  testInterruption?: TestInterruption;
   targetText?: string;
   baseCommit?: string;
   hostReturn?: HostReturn;
@@ -177,9 +188,14 @@ function assertReviewConfig(value: unknown, fields: string[]): asserts value is 
   assert(
     Object.keys(value).every((key) =>
       [
+        'initialTestReturn',
+        'humanDecision',
+        'humanDecisionOwner',
+        'supplement',
         'baseCommit',
         'targetText',
         'hostReturn',
+        'testInterruption',
         'reviewReturn',
         'hostPreparation',
         'revision',
@@ -199,9 +215,14 @@ function assertReviewConfig(value: unknown, fields: string[]): asserts value is 
     ),
     'Unknown configuration field',
   );
+  if (value.initialTestReturn !== undefined) {
+    initialTestReturnShape.parse(value.initialTestReturn);
+  }
   assert(optionalString(value.targetText), '対象設定原文が不正です');
   assert(optionalString(value.baseCommit), 'Invalid base commit');
   assertRevision(value.revision);
+  assertHumanDecision(value);
+  assertTestInterruption(value);
   if (value.reviewReturn !== undefined) {
     reviewReturnShape.parse(value.reviewReturn);
     assert(
@@ -209,9 +230,7 @@ function assertReviewConfig(value: unknown, fields: string[]): asserts value is 
       '復帰入口を混在できません',
     );
   }
-  if (value.hostReturn !== undefined) {
-    hostReturnShape.parse(value.hostReturn);
-  }
+  assertHostReturn(value);
   if (value.hostPreparation !== undefined) {
     assert(value.hostReturn !== undefined, 'Host preparation requires host return');
     hostPreparationShape.parse(value.hostPreparation);
@@ -302,4 +321,53 @@ export function assertState(value: unknown): asserts value is State {
     parsed.success,
     `Invalid saved state: ${parsed.error?.issues[0]?.path.join('.') || 'object'}`,
   );
+}
+
+function assertTestInterruption(value: Record<string, unknown>) {
+  assert(
+    !(value.initialTestReturn && value.testInterruption),
+    '初回テスト復帰の形式を混在できません',
+  );
+  if (value.testInterruption !== undefined) {
+    testInterruptionShape.parse(value.testInterruption);
+    assert(!value.reviewReturn && !value.hostReturn && !value.revision, '復帰入口を混在できません');
+  }
+}
+
+function assertHostReturn(value: Record<string, unknown>) {
+  if (value.hostReturn !== undefined) {
+    const host = hostReturnShape.parse(value.hostReturn);
+    assert(
+      !(value.initialTestReturn && host.testInterruption),
+      '初回テスト復帰の形式を混在できません',
+    );
+    assert(
+      !host.testInterruption || (!host.reviewReturn && value.revision === undefined),
+      '初回テスト中断のホスト検証を他の復帰履歴と混在できません',
+    );
+  }
+}
+function assertHumanDecision(value: Record<string, unknown>) {
+  if (value.supplement !== undefined) {
+    fixedSupplementShape.parse(value.supplement);
+  }
+  const decision =
+    value.humanDecision === undefined ? undefined : humanDecisionShape.parse(value.humanDecision);
+  assert(
+    value.humanDecisionOwner === undefined || value.humanDecisionOwner === decision?.previousRun,
+    '現在の判断待ち復帰の所有者が履歴と一致しません',
+  );
+  if (decision) {
+    assert(
+      (value.hostReturn || value.initialTestReturn) &&
+        !value.reviewReturn &&
+        !value.revision &&
+        !value.testInterruption,
+      '判断待ち復帰の履歴が不正です',
+    );
+    assert(
+      JSON.stringify(decision.supplement) === JSON.stringify(value.supplement),
+      '補足合意が復帰入力と一致しません',
+    );
+  }
 }

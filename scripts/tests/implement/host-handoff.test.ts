@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { genericHostCli, expectGenericHostResult } from '../support/generic-host-observations.ts';
+import { formalTree } from '../support/formal-host-return.ts';
 import { expect } from 'bun:test';
-import { readFile, writeFile, readdir, rm, chmod, stat, symlink } from 'node:fs/promises';
+import { readFile, writeFile, readdir, rm, chmod, stat, symlink, mkdir } from 'node:fs/promises';
 import { join, dirname, basename } from 'node:path';
 import { develop } from '../../implement/orchestrator.ts';
 import { run, snapshot } from '../../implement/correction.ts';
@@ -16,6 +18,91 @@ import {
   expectActorReference,
   saveActorRecord,
 } from '../support/actor-records.ts';
+
+// 特別な中断履歴を持たない正式停止でも、同じ外部状態の拒否が必要である。
+const genericCases = [
+  ['safe', 'intake'],
+  ['live', 'intake'],
+  ['process-unavailable', 'intake'],
+  ['remote', 'intake'],
+  ['pr', 'intake'],
+  ['remote-unavailable', 'intake'],
+  ['github-malformed', 'intake'],
+  ['management-lock', 'intake'],
+  ['git-lock', 'intake'],
+  ['git-ref-lock', 'intake'],
+  ['git-worktree-lock', 'intake'],
+  ['live', 'setup'],
+  ['remote', 'test'],
+  ['pr', 'check'],
+] as const;
+for (const [observation, boundary] of genericCases) {
+  testReviewRecovery(
+    `通常の正式停止の外部状態を公開CLIで再照合する: ${observation} ${boundary}`,
+    async (f) => {
+      const cwd = await prepareStop(f);
+      const config = object(
+        JSON.parse(await readFile(join(f.dir, 'verification-config.json'), 'utf8')),
+      );
+      for (const key of ['testInterruption', 'hostReturn', 'reviewReturn', 'revision']) {
+        expect(config[key]).toBeUndefined();
+      }
+      if (observation === 'safe') {
+        await writeFile(join(cwd, 'bun.lock'), 'fixture dependency lockfile');
+      }
+      const m = await measurement(f, cwd);
+      if (observation === 'management-lock') {
+        await mkdir(join(f.dir, 'lock'));
+      }
+      let lock: string | undefined;
+      if (observation.startsWith('git-') && observation.endsWith('lock')) {
+        const common = await gitOutput(
+          cwd,
+          'rev-parse',
+          '--path-format=absolute',
+          '--git-common-dir',
+        );
+        const worktree = await gitOutput(cwd, 'rev-parse', '--absolute-git-dir');
+        expect(worktree).not.toBe(common);
+        lock =
+          observation === 'git-worktree-lock'
+            ? join(worktree, 'index.lock')
+            : observation === 'git-ref-lock'
+              ? join(common, 'refs/heads/fixture-pending.lock')
+              : join(common, 'index.lock');
+        await mkdir(dirname(lock), { recursive: true });
+        await writeFile(lock, 'fixture active Git lock');
+      }
+      const original = await formalTree(f.dir, true);
+      try {
+        const outcome = await genericHostCli(f, m.args, observation, boundary);
+        expect(f.calls.implementations).toBe(1);
+        expect(f.calls.pushes).toBe(0);
+        expect(f.calls.publications).toBe(0);
+        expect(await formalTree(f.dir, true)).toEqual(original);
+        if (lock) {
+          expect(await readFile(lock, 'utf8')).toBe('fixture active Git lock');
+        }
+        expectGenericHostResult(outcome, observation, boundary);
+        if (observation === 'safe') {
+          const independent = outcome.calls.find((call) => call.role === 'test');
+          assert(independent);
+          const initial = object(
+            JSON.parse(await readFile(join(f.dir, 'test-1.target.json'), 'utf8')),
+          );
+          expect(object(independent.input)).toMatchObject({
+            stage: 'host_return',
+            baseCommit: initial.baseCommit,
+          });
+        }
+      } finally {
+        if (lock) {
+          await rm(lock);
+        }
+      }
+    },
+  );
+}
 
 const findings =
   'Run the agreed host measurement for current result.txt; configured check verifies local behavior only. Retain output and update the verification summary.';
@@ -655,16 +742,34 @@ for (const boundary of ['return', 'publication'] as const) {
           };
         }
         const previousRecords = await runRecords(first.dir);
-        await assert.rejects(() => develop(m.args, f.io), reason);
-        const result = object(JSON.parse(await readFile(join(m.dir, 'result.json'), 'utf8')));
-        expect(result).toMatchObject({ status: 'stopped', publication: 'not_attempted' });
-        expect(result.reason).toMatch(reason);
-        expect(result.reason).toContain(ancestorPath);
-        expect(await readFile(join(m.dir, 'host-return.json'), 'utf8')).toContain(first.dir);
+        const calls = { ...f.calls };
+        let setups = 0;
+        const localCommand = f.localCommand;
+        f.localCommand = async (...args) => {
+          if (args[0][0] === 'sh') {
+            setups++;
+          }
+          return localCommand(...args);
+        };
+        await assert.rejects(
+          () => develop(m.args, f.io),
+          (error: unknown) => {
+            assert(error instanceof Error);
+            assert.match(error.message, reason);
+            assert(error.message.includes(ancestorPath), error.message);
+            return true;
+          },
+        );
         if (boundary === 'return') {
-          const files = await readdir(join(m.dir, 'verification'));
-          expect(files.filter((name) => /^(check|review|repair)-\d/.test(name))).toEqual([]);
+          // 受付前の拒否では新runの保存を前提にせず、後続の起動抑止を直接確認する。
+          expect(setups).toBe(0);
+          expect(f.calls).toEqual(calls);
         } else {
+          const result = object(JSON.parse(await readFile(join(m.dir, 'result.json'), 'utf8')));
+          expect(result).toMatchObject({ status: 'stopped', publication: 'not_attempted' });
+          expect(result.reason).toMatch(reason);
+          expect(result.reason).toContain(ancestorPath);
+          expect(await readFile(join(m.dir, 'host-return.json'), 'utf8')).toContain(first.dir);
           const state = object(
             JSON.parse(await readFile(join(m.dir, 'verification/state.json'), 'utf8')),
           );
@@ -776,6 +881,19 @@ for (const location of ['external', 'checkout', 'previous_run'] as const) {
   }
 }
 
+async function expectStoppedBeforeVerification(dir: string) {
+  const files = await readdir(join(dir, 'verification')).catch((error: unknown) => {
+    assert(error instanceof Error && 'code' in error && error.code === 'ENOENT');
+    return [];
+  });
+  expect(files.filter((name) => /^(check|review|repair)-\d/.test(name))).toEqual([]);
+  if (await Bun.file(join(dir, 'result.json')).exists()) {
+    expect(object(JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'))).status).toBe(
+      'stopped',
+    );
+  }
+}
+
 for (const mode of [
   'failed',
   'unavailable',
@@ -860,13 +978,8 @@ for (const mode of [
     expect(f.calls.pushes).toBe(0);
     expect(await runRecords(f.dir)).toEqual(original);
     if (['failed', 'unavailable', 'setup_source', 'setup_log'].includes(mode)) {
-      // The verifier is entered, but rejects evidence before check or actor execution.
-      const files = await readdir(join(m.dir, 'verification'));
-      expect(files.filter((name) => /^(check|review|repair)-\d/.test(name))).toEqual([]);
-      expect(object(JSON.parse(await readFile(join(m.dir, 'result.json'), 'utf8'))).status).toBe(
-        'stopped',
-      );
-      expect(await readFile(join(m.dir, 'host-return.json'), 'utf8')).toContain(m.evidenceFile);
+      // 拒否する内部工程ではなく、check・評価・修正の抑止を確認する。
+      await expectStoppedBeforeVerification(m.dir);
     } else {
       expect(f.calls.verificationEntries).toBe(0);
     }

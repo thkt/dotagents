@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { expect, test } from 'bun:test';
+import { expect, test, spyOn } from 'bun:test';
+import * as processModule from '../../shared/process.ts';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,6 +31,7 @@ export const mediaCapture = {
 };
 
 async function developmentFixture(root: string, overrides: Partial<typeof targetConfig>) {
+  const execute = processModule.command;
   const repo = join(root, 'repo');
   const dir = join(root, 'run');
   const settings = {
@@ -145,6 +147,16 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
     args: [`https://github.com/${settings.repository}/issues/99`, '--repo', repo, '--run-dir', dir],
     // Overrides are the actual IO boundaries; individual tests own fault injection.
     localCommand: command,
+    async observationCommand(this: void, ...args: Parameters<typeof command>) {
+      const [argv, cwd] = args;
+      if (cwd === root || cwd.startsWith(`${root}/`)) {
+        const response = developmentObservation(argv);
+        if (response) {
+          return response;
+        }
+      }
+      return execute(...args);
+    },
     async test(
       this: void,
       _argv: string[],
@@ -356,6 +368,22 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
 }
 
 export type DevelopmentFixture = Awaited<ReturnType<typeof developmentFixture>>;
+
+function developmentObservation(argv: string[]) {
+  if (argv[0] === 'ps') {
+    const start = argv.at(-1)?.includes('lstart') ? 'Thu Jan 1 00:00:00 2026 ' : '';
+    const parent = argv.at(-1)?.includes('ppid') ? '0 ' : '';
+    return ok(`1 ${parent}${start}/sbin/launchd\n`);
+  }
+  if (argv[0] === 'git' && argv[1] === 'ls-remote' && !argv.includes('--get-url')) {
+    return ok();
+  }
+  if (argv[0] === 'gh' && argv[2]?.endsWith('/pulls') && argv.includes('state=all')) {
+    return ok('[[]]');
+  }
+  return undefined;
+}
+
 export function testDevelopment(
   name: string,
   run: (fixture: DevelopmentFixture) => Promise<void>,
@@ -366,9 +394,17 @@ export function testDevelopment(
     `development ${name}`,
     async () => {
       const root = await realpath(await mkdtemp(join(tmpdir(), 'development run-')));
+      // 親の復帰照合も外部観測だけを模擬し、個別の拒否条件は子CLIで与える。
+      let restore: (() => void) | undefined;
       try {
-        await run(await developmentFixture(root, settings));
+        const fixture = await developmentFixture(root, settings);
+        const observations = spyOn(processModule, 'command').mockImplementation(
+          fixture.observationCommand,
+        );
+        restore = () => observations.mockRestore();
+        await run(fixture);
       } finally {
+        restore?.();
         await withInterrupts(async () => {});
         await rm(root, { recursive: true, force: true });
       }

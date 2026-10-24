@@ -1,8 +1,19 @@
+import { previousTestRun } from './initial-test-recovery.ts';
+import { verifyInitialTestReturn, initialTestOwner } from './initial-test-records.ts';
+import { rejectDecisionBypass } from './recovery-latest.ts';
+import { previousHumanDecision } from './human-decision-recovery.ts';
+import { preserveDecisionRecords } from './human-decision-records.ts';
+import { verifyHumanDecision } from './human-decision-verify.ts';
+import { DecisionObservation } from './human-decision-records.ts';
+import { supplementContext, verifySupplement } from './supplement.ts';
+import { prepareFormalModes } from './host-record-modes.ts';
+import { verifyHostTestInterruption } from './test-interruption.ts';
 import {
   authorTests,
   prepareTestBaseline,
   readPreparedTestRecord,
   verifyTestArtifacts,
+  verifyTestBaseline,
 } from './test-author.ts';
 import type { TestIntake } from './test-author.ts';
 import { RecordObservation } from './record-observation.ts';
@@ -20,6 +31,7 @@ import { verifyReviewReturn } from './review-recovery-records.ts';
 import { previousHostRun, saveHostStop } from './host-handoff.ts';
 import {
   hostLocalRoots,
+  initialTestLocalRoots,
   interruptionReturn,
   hostReturnContext,
   hash,
@@ -253,18 +265,24 @@ function parseStart(args: string[]) {
       report: { type: 'string', multiple: true },
       'previous-run': { type: 'string' },
       'request-file': { type: 'string' },
+      'test-run': { type: 'string' },
       'review-run': { type: 'string' },
       'check-timeout-run': { type: 'string' },
       'interrupted-run': { type: 'string' },
+      'human-decision-run': { type: 'string' },
+      'supplement-file': { type: 'string' },
       'host-run': { type: 'string' },
       'host-evidence': { type: 'string' },
     },
   });
   assert(
     parsed.positionals.length === 1,
-    'Usage: bun scripts/implement/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report docs/research/NAME.md=BLOB] [--previous-run DIRECTORY --request-file PATH] [--host-run DIRECTORY --host-evidence PATH] [--check-timeout-run DIRECTORY --run-dir DIRECTORY] [--review-run DIRECTORY --run-dir DIRECTORY] [--interrupted-run DIRECTORY --run-dir DIRECTORY [--host-evidence PATH]]',
+    'Usage: bun scripts/implement/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report docs/research/NAME.md=BLOB] [--previous-run DIRECTORY --request-file PATH] [--host-run DIRECTORY --host-evidence PATH] [--test-run DIRECTORY --run-dir DIRECTORY] [--check-timeout-run DIRECTORY --run-dir DIRECTORY] [--human-decision-run DIRECTORY --supplement-file PATH --run-dir DIRECTORY] [--review-run DIRECTORY --run-dir DIRECTORY] [--interrupted-run DIRECTORY --run-dir DIRECTORY [--host-evidence PATH]]',
   );
+  assertDecisionOptions(parsed);
   const recoveryEntries = [
+    'test-run',
+    'human-decision-run',
     'review-run',
     'interrupted-run',
     'check-timeout-run',
@@ -313,6 +331,21 @@ function parseStart(args: string[]) {
         !parsed.values['host-evidence']),
     'check時間切れ復帰には新しい--run-dirが必要で、参照・追加証拠を指定できません',
   );
+  assert(
+    !parsed.values['test-run'] ||
+      (parsed.values['run-dir'] &&
+        ![
+          'previous-run',
+          'request-file',
+          'review-run',
+          'interrupted-run',
+          'host-run',
+          'host-evidence',
+          'start-commit',
+          'report',
+        ].some((key) => Reflect.get(parsed.values, key))),
+    '初回テスト復帰は新しい--run-dirを使い、他の入口・参照指定と混在できません',
+  );
   return parsed;
 }
 
@@ -347,7 +380,30 @@ async function selectStart(args: string[], io: typeof runtime) {
   const rawIssue = await checkedOutput(io, issue, repo);
   const original = issueText(rawIssue);
   const requirements = issueValue(original);
-  const hostPrior = await previousHostRun({
+  const testPrior = await previousTestRun({
+    directory: parsed.values['test-run'],
+    runDirectory: parsed.values['run-dir'],
+    cwd: repo,
+    issue: number,
+    original,
+    head: base,
+    target,
+    localOnly,
+  });
+  await rejectDecisionBypass(repo, selectedRecovery(parsed), parsed.values['run-dir']);
+  const decisionPrior = await previousHumanDecision({
+    directory: parsed.values['human-decision-run'],
+    supplementFile: parsed.values['supplement-file'],
+    runDirectory: parsed.values['run-dir'],
+    cwd: repo,
+    issue: number,
+    original,
+    head: base,
+    branch: await git('branch', '--show-current'),
+    target,
+    localOnly,
+  });
+  const hostPrior = await selectHostPrior(decisionPrior, {
     directory: parsed.values['host-run'],
     evidenceFile: parsed.values['host-evidence'],
     runDirectory: parsed.values['run-dir'],
@@ -374,7 +430,8 @@ async function selectStart(args: string[], io: typeof runtime) {
           localOnly,
         })
       : undefined;
-  reports = reviewPrior?.config.reports ?? hostPrior?.config.reports ?? reports;
+  reports =
+    testPrior?.reports ?? reviewPrior?.config.reports ?? hostPrior?.config.reports ?? reports;
   if (hostPrior) {
     assert(
       (await git('branch', '--show-current')) === hostPrior.branch,
@@ -418,6 +475,8 @@ async function selectStart(args: string[], io: typeof runtime) {
     number,
     prior,
     hostPrior,
+    testPrior,
+    decisionPrior,
     reviewPrior,
     reports,
     revision,
@@ -429,8 +488,24 @@ async function selectStart(args: string[], io: typeof runtime) {
   };
 }
 
+function initialTestProvenance(
+  testPrior: Awaited<ReturnType<typeof previousTestRun>>,
+  hostPrior: { config: Config } | undefined,
+  reviewPrior: Awaited<ReturnType<typeof previousReviewRun>>,
+) {
+  return (
+    testPrior?.returned ??
+    hostPrior?.config.initialTestReturn ??
+    reviewPrior?.config.initialTestReturn
+  );
+}
+
 function reusesCheckout(prior: unknown, hostPrior: unknown, reviewPrior: unknown) {
   return Boolean(prior || hostPrior || reviewPrior);
+}
+
+function developmentBranch(number: string, ...previous: ({ branch: string } | undefined)[]) {
+  return previous.find((entry) => entry !== undefined)?.branch ?? `codex/development-${number}`;
 }
 
 async function prospectiveRealpath(path: string): Promise<string> {
@@ -485,6 +560,8 @@ async function prepare(
     number,
     prior,
     hostPrior,
+    testPrior,
+    decisionPrior,
     reviewPrior,
     reports,
     revision,
@@ -506,11 +583,10 @@ async function prepare(
     repo,
     common,
     dir,
-    reviewPrior?.dir ?? hostPrior?.dir ?? prior?.dir,
+    testPrior?.dir ?? reviewPrior?.dir ?? hostPrior?.dir ?? prior?.dir,
   );
   const cwd = reusesCheckout(prior, hostPrior, reviewPrior) ? repo : join(canonical, 'checkout');
-  const branch =
-    reviewPrior?.branch ?? hostPrior?.branch ?? prior?.branch ?? `codex/development-${number}`;
+  const branch = developmentBranch(number, testPrior, reviewPrior, hostPrior, prior);
   const result: DevelopmentResult = {
     startedAt,
     status: 'stopped',
@@ -543,7 +619,7 @@ async function prepare(
   if (revision) {
     revision.runDirectory = canonical;
   }
-  if (revision || hostPrior || reviewPrior) {
+  if (reusesCheckout(revision, hostPrior, reviewPrior) || testPrior) {
     await saveResult(result, undefined);
   }
   const remote = await git('remote', 'get-url', target.config.remote);
@@ -553,6 +629,16 @@ async function prepare(
   assert((await git('rev-parse', 'HEAD')) === base, 'Start HEAD changed during preparation');
   if (revision) {
     await writeFile(join(dir, 'revision-request.md'), revision.request);
+  } else if (testPrior) {
+    await writeFile(
+      join(dir, 'initial-test-return.json'),
+      JSON.stringify(testPrior.returned, null, 2),
+      { flag: 'wx' },
+    );
+    await verifyInitialTestReturn(testPrior.returned, canonical);
+    await prepareTestBaseline(repo, cwd, io.command);
+    await checked(io, ['git', 'remote', 'remove', 'origin'], cwd);
+    await checked(io, ['git', 'remote', 'add', target.config.remote, remote], cwd);
   } else if (!hostPrior && !reviewPrior) {
     await git('worktree', 'add', '-b', branch, cwd, base);
     if (localTarget) {
@@ -578,6 +664,12 @@ async function prepare(
     inputs,
     revision,
     hostReturn: hostPrior?.hostReturn,
+    initialTestReturn: initialTestProvenance(testPrior, hostPrior, reviewPrior),
+    testPrior,
+    decisionPrior,
+    ...inheritedDecision(decisionPrior, hostPrior),
+    humanDecisionOwner: decisionPrior?.dir,
+    supplement: inheritedSupplement(decisionPrior, hostPrior, reviewPrior, prior),
     reviewPrior,
     reviewReturn: reviewPrior?.reviewReturn,
     reviewBase: reviewPrior?.baseCommit ?? hostPrior?.baseCommit ?? prior?.state.baseCommit ?? base,
@@ -626,6 +718,10 @@ function verificationConfig(context: Context): Config {
   const { cwd, dir } = context;
   return {
     baseCommit: context.reviewBase,
+    ...(context.initialTestReturn ? { initialTestReturn: context.initialTestReturn } : {}),
+    ...(context.humanDecision ? { humanDecision: context.humanDecision } : {}),
+    ...(context.humanDecisionOwner ? { humanDecisionOwner: context.humanDecisionOwner } : {}),
+    ...(context.supplement ? { supplement: context.supplement } : {}),
     ...(context.revision ? { revision: context.revision } : {}),
     reports: context.reports,
     targetText: context.target.text,
@@ -644,7 +740,7 @@ function verificationConfig(context: Context): Config {
         }
       : {}),
     test: [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'test', dir],
-    testBaseline: join(dir, 'test-baseline'),
+    testBaseline: context.decisionPrior?.config.testBaseline ?? join(dir, 'test-baseline'),
     setup: context.target.config.setup.map(targetCommand),
     repair: [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'repair', dir],
     review: [process.execPath, resolve(import.meta.dir, 'codex-actor.ts'), 'review', dir],
@@ -697,24 +793,12 @@ async function preparedHostTests(context: Context, contents: string[], intake: T
   );
 }
 
-async function returnedTests(context: Context) {
-  const observation = new RecordObservation();
-  const verified = context.hostReturn
-    ? await verifyHostReturn(context.hostReturn, context.cwd, observation)
-    : undefined;
-  const manifest: Record<string, string> = {};
-  const sourceBefore = context.hostReturn ? await snapshot(context.cwd, manifest) : undefined;
-  assert(
-    !verified || verified.source === sourceBefore,
-    'Host evidence does not match current deliverables',
-  );
-  const records = await preparedHostTests(context, verified?.testRecordContents ?? [], {
-    manifest,
-    records: observation,
-  });
-  const evidence = [];
-  const pendingImplementation = !verified?.implemented;
+function inheritedHostTests(
+  verified: Awaited<ReturnType<typeof verifyHostReturn>> | undefined,
+  records: Awaited<ReturnType<typeof preparedHostTests>>,
+) {
   let baseline: string | undefined;
+  const evidence = [];
   // 明示した最新の準備記録がある場合、古い記録で上書きしません。
   for (const entry of verified?.history ?? []) {
     const previousRun = entry.previousRun;
@@ -738,6 +822,53 @@ async function returnedTests(context: Context) {
       source: entry.evidence.source,
       stdout: JSON.stringify({ hostVerificationStatus: entry.evidence.status }),
     });
+  }
+  return { baseline, evidence };
+}
+
+async function returnedTests(context: Context) {
+  const observation = new RecordObservation();
+  const verified = context.hostReturn
+    ? await verifyHostReturn(context.hostReturn, context.cwd, observation)
+    : undefined;
+  const manifest: Record<string, string> = {};
+  const sourceBefore =
+    context.hostReturn || context.humanDecisionOwner
+      ? await snapshot(context.cwd, manifest)
+      : undefined;
+  assert(
+    !verified || verified.source === sourceBefore,
+    'Host evidence does not match current deliverables',
+  );
+  if (verified && context.hostReturn && !context.humanDecisionOwner) {
+    context.hostReturn.formalModes = await prepareFormalModes(
+      context.cwd,
+      context.dir,
+      verified.requiredModeRoots,
+      verified.modeRoots,
+    );
+    await writeFile(
+      join(context.dir, 'host-return.json'),
+      JSON.stringify(context.hostReturn, null, 2),
+    );
+  }
+  const records = await preparedHostTests(context, verified?.testRecordContents ?? [], {
+    manifest,
+    records: observation,
+  });
+  const evidence = [];
+  const pendingImplementation = !verified?.implemented;
+  let baseline: string | undefined;
+  const inherited = inheritedHostTests(verified, records);
+  baseline = inherited.baseline;
+  evidence.push(...inherited.evidence);
+  if (!verified && context.decisionPrior) {
+    baseline = context.decisionPrior.config.testBaseline;
+    records.push(
+      ...testRecordsShape.parse(
+        JSON.parse(await readFile(join(context.decisionPrior.dir, 'test-records.json'), 'utf8')),
+      ),
+    );
   }
   return { baseline, records, evidence, pendingImplementation, sourceBefore };
 }
@@ -791,6 +922,11 @@ async function prepareIndependentTests(context: Context, testConfig: Config, io:
     );
     testConfig.testBaseline = returned.baseline;
     await writeFile(join(dir, 'verification-config.json'), JSON.stringify(testConfig, null, 2));
+  } else if (context.decisionPrior) {
+    await verifyTestBaseline(testConfig.testBaseline);
+  } else if (context.testPrior) {
+    await verifyInitialTestReturn(context.testPrior.returned, dir);
+    await prepareTestBaseline(context.testPrior.baseline, testConfig.testBaseline, io.command);
   } else {
     await prepareTestBaseline(cwd, testConfig.testBaseline, io.command);
   }
@@ -806,15 +942,36 @@ async function setup(context: Context, io: typeof runtime) {
 }
 
 function testStage(context: Context) {
-  return context.hostReturn ? 'host_return' : context.revision ? 'revision' : 'initial';
+  return context.hostReturn || context.testPrior || context.decisionPrior
+    ? 'host_return'
+    : context.revision
+      ? 'revision'
+      : 'initial';
 }
 
-async function implement(context: Context, io: typeof runtime) {
-  const { cwd, dir, original, result: outcome } = context;
-  outcome.phase = 'implementation';
+async function saveInitialTestConfig(context: Context, config: Config) {
+  if (context.initialTestReturn) {
+    await writeFile(join(context.dir, 'verification-config.json'), JSON.stringify(config, null, 2));
+  }
+}
+
+async function implementationSetup(context: Context, io: typeof runtime) {
+  const { cwd, dir, result: outcome } = context;
+  const testConfig = verificationConfig(context);
+  const restored =
+    context.hostReturn || context.decisionPrior
+      ? await prepareIndependentTests(context, testConfig, io)
+      : undefined;
   outcome.operation = 'check revision before setup';
+  await hostReturnUnchanged(context);
   await revisionUnchanged(context, io);
   await setup(context, io);
+  if (restored) {
+    assert(
+      (await snapshot(cwd)) === restored.sourceBefore,
+      'Host evidence does not match current deliverables after setup',
+    );
+  }
   outcome.operation = 'check implementation inputs';
   outcome.details = join(dir, 'target.json');
   const target = await unchangedTarget(context, io);
@@ -843,7 +1000,13 @@ async function implement(context: Context, io: typeof runtime) {
       'Setup left work in revision checkout; preserve it',
     );
   }
-  const testConfig = verificationConfig(context);
+  return { testConfig, restored };
+}
+
+async function implement(context: Context, io: typeof runtime) {
+  const { cwd, dir, original, result: outcome } = context;
+  outcome.phase = 'implementation';
+  const { testConfig, restored } = await implementationSetup(context, io);
   if (context.reviewPrior) {
     const prior = context.reviewPrior;
     await writeFile(
@@ -870,7 +1033,9 @@ async function implement(context: Context, io: typeof runtime) {
     return testConfig;
   }
   assert(testConfig.test && testConfig.testBaseline);
-  const returned = await prepareIndependentTests(context, testConfig, io);
+  await saveInitialTestConfig(context, testConfig);
+  const returned = restored ?? (await prepareIndependentTests(context, testConfig, io));
+  await hostReturnUnchanged(context);
   outcome.operation = 'independent test authoring';
   outcome.details = join(dir, 'test-1.target.json');
   const tests = await authorTests(
@@ -880,6 +1045,7 @@ async function implement(context: Context, io: typeof runtime) {
       prefix: join(dir, 'test-1'),
       issue: issueText(original),
       stage: testStage(context),
+      supplement: context.supplement,
       revisionRequest: context.revision?.request,
       baseCommit: context.reviewBase,
       check: testConfig.check,
@@ -891,6 +1057,7 @@ async function implement(context: Context, io: typeof runtime) {
     },
     io.command,
   );
+  await hostReturnUnchanged(context);
   await writeFile(
     join(dir, 'test-records.json'),
     JSON.stringify([...returned.records, ...(tests.record ? [tests.record] : [])]),
@@ -935,6 +1102,7 @@ async function implement(context: Context, io: typeof runtime) {
     `要求:\n${original}`,
     revisionContext(context.revision),
     hostReturnContext(context.hostReturn),
+    supplementContext(context.supplement),
     `Issue: https://github.com/${context.target.config.repository}/issues/${context.number}`,
     researchContext(context.reviewBase, context.reports),
   ].join('\n');
@@ -948,6 +1116,7 @@ async function implement(context: Context, io: typeof runtime) {
     join(dir, 'implementation.json'),
     JSON.stringify({ code: result.code, timedOut: result.timedOut, ms: result.ms }),
   );
+  await hostReturnUnchanged(context);
   assert(!result.timedOut, `Initial implementation timed out; evidence: ${dir}`);
   assert(
     result.code === 0,
@@ -1032,7 +1201,44 @@ const verificationActions: Record<Exclude<StopReason, 'ready_for_human_review'>,
     'Assigned AI: reconcile current source and requirements with the retained terminal result; prior acceptance does not verify the changed target.',
 };
 
+async function hostReturnUnchanged(context: Context) {
+  const decisions = new DecisionObservation();
+  if (context.humanDecision) {
+    await verifyHumanDecision(
+      context.humanDecision,
+      context.cwd,
+      context.dir,
+      context.result.commit,
+      decisions,
+    );
+  } else if (context.supplement) {
+    await verifySupplement(context.supplement, await decisions.supplement(context.supplement.path));
+  }
+  const verified = context.hostReturn
+    ? await verifyHostReturn(context.hostReturn, context.cwd, undefined, undefined, decisions)
+    : undefined;
+  if (context.hostReturn && verified) {
+    await verifyHostTestInterruption(
+      context.hostReturn,
+      context.cwd,
+      context.dir,
+      verified,
+      context.humanDecisionOwner,
+      context.humanDecision?.roots,
+    );
+  }
+  if (context.initialTestReturn) {
+    await verifyInitialTestReturn(
+      context.initialTestReturn,
+      context.dir,
+      Boolean(context.result.commit),
+      initialTestOwner(context, verified?.previousRuns),
+    );
+  }
+}
+
 async function verify(context: Context, config: Config, io: typeof runtime) {
+  await hostReturnUnchanged(context);
   await unchangedTarget(context, io, context.result.commit ?? context.base);
   const result = context.result;
   result.phase = 'verification';
@@ -1041,6 +1247,7 @@ async function verify(context: Context, config: Config, io: typeof runtime) {
   result.nextAction =
     'Inspect verification/state.json and its referenced findings and logs; reconcile the stop without changing active reservations or limits, and obtain any required human decision.';
   const state: State = await io.verify(config, context.result.commit);
+  await hostReturnUnchanged(context);
   const target = await readTarget(
     context.cwd,
     (argv, cwd) => checked(io, argv, cwd),
@@ -1170,8 +1377,11 @@ async function ship(
   }
   const body = join(dir, 'pr.md');
   const localRoots = [
+    ...initialTestLocalRoots(context.initialTestReturn),
     cwd,
     dir,
+    ...(context.humanDecision?.roots ?? []),
+    ...(context.supplement ? [context.supplement.path] : []),
     ...(context.revision ? [context.revision.previousRun] : []),
     ...(await hostLocalRoots(
       context.hostReturn ?? context.reviewReturn ?? context.revision?.reviewReturn,
@@ -1382,6 +1592,18 @@ export async function develop(args: string[], io = runtime) {
   if (io === runtime) {
     console.error(`Local run report: ${report}`);
   }
+  if (
+    result.reasonCode === 'human_decision_required' &&
+    result.operation === 'independent test authoring'
+  ) {
+    await writeFile(
+      join(result.evidence, 'human-decision-stop.json'),
+      JSON.stringify({
+        records: await preserveDecisionRecords([result.evidence], result.checkout, true),
+      }),
+      { flag: 'wx' },
+    );
+  }
   if (result.status === 'stopped') {
     throw new Error(
       `${result.reasonCode ?? 'stopped'}: ${result.reason} Next: ${result.nextAction} Result: ${join(result.evidence, 'result.json')}`,
@@ -1476,4 +1698,58 @@ async function saveRecoveryProvenance(
     flag: 'wx',
     mode: 0o600,
   });
+}
+
+async function selectHostPrior(
+  decision: Awaited<ReturnType<typeof previousHumanDecision>>,
+  input: Parameters<typeof previousHostRun>[0],
+) {
+  return decision ?? (await previousHostRun(input));
+}
+function inheritedDecision(
+  decision: Awaited<ReturnType<typeof previousHumanDecision>>,
+  host: { config: Config } | undefined,
+) {
+  return {
+    humanDecision: decision?.humanDecision ?? host?.config.humanDecision,
+  };
+}
+
+function inheritedSupplement(
+  ...priors: ({ config: Config; supplement?: Config['supplement'] } | undefined)[]
+) {
+  for (const prior of priors) {
+    const supplement = prior?.supplement ?? prior?.config.supplement;
+    if (supplement) {
+      return supplement;
+    }
+  }
+  return undefined;
+}
+
+function selectedRecovery(parsed: ReturnType<typeof parseStart>) {
+  return (
+    parsed.values['test-run'] ??
+    parsed.values['human-decision-run'] ??
+    parsed.values['host-run'] ??
+    parsed.values['review-run'] ??
+    parsed.values['interrupted-run'] ??
+    parsed.values['check-timeout-run'] ??
+    parsed.values['previous-run']
+  );
+}
+
+function assertDecisionOptions(parsed: ReturnType<typeof parseStart>) {
+  assert(
+    Boolean(parsed.values['human-decision-run']) === Boolean(parsed.values['supplement-file']),
+    '判断待ち復帰には--human-decision-runと--supplement-fileが必要です。通常起動への別名化はできません',
+  );
+  assert(
+    !parsed.values['human-decision-run'] ||
+      (parsed.values['run-dir'] &&
+        !parsed.values['start-commit'] &&
+        !parsed.values.report &&
+        !parsed.values['host-evidence']),
+    '判断待ち復帰には新しい--run-dirが必要で、他の参照・証拠を混在できません',
+  );
 }

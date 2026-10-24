@@ -1,10 +1,16 @@
 import { verifyCommandContract } from './review-recovery.ts';
+import {
+  prepareTestInterruptionObservation,
+  verifyHostTestInterruption,
+} from './test-interruption.ts';
 import assert from 'node:assert/strict';
 import { readFile, writeFile, readdir, realpath } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import { assertConfig, assertState } from './input.ts';
 import type { Config } from './input.ts';
+import type { HostReturn } from './host-records.ts';
+import { RecordObservation } from './record-observation.ts';
 import { recordArtifacts, snapshot } from './correction.ts';
 import {
   hash,
@@ -12,6 +18,7 @@ import {
   hostEvidenceShape,
   readReference,
   interruptionReturn,
+  verifyHostReturn,
 } from './host-records.ts';
 import { reconcileExecutions } from './revision.ts';
 import { verifyReviewReturn } from './review-recovery-records.ts';
@@ -113,10 +120,12 @@ export async function previousHostRun(input: {
   );
   const dir = await realpath(input.directory);
   const resultFile = join(dir, 'result.json');
-  const resultContent = await readFile(resultFile);
-  const result: unknown = JSON.parse(resultContent.toString('utf8'));
   const stopFile = join(dir, 'host-stop.json');
-  const stopContent = await readFile(stopFile);
+  const observation = new RecordObservation();
+  observation.retain([resultFile, stopFile]);
+  const { content: resultContent, sha256: resultHash } = await observation.read(resultFile);
+  const result: unknown = JSON.parse(resultContent.toString('utf8'));
+  const { content: stopContent, sha256: stopHash } = await observation.read(stopFile);
   const stop = stopShape.parse(JSON.parse(stopContent.toString('utf8')));
   assert(
     isRecord(result) &&
@@ -142,8 +151,9 @@ export async function previousHostRun(input: {
       .map((name) => join(dir, name)),
   );
   const records = new Map<string, string>();
+  observation.retain(stop.records.map((ref) => ref.path));
   for (const ref of stop.records) {
-    const content = await readReference(ref);
+    const content = await readReference(ref, observation);
     if (requiredPaths.has(ref.path)) {
       records.set(ref.path, content);
     }
@@ -195,36 +205,67 @@ export async function previousHostRun(input: {
     outside(input.cwd, evidenceFile) && outside(dir, evidenceFile),
     'New host evidence must be outside checkout and previous run',
   );
-  const evidenceContent = await readFile(evidenceFile);
+  observation.retain([evidenceFile]);
+  const { content: evidenceContent, sha256: evidenceHash } = await observation.read(evidenceFile);
   const evidence = hostEvidenceShape.parse(JSON.parse(evidenceContent.toString('utf8')));
+  observation.retain(evidence.logs.map((ref) => ref.path));
   for (const ref of evidence.logs) {
     const path = await realpath(ref.path);
     assert(
       outside(input.cwd, path) && outside(dir, path),
       `host-evidence.logsの参照を拒否しました: ${ref.path}（realpath: ${path}）。禁止された保存領域: checkout ${input.cwd}、旧run ${dir}。両領域の外部に新しいログと証拠ファイルを保存し、新しいrunで復帰してください。旧actor原記録はruntimeRecordsとして自動で読み取り参照されるため、新規ホストログへの再登録は不要です。旧記録を変更・自動コピーして条件を満たさないでください。`,
     );
-    await readReference(ref);
+    await readReference(ref, observation);
   }
   assert(
     evidence.source === (await snapshot(input.cwd)),
     'Host evidence does not match current deliverables',
   );
+  const hostReturn = hostReturnShape.parse({
+    previousRun: dir,
+    ...inherited,
+    records: [
+      ...stop.records,
+      { path: stopFile, sha256: stopHash },
+      { path: resultFile, sha256: resultHash },
+    ],
+    evidence: { path: evidenceFile, sha256: evidenceHash },
+  });
   return {
     dir,
     config,
     branch: stop.branch,
     baseCommit: stop.baseCommit,
-    hostReturn: {
-      previousRun: dir,
-      ...inherited,
-      records: [
-        ...stop.records,
-        { path: stopFile, sha256: hash(stopContent) },
-        { path: resultFile, sha256: hash(resultContent) },
-      ],
-      evidence: { path: evidenceFile, sha256: hash(evidenceContent) },
-    },
+    hostReturn: await prepareTestHostReturn(
+      config,
+      hostReturn,
+      input.cwd,
+      input.runDirectory,
+      observation,
+    ),
   };
+}
+
+async function prepareTestHostReturn(
+  config: Config,
+  previous: HostReturn,
+  cwd: string,
+  runDirectory: string,
+  observation: RecordObservation,
+): Promise<HostReturn> {
+  const origin = config.testInterruption ?? config.hostReturn?.testInterruption?.record;
+  const hostReturn: HostReturn = origin
+    ? {
+        ...previous,
+        testInterruption: {
+          record: origin,
+          observations: await prepareTestInterruptionObservation(runDirectory),
+        },
+      }
+    : previous;
+  const verified = await verifyHostReturn(hostReturn, cwd, observation);
+  await verifyHostTestInterruption(hostReturn, cwd, resolve(runDirectory), verified);
+  return hostReturn;
 }
 
 async function reconcileHostHistory(
@@ -245,7 +286,7 @@ async function reconcileHostHistory(
       undefined,
       Boolean(config.revision),
     );
-  } else {
+  } else if (config.revision) {
     await reconcileExecutions({ previousRun: dir, runDirectory: resolve(runDirectory) }, cwd);
   }
   return inherited && !config.revision ? { reviewReturn: inherited } : {};

@@ -436,7 +436,7 @@ for (const phase of ['changeCheck', 'change'] as const) {
 
 testDevelopment('通常checkの15分設定が実行コマンドへ届く', async (f) => {
   f.io.verify = (config, head) => f.verify(config, head);
-  const execute = processModule.command;
+  const execute = f.observationCommand;
   const budgets: (number | null)[] = [];
   const observer = spyOn(processModule, 'command').mockImplementation(async (...args) => {
     if (args[0][2] === 'check') {
@@ -447,7 +447,7 @@ testDevelopment('通常checkの15分設定が実行コマンドへ届く', async
   try {
     await recoveryFixture(f);
   } finally {
-    observer.mockRestore();
+    observer.mockImplementation(execute);
   }
   expect(budgets).toEqual([900000]);
 });

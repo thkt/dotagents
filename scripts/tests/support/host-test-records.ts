@@ -58,8 +58,13 @@ import {githubTarget} from ${JSON.stringify(targetPath)};
 const realCommand=processModule.command;
 const original={...processModule};
 mock.module(${JSON.stringify(processPath)},()=>({...original,command:async(argv,cwd,input,timeout,prefix,env)=>{
+ if(argv[0]==='ps') {
+  const start=argv.at(-1).includes('lstart')?'Thu Jan 1 00:00:00 2026 ':'';
+  return {code:0,stdout:'1 0 '+start+'/sbin/launchd\\n',stderr:'',timedOut:false,ms:1};
+ }
+ if(argv[0]==='git'&&argv[1]==='ls-remote'&&!argv.includes('--get-url')) return {code:0,stdout:'',stderr:'',timedOut:false,ms:1};
  if(argv[0]==='gh') {
-  const stdout=argv[1]==='issue'?${JSON.stringify(issue)}:githubTarget(argv,${JSON.stringify(f.settings)});
+  const stdout=argv[2]?.endsWith('/pulls')&&argv.includes('state=all')?'[[]]':argv[1]==='issue'?${JSON.stringify(issue)}:githubTarget(argv,${JSON.stringify(f.settings)});
   if(stdout===undefined) throw Error('Unexpected GitHub operation');
   if(prefix) {await writeFile(prefix+'.stdout',stdout);await writeFile(prefix+'.stderr','');}
   return {code:0,stdout,stderr:'',timedOut:false,ms:1};
