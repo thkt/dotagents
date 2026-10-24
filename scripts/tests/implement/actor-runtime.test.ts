@@ -192,10 +192,11 @@ setInterval(()=>{},1000);
       [resolve('scripts/implement/codex-actor.ts'), 'repair', root],
       {
         detached: true,
-        stdio: 'ignore',
+        stdio: ['pipe', 'ignore', 'ignore'],
         env: { ...process.env, PATH: root },
       },
     );
+    actor.stdin.end('Repair fixture');
     actorPid = actor.pid;
     if (actorPid === undefined) {
       throw Error('Actor fixture could not start');

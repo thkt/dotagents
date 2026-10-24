@@ -43,9 +43,11 @@ for (const entry of ['--interrupted-run', '--check-timeout-run'] as const) {
               : `${oldOption}=${oldPath} ${newOption}=${newPath}`;
         const date = new Date('2020-01-01T00:10:02Z');
         const [weekday, month, day, year, time] = date.toString().split(' ');
+        // 旧版の公開型でも読み込み、追加された入口情報を実行時に照合する。
+        const input = { previousRun, runDirectory, review: ['/fixture/reviewer'], entry };
         const result = verifyInterruptedProcesses(
           `100000001 1 ${weekday} ${month} ${day} ${time} ${year} bun /fixture/develop.ts ${args}`,
-          { previousRun, runDirectory, review: ['/fixture/reviewer'], entry },
+          input,
         );
         if (form === 'equals' || form === 'separated' || form === 'quoted') {
           await assert.doesNotReject(result);

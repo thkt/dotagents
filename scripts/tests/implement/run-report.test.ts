@@ -299,9 +299,11 @@ test('run report distinguishes local verification from publication and links onl
         `<span class="event-status tone-${tone}">${label}</span>`,
       );
     });
+    expect(html).toContain('時間切れ</span>');
     expect(html).toContain('<dt>終了コード</dt><dd>124</dd>');
     expect(html).toContain('<dt>ログ保存先の接頭辞</dt>');
     expect(html).toContain('指摘 R1-1 · &lt;script&gt;の表示条件');
+    expect(html).toContain('修正済み');
     expect(html).toContain('全文の末尾');
     for (const detail of ['誤表示', '保存ログ', '修正する', '保存された裁定理由']) {
       expect(html).toContain(detail);

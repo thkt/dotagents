@@ -1,0 +1,57 @@
+{
+  "format": 1,
+  "source": {
+    "issue": "https://github.com/thkt/dotagents/issues/432",
+    "issueUpdatedAt": "2026-10-23T11:18:26Z",
+    "issueBodySha256": "bf1ce87dcc12eca96782930da483fd77479a688cc269ed629ec06c1f20c97d27",
+    "document": "scripts/README.md",
+    "documentSha256": "1937a8abf66f8c3065a854259cfa9420f0b4ca40b7a48331303a3f143bd40cc0",
+    "startLine": 389,
+    "endLine": 428
+  },
+  "operationText": "## ホスト復帰後の独立テストの判断待ちから戻る\n\n[Issue #432](https://github.com/thkt/dotagents/issues/432)で合意した、補足合意を添えて新しい検証へ戻る入口です。正式なホスト検証停止は[ホスト検証後の再評価](#ホスト検証後の再評価)を使います。停止理由や旧応答を書き換えて、この入口へ読み替えないでください。\n\n対象は、未公開の終端停止で、保存した独立テスト入力が`stage=host_return`、上位結果が`reasonCode=human_decision_required`、`operation=independent test authoring`の場合だけです。応答は対象IDとschemaに一致する有効な`needs_human`で、`files=[]`、未採用成果物と現在checkoutに変更がない必要があります。通常初回の判断待ち、不正応答、中断、変更を伴う判断待ち、履歴にhostReturnがあるだけの別工程は対象外です。\n\n人が採用した補足内容を、checkoutと旧runの外の通常ファイルへ固定します。次のJSONの各値を、実際の対象Issue、保存された`issue.json`の更新日時と原文のSHA-256、採用した合意記録に置き換えてください。内容のhash一致は同一性の検査であり、人の承認の証明ではありません。元のIssueは変更しません。\n\n```json\n{\n  \"format\": 1,\n  \"issue\": \"https://github.com/OWNER/REPO/issues/99\",\n  \"issueUpdatedAt\": \"保存したIssueのupdatedAt\",\n  \"issueSha256\": \"保存したissue.json原文の64桁のSHA-256\",\n  \"source\": \"人が採用した合意記録の出典\",\n  \"content\": \"採用した補足合意の内容と適用条件\",\n  \"decision\": \"この補足をこのIssueの版へ適用する人の固定判断\"\n}\n```\n\n補足には、そのIssueで採用した正式停止後の再評価、採用済みmainの必要な前提、実行環境と設定を含めます。修正前baselineと現在の設定を区別し、旧設定・既知の消費量・未知量・消費済み上限を消しません。機械による照合では適用範囲や人の合意の意味まで証明できないため、各担当も出典と要求へ照合します。実装の会話・判断・自己評価や、未選別のホスト生ログを独立テストの期待値へ追加しません。\n\n```sh\nbun /absolute/path/to/accepted-trusted/scripts/implement/development.ts 99 \\\n  --repo /absolute/path/to/current-checkout \\\n  --human-decision-run /absolute/path/to/latest-stopped-run \\\n  --supplement-file /absolute/path/outside-checkout/adopted-agreement.json \\\n  --run-dir /absolute/path/to/new-sibling-run \\\n  --no-publish\n```\n\n`--human-decision-run`と`--supplement-file`は組で指定します。新runは直近の対象停止と同じ親の未使用保存先です。他の復帰入口、`--host-evidence`、`--request-file`、`--start-commit`、`--report`とは併用できません。補足だけを通常起動へ渡すことも、すでに後続runのある古い祖先を選び直すことも拒否します。旧runがローカル限定なら`--no-publish`を維持します。\n\n受付時に要求、repo、設定原文、実効主体、HEAD・branch、元の差分基準、報告、保護資産、独立テストの入力・原応答・実行結果と作業場所の対応を照合します。必要な祖先の記録・証拠参照・内容・全mode・symlinkも保持します。欠落・変更・循環・相反する期待hash・照合不能、稼働中プロセスや管理/Git lock、公開済みまたは公開状態不明では進みません。setup・独立テスト・実装・check・評価の境界でも再照合します。自動killやlock解除は行いません。\n\n付属の`codex-actor.ts`を指定した停止では、対応する`actor.json`、`schema.json`、`final.json`とstdout、生ログを照合します。停止時の保全記録がない旧版では、保存されたruntimeの`codeHash`を生成元sourceへ照合し、対応済みの生成契約と保存入力からprompt全文を再構成します。生成版や必要な原記録を照合できなければ停止します。過去に保存されなかったprompt hashやOS上のcwd観測値を復元したとは扱いません。外部actorには付属actor専用の原記録を要求しません。依存lockの除外は、照合したcheckout・baseline・テストworkspaceの直下にある通常ファイルの`bun.lock`と`uv.lock`だけです。\n\n元の固定baselineと独立担当が宣言した既存資産を使い、新しい独立テストを`host_return`として実行します。同じ補足合意を初回実装または修正、独立評価にも渡します。祖先で初回実装済みなら再実行せず、新しい有効な独立判断の後にcheck・評価へ進みます。旧判断待ちを成功や準備済み判断へ変換せず、新しい判断も停止なら後続を起動しません。復帰は自動連鎖しません。\n\n`verification-config.json`の`humanDecision`から、直近の停止、固定補足、保全対象の内容と全modeへ辿れます。新版で保存した判断待ちは`human-decision-stop.json`の停止時記録へも照合します。旧版にない過去のmodeを復元したとは扱わず、既存の正式停止のmode記録と受付時以降の保全を区別します。旧中断の終了code・時間のnullとusageのunknown、祖先の試行・計上済み時間は旧原記録に残します。判定できない有限上限は拡大せず停止します。過去の成功と現在の受入は別です。\n",
+  "argvShape": [
+    "bun",
+    "/absolute/path/to/accepted-trusted/scripts/implement/development.ts",
+    "ISSUE_NUMBER",
+    "--repo",
+    "CURRENT_CHECKOUT",
+    "--human-decision-run",
+    "LATEST_ELIGIBLE_STOP",
+    "--supplement-file",
+    "EXTERNAL_REGULAR_SUPPLEMENT_JSON",
+    "--run-dir",
+    "UNUSED_SIBLING_RUN",
+    "--no-publish"
+  ],
+  "supplementWire": {
+    "format": {
+      "type": "number",
+      "value": 1
+    },
+    "issue": {
+      "type": "string",
+      "meaning": "target GitHub Issue URL"
+    },
+    "issueUpdatedAt": {
+      "type": "string",
+      "meaning": "updatedAt of the preserved Issue version"
+    },
+    "issueSha256": {
+      "type": "string",
+      "meaning": "SHA-256 of the full preserved Issue JSON text with only outer whitespace trimmed; not body-only or reserialized JSON"
+    },
+    "source": {
+      "type": "string",
+      "meaning": "adopted agreement source reference"
+    },
+    "content": {
+      "type": "string",
+      "meaning": "fixed adopted supplement and applicability conditions"
+    },
+    "decision": {
+      "type": "string",
+      "meaning": "fixed human decision applying the supplement to this Issue version"
+    }
+  }
+}

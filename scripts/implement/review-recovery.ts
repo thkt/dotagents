@@ -1,3 +1,4 @@
+import { interruptedTestOrigin } from './test-interruption.ts';
 import assert from 'node:assert/strict';
 import { realpath } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -112,6 +113,7 @@ export async function previousReviewRun(input: {
   } else {
     assertConfig(config);
   }
+  assert(!interruptedTestOrigin(config), '初回テスト中断復帰から別の停止復帰を連鎖できません');
   assertState(state);
   assert(isRecord(result) && isRecord(target), '旧runの対象記録が不正です');
   verifyEligibility(result, state, input.interrupted, dir, input.checkTimeout);

@@ -128,7 +128,7 @@ async function output(
   }
 }
 
-async function codeHash(root: string) {
+export async function codeHash(root: string) {
   try {
     const paths = ['package.json', 'bun.lock'];
     for (const directory of ['scripts/implement', 'scripts/shared']) {

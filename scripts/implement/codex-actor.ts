@@ -1,6 +1,7 @@
 import { testReplySchema } from './test-author.ts';
 import { observeRuntime } from './actor-runtime.ts';
 import { reviewSchema, reviewModel } from './review.ts';
+import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
@@ -36,27 +37,52 @@ await writeFile(
   }),
   { flag: 'wx' },
 );
+const chunks: Buffer[] = [];
+for await (const chunk of process.stdin) {
+  assert(typeof chunk === 'string' || chunk instanceof Uint8Array, 'actor入力が不正です');
+  chunks.push(Buffer.from(chunk));
+}
+const prompt = Buffer.concat(chunks).toString('utf8');
+let responseSchema = role === 'test' ? testReplySchema : reviewSchema;
+if (role === 'test') {
+  const line = prompt.split('\n').find((value) => value.startsWith('入力: '));
+  assert(line, '独立テストのホスト入力がありません');
+  const input: unknown = JSON.parse(line.slice('入力: '.length));
+  assert(
+    typeof input === 'object' &&
+      input !== null &&
+      'targetId' in input &&
+      typeof input.targetId === 'string' &&
+      /^[a-f0-9]{64}$/.test(input.targetId),
+    '独立テストの入力IDが不正です',
+  );
+  responseSchema = {
+    ...testReplySchema,
+    properties: {
+      ...testReplySchema.properties,
+      targetId: { type: 'string', enum: [input.targetId] },
+    },
+  };
+}
 const final = join(dir, 'final.json');
 const schema = join(dir, 'schema.json');
 await writeFile(
   schema,
   JSON.stringify(
-    role === 'review'
-      ? reviewSchema
-      : role === 'test'
-        ? testReplySchema
-        : {
-            type: 'object',
-            additionalProperties: false,
-            required: ['status', 'findings'],
-            properties: {
-              status: {
-                type: 'string',
-                enum: ['repaired', 'needs_host', 'needs_human'],
-              },
-              findings: { type: 'string' },
+    role === 'review' || role === 'test'
+      ? responseSchema
+      : {
+          type: 'object',
+          additionalProperties: false,
+          required: ['status', 'findings'],
+          properties: {
+            status: {
+              type: 'string',
+              enum: ['repaired', 'needs_host', 'needs_human'],
             },
+            findings: { type: 'string' },
           },
+        },
   ),
 );
 const args = [
@@ -79,7 +105,7 @@ if (runtime.cli.entry.value === null) {
   throw Error('Codex launch entry unavailable');
 }
 const child = spawn(runtime.cli.entry.value, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
-process.stdin.pipe(child.stdin);
+child.stdin.end(prompt);
 child.stdin.on('error', () => {});
 const [code] = await Promise.all([
   new Promise<number | null>((resolve, reject) => {

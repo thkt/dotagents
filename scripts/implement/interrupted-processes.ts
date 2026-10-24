@@ -1,7 +1,29 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { readFile, realpath } from 'node:fs/promises';
+import { basename, isAbsolute, join } from 'node:path';
+import { parseArgs } from 'node:util';
+import { issueNumber } from '../shared/target.ts';
+import type { TestInterruption } from './test-interruption-schema.ts';
 import { z } from 'zod';
+
+export type InterruptedEntry =
+  | '--interrupted-run'
+  | '--check-timeout-run'
+  | '--test-run'
+  | '--test-interrupted-run';
+
+export type InitialTestHost = TestInterruption['host'] & { common: string; repository: string };
+export interface InitialTestOwner {
+  entry: '--test-run' | '--test-interrupted-run' | '--host-run' | '--human-decision-run';
+  previousRun: string;
+  cwd: string;
+  common: string;
+  previousRuns?: string[];
+}
+
+export type InitialProcessTarget = Omit<InitialTestHost, 'common'> & {
+  owner?: Omit<InitialTestOwner, 'common'>;
+};
 
 const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -56,10 +78,18 @@ export async function verifyInterruptedProcesses(
     previousRun: string;
     runDirectory: string;
     review: string[];
-    entry?: '--interrupted-run' | '--check-timeout-run';
+    entry?: InterruptedEntry;
     check?: string[];
+    host?: InitialTestHost;
+    owner?: InitialTestOwner;
+    commonDirectory?: (cwd: string) => Promise<string>;
   },
 ) {
+  if (input.entry === '--test-interrupted-run' || input.entry === '--test-run') {
+    assert(input.host, '旧ホストの対象root・Issueがありません');
+    await verifyInitialTestProcesses(stdout, input);
+    return;
+  }
   const saved = timesShape.parse(
     JSON.parse(await readFile(join(input.previousRun, 'result.json'), 'utf8')),
   );
@@ -80,7 +110,7 @@ export async function verifyInterruptedProcesses(
       continue;
     }
     // psの開始時刻は秒単位。旧停止後に始まった明示的な新CLIだけを除く。
-    const returning =
+    const returning: boolean =
       row.startedAt >= Math.floor(finished / 1000) * 1000 &&
       cliArgument(row.command, input.entry ?? '--interrupted-run', input.previousRun) &&
       cliArgument(row.command, '--run-dir', input.runDirectory) &&
@@ -105,4 +135,164 @@ export async function verifyInterruptedProcesses(
 export function cliArgument(argv: string, option: string, path: string) {
   const literal = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(`(?:^|\\s)${option}(?:=|\\s+)["']?${literal}["']?(?:\\s|$)`).test(argv);
+}
+
+function initialProcessRows(stdout: string) {
+  const rows = [];
+  const pids = new Set<number>();
+  for (const line of stdout.split('\n').filter((value) => value.trim())) {
+    const match = /^\s*(\d+)\s+(\d+)\s+(.+)$/.exec(line);
+    assert(match, 'プロセス観測のPID・親PID・commandを照合できません');
+    const pid = Number(match[1]);
+    const parent = Number(match[2]);
+    assert(
+      Number.isSafeInteger(pid) &&
+        pid > 0 &&
+        Number.isSafeInteger(parent) &&
+        parent >= 0 &&
+        pid !== parent &&
+        !pids.has(pid),
+      'プロセス一覧のPID対応が不正です',
+    );
+    pids.add(pid);
+    rows.push({ pid, parent, command: match[3] ?? '' });
+  }
+  assert(rows.length > 0, 'プロセス一覧が空で照合できません');
+  return rows;
+}
+
+function processAncestors(rows: ReturnType<typeof initialProcessRows>) {
+  const byPid = new Map(rows.map((row) => [row.pid, row]));
+  const ancestors = new Set<number>();
+  let parent = process.ppid;
+  while (parent > 0) {
+    assert(!ancestors.has(parent), 'プロセスの親PID対応が循環しています');
+    const row = byPid.get(parent);
+    if (!row) {
+      break;
+    }
+    ancestors.add(parent);
+    parent = row.parent;
+  }
+  return ancestors;
+}
+
+function developmentArgs(command: string) {
+  const entry =
+    /(?:^|\s)(?:"(?:[^"]*\/)?development\.ts"|'(?:[^']*\/)?development\.ts'|(?:[^\s"']*\/)?development\.ts)(?=\s|$)/.exec(
+      command,
+    );
+  if (!entry) {
+    return undefined;
+  }
+  const tail = command.slice(entry.index + entry[0].length);
+  const args = [];
+  let end = 0;
+  // psの表示から単純なCLI引数だけを識別する。shell構文や曖昧な境界は解釈しない。
+  for (const token of tail.matchAll(/"[^"]*"|'[^']*'|[^\s"']+/g)) {
+    assert(tail.slice(end, token.index).trim() === '', 'ホストCLIの引数境界を照合できません');
+    args.push(token[0].replace(/^["']|["']$/g, ''));
+    end = token.index + token[0].length;
+  }
+  assert(tail.slice(end).trim() === '', 'ホストCLIの引数境界を照合できません');
+  return parseArgs({
+    args,
+    allowPositionals: true,
+    strict: false,
+    options: { repo: { type: 'string' }, 'no-publish': { type: 'boolean' } },
+  });
+}
+
+function differentIssue(positionals: string[], host: InitialTestHost) {
+  if (positionals.length !== 1 || !positionals[0]) {
+    return false;
+  }
+  const input = positionals[0];
+  const repository =
+    /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\//.exec(input)?.[1] ?? host.repository;
+  try {
+    const number = issueNumber(input, repository);
+    return repository !== host.repository || number !== host.issue;
+  } catch {
+    return false;
+  }
+}
+
+async function verifyDevelopmentHost(
+  argv: string,
+  input: Parameters<typeof verifyInterruptedProcesses>[1],
+) {
+  const invocation = developmentArgs(argv);
+  if (!invocation) {
+    return;
+  }
+  const host = input.host;
+  assert(host, '元ホストの対象root・Issueを照合できません');
+  if (differentIssue(invocation.positionals, host)) {
+    return;
+  }
+  const repo = invocation.values.repo;
+  assert(
+    typeof repo === 'string' && isAbsolute(repo),
+    '同じIssueのホスト対象を照合できません。絶対--repoと追加観測が必要です',
+  );
+  const cwd = await realpath(repo);
+  assert(
+    cwd !== host.cwd && cwd !== join(input.previousRun, 'checkout') && cwd !== input.owner?.cwd,
+    '同じIssue・対象の旧ホストプロセスが稼働しています',
+  );
+  assert(input.commonDirectory, '別repoのGit領域を照合できません');
+  const common = await realpath(await input.commonDirectory(cwd));
+  assert(
+    common !== host.common && common !== input.owner?.common,
+    '同じIssue・Git領域のホストが稼働しています',
+  );
+}
+
+function processPathReference(command: string, path: string) {
+  const literal = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|[\\s="'(])${literal}(?=[/\\s"';,)]|$)`).test(command);
+}
+
+async function verifyInitialTestProcesses(
+  stdout: string,
+  input: Parameters<typeof verifyInterruptedProcesses>[1],
+) {
+  const rows =
+    input.entry === '--test-interrupted-run' ? initialProcessRows(stdout) : processRows(stdout);
+  const ancestors = processAncestors(rows);
+  assert(
+    !input.owner || (isAbsolute(input.owner.cwd) && isAbsolute(input.owner.common)),
+    'ホスト復帰の対象root・Git領域を照合できません',
+  );
+  const owner = input.owner ?? {
+    entry: input.entry === '--test-run' ? '--test-run' : '--test-interrupted-run',
+    previousRun: input.previousRun,
+    cwd: join(input.previousRun, 'checkout'),
+  };
+  const protectedRuns = new Set([
+    input.previousRun,
+    owner.previousRun,
+    ...(input.owner?.previousRuns ?? []),
+  ]);
+  for (const row of rows) {
+    if (row.pid === process.pid) {
+      continue;
+    }
+    const returning =
+      ancestors.has(row.pid) &&
+      cliArgument(row.command, owner.entry, owner.previousRun) &&
+      cliArgument(row.command, '--run-dir', input.runDirectory) &&
+      cliArgument(row.command, '--repo', owner.cwd) &&
+      !cliArgument(row.command, '--run-dir', owner.previousRun);
+    // 付属actorも旧runをargvに含む。兄弟runの名前の前方一致で対応を補わない。
+    const live = [...protectedRuns].some((path) => processPathReference(row.command, path));
+    assert(
+      returning || !live,
+      `旧テストまたはホスト停止runの稼働プロセスがあります: PID=${row.pid}`,
+    );
+    if (!returning) {
+      await verifyDevelopmentHost(row.command, input);
+    }
+  }
 }
