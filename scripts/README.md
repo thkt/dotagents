@@ -840,6 +840,32 @@ jq -e '
 
 `bun run test:control`は成功時に件数を要約し、失敗時は診断を表示します。Bunが成功してもJUnit集計を拒否した場合は`JUnit report retained:`に実際の一時ファイルのパスを表示します。skipしたテストの特定にはそのXMLを開いてください。調査後は利用者が削除します。Bun自体の失敗やレポート未生成・読取り失敗では一時レポートを削除し、自動再実行はしません。
 
+### 制御テストの選択と計時
+
+`bun run test:control`はBun 1.4.4の`--parallel=2`でファイルを分離して実行します。同じプロセス内のケースは直列のままです。`test:eval`は直列で実行します。修正中は関連するパスをすべて渡せます。
+
+```sh
+bun run test:control scripts/tests/checks/test-runner.test.ts scripts/tests/checks/test-runner-selection.test.ts
+```
+
+パスを省略すると`scripts/tests`全体を選びます。複数のファイル・ディレクトリを渡した場合はすべてを実行し、後続ファイルの失敗も非zeroで終了します。存在しないパスと未対応オプションは拒否します。対象を絞った成功は全体checkの成功とは区別してください。
+
+runnerのBun経路で受け付けるオプションは`--parallel=N`（正整数）、`--timings=FILE`、`--update-timings`です。直列の対照や別のworker数を調べる場合は、package scriptの既定値を重ねず、runnerを直接呼びます。
+
+```sh
+# 直列で指定した2ファイルを確認する
+bun scripts/tests/runner.ts bun scripts/tests/shared/process-cleanup.test.ts scripts/tests/implement/correction-process.test.ts
+
+# 同じ集合を2workerで実行し、ファイル別の所要時間を外部へ保存する
+bun scripts/tests/runner.ts bun scripts/tests --parallel=2 --timings=/absolute/path/outside-checkout/control-times.json --update-timings
+```
+
+計時ファイルが既にある場合、Bunは記録した所要時間で重いファイルを先に割り当てます。初回と再利用時を分けて記録し、異なるコードや対象集合の数値を同じ比較に混ぜないでください。計測用の記録はcheckout外へ置き、常設のCI入力や新しい必須検査にはしません。
+
+#435のローカル比較では、同じ59ファイル・1,192件が直列と2workerで全件成功しました。4workerはプロセス終了確認の`EPERM`で2件失敗し、採用していません。時間・資源・試行条件は同IssueのPRと外部実行ログに残します。この観測だけで4workerを失敗原因と断定したり、異なる環境での安定性や短縮率を保証したりはしません。
+
+取消は子プロセスへ転送し、Bunの`--no-orphans`で子孫も終了させます。失敗や取消は成功にせず、一時レポートを後片付けします。Bunが終了0でもJUnit集計が不正な場合のレポート保持は、上の説明に従います。`--concurrent`、`--no-isolate`、任意のBunオプションの透過転送は扱いません。
+
 人の注意や記憶に依存する条件を見つけた場合は、[機械化の共通手順](../skills/references/mechanization.md)で既存保証と追加しない案も比較します。scopingの判断・成果物から参照し、初回実装・追加修正・既存PR修正には共通の`repairInstructions`、独立評価には`reviewInstructions`、独立テスト担当にはテスト作成プロンプトから、信頼するハーネス実体を基点に解決した同じ資料の絶対パスを渡します。対象repo内の同名資料へ解決せず、呼出元へ全文を複製しません。実装は合意範囲内の通常の選択を進め、要求・権限・規約の変更は人へ、検証資産の変更は独立テストへ戻します。テスト担当の期待値は要求から独立して決め、独立評価は採用・見送りの保証・費用・限界を確認します。範囲外の提案だけで今回の完了を待たせません。参照検査と実モデルの行動・効果の実測は区別し、手順の詳細は共通資料を正本とします。
 
 安全性の判断が未確認の前提に依存する場合は、[共通手順](../skills/references/premise-validation.md)で対象版と成立条件へ照合します。初回実装・追加修正・既存PR修正は`repairInstructions`、独立評価は`reviewInstructions`から、信頼するハーネス実体を基点に解決した同じ参照を受け取ります。修正停滞時は既存の原因見直し指示から同手順へ接続します。追加の検証資産は独立テストへ、通常check・captureに含まれない受入検証は[ホスト検証後の再評価](#ホスト検証後の再評価)へ戻し、要求・権限の変更は人へ戻します。参照接続の制御テストは文書の意味や実モデルの判断品質を証明しません。
