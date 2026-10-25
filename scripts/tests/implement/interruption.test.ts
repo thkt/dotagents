@@ -238,8 +238,10 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
         realOutput ? 'ready_for_human_review' : 'check_failed',
       );
       expect(await fs.readFile(path, 'utf8')).toBe(original);
+      const finiteBudget = t.config.checkTimeMs;
+      assert(typeof finiteBudget === 'number');
       const config =
-        mode === 'rejected' ? { ...t.config, checkTimeMs: t.config.checkTimeMs + 1 } : t.config;
+        mode === 'rejected' ? { ...t.config, checkTimeMs: finiteBudget + 1 } : t.config;
       const rmdir = syncFs.rmdirSync;
       let injected = false;
       const hook = spyOn(syncFs, 'rmdirSync').mockImplementation((...args) => {

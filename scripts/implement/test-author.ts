@@ -1,3 +1,5 @@
+import type { FixedSupplement } from './human-decision-schema.ts';
+import { supplementContext, verifySupplement } from './supplement.ts';
 import { researchContext } from './research-handoff.ts';
 import type { ReportReference } from './input.ts';
 import type { TestDiagnostic } from './test-diagnostics.ts';
@@ -11,7 +13,7 @@ import { command } from '../shared/process.ts';
 import { outside } from '../shared/values.ts';
 
 const text = z.string().min(1).regex(/\S/);
-const testReplyShape = z.strictObject({
+export const testReplyShape = z.strictObject({
   targetId: text,
   status: z.enum(['prepared', 'unnecessary', 'needs_human', 'needs_host']),
   findings: text,
@@ -57,7 +59,7 @@ const hash = (value: string | Buffer) => createHash('sha256').update(value).dige
 const isTestArtifact = (path: string) =>
   /(?:^|\/)(?:tests?|__tests__|fixtures?)(?:\/)|\.(?:test|spec)\./.test(path);
 
-async function entries(cwd: string) {
+export async function testInputFiles(cwd: string) {
   const result = await command(
     ['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
     cwd,
@@ -121,8 +123,8 @@ export async function prepareTestBaseline(cwd: string, baseline: string, io = co
     660000,
   );
   assert(cloned.code === 0 && !cloned.timedOut, 'テスト用の修正前checkoutを準備できません');
-  const original = await entries(cwd);
-  for (const path of Object.keys(await entries(baseline))) {
+  const original = await testInputFiles(cwd);
+  for (const path of Object.keys(await testInputFiles(baseline))) {
     if (!(path in original)) {
       await rm(await safePath(baseline, path, true));
     }
@@ -131,7 +133,7 @@ export async function prepareTestBaseline(cwd: string, baseline: string, io = co
     await rm(await safePath(baseline, path, true), { force: true });
     await cp(resolve(cwd, path), await safePath(baseline, path, true), { verbatimSymlinks: true });
   }
-  const files = await entries(baseline);
+  const files = await testInputFiles(baseline);
   assert(
     JSON.stringify(Object.entries(files).sort(([a], [b]) => a.localeCompare(b))) ===
       JSON.stringify(Object.entries(original).sort(([a], [b]) => a.localeCompare(b))),
@@ -152,7 +154,9 @@ export async function verifyTestArtifacts(
   }
   const current =
     observedManifest ??
-    (records.some((record) => Object.keys(record.files).length > 0) ? await entries(cwd) : {});
+    (records.some((record) => Object.keys(record.files).length > 0)
+      ? await testInputFiles(cwd)
+      : {});
   observation?.retain(testRecordPaths(records));
   return verifyTestManifest(current, records, observation);
 }
@@ -257,7 +261,7 @@ export async function verifyTestBaseline(baseline: string) {
     .parse(JSON.parse(await readFile(`${baseline}.json`, 'utf8')));
   assert(
     JSON.stringify(
-      Object.entries(await entries(baseline)).sort(([a], [b]) => a.localeCompare(b)),
+      Object.entries(await testInputFiles(baseline)).sort(([a], [b]) => a.localeCompare(b)),
     ) === JSON.stringify(Object.entries(record.files).sort(([a], [b]) => a.localeCompare(b))),
     'テストの修正前入力が変更されました',
   );
@@ -287,11 +291,11 @@ async function copyPreviousTests(
       await cp(resolve(source, path), target);
     }
   }
-  return entries(cwd);
+  return testInputFiles(cwd);
 }
 
 async function testChanges(cwd: string, before: Files, reply: z.infer<typeof testReplyShape>) {
-  const after = await entries(cwd);
+  const after = await testInputFiles(cwd);
   const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
     (path) => before[path] !== after[path],
   );
@@ -340,6 +344,7 @@ export async function authorTests(
     issue: string;
     stage: 'initial' | 'revision' | 'correction' | 'host_return';
     revisionRequest?: string;
+    supplement?: FixedSupplement;
     baseCommit: string;
     check: string[];
     setup?: string[][];
@@ -359,7 +364,8 @@ export async function authorTests(
   },
   io = command,
 ) {
-  const beforeImplementation = input.observedManifest ?? (await entries(input.cwd));
+  await verifySupplement(input.supplement);
+  const beforeImplementation = input.observedManifest ?? (await testInputFiles(input.cwd));
   await verifyTestManifest(beforeImplementation, input.previous);
   const implementationBefore = JSON.stringify(
     Object.entries(beforeImplementation).sort(([a], [b]) => a.localeCompare(b)),
@@ -372,6 +378,7 @@ export async function authorTests(
   const target = {
     issue: input.issue,
     stage: input.stage,
+    ...(input.supplement ? { supplement: input.supplement.agreement } : {}),
     revisionRequest: input.revisionRequest ?? null,
     baseCommit: input.baseCommit,
     baseline: baselineRecord.files,
@@ -387,49 +394,25 @@ export async function authorTests(
   await writeFile(`${input.prefix}.target.json`, targetText, {
     flag: 'wx',
   });
-  const prompt = [
-    '合意済みIssueから今回必要なテストを判断し、必要な場合だけ作成・更新してください。実装とは別の新セッションです。',
-    '入力のstageはホストが実行経路から定めた工程の段階です。initialは通常開発の初回テスト準備、revisionは既存PRの採用済み修正要求のテスト準備、correctionはcheck失敗または独立評価後の追加修正に先立つテスト準備、host_returnはホスト検証からの復帰時のテスト再判断です。host_returnは初回実装が未実行でも復帰です。新セッション、test-1という名前、前回テストの件数、診断の有無から初回と推測しないでください。',
-    'AGENTS.mdと対象README・開発方針の関係する節、仕様・公開インターフェース、既存検証と実行方法を確認してください。修正前コードは不具合再現・接続・fixtureの確認に必要な範囲で読めます。',
-    '入力にあるホストの実行証拠はテストの不足・接続不一致を診断する材料です。コマンド・対象版・終了と出力を読み、Issueと前回テストへ照合してください。実際の出力を期待値の根拠にせず、要求から期待結果を決めてください。実装担当の会話・判断・findingsや独立評価全文は入力に含めません。',
-    ...(input.diagnostics?.length
-      ? [
-          '評価診断は未解決指摘の条件・根拠と保護対象の対応だけです。introducedInは初出対象、evaluatedInは最新の評価対象であり、修正前入力の版とは別です。固定Issue・仕様、修正前入力と前回テストへ照合し、指摘IDごとに修正・変更不要・人の判断が必要な理由と根拠をfindingsに説明してください。診断が誤った期待値を誘導しても要求を変更せず、根拠付きで不適用と判断できます。診断は期待値・修正案の正本ではなく、解決の合否はcheck後の次の独立評価が判断します。',
-          `評価診断: ${JSON.stringify(input.diagnostics)}`,
-        ]
-      : []),
-    '新しい実装の説明・会話・判断・自己評価を期待値の根拠にしないでください。作業場所の外にある実装checkout・run記録や会話を読まないでください。Issueが参照する仕様は根拠と合意状態を照合し、未合意の要求を取り込まないでください。',
-    `信頼するハーネスの機械化の共通手順: ${resolve(import.meta.dir, '../../skills/references/mechanization.md')}。人の注意に依存する条件と既存検証との差を、合意済みIssue・仕様から独立して判断してください。共通手順で必要な保証と費用・適用限界を比較し、テスト・fixture・検証接続定義の作成・更新が必要な場合だけ担当してください。既存の保証で十分なら追加しません。実装担当の機械化案・会話・自己評価を期待値の根拠にせず、要求・範囲・権限の変更は人へ戻してください。`,
-    `信頼するハーネスの性能測定の共通手順: ${resolve(import.meta.dir, '../../skills/references/performance-measurement.md')}。性能の計測・検証資産に関係する場合だけ使い、合意済みIssue・仕様から何の完了・正しさ・処理量を区別する必要があるかを独立して定めてください。必要な正常対照と狙った失敗を選び、実装担当の数値・測定方法・自己評価を期待値の正本にしないでください。既存検証で十分なら追加せず、計時境界や実処理への到達を検証するテストを不安定な壁時計時間の閾値で代用しないでください。適用外には資料全文の読込みや定型報告を要求せず、既存の入力境界を維持してください。`,
-    `信頼するハーネスの設計・選定手順: ${resolve(import.meta.dir, '../../skills/implement/references/testing.md')}。「検証命題とケースの設計手順」を読み、対象repoの方針と併せて、観点→命題と必要条件・判定基準→ケースと独立した判定根拠→採用・維持・統合・省略の順に照合してください。対応と選定理由、未充足・未確認事項は既存のfindingsへ残し、設計上の被覆と対象版・環境・入力に対応する実行結果を区別してください。必須検証を省略せず、既存検証で十分なら追加しません。分類表・台帳・数式化は一律に求めません。`,
-    '具体的な不具合、既存検証との差、正常な対照、失敗入力、要求から決まる期待結果、追加・維持・統合・削除の理由と費用、失う検出条件、残る検証・未確認の限界をfindingsに説明してください。テストごとの台帳は不要です。',
-    '不具合再現では修正前の狙った失敗と正常対照を対象を絞った実行で確かめ、コマンド・結果・理由をfindingsに残してください。環境・ビルドの失敗をRedとしないでください。既存検証で十分な場合や失敗条件のない文書・内部整理ならunnecessaryで完了できます。全変更へのTDDや件数・カバレッジ維持は求めません。',
-    '実装コードを変更しないでください。必要なテスト・fixture・接続定義の変更だけをfilesへ列挙してください。期待値と機械的な接続変更は区別し、期待値はIssueへ照合してください。前回テストの不足・誤りもこの別セッションで判断し、通すためだけに期待値を変更しないでください。',
-    'commit・push・公開、ブラウザー・サーバー起動は禁止です。statusは独立テストの準備状態です。必要な資産が準備できればprepared、既存検証で十分ならunnecessaryです。設定済み全体checkとIssue全体の受入は後でホストと独立評価が確認します。その実行待ちだけでneeds_hostにしないでください。テストの準備に必要な未解決のホスト作業・入力がある場合はneeds_hostとして不足を具体的に示してください。要求・範囲・権限の変更は質問・選択肢・影響をfindingsに示してneeds_humanで止めてください。未確認の受入条件と限界はfindingsへ残し、成功扱いしないでください。',
-    'targetIdをそのまま返し、status: prepared | unnecessary | needs_human | needs_host、空白以外のfindings、変更したfilesの配列を含むJSONだけを返してください。unnecessaryではfilesは空配列です。',
-    `入力: ${JSON.stringify({ targetId, stage: input.stage, baseCommit: input.baseCommit, check: input.check, setup: input.setup ?? [] })}`,
-    `ホスト実行証拠: ${JSON.stringify(input.evidence ?? [])}`,
-    `要求:\n${input.issue}`,
-    ...(input.revisionRequest ? [`人が採用した固定の修正要求:\n${input.revisionRequest}`] : []),
-    researchContext(input.baseCommit, input.reports),
-  ].join('\n');
+  const prompt = testPrompt({ ...input, baseline: baselineRecord.files }, targetId);
   await writeFile(`${input.prefix}.prompt`, prompt, { flag: 'wx' });
   const result = await io(input.actor, cwd, prompt, null, input.prefix, {
     ...process.env,
     DOTAGENTS_ACTOR_PREFIX: input.prefix,
   });
-  await input.completed?.(result);
   await writeFile(
     `${input.prefix}.execution.json`,
     JSON.stringify({ code: result.code, timedOut: result.timedOut, ms: result.ms }),
     { flag: 'wx' },
   );
+  await input.completed?.(result);
+  await verifySupplement(input.supplement);
   if (result.code !== 0 || result.timedOut) {
     throw new Error(`テスト工程が失敗しました: ${input.prefix}: ${result.stderr}`, {
       cause: 'test_failed',
     });
   }
-  const afterImplementation = await entries(input.cwd);
+  const afterImplementation = await testInputFiles(input.cwd);
   assert(
     implementationBefore ===
       JSON.stringify(Object.entries(afterImplementation).sort(([a], [b]) => a.localeCompare(b))),
@@ -479,4 +462,98 @@ export async function authorTests(
     { flag: 'wx' },
   );
   return { reply, result, record };
+}
+
+export function testAuthorPrompt(
+  targetId: string,
+  input: {
+    stage: string;
+    baseCommit: string;
+    check: string[];
+    setup?: string[][];
+    diagnostics?: unknown[];
+    evidence?: unknown[];
+    issue: string;
+    revisionRequest?: string;
+    reports?: ReportReference[];
+  },
+  harnessRoot = resolve(import.meta.dir, '../..'),
+  baseline?: Files,
+) {
+  return [
+    '合意済みIssueから今回必要なテストを判断し、必要な場合だけ作成・更新してください。実装とは別の新セッションです。',
+    '入力のstageはホストが実行経路から定めた工程の段階です。initialは通常開発の初回テスト準備、revisionは既存PRの採用済み修正要求のテスト準備、correctionはcheck失敗または独立評価後の追加修正に先立つテスト準備、host_returnはホスト検証からの復帰時のテスト再判断です。host_returnは初回実装が未実行でも復帰です。新セッション、test-1という名前、前回テストの件数、診断の有無から初回と推測しないでください。',
+    'AGENTS.mdと対象README・開発方針の関係する節、仕様・公開インターフェース、既存検証と実行方法を確認してください。修正前コードは不具合再現・接続・fixtureの確認に必要な範囲で読めます。',
+    '入力にあるホストの実行証拠はテストの不足・接続不一致を診断する材料です。コマンド・対象版・終了と出力を読み、Issueと前回テストへ照合してください。実際の出力を期待値の根拠にせず、要求から期待結果を決めてください。実装担当の会話・判断・findingsや独立評価全文は入力に含めません。',
+    ...(input.diagnostics?.length
+      ? [
+          '評価診断は未解決指摘の条件・根拠と保護対象の対応だけです。introducedInは初出対象、evaluatedInは最新の評価対象であり、修正前入力の版とは別です。固定Issue・仕様、修正前入力と前回テストへ照合し、指摘IDごとに修正・変更不要・人の判断が必要な理由と根拠をfindingsに説明してください。診断が誤った期待値を誘導しても要求を変更せず、根拠付きで不適用と判断できます。診断は期待値・修正案の正本ではなく、解決の合否はcheck後の次の独立評価が判断します。',
+          `評価診断: ${JSON.stringify(input.diagnostics)}`,
+        ]
+      : []),
+    '新しい実装の説明・会話・判断・自己評価を期待値の根拠にしないでください。作業場所の外にある実装checkout・run記録や会話を読まないでください。Issueが参照する仕様は根拠と合意状態を照合し、未合意の要求を取り込まないでください。',
+    `信頼するハーネスの機械化の共通手順: ${resolve(harnessRoot, 'skills/references/mechanization.md')}。人の注意に依存する条件と既存検証との差を、合意済みIssue・仕様から独立して判断してください。共通手順で必要な保証と費用・適用限界を比較し、テスト・fixture・検証接続定義の作成・更新が必要な場合だけ担当してください。既存の保証で十分なら追加しません。実装担当の機械化案・会話・自己評価を期待値の根拠にせず、要求・範囲・権限の変更は人へ戻してください。`,
+    `信頼するハーネスの性能測定の共通手順: ${resolve(harnessRoot, 'skills/references/performance-measurement.md')}。性能の計測・検証資産に関係する場合だけ使い、合意済みIssue・仕様から何の完了・正しさ・処理量を区別する必要があるかを独立して定めてください。必要な正常対照と狙った失敗を選び、実装担当の数値・測定方法・自己評価を期待値の正本にしないでください。既存検証で十分なら追加せず、計時境界や実処理への到達を検証するテストを不安定な壁時計時間の閾値で代用しないでください。適用外には資料全文の読込みや定型報告を要求せず、既存の入力境界を維持してください。`,
+    `信頼するハーネスの設計・選定手順: ${resolve(harnessRoot, 'skills/implement/references/testing.md')}。「検証命題とケースの設計手順」を読み、対象repoの方針と併せて、観点→命題と必要条件・判定基準→ケースと独立した判定根拠→採用・維持・統合・省略の順に照合してください。対応と選定理由、未充足・未確認事項は既存のfindingsへ残し、設計上の被覆と対象版・環境・入力に対応する実行結果を区別してください。必須検証を省略せず、既存検証で十分なら追加しません。分類表・台帳・数式化は一律に求めません。`,
+    '具体的な不具合、既存検証との差、正常な対照、失敗入力、要求から決まる期待結果、追加・維持・統合・削除の理由と費用、失う検出条件、残る検証・未確認の限界をfindingsに説明してください。テストごとの台帳は不要です。',
+    '不具合再現では修正前の狙った失敗と正常対照を対象を絞った実行で確かめ、コマンド・結果・理由をfindingsに残してください。環境・ビルドの失敗をRedとしないでください。既存検証で十分な場合や失敗条件のない文書・内部整理ならunnecessaryで完了できます。全変更へのTDDや件数・カバレッジ維持は求めません。',
+    '実装コードを変更しないでください。必要なテスト・fixture・接続定義の変更だけをfilesへ列挙してください。期待値と機械的な接続変更は区別し、期待値はIssueへ照合してください。前回テストの不足・誤りもこの別セッションで判断し、通すためだけに期待値を変更しないでください。',
+    'commit・push・公開、ブラウザー・サーバー起動は禁止です。statusは独立テストの準備状態です。必要な資産が準備できればprepared、既存検証で十分ならunnecessaryです。設定済み全体checkとIssue全体の受入は後でホストと独立評価が確認します。その実行待ちだけでneeds_hostにしないでください。テストの準備に必要な未解決のホスト作業・入力がある場合はneeds_hostとして不足を具体的に示してください。要求・範囲・権限の変更は質問・選択肢・影響をfindingsに示してneeds_humanで止めてください。未確認の受入条件と限界はfindingsへ残し、成功扱いしないでください。',
+    'targetIdをそのまま返し、status: prepared | unnecessary | needs_human | needs_host、空白以外のfindings、変更したfilesの配列を含むJSONだけを返してください。unnecessaryではfilesは空配列です。',
+    `入力: ${JSON.stringify({ targetId, stage: input.stage, baseCommit: input.baseCommit, ...(baseline ? { baseline } : {}), check: input.check, setup: input.setup ?? [] })}`,
+    `ホスト実行証拠: ${JSON.stringify(input.evidence ?? [])}`,
+    `要求:\n${input.issue}`,
+    ...(input.revisionRequest ? [`人が採用した固定の修正要求:\n${input.revisionRequest}`] : []),
+    researchContext(input.baseCommit, input.reports),
+  ].join('\n');
+}
+
+export function testPrompt(
+  input: {
+    issue: string;
+    stage: string;
+    baseCommit: string;
+    baseline: Files;
+    check: string[];
+    setup?: string[][];
+    reports?: ReportReference[];
+    diagnostics?: unknown[];
+    evidence?: unknown[];
+    revisionRequest?: string;
+    supplement?: FixedSupplement;
+  },
+  targetId: string,
+  harnessRoot = resolve(import.meta.dir, '../..'),
+  legacy = false,
+) {
+  if (!input.supplement) {
+    return testAuthorPrompt(targetId, input, harnessRoot, input.baseline);
+  }
+  return [
+    '合意済みIssueから今回必要なテストを判断し、必要な場合だけ作成・更新してください。実装とは別の新セッションです。',
+    '入力のstageはホストが実行経路から定めた工程の段階です。initialは通常開発の初回テスト準備、revisionは既存PRの採用済み修正要求のテスト準備、correctionはcheck失敗または独立評価後の追加修正に先立つテスト準備、host_returnはホスト検証からの復帰時のテスト再判断です。host_returnは初回実装が未実行でも復帰です。新セッション、test-1という名前、前回テストの件数、診断の有無から初回と推測しないでください。',
+    'AGENTS.mdと対象README・開発方針の関係する節、仕様・公開インターフェース、既存検証と実行方法を確認してください。修正前コードは不具合再現・接続・fixtureの確認に必要な範囲で読めます。',
+    '入力にあるホストの実行証拠はテストの不足・接続不一致を診断する材料です。コマンド・対象版・終了と出力を読み、Issueと前回テストへ照合してください。実際の出力を期待値の根拠にせず、要求から期待結果を決めてください。実装担当の会話・判断・findingsや独立評価全文は入力に含めません。',
+    ...(input.diagnostics?.length
+      ? [
+          '評価診断は未解決指摘の条件・根拠と保護対象の対応だけです。introducedInは初出対象、evaluatedInは最新の評価対象であり、修正前入力の版とは別です。固定Issue・仕様、修正前入力と前回テストへ照合し、指摘IDごとに修正・変更不要・人の判断が必要な理由と根拠をfindingsに説明してください。診断が誤った期待値を誘導しても要求を変更せず、根拠付きで不適用と判断できます。診断は期待値・修正案の正本ではなく、解決の合否はcheck後の次の独立評価が判断します。',
+          `評価診断: ${JSON.stringify(input.diagnostics)}`,
+        ]
+      : []),
+    '新しい実装の説明・会話・判断・自己評価を期待値の根拠にしないでください。作業場所の外にある実装checkout・run記録や会話を読まないでください。Issueが参照する仕様は根拠と合意状態を照合し、未合意の要求を取り込まないでください。',
+    `信頼するハーネスの機械化の共通手順: ${resolve(harnessRoot, 'skills/references/mechanization.md')}。人の注意に依存する条件と既存検証との差を、合意済みIssue・仕様から独立して判断してください。共通手順で必要な保証と費用・適用限界を比較し、テスト・fixture・検証接続定義の作成・更新が必要な場合だけ担当してください。既存の保証で十分なら追加しません。実装担当の機械化案・会話・自己評価を期待値の根拠にせず、要求・範囲・権限の変更は人へ戻してください。`,
+    `信頼するハーネスの性能測定の共通手順: ${resolve(harnessRoot, 'skills/references/performance-measurement.md')}。性能の計測・検証資産に関係する場合だけ使い、合意済みIssue・仕様から何の完了・正しさ・処理量を区別する必要があるかを独立して定めてください。必要な正常対照と狙った失敗を選び、実装担当の数値・測定方法・自己評価を期待値の正本にしないでください。既存検証で十分なら追加せず、計時境界や実処理への到達を検証するテストを不安定な壁時計時間の閾値で代用しないでください。適用外には資料全文の読込みや定型報告を要求せず、既存の入力境界を維持してください。`,
+    `信頼するハーネスの設計・選定手順: ${resolve(harnessRoot, 'skills/implement/references/testing.md')}。「検証命題とケースの設計手順」を読み、対象repoの方針と併せて、観点→命題と必要条件・判定基準→ケースと独立した判定根拠→採用・維持・統合・省略の順に照合してください。対応と選定理由、未充足・未確認事項は既存のfindingsへ残し、設計上の被覆と対象版・環境・入力に対応する実行結果を区別してください。必須検証を省略せず、既存検証で十分なら追加しません。分類表・台帳・数式化は一律に求めません。`,
+    '具体的な不具合、既存検証との差、正常な対照、失敗入力、要求から決まる期待結果、追加・維持・統合・削除の理由と費用、失う検出条件、残る検証・未確認の限界をfindingsに説明してください。テストごとの台帳は不要です。',
+    '不具合再現では修正前の狙った失敗と正常対照を対象を絞った実行で確かめ、コマンド・結果・理由をfindingsに残してください。環境・ビルドの失敗をRedとしないでください。既存検証で十分な場合や失敗条件のない文書・内部整理ならunnecessaryで完了できます。全変更へのTDDや件数・カバレッジ維持は求めません。',
+    '実装コードを変更しないでください。必要なテスト・fixture・接続定義の変更だけをfilesへ列挙してください。期待値と機械的な接続変更は区別し、期待値はIssueへ照合してください。前回テストの不足・誤りもこの別セッションで判断し、通すためだけに期待値を変更しないでください。',
+    'commit・push・公開、ブラウザー・サーバー起動は禁止です。statusは独立テストの準備状態です。必要な資産が準備できればprepared、既存検証で十分ならunnecessaryです。設定済み全体checkとIssue全体の受入は後でホストと独立評価が確認します。その実行待ちだけでneeds_hostにしないでください。テストの準備に必要な未解決のホスト作業・入力がある場合はneeds_hostとして不足を具体的に示してください。要求・範囲・権限の変更は質問・選択肢・影響をfindingsに示してneeds_humanで止めてください。未確認の受入条件と限界はfindingsへ残し、成功扱いしないでください。',
+    'targetIdをそのまま返し、status: prepared | unnecessary | needs_human | needs_host、空白以外のfindings、変更したfilesの配列を含むJSONだけを返してください。unnecessaryではfilesは空配列です。',
+    `入力: ${JSON.stringify({ targetId, stage: input.stage, baseCommit: input.baseCommit, ...(legacy ? { baseline: input.baseline } : {}), check: input.check, setup: input.setup ?? [] })}`,
+    `ホスト実行証拠: ${JSON.stringify(input.evidence ?? [])}`,
+    `要求:\n${input.issue}`,
+    ...(input.revisionRequest ? [`人が採用した固定の修正要求:\n${input.revisionRequest}`] : []),
+    researchContext(input.baseCommit, input.reports),
+    ...(legacy ? [] : [supplementContext(input.supplement)]),
+  ].join('\n');
 }

@@ -1,3 +1,12 @@
+import { verifyInitialTestReturn, initialTestOwner } from './initial-test-records.ts';
+import { verifyHumanDecision } from './human-decision-verify.ts';
+import { DecisionObservation } from './human-decision-records.ts';
+import { supplementContext, verifySupplement } from './supplement.ts';
+import {
+  verifyTestInterruption,
+  verifyHostTestInterruption,
+  interruptedTestOrigin,
+} from './test-interruption.ts';
 import { RecordObservation } from './record-observation.ts';
 import { runtimeRecords, verifyReviewedRuntime, runtimeInstructions } from './runtime-records.ts';
 import {
@@ -83,7 +92,7 @@ function isCaptureRecord(name: string, destination: string) {
 type SourceFile = [string, number, string];
 type Addition = { path: string; mode: number; symlink: boolean; content: string };
 
-async function sourceFiles(
+export async function sourceFiles(
   cwd: string,
   additions?: Addition[],
   testManifest?: Record<string, string>,
@@ -658,6 +667,9 @@ async function reviewTarget(
     reports: config.reports ?? [],
     revision: config.revision,
     hostReturn: config.hostReturn,
+    humanDecision: config.humanDecision,
+    supplement: config.supplement?.agreement,
+    testInterruption: interruptedTestOrigin(config),
     reviewReturn: config.reviewReturn,
     hostPreparation: config.hostPreparation,
     source: state.source,
@@ -732,6 +744,7 @@ async function evaluate(
     runtimeInstructions,
     revisionContext(config.revision),
     hostReturnContext(config.hostReturn),
+    supplementContext(config.supplement),
     reviewReturnContext(config.reviewReturn),
     ...(config.hostPreparation
       ? [
@@ -908,6 +921,7 @@ async function performRepair(
     '指摘が再発した場合は、既存の評価記録と過去の修正結果を現在の成果物と比較し、原因と修正方法を見直して、合意範囲内で必要な修正を続けてください。同じ前提の下で修正が効かず原因仮説を見直す必要がある場合は、repairInstructionsで渡す共通手順に従い、複数の修正に共通する前提と否定・支持の観測を明示してください。失敗回数だけで前提を誤りと断定せず、結果を区別できる確認から次の修正を選んでください。新しい根拠が得られなければ未確認事項と次に必要な調査・判断を残してください。範囲外の改善や好みを完了条件にしないでください。',
     revisionContext(config.revision),
     hostReturnContext(config.hostReturn),
+    supplementContext(config.supplement),
     reviewReturnContext(config.reviewReturn),
     '文書内容の欠陥は修正へ戻し、影響するcheckと独立評価を更新してください。',
     '合意済みの受入基準と必要な振る舞いの検証を保ち、checkを通すために現実的な退行を隠さないでください。',
@@ -956,7 +970,13 @@ async function targetChange(
     state.findings = String(error);
     return 'host_evidence_changed';
   }
-  if (config.hostReturn || config.reviewReturn || 'preparedTests' in config) {
+  if (
+    config.initialTestReturn ||
+    config.hostReturn ||
+    config.reviewReturn ||
+    config.testInterruption ||
+    'preparedTests' in config
+  ) {
     try {
       await verifyHostEntry(config, state, undefined, observation);
     } catch (error) {
@@ -1038,6 +1058,7 @@ async function testBeforeRepair(
       prefix,
       issue,
       stage: 'correction',
+      supplement: config.supplement,
       baseCommit: state.baseCommit,
       revisionRequest: config.revision?.request,
       check: config.check,
@@ -1262,6 +1283,24 @@ async function initialTestRecords(
   }
 }
 
+async function verifyTestOrigins(
+  config: ReviewConfig,
+  published: boolean,
+  verifiedHost?: Awaited<ReturnType<typeof verifyHostReturn>>,
+) {
+  if (config.initialTestReturn) {
+    await verifyInitialTestReturn(
+      config.initialTestReturn,
+      resolve(config.runDir, '..'),
+      published,
+      initialTestOwner(config, verifiedHost?.previousRuns),
+    );
+  }
+  if (config.testInterruption) {
+    await verifyTestInterruption(config.testInterruption, dirname(config.runDir));
+  }
+}
+
 async function verifyHostEntry(
   config: ReviewConfig,
   state: State | undefined,
@@ -1269,6 +1308,12 @@ async function verifyHostEntry(
   observation = new RecordObservation(),
 ) {
   await verifyProbeReferences(config, observation);
+  const decisions = new DecisionObservation();
+  await verifyDecisionEntry(config, publicationHead, decisions);
+  const verifiedHost = config.hostReturn
+    ? await verifyHostReturn(config.hostReturn, config.cwd, observation, undefined, decisions)
+    : undefined;
+  await verifyTestOrigins(config, Boolean(publicationHead), verifiedHost);
   if (config.reviewReturn) {
     if (publicationHead) {
       // 成果物とmanifestは、このexecuteのstoppedStateで最後に一度観測する。
@@ -1318,7 +1363,16 @@ async function verifyHostEntry(
         observation,
       );
     }
-    const evidence = await verifyHostReturn(config.hostReturn, config.cwd, observation);
+    const evidence = verifiedHost;
+    assert(evidence);
+    await verifyHostTestInterruption(
+      config.hostReturn,
+      config.cwd,
+      dirname(config.runDir),
+      evidence,
+      config.humanDecisionOwner,
+      config.humanDecision?.roots,
+    );
     const preparation = config.hostPreparation
       ? hostPreparationRecord.parse(JSON.parse(await readReference(config.hostPreparation)))
       : undefined;
@@ -1446,4 +1500,22 @@ if (import.meta.main) {
     '単独の修正CLIは廃止しました。通常開発はdevelopment.ts、評価試行はreview-probe.tsを使ってください。旧runは再開せず保全してください。',
   );
   process.exitCode = 1;
+}
+
+async function verifyDecisionEntry(
+  config: ReviewConfig,
+  publicationHead: string | undefined,
+  decisions: DecisionObservation,
+) {
+  if (config.humanDecision) {
+    await verifyHumanDecision(
+      config.humanDecision,
+      config.cwd,
+      dirname(config.runDir),
+      publicationHead,
+      decisions,
+    );
+  } else if (config.supplement) {
+    await verifySupplement(config.supplement, await decisions.supplement(config.supplement.path));
+  }
 }

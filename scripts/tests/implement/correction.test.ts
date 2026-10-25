@@ -405,15 +405,32 @@ test('normal execution rejects invalid config before commands or evidence writes
   expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
 });
 
-test('normal execution rejects retired budgets and requires finite check time', () => {
+test('通常設定は明示した上限なしを受理する', () => {
+  expect(() =>
+    assertConfig({ ...correctionConfig('/correction-config'), checkTimeMs: null }),
+  ).not.toThrow();
+});
+
+test('通常設定と単独評価は有限check値・不正入力・旧保存値の契約を維持する', () => {
   const config = correctionConfig('/correction-config');
   for (const key of ['repairLimit', 'reviewLimit', 'modelTimeMs', 'unexpected']) {
     expect(() => assertConfig({ ...config, [key]: null })).toThrow('Unknown configuration field');
   }
-  for (const checkTimeMs of [null, undefined, 0, -1, NaN, Infinity]) {
+  for (const checkTimeMs of [undefined, 0, -1, NaN, Infinity, '900000', false]) {
     expect(() => assertConfig({ ...config, checkTimeMs })).toThrow('Invalid checkTimeMs');
   }
+  for (const checkTimeMs of [540000, 900000, 1000]) {
+    expect(() => assertConfig({ ...config, checkTimeMs })).not.toThrow();
+  }
   const { repair: _repair, ...review } = config;
+  for (const checkTimeMs of [null, undefined, 0, -1, NaN, Infinity, '900000']) {
+    expect(() => assertProbeConfig({ ...review, checkTimeMs, reviewTimeMs: 100 })).toThrow(
+      'Invalid checkTimeMs',
+    );
+  }
+  for (const checkTimeMs of [540000, 900000, 1000]) {
+    expect(() => assertProbeConfig({ ...review, checkTimeMs, reviewTimeMs: 100 })).not.toThrow();
+  }
   for (const reviewTimeMs of [null, undefined, 0, -1, NaN, Infinity, '100']) {
     expect(() => assertProbeConfig({ ...review, reviewTimeMs })).toThrow('Invalid reviewTimeMs');
   }

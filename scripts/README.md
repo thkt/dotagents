@@ -21,9 +21,9 @@ bun /absolute/path/to/trusted/scripts/implement/development.ts 99 --repo /absolu
 
 必要な調査報告がある場合は[引き継ぎ引数](#調査報告を指定した実装開始)で指定します。
 
-通常の新規実行では、初回実装・修正・独立評価にモデル経過時間の上限を設けません。実行回数・経過時間・指摘履歴・結果・実行中の予約は記録します。追加修正・独立評価にも回数上限を設けず、合意範囲内の必須指摘を解消した最新成果物のcheckと独立評価acceptedまで修正ループを続けます。CI待機の総時間上限も設けません。各checkは15分で打ち切り、通常コマンドとCIの各状態取得・最後の対象照合は各11分で打ち切ります。要求・対象・権限の照合と手動中断による停止は継続し、通常利用者に時間・回数設定や回数だけを理由とした続行承認は求めません。
+通常の新規実行では、初回実装・修正・独立評価にモデル経過時間の上限を設けません。実行回数・経過時間・指摘履歴・結果・実行中の予約は記録します。追加修正・独立評価にも回数上限を設けず、合意範囲内の必須指摘を解消した最新成果物のcheckと独立評価acceptedまで修正ループを続けます。CI待機の総時間上限も設けません。通常developmentのcheck・撮影にも経過時間の固定上限を設けません。通常コマンドとCIの各状態取得・最後の対象照合は各11分で打ち切ります。要求・対象・権限の照合と手動中断による停止は継続し、通常利用者に時間・回数設定や回数だけを理由とした続行承認は求めません。
 
-有限設定の既存runを同じ記録のまま無制限へ切り替えることは設定変更として拒否します。時間・使用量・履歴の保存量が増える可能性があり、修正の収束は保証しません。
+新しい通常developmentの検証設定は`checkTimeMs: null`を保存し、check・撮影へ上限なしとして渡します。欠落・不正な時間値は拒否します。明示した正の有限値を持つ単独検証・review-probeは、その値を維持します。有限設定の既存runを同じ記録のまま無制限へ切り替えることは設定変更として拒否します。旧runの540000ms・900000ms、原応答・結果・hash・全mode、null・unknownと既知の使用量を保持し、新runの設定と区別します。この修正を実行する旧版driverの保存設定も、実行中には書き換えません。時間・使用量・履歴の保存量が増える可能性があり、修正の収束は保証しません。
 
 保存先は `~/.local/share/dotagents/development/<Git管理ディレクトリの識別値>/<Issue番号>/` です。`--run-dir DIRECTORY` でcheckoutやGit管理領域の外を指定できます。`target.json` に対象設定、repo ID、gh主体を残し、ほかに要求、指示と結果、検証ログ、作業checkout、PR本文とURL、CI結果を残します。既存の保存先は再実行に使いません。中断後は記録、実プロセス、GitHubの状態を照合し、保存先の削除や別名での自動再試行は行いません。
 
@@ -74,6 +74,38 @@ correctionの`readIssue`はIssueを取得して比較用テキストへ変換し
 draft確認の開始前から今回の`publication`を`unconfirmed`として既知のURLとともに`result.json`へ保存し、本文更新後の本文・ref・PR head・draftの読戻しで`published`とします。更新前に本文等が変わっていれば未確認の手編集を上書きしません。更新後は既存処理で同じheadのCIを確認します。GitHubの複数操作は原子的ではなく、通信断や割込み後に自動再試行せず、失敗時にreadyへ自動復帰しません。draft化やpush成功後の失敗でもPR URLと判明状態・次の対応を残し、旧headを今回の最新成功として案内しません。
 
 `--no-publish`では修正後の独立評価までで止まり、commit・push・本文更新・draft/ready操作をしません。自動コメント投稿、会話のresolve、承認、マージも行いません。媒体がある対象は通常の添付・公開後確認を継続します。制御テストの模擬応答、実モデルの意味判断、実際のPR更新は別の検証です。
+
+### ローカル受入後の単独公開を採用する
+
+[Issue #434](https://github.com/thkt/dotagents/issues/434)で合意した限定入口です。ローカル受入後に同じ成果物を単独公開したopen draft PRを、新しい修正runへ接続します。通常の公開runを使う修正は、引き続き`--previous-run`を使います。旧runの`verified_local`・`localOnly`・`publication: not_attempted`を公開済みへ書き換えません。
+
+担当ホストは、同じrepo・Issue・主体のPRであり、今回の修正と公開が明示的に許可されていることを確認し、採用した修正要求・期待結果・許可範囲を文章ファイルにまとめます。単独公開の事実や旧`localOnly`の欠落を許可の代わりにしません。
+
+```sh
+bun /absolute/path/to/trusted/scripts/implement/development.ts 425 \
+  --repo /absolute/path/to/published-checkout \
+  --adopt-local-run /absolute/path/to/local-accepted-run \
+  --adopt-pr https://github.com/thkt/dotagents/pull/433 \
+  --request-file /absolute/path/to/adopted-revision.md \
+  --run-dir /absolute/path/to/new-revision-run \
+  --allow-publish
+```
+
+`--run-dir`は旧runと同じ親の未使用ディレクトリにします。`--adopt-local-run`・`--adopt-pr`・`--request-file`・`--allow-publish`を組にし、他の復帰入口、`--no-publish`、`--start-commit`、`--report`とは併用しません。採用時の許可を記録し、受付だけではPRを作成・更新しません。
+
+受付では次の条件を照合し、不一致・不明ならsetupや担当AIを起動せず停止します。
+
+- 旧runが真正なローカル受入の終端で、check完了・独立評価accepted・activeなし・管理lockなし・対応する稼働プロセスなしであること。native actorの原応答、評価対象hash、checkログ、設定・Issueの保存記録を照合します。
+- 旧受入source、旧checkout、公開checkoutの内容・全modeが一致し、ローカル対象設定を除く全成果物が公開headのcommit treeに収録されていること。未追跡成果物の収録漏れも拒否します。全modeはcheckout間で比較し、Git treeではGitが保存する種別・実行bit・内容を照合します。
+- 設定原文と追跡状態、元の差分基準・参照資料のpathとblob、repo・Issue・作者・完全なhead commit・branch・base・OPEN・draft、remote ref、実効主体・書込権限が一致すること。
+
+旧checkoutのbranchは旧runの記録と、公開checkoutのbranchは対象PRのhead branchと照合します。旧branchと公開branchの名前が異なる場合も、受入成果物と公開commitの内容・全mode・収録の条件を満たせば採用できます。旧branchの改名や記録の変更は行いません。初回実装の保存済み実行結果が失敗・時間切れ・不明な場合は、終端や評価の成功だけで代用せず拒否します。過去の中断のnull・unknownは原記録に保持します。
+
+新runの`verification-config.json`にある`revision.localPublication`へ、採用の種別、旧run・両checkout・PR・head・sourceと旧原記録の期待hash・modeを保存します。旧checkoutの所有を公開checkoutへ置き換えません。修正中も原記録と稼働プロセス、PRとremote refを再照合し、元の初回実装を繰り返さず、新しい独立テスト・修正・check・独立評価へ進みます。旧成功・評価履歴を新しい受入に流用しません。旧形式の有限上限があるrunは、上限を解除せず拒否します。
+
+以後の公開は通常の既存PR修正と同じ処理で同じPR・branchを更新します。正式なホスト検証停止では採用来歴を保持し、[ホスト検証後の再評価](#ホスト検証後の再評価)へ戻します。停止を別名の通常起動で回避することはできません。原応答・旧結果・lockを編集して受付条件を満たさないでください。
+
+この入口を選ぶ理由は、旧記録を保全したまま、単独公開の照合と今回の許可を別の来歴として追加するためです。従来の公開run必須条件を全体で緩めません。従来条件の当時の導入理由は今回の資料からは未確認であり、この説明は今回の選択理由です。模擬制御テストの成功は実適用の証拠ではありません。独立評価を通した固定版で#433の追加修正に実適用し、旧原本の保全、同じPR・branch、新しい修正・検証への到達を確認します。通常checkはこの実適用を行わないため、担当AIはホストで実行し、生ログ・対象版・親子のツール版を新しい外部証拠へ残して正式な再評価へ戻します。独立受入後の#433更新と同じheadのCI確認は、#425の継続作業です。今回の#425・#434の追加合意ではcantle専用の検証・実適用・製品受入を完了条件から外し、既存のcantle担当へ委ねています。
 
 ## 調査報告を指定した実装開始
 
@@ -164,7 +196,7 @@ developmentは対象設定のcapture command、保存先、撮影方針を内部
 
 撮影を再利用しても、文書や記録を含む全体の変更検知、共通check、独立評価は省略しません。評価者は保持された媒体の撮影対象と現在のコードの対応、および証拠記録の整合を確認します。停止済み実行の上限や状態は変更せず、この仕組みは同じ実行の修正ループ内で使います。
 
-再撮影が必要な場合はcheckout外の新しい出力先で行います。要求とソースが変わっていないことを確認して媒体を取り込み、媒体を含む対象を確定して共通check、独立評価、公開へ進みます。撮影失敗時はログを修正担当へ渡します。起動不能は`capture_unavailable`、撮影の時間切れは`capture_timeout`として停止し、ホスト側での環境確認が必要です。撮影にも各checkと同じ15分の上限とプロセスグループの中断処理を適用します。正常な`needs_human`と不正応答を区別して表示し、記録を保持します。
+再撮影が必要な場合はcheckout外の新しい出力先で行います。要求とソースが変わっていないことを確認して媒体を取り込み、媒体を含む対象を確定して共通check、独立評価、公開へ進みます。撮影失敗時はログを修正担当へ渡します。起動不能は`capture_unavailable`、撮影の時間切れは`capture_timeout`として停止し、ホスト側での環境確認が必要です。通常developmentの撮影は各checkと同じく固定の経過時間では打ち切りません。明示的な有限設定による時間切れの判定と、手動中断・プロセスグループの終了と後始末は維持します。取得済み出力と不完全な終了を保存し、終了未確認では後続を抑止します。正常な`needs_human`と不正応答を区別して表示し、記録を保持します。
 
 フロー図の旧ID `#R01`・`#X04` はoverviewへ戻ります。現行の解説は [R02](../docs/html/workflow-map.html#R02)・[X05](../docs/html/workflow-map.html#X05) から開けます。
 
@@ -386,6 +418,34 @@ PR本文のdraft公開・CI・公開後確認・ready切替は本文作成時点
 
 ホスト停止ではrun直下の付属actorディレクトリも検証工程の記録とともにpath・hash付きで保全します。復帰時は既存の停止記録照合を使い、明示した祖先runの原記録も新しい評価対象へ渡します。初回不正評価からの復帰でも、旧評価対象にruntimeRecordsが保存されていれば、その内容hashを原記録へ照合します。停止後から初回復帰までの変更を、新しい基準として取り込みません。旧runは書換え・補完・再開しません。
 
+## 初回独立テストのID不一致後の新しい検証
+
+未公開・初回実装前の独立テストが`テスト応答の入力が一致しません`で終端停止した場合は、応答生成側を修正し、独立評価済みのハーネスから`--test-run`で旧runを指定します。[Issue #425](https://github.com/thkt/dotagents/issues/425)の専用入口であり、他の停止理由や復帰自身の再停止には使いません。
+
+```sh
+bun /absolute/path/to/reviewed-harness/scripts/implement/development.ts 54 \
+  --repo /absolute/path/to/old-run/checkout \
+  --test-run /absolute/path/to/old-run \
+  --run-dir /absolute/path/to/new-sibling-run \
+  --no-publish
+```
+
+使用するハーネスのcommit・実体パス・未コミット差分の識別値を明示してください。`--run-dir`は旧runと同じ親の未使用保存先で、旧run内・checkout内・Git保存領域内には置けません。他の復帰入口、`--request-file`、`--start-commit`、`--report`とは併用しません。旧公開権限の拡大も拒否します。同じ旧runから復帰した記録が既にある場合は、その記録を消して再試行しません。
+
+旧要求・repo・設定原文・実効主体・開始HEAD・branchと、テスト入力のSHA-256・manifest・指示・原応答・終了結果を照合します。旧checkoutと修正前baselineの内容・モード、および未採用workspaceの開始manifestが固定入力と一致する場合だけ進みます。未採用workspaceの現在の内容・モードから求めた変更一覧は、旧原応答の申告filesへ照合します。未申告の変更や、不要との応答に変更がある場合は停止します。この照合は旧成果物の保全のためであり、旧判断や成果物を採用するものではありません。欠落・変化・有効なテスト判断・初回実装・評価や復帰の履歴がある場合は対象外です。lock・稼働プロセス・remote ref・全状態のPRを照合し、公開状態やプロセスを観測できない場合も進みません。
+
+付属actorの呼出し記録・旧応答schema・final・eventsをホスト原応答へ照合します。付属actorの原記録が欠落・不一致で、元の実行と結び付けられない場合は停止します。旧schemaを、生成制約を加える前の形式へ照合します。旧IDは補正しません。旧run内のlockに加え、旧checkout・修正前baseline・未採用workspaceのGit専用領域と共通管理領域のlockも拒否します。
+
+通常起動の旧ホストも保存したIssue・起動repo・Git共通領域で照合します。同じIssueでrepoを相対指定・省略したプロセスは、対象を確定できないため停止します。symlinkで指定したrepoはrealpathで比較します。同じ復帰引数だけでは除外せず、現在のPIDと正しい復帰引数を持つ実際の祖先PIDだけを除外します。
+
+新runは別のcheckoutを作り、元の固定した修正前版と要求から`host_return`として独立テストをやり直します。旧担当の判断・診断・未採用成果物はテスト入力へ渡しません。新しい有効な`prepared`または`unnecessary`の判断後だけ、未実行の初回実装・check・独立評価へ進みます。有限上限と公開条件は既存の経路を使い、自動再試行は行いません。
+
+新runが未公開の正式な`host_verification_required`で停止した場合は、ホスト検証の証拠を添え、既存の`--host-run`から再評価へ戻します。実行済みの初回実装は繰り返しません。ホスト復帰後も未公開の正式な`host_verification_required`で停止した場合は、[正式停止後の再評価経路](#ホスト検証後の再評価)に従い、新しい証拠と兄弟runを使います。失敗・不正応答・上限停止や中断を正式停止へ変換せず、自動で復帰を連鎖しません。新しいテストの起動前と、テスト・初回実装が返った時点でも旧原本・lock・稼働プロセスを再確認します。`needs_host`を返した場合も照合を通してから正式に引き継ぎます。
+
+`initial-test-return.json`と新しい検証設定に、旧runの参照と内容・モードの照合値を保存します。旧checkout・workspaceを含む原本は変更せず、後続の照合でも保全を確認します。Git管理領域と`node_modules`は内容一覧から除き、旧checkoutのHEAD・branchは別途照合します。外部観測は同じ親の`test-observation-*`へ原出力を保存します。旧actor原記録は評価の`runtimeRecords`から参照します。旧失敗は過去の実行であり、新runの成功や使用量の全量ではありません。使用量は既存の明示選択による集計範囲と未観測量を保ちます。
+
+付属actorはホスト入力の`targetId`を応答生成schemaの単一値に固定します。独自actorも含め、ホストの完全一致検査は維持し、不正な原応答の補正・受入は行いません。模擬制御テストは実モデルや実停止記録の受入を証明しません。cantle #54への適用は独立評価後に同じハーネス版を明示し、旧runの内容・モードの不変、新しい独立テストと初回実装への到達を実記録で確認します。通常checkには含まれないため、[ホスト検証後の再評価](#ホスト検証後の再評価)へ証拠を渡します。#54の課題の実装・受入はcantleの担当セッションで扱います。
+
 ## 初回check時間切れ後の新しい検証
 
 [Issue #422](https://github.com/thkt/dotagents/issues/422)（2026-10-21T13:18:25Z版）に対応したハーネスで、`--check-timeout-run`へ旧runを指定します。利用するハーネスの版と実体パスを記録し、その版の独立評価後に対象へ適用します。mainへのマージや共通登録の切替は前提にしません。
@@ -403,11 +463,11 @@ bun /absolute/path/to/reviewed-trusted/scripts/implement/development.ts 421 \
 
 同じcheckout、HEAD・branch、元の差分基準、Issue原文、repository ID、設定原文、setup・check・capture、実効主体と公開権限、成果物と保護テストを照合します。旧run・原応答・独立テストの入力と修正前baselineの内容・モード、祖先の期待hashを保持します。lock・稼働プロセス、公開先branchのremote ref、閉じたものを含む全状態のPRも観測し、公開済み・不明・照合不能では後続を起動しません。観測の方法と限界は[中断した初回評価の照合](#中断した初回評価の照合と新しい検証)と共通です。
 
-新runはsetup後にも同一性を照合し、初回実装と初回テスト作成を繰り返さず、新しいcheckと独立評価へ進みます。新しい指摘は通常の独立テスト・修正経路へ渡します。旧runの540000msの設定・ログ・消費量・停止理由は書き換えず、新runの900000msと区別します。旧check・captureの成功は新runの受入へ流用しません。既存のhost・review・interrupted復帰でも、保存check上限は540000msまたは900000msに限り受け付け、新runには900000msを使います。任意の上限は指定できません。
+新runはsetup後にも同一性を照合し、初回実装と初回テスト作成を繰り返さず、新しいcheckと独立評価へ進みます。新しい指摘は通常の独立テスト・修正経路へ渡します。旧runの540000ms・900000msの設定・ログ・消費量・停止理由は書き換えず、新runの上限なし（`checkTimeMs: null`）と区別します。旧check・captureの成功は新runの受入へ流用しません。既存のhost・review・interrupted復帰でも、保存check設定は旧形式の540000ms・900000msと、新形式の明示的なnullを照合します。その他の有限値や欠落・不正値は受け付けず、新runにはnullを使います。任意の上限は指定できません。
 
 `review-return.json`と設定内の`reviewReturn.checkTimeout`から、旧runの記録hash・state原文・モードと外部観測を辿れます。祖先の期待値を現在hashで置き換えず、工程境界でも変化を検査します。旧記録・対象・証拠の変化や欠落では停止し、公開前のcommit後照合は従来どおり行います。旧記録を編集して開始条件を満たさないでください。
 
-通常checkと同じ予算で動くcaptureも15分になります。必要媒体の判定と、capture未設定・失敗・時間切れの停止は維持します。このrepoのCI checks jobも15分です。verify job、必要CI名、モデル実行や評価試行の上限は変えません。15分以内の完了や高速化を保証する変更ではありません。#421への実適用、実モデル、公開後の同じheadのCI確認は、模擬制御テストとは別にホストで確認します。
+通常developmentのcheck・captureは15分での固定打切りを行いません。必要媒体の判定、capture未設定・失敗の停止、有限設定時の時間切れと手動中断の処理は維持します。このrepoのCI checks jobも15分指定を外していますが、[GitHub workflow構文](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idtimeout-minutes)の既定360分とrunner側の上限は残ります。CI全体が無制限になるわけではありません。検証コマンド、依存固定導入、Bun 1.4.4、head commit、必要CI名checks・verify、verify jobの条件と1分指定、token権限、失敗・未実行の拒否は変えません。実モデル比較の有限上限も維持します。これは#433の採用済み追加要求による変更です。従来の時間値を導入した当時の理由は未確認であり、今回の選択から補いません。完了時間や性能改善は保証していません。#421への実適用、実モデル、公開後の同じheadのCI確認は、模擬制御テストとは別にホストで確認します。
 
 ## 初回不正評価後の新しい検証
 
@@ -462,6 +522,47 @@ CLIはLC_ALL=Cとcommandの省略を避ける指定でプロセス一覧を取�
 復帰先がホスト検証待ちになった場合は通常の`--host-run`へ、公開後の修正は通常の`--previous-run`へ、照合済み中断の参照を引き継ぎます。どちらも旧原記録・モード・予約と稼働状態を工程境界で再確認し、別のactiveや公開不明のrunは拒否します。未公開のホスト復帰ではremote ref・全状態のPRがないことを確認します。公開済みPRの修正では、旧中断に対する「未公開」の条件を現在のPRへ適用せず、既存の修正経路で作者・repository・branch・head・base・本文・Issue・remote refとdraftを照合します。HEADの進行も既存の修正・公開契約で扱い、過去の受入を流用しません。
 
 この経路は[Issue #406](https://github.com/thkt/dotagents/issues/406)（2026-10-18T12:19:47Z版）の合意に基づきます。#373のactiveなしという対象条件は維持し、別の入口で終端中断一件を照合する選択です。機械的な一致は外部観測の意味や受入を証明しません。模擬制御試験と、独立評価後に明示した信頼する版で行う#405実中断の照合・新check・通常独立評価を区別します。後者は通常checkに含まれず、比較モデルを起動せずにホストで確認する必要があります。実中断からの復帰成功は、その実行証拠が得られるまで未確認です。
+
+## ホスト復帰後の独立テストの判断待ちから戻る
+
+[Issue #432](https://github.com/thkt/dotagents/issues/432)で合意した、補足合意を添えて新しい検証へ戻る入口です。正式なホスト検証停止は[ホスト検証後の再評価](#ホスト検証後の再評価)を使います。停止理由や旧応答を書き換えて、この入口へ読み替えないでください。
+
+対象は、未公開の終端停止で、保存した独立テスト入力が`stage=host_return`、上位結果が`reasonCode=human_decision_required`、`operation=independent test authoring`の場合だけです。応答は対象IDとschemaに一致する有効な`needs_human`で、`files=[]`、未採用成果物と現在checkoutに変更がない必要があります。通常初回の判断待ち、不正応答、中断、変更を伴う判断待ち、履歴にhostReturnがあるだけの別工程は対象外です。
+
+人が採用した補足内容を、checkoutと旧runの外の通常ファイルへ固定します。次のJSONの各値を、実際の対象Issue、保存された`issue.json`の更新日時と原文のSHA-256、採用した合意記録に置き換えてください。内容のhash一致は同一性の検査であり、人の承認の証明ではありません。元のIssueは変更しません。
+
+```json
+{
+  "format": 1,
+  "issue": "https://github.com/OWNER/REPO/issues/99",
+  "issueUpdatedAt": "保存したIssueのupdatedAt",
+  "issueSha256": "保存したissue.json原文の64桁のSHA-256",
+  "source": "人が採用した合意記録の出典",
+  "content": "採用した補足合意の内容と適用条件",
+  "decision": "この補足をこのIssueの版へ適用する人の固定判断"
+}
+```
+
+補足には、そのIssueで採用した正式停止後の再評価、採用済みmainの必要な前提、実行環境と設定を含めます。修正前baselineと現在の設定を区別し、旧設定・既知の消費量・未知量・消費済み上限を消しません。機械による照合では適用範囲や人の合意の意味まで証明できないため、各担当も出典と要求へ照合します。実装の会話・判断・自己評価や、未選別のホスト生ログを独立テストの期待値へ追加しません。
+
+```sh
+bun /absolute/path/to/accepted-trusted/scripts/implement/development.ts 99 \
+  --repo /absolute/path/to/current-checkout \
+  --human-decision-run /absolute/path/to/latest-stopped-run \
+  --supplement-file /absolute/path/outside-checkout/adopted-agreement.json \
+  --run-dir /absolute/path/to/new-sibling-run \
+  --no-publish
+```
+
+`--human-decision-run`と`--supplement-file`は組で指定します。新runは直近の対象停止と同じ親の未使用保存先です。他の復帰入口、`--host-evidence`、`--request-file`、`--start-commit`、`--report`とは併用できません。補足だけを通常起動へ渡すことも、すでに後続runのある古い祖先を選び直すことも拒否します。旧runがローカル限定なら`--no-publish`を維持します。
+
+受付時に要求、repo、設定原文、実効主体、HEAD・branch、元の差分基準、報告、保護資産、独立テストの入力・原応答・実行結果と作業場所の対応を照合します。必要な祖先の記録・証拠参照・内容・全mode・symlinkも保持します。欠落・変更・循環・相反する期待hash・照合不能、稼働中プロセスや管理/Git lock、公開済みまたは公開状態不明では進みません。setup・独立テスト・実装・check・評価の境界でも再照合します。自動killやlock解除は行いません。
+
+付属の`codex-actor.ts`を指定した停止では、対応する`actor.json`、`schema.json`、`final.json`とstdout、生ログを照合します。停止時の保全記録がない旧版では、保存されたruntimeの`codeHash`を生成元sourceへ照合し、対応済みの生成契約と保存入力からprompt全文を再構成します。生成版や必要な原記録を照合できなければ停止します。過去に保存されなかったprompt hashやOS上のcwd観測値を復元したとは扱いません。外部actorには付属actor専用の原記録を要求しません。依存lockとして区別するのは、照合したcheckout・baseline・テストworkspace直下の通常ファイルの`bun.lock`・`uv.lock`と、保存済みの入力manifestに記録された同名の下位ファイルです。symlink、管理／Git領域のlock、未登録の下位lockは除外しません。
+
+元の固定baselineと独立担当が宣言した既存資産を使い、新しい独立テストを`host_return`として実行します。同じ補足合意を初回実装または修正、独立評価にも渡します。祖先で初回実装済みなら再実行せず、新しい有効な独立判断の後にcheck・評価へ進みます。旧判断待ちを成功や準備済み判断へ変換せず、新しい判断も停止なら後続を起動しません。復帰は自動連鎖しません。
+
+`verification-config.json`の`humanDecision`から、直近の停止、固定補足、保全対象の内容と全modeへ辿れます。新版で保存した判断待ちは`human-decision-stop.json`の停止時記録へも照合します。旧版にない過去のmodeを復元したとは扱わず、既存の正式停止のmode記録と受付時以降の保全を区別します。旧中断の終了code・時間のnullとusageのunknown、祖先の試行・計上済み時間は旧原記録に残します。判定できない有限上限は拡大せず停止します。過去の成功と現在の受入は別です。
 
 ## ホスト検証後の再評価
 
@@ -528,6 +629,18 @@ bun /absolute/path/to/trusted/scripts/implement/development.ts 99 \
 
 復帰時にrepo・要求・元の基準・HEAD・branch・実行主体・権限・設定・必要報告・保存記録と追加証拠を再照合します。未コミット成果物を同じcheckoutに保ち、新しいrunでsetup、独立テストの再判断、必要なcapture・check、独立評価へ進みます。実行済みの初回実装は繰り返しません。初回テスト工程で止まり実装が未実行の場合だけ、独立テスト後に初回実装します。説明更新後の識別値と実際の成果物が異なる場合やsetupが成果物を変えた場合は停止します。通常check中の変更拒否も維持します。旧runは再開・上書きせず、元の基準からの全差分を評価します。既存PR修正中の停止なら、採用した修正要求とPRの照合も引き継ぎます。
 
+ホスト復帰後のrunが再び正式な`host_verification_required`で停止した場合も、直前の`host-stop.json`と終端`result.json`を持つ未公開runを`--host-run`へ指定します。修正後のsourceに対応する新しいホスト証拠と、新しい兄弟runを使います。これは[Issue #430](https://github.com/thkt/dotagents/issues/430)で合意した再評価経路であり、失敗・不正応答・上限停止を正式停止へ変換したり、自動で再試行したりする入口ではありません。旧runの記録・予約・lockは編集せず、ローカル限定の権限も引き継ぎます。
+
+初回テスト中断の祖先がない未公開の正式復帰でも、受付時と工程境界で稼働プロセス、remote ref、全状態のPR、管理／Git lockを再確認します。観測不能や不一致では後続工程を止めます。同じ境界では、各正式停止祖先が新runの兄弟であることを確認してから、兄弟run群を一度走査します。工程をまたいで観測結果を使い回しません。既存PR修正の公開状態は、引き続きその修正契約で照合します。
+
+保存済みのbaseline・独立テストworkspaceでは、制御記録へ束縛された入力manifestが宣言する`bun.lock`・`uv.lock`を、管理lockと区別します。本体が制御記録の個別pathに含まれなくても、通常ファイルで内容・全modeがmanifestのhashと一致すれば受理します。manifestの欠落・改変・束縛不足、依存物の不一致、symlink、未宣言の依存lock、管理／Git lockは拒否します。保存tree全体の個別列挙を追加の受理条件にはしません。
+
+祖先のモードを保存していない旧形式では、過去のモードは不明なまま残します。新しい受付で、現在の成果物checkoutだけを除いた祖先のファイル一覧と全modeを観測し、`host-preservation-*/formal-modes.json`へ保存します。設定内の`hostReturn.formalModes`は、この記録のpath・SHA-256・modeを参照します。後続の工程と正式復帰では保存値を再照合し、既存の期待値を現在値で置き換えません。これは観測以降の保全であり、観測前から変化がなかったことの証明ではありません。symlinkは辿りません。
+
+初回テスト中断を含む祖先では、`checkout`・`test-baseline`と、保存された`test-N.target.json`に対応する`test-N-workspace`を依存lockの照合範囲とします。直下の通常ファイルの`bun.lock`・`uv.lock`に加え、保存済みの入力manifestに記録された同名の下位ファイルを区別します。初回独立テストで止まった祖先には、後続工程の`verification-config.json`の存在を要求しません。管理領域やGit領域のlock、その他のlockは引き続き拒否します。初回実装が`needs_host`または`needs_human`を返す場合も、実行結果を保存してから祖先を再照合し、変化があれば正式停止の保存や後続工程へ進みません。
+
+#428の受理済み形式である`testInterruption`と`hostReturn.testInterruption`を祖先に持つ場合は、同じ原中断記録への対応を辿ります。初回中断runのcheckout・固定baseline・未採用workspaceは内容と全modeを保全し、原actorの応答を新しいテスト判断として採用しません。終了code・実行時間の`null`、消費量の`unknown`も維持します。修正する現在の成果物checkoutとは区別し、受付時、独立テストの前後、check・評価などの工程境界で祖先を再照合します。原記録・証拠の欠落や変化、相反する期待hash、循環、管理／Git lock、稼働プロセス、公開状態の不明・不一致では後続工程を止めます。新runの回数・時間・check上限を緩めず、過去の評価・修正・既知の使用量は元runへの参照として残します。
+
 新しいrunの`host-return.json`とレビュー対象の`hostReturn`は、停止run・追加証拠の参照を保持します。明示した復帰履歴は保存設定の`hostReturn`と`reviewReturn`の両方を辿り、復帰種別が切り替わっても、祖先の保存済み評価対象が参照したactor原記録の期待hashを照合します。現在の収集hashで過去の期待値を置き換えません。`host-current-artifacts.json`で復帰時の成果物を確認できます。過去の成功や`passed`の申告を現在の受入にせず、評価担当が元の必須指摘、追加証拠の十分性・適用条件、文書更新と現在の要求充足を判断します。証拠の欠落・変更、失敗・実行不能、要求・対象・権限の不一致では受入・公開へ進みません。失敗記録と旧runを保ち、原因を解消して新しい証拠と保存先で再評価します。
 
 識別値と参照の一致は、ログ内容の真実性、測定方法の妥当性、AIの意味判断の品質を保証しません。模擬コマンドによる制御試験と実モデルによる引き継ぎ選択・実ホストの測定を区別し、時間・費用の改善は別に確認します。
@@ -541,6 +654,8 @@ Issueの取得・保存・hash・再照合には、[issue.ts](implement/issue.ts
 新しい通常の`development.ts`実行では、最初に`result.json`を読み、`details`や`evidence`から必要な証拠へ進みます。検証停止時と`--no-publish`完了時の`details`は`verification/state.json`を指します。公開へ進んだ後も、`evidence`が示すrun保存先の`verification/state.json`から[検証の要約・評価履歴・生ログ](#レビュー対象と参照記録)を辿れます。安全な新規保存先を確保できた場合、準備途中の失敗から、実装・検証・公開・CIでの停止、成功、`--no-publish`の完了まで同じ場所へ保存します。新規runでは`verification-summary.md`と`stopped.txt`を作りません。単独のcorrection・publish・評価実験CLIの結果形式は変更しません。
 
 `status`は`stopped`、ローカル検証完了の`verified_local`、draft公開と同じ対象のCI確認完了の`published_draft`です。`phase`は`preparation`・`implementation`・`verification`（撮影・独立評価・修正を含む）・`publication`・`ci`を示します。具体的な処理は`operation`、終了理由は`reason`、既知の理由コードは`reasonCode`、次の対応は`nextAction`、残る作業は`remaining`で確認します。setupは`setup-N`、初回実装は`initial implementation`として区別し、`details`のログ接頭辞に`.stdout`・`.stderr`を付けて読みます。検証は`verification/state.json`とそこから参照するログを確認します。例外文から細かい原因コードは推測しません。
+
+子プロセスのgroup終了がEPERMなどで失敗した場合は、取得済みのstdout・stderrを指定の保存先へ書き、終了値・timeout・出力取得の完了状態を伴うエラーで呼出元へ返します。終了未確認のgroupがある間は、同じプロセス内の後続コマンドを起動しません。読み書き途中のpipeは待機を残さないよう解放し、部分出力を完全なログや成功へ読み替えません。出力保存自体が失敗した場合も取得済みの実行結果をエラーへ保持します。この処理は実OSがEPERMを返した原因を特定するものではありません。
 
 新しいrunでは、終端の`result.json`を保存した後に同じ証拠保存先へ`report.html`を1枚作ります。初回実装・既存PR修正・`--no-publish`・停止をそれぞれ1実行として扱います。新しいrunの中間保存は`terminal: true`を持たないため、再生成入口で終端結果として受理しません。`startedAt`と`finishedAt`はその実行のUTC日時で、HTML生成日時とは別です。保存先確定前の失敗や終端結果を保存できない場合はHTMLを約束しません。画面は保存済みの結果・検証state・モデルイベントを読むだけで、欠けた日時や別ログ間の順序を推定せず、モデル・check・公開を再実行しません。モデル操作の長文は抜粋と明示し、入力・出力と原記録へのリンクを分けます。関連記録の一部が不正でも読めた結果を表示し、注意と原記録への導線を残します。`published_draft`、独立評価のaccepted、CI、公開後の本文確認、ready、人の承認は別の状態です。HTMLと生ログはローカル限定で、PRへ自動添付しません。
 

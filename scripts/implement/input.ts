@@ -1,3 +1,11 @@
+import { localPublicationShape } from './local-publication-records.ts';
+import type { LocalPublication } from './local-publication-records.ts';
+import { initialTestReturnShape } from './host-records.ts';
+import type { InitialTestReturn } from './host-records.ts';
+import { humanDecisionShape, fixedSupplementShape } from './human-decision-schema.ts';
+import type { HumanDecision, FixedSupplement } from './human-decision-schema.ts';
+import { testInterruptionShape } from './test-interruption-schema.ts';
+import type { TestInterruption } from './test-interruption-schema.ts';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
 import { hostPreparationShape, hostReturnShape, reviewReturnShape } from './host-records.ts';
@@ -25,6 +33,7 @@ export type Revision = Record<(typeof revisionTextFields)[number], string> & {
   repositoryId: number;
   localOnly: boolean;
   reviewReturn?: ReviewReturn;
+  localPublication?: LocalPublication;
 };
 
 function assertRevision(value: unknown): asserts value is Revision | undefined {
@@ -39,6 +48,9 @@ function assertRevision(value: unknown): asserts value is Revision | undefined {
     typeof value.repositoryId === 'number' && typeof value.localOnly === 'boolean',
     'Invalid revision target',
   );
+  if (value.localPublication !== undefined) {
+    localPublicationShape.parse(value.localPublication);
+  }
   if (value.reviewReturn !== undefined) {
     const returned = reviewReturnShape.parse(value.reviewReturn);
     assert(
@@ -99,6 +111,11 @@ const stopReasons = [
 ] as const;
 export type StopReason = (typeof stopReasons)[number];
 export interface ReviewConfig {
+  initialTestReturn?: InitialTestReturn;
+  humanDecision?: HumanDecision;
+  humanDecisionOwner?: string;
+  supplement?: FixedSupplement;
+  testInterruption?: TestInterruption;
   targetText?: string;
   baseCommit?: string;
   hostReturn?: HostReturn;
@@ -115,7 +132,7 @@ export interface ReviewConfig {
   captureDestination?: string;
   captureRequired?: boolean;
   review: string[];
-  checkTimeMs: number;
+  checkTimeMs: number | null;
 }
 export interface Config extends ReviewConfig {
   repair: string[];
@@ -124,6 +141,7 @@ export interface Config extends ReviewConfig {
   setup?: string[][];
 }
 export interface ProbeConfig extends ReviewConfig {
+  checkTimeMs: number;
   reviewTimeMs: number;
   // 読取り専用の一回評価へ既存の独立記録を付ける。通常開発のテスト工程は代替しない。
   preparedTests?: z.infer<typeof hostPreparationShape>[];
@@ -153,6 +171,7 @@ export function assertConfig(value: unknown): asserts value is Config {
 
 export function assertProbeConfig(value: unknown): asserts value is ProbeConfig {
   assertReviewConfig(value, ['reviewTimeMs', 'preparedTests']);
+  assert(positive(value.checkTimeMs), 'Invalid checkTimeMs');
   assert('reviewTimeMs' in value && positive(value.reviewTimeMs), 'Invalid reviewTimeMs');
   if ('preparedTests' in value && value.preparedTests !== undefined) {
     hostPreparationShape.array().min(1).parse(value.preparedTests);
@@ -177,9 +196,14 @@ function assertReviewConfig(value: unknown, fields: string[]): asserts value is 
   assert(
     Object.keys(value).every((key) =>
       [
+        'initialTestReturn',
+        'humanDecision',
+        'humanDecisionOwner',
+        'supplement',
         'baseCommit',
         'targetText',
         'hostReturn',
+        'testInterruption',
         'reviewReturn',
         'hostPreparation',
         'revision',
@@ -199,9 +223,14 @@ function assertReviewConfig(value: unknown, fields: string[]): asserts value is 
     ),
     'Unknown configuration field',
   );
+  if (value.initialTestReturn !== undefined) {
+    initialTestReturnShape.parse(value.initialTestReturn);
+  }
   assert(optionalString(value.targetText), '対象設定原文が不正です');
   assert(optionalString(value.baseCommit), 'Invalid base commit');
   assertRevision(value.revision);
+  assertHumanDecision(value);
+  assertTestInterruption(value);
   if (value.reviewReturn !== undefined) {
     reviewReturnShape.parse(value.reviewReturn);
     assert(
@@ -209,9 +238,7 @@ function assertReviewConfig(value: unknown, fields: string[]): asserts value is 
       '復帰入口を混在できません',
     );
   }
-  if (value.hostReturn !== undefined) {
-    hostReturnShape.parse(value.hostReturn);
-  }
+  assertHostReturn(value);
   if (value.hostPreparation !== undefined) {
     assert(value.hostReturn !== undefined, 'Host preparation requires host return');
     hostPreparationShape.parse(value.hostPreparation);
@@ -242,7 +269,7 @@ function assertReviewConfig(value: unknown, fields: string[]): asserts value is 
     assert(relativeDirectory(value.captureDestination), 'Invalid capture destination');
     assert(typeof value.captureRequired === 'boolean', 'Explicit capture requirement required');
   }
-  assert(positive(value.checkTimeMs), 'Invalid checkTimeMs');
+  assert(value.checkTimeMs === null || positive(value.checkTimeMs), 'Invalid checkTimeMs');
 }
 const savedCount = z.number().nonnegative().refine(Number.isInteger);
 const savedRole = z.enum(['repair', 'review', 'check', 'capture', 'test']);
@@ -302,4 +329,53 @@ export function assertState(value: unknown): asserts value is State {
     parsed.success,
     `Invalid saved state: ${parsed.error?.issues[0]?.path.join('.') || 'object'}`,
   );
+}
+
+function assertTestInterruption(value: Record<string, unknown>) {
+  assert(
+    !(value.initialTestReturn && value.testInterruption),
+    '初回テスト復帰の形式を混在できません',
+  );
+  if (value.testInterruption !== undefined) {
+    testInterruptionShape.parse(value.testInterruption);
+    assert(!value.reviewReturn && !value.hostReturn && !value.revision, '復帰入口を混在できません');
+  }
+}
+
+function assertHostReturn(value: Record<string, unknown>) {
+  if (value.hostReturn !== undefined) {
+    const host = hostReturnShape.parse(value.hostReturn);
+    assert(
+      !(value.initialTestReturn && host.testInterruption),
+      '初回テスト復帰の形式を混在できません',
+    );
+    assert(
+      !host.testInterruption || (!host.reviewReturn && value.revision === undefined),
+      '初回テスト中断のホスト検証を他の復帰履歴と混在できません',
+    );
+  }
+}
+function assertHumanDecision(value: Record<string, unknown>) {
+  if (value.supplement !== undefined) {
+    fixedSupplementShape.parse(value.supplement);
+  }
+  const decision =
+    value.humanDecision === undefined ? undefined : humanDecisionShape.parse(value.humanDecision);
+  assert(
+    value.humanDecisionOwner === undefined || value.humanDecisionOwner === decision?.previousRun,
+    '現在の判断待ち復帰の所有者が履歴と一致しません',
+  );
+  if (decision) {
+    assert(
+      (value.hostReturn || value.initialTestReturn) &&
+        !value.reviewReturn &&
+        !value.revision &&
+        !value.testInterruption,
+      '判断待ち復帰の履歴が不正です',
+    );
+    assert(
+      JSON.stringify(decision.supplement) === JSON.stringify(value.supplement),
+      '補足合意が復帰入力と一致しません',
+    );
+  }
 }

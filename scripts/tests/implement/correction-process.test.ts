@@ -124,12 +124,19 @@ async function waitForFile(path: string) {
   throw Error(`Timed out waiting for ${path}`);
 }
 
-for (const role of ['check', 'repair', 'review', 'capture'] as const) {
+for (const [role, budget] of [
+  ['check', 15000],
+  ['repair', 15000],
+  ['review', 15000],
+  ['capture', 15000],
+  ['check', null],
+  ['capture', null],
+] as const) {
   // Every role checks its reservation; the other signals exercise the shared handler once.
   for (const signal of role === 'repair'
     ? (['SIGINT', 'SIGTERM', 'SIGKILL'] as const)
     : (['SIGTERM'] as const)) {
-    test(`${signal} during ${role} preserves reservation and blocks duplicate execution`, async () => {
+    test(`${signal} during ${role} (${budget}) preserves reservation and blocks duplicate execution`, async () => {
       const t = await trial('normal', {
         checkTimeMs: 15000,
       });
@@ -137,13 +144,29 @@ for (const role of ['check', 'repair', 'review', 'capture'] as const) {
         await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
       }
       const { argv, heartbeat, pidFile } = await childWriter(t.root);
-      await writeFile(t.configFile, JSON.stringify({ ...t.config, [role]: argv }));
-      const child = spawn(process.execPath, [controller, t.configFile], { stdio: 'ignore' });
+      await writeFile(
+        t.configFile,
+        JSON.stringify({ ...t.config, checkTimeMs: budget, [role]: argv }),
+      );
+      const child = spawn(process.execPath, [controller, t.configFile], {
+        stdio: ['ignore', 'ignore', 'pipe'],
+      });
+      let diagnostic = '';
+      child.stderr.setEncoding('utf8').on('data', (text) => {
+        diagnostic += text;
+      });
       const stateFile = join(t.config.runDir, 'state.json');
       const closed = new Promise<number | null>((resolve) => child.on('close', resolve));
       let group: number | undefined;
       try {
-        group = Number(await waitForFile(pidFile));
+        group = Number(
+          await Promise.race([
+            waitForFile(pidFile),
+            closed.then((code) => {
+              throw Error(`対象コマンド起動前にcontrollerが終了: code=${code}; ${diagnostic}`);
+            }),
+          ]),
+        );
         await waitForFile(heartbeat);
         const before = await readFile(stateFile, 'utf8');
         const state = object(JSON.parse(before));

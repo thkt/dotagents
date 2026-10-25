@@ -56,6 +56,7 @@ export async function recoveryFixture(
   stop: 'invalid' | 'interrupted' | 'timeout' = 'invalid',
   origin: 'initial' | 'host_return' = 'initial',
   savedBudget?: number,
+  currentBudget = false,
 ) {
   const script = join(dirname(f.dir), 'review-producer.js');
   const control = join(dirname(f.dir), 'review-control.json');
@@ -100,10 +101,11 @@ if(role==='review') {
   await gitOutput(f.repo, 'add', '.dotagents.json');
   await gitOutput(f.repo, 'commit', '-m', '模擬check契約');
   f.verify = async (config, publicationHead) => {
+    // 旧runの有限値を固定し、通常動作の検証時だけ生成された設定をそのまま使う。
     const actual = {
       ...config,
-      ...(savedBudget !== undefined || stop === 'timeout'
-        ? { checkTimeMs: savedBudget ?? 540000 }
+      ...(!currentBudget
+        ? { checkTimeMs: savedBudget ?? (stop === 'timeout' ? 540000 : 900000) }
         : {}),
       issue: [process.execPath, '-e', `process.stdout.write(${JSON.stringify(issue)})`],
       review: [process.execPath, script, 'review'],
@@ -118,7 +120,7 @@ if(role==='review') {
       return verifyRun(actual, publicationHead);
     }
     // 旧9分版の保存契約を生成する。保存後のstate/configは修復しない。
-    const execute = processModule.command;
+    const execute = f.observationCommand;
     const timer = spyOn(processModule, 'command').mockImplementation(async (...args) => {
       if (args[0][2] !== 'check') {
         return execute(...args);
@@ -138,7 +140,7 @@ if(role==='review') {
     try {
       return await verifyRun(actual, publicationHead);
     } finally {
-      timer.mockRestore();
+      timer.mockImplementation(execute);
     }
   };
   // 初回の独立テストを実際に転送して、内容・実行モードの維持を検証する。
@@ -358,9 +360,17 @@ mock.module(${JSON.stringify(processPath)},()=>({...original,command:async(argv,
 // CLIのmain・argv・終了コードを通す。新入口ではプロセスとremoteの観測も模擬する。
 export async function recoveryCli(
   f: DevelopmentFixture,
-  t: Awaited<ReturnType<typeof recoveryFixture>>,
+  t: Pick<
+    Awaited<ReturnType<typeof recoveryFixture>>,
+    'cwd' | 'dir' | 'args' | 'actors' | 'script' | 'control' | 'executions'
+  >,
   githubReplies: Record<string, string> = {},
-  options: { observe?: boolean; publication?: boolean; allowImplementation?: boolean } = {},
+  options: {
+    observe?: boolean;
+    publication?: boolean;
+    allowImplementation?: boolean;
+    actorEnvironment?: Record<string, string>;
+  } = {},
 ) {
   const preload = join(dirname(f.dir), 'recovery-cli.ts');
   const modulePath = (relative: string) => new URL(relative, import.meta.url).pathname;
@@ -376,6 +386,7 @@ import {readFile,writeFile,appendFile} from 'node:fs/promises';
 import {githubTarget} from ${JSON.stringify(modulePath('./target.ts'))};
 const settings=${JSON.stringify(f.settings)};
 const actors=${JSON.stringify(actors)};
+const nativeActors=${JSON.stringify(Boolean(options.actorEnvironment))};
 const replies=${JSON.stringify(githubReplies)};
 const observing=${JSON.stringify(options.observe ?? t.args.includes('--interrupted-run'))};
 const publication=${JSON.stringify(options.publication ?? false)};
@@ -399,17 +410,23 @@ async function fakePush(argv) {
 }
 const realCommand=command;
 const originalProcess={...processModule};
+function psStart(value,timeZone) {
+ const parts=new Intl.DateTimeFormat('en-US',{timeZone,weekday:'short',month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(new Date(value));
+ const part=type=>parts.find(value=>value.type===type).value;
+ return part('weekday')+' '+part('month')+' '+part('day')+' '+part('hour')+':'+part('minute')+':'+part('second')+' '+part('year');
+}
 if(observing) mock.module(${JSON.stringify(modulePath('../../shared/process.ts'))},()=>({...originalProcess,command:async(argv,cwd,input,timeout,prefix,env)=>{
  if(argv[0]==='git'&&argv.includes('push')) return fakePush(argv);
- if(argv[1]?.endsWith('/codex-actor.ts')&&['test','review','repair'].includes(argv[2])) {
+ if(!nativeActors&&argv[1]?.endsWith('/codex-actor.ts')&&['test','review','repair'].includes(argv[2])) {
   return realCommand(actors[argv[2]],cwd,input,timeout,prefix,env);
  }
  const control=JSON.parse(await readFile(${JSON.stringify(t.control)},'utf8'));
  if(control.traceSetup&&argv[0]==='sh'&&argv.includes('printf configured > setup.txt')) await appendFile(${JSON.stringify(t.executions)},'setup\\n');
  if(argv[2]==='check'&&control.expectedBudget!==undefined&&timeout!==control.expectedBudget) throw Error('fixture: check budget mismatch '+timeout);
+ // 不完全な実行結果の故障注入。msは経過値で、上限なしのタイマー発火を表さない。
  if(argv[2]==='check'&&control.timeoutCheck) {
   await appendFile(${JSON.stringify(t.executions)},'check\\n');
-  const result={code:null,stdout:'fixture: partial fresh check',stderr:'fixture: timeout',timedOut:true,ms:timeout};
+  const result={code:null,stdout:'fixture: partial fresh check',stderr:'fixture: timeout',timedOut:true,ms:timeout??900000};
   await writeFile(prefix+'.stdout',result.stdout);await writeFile(prefix+'.stderr',result.stderr);
   return result;
  }
@@ -419,6 +436,15 @@ if(observing) mock.module(${JSON.stringify(modulePath('../../shared/process.ts')
   const start='Wed Oct 14 16:02:44 2026';
   stdout='    1     0 '+start+'     /sbin/launchd\\n 424242     1 '+start+' /usr/bin/unrelated-fixture\\n';
   if(control.observation==='live') stdout='424242 1 '+start+' '+process.execPath+' '+${JSON.stringify(t.script)}+' review '+${JSON.stringify(f.dir)}+'\\n';
+  if(['normal_host','return_impostor'].includes(control.observation)) {
+   const saved=JSON.parse(await readFile(${JSON.stringify(join(f.dir, 'result.json'))},'utf8'));
+   const time=new Date(control.observation==='normal_host'?Date.parse(saved.startedAt)-60000:Date.parse(saved.finishedAt));
+   const lstart=psStart(time,env?.TZ);
+   const host=${JSON.stringify(join(dirname(f.repo), 'shared-harness/scripts/implement/development.ts'))};
+   const args=control.observation==='normal_host'?['99','--repo',${JSON.stringify(f.repo)},'--no-publish']:${JSON.stringify(t.args)};
+   const argv=[process.execPath,host,...args].map(arg=>/\\s/.test(arg)?JSON.stringify(arg):arg).join(' ');
+   stdout+='424243 1 '+lstart+' '+argv+'\\n';
+  }
   if(control.observation==='process_incomplete') stdout='424242 /usr/bin/unrelated-fixture\\n';
   if(control.observation==='process_partial') stdout+='424243 /usr/bin/unrelated-fixture\\n';
   if(control.observation==='process_unsupported') stdout='424242 1 unsupported-start /usr/bin/unrelated-fixture\\n';
@@ -428,12 +454,19 @@ if(observing) mock.module(${JSON.stringify(modulePath('../../shared/process.ts')
   // psの時刻は観測コマンドのTZ、未指定なら観測する子CLIのローカル時刻で生成する。
   // bun test側の既定時刻帯とホストの時刻帯が違っても、同じ瞬間を対応付ける。
   if(control.processStartedAt!==undefined) {
-   const parts=new Intl.DateTimeFormat('en-US',{timeZone:env?.TZ,weekday:'short',month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(new Date(control.processStartedAt));
-   const part=type=>parts.find(value=>value.type===type).value;
-   const start=part('weekday')+' '+part('month')+' '+part('day')+' '+part('hour')+':'+part('minute')+':'+part('second')+' '+part('year');
+   const start=psStart(control.processStartedAt,env?.TZ);
    stdout='100000001 1 '+start+' '+control.processCommand;
   }
   if(control.processStdout!==undefined) stdout=control.processStdout;
+  if(control.ancestorProcess) {
+   const dated=argv.some(value=>value.includes('lstart'));
+   const current=dated?psStart(Date.now(),env?.TZ)+' ':'';
+   const old=dated?psStart(control.ancestorProcess.startedAt,env?.TZ)+' ':'';
+   const owner=[process.execPath,${JSON.stringify(modulePath('../../implement/development.ts'))},...${JSON.stringify(t.args)}].join(' ');
+   stdout='1 0 '+old+'/sbin/launchd\\n424242 1 '+old+'/usr/bin/unrelated-fixture\\n'+process.pid+' '+process.ppid+' '+current+owner+'\\n';
+   if(control.observation==='live') stdout+='424243 1 '+old+control.ancestorProcess.command+'\\n';
+   await appendFile(${JSON.stringify(t.control + '.process.jsonl')},JSON.stringify({run:${JSON.stringify(t.dir)},argv,code,stdout,observation:control.observation??'safe',ownerPid:process.pid})+'\\n');
+  }
  }
  if(argv[0]==='git'&&argv.includes('ls-remote')&&!argv.includes('--get-url')) {
   await appendFile(${JSON.stringify(t.executions)},'observe-remote\\n');
@@ -458,7 +491,7 @@ if(observing) mock.module(${JSON.stringify(modulePath('../../shared/process.ts')
  return result;
 }}));
 const io={
- command:async(argv,cwd,input,timeout,prefix)=>{
+ command:async(argv,cwd,input,timeout,prefix,env)=>{
   if(observing&&(argv[0]==='gh'||argv[0]==='ps'||argv[0]==='git'&&argv.includes('ls-remote'))) return command(argv,cwd,input,timeout,prefix);
   if(argv[0]==='gh') {
    const key=argv[1]==='issue'?'issue':argv[2];
@@ -467,10 +500,10 @@ const io={
    return {code:0,stdout,stderr:'',timedOut:false,ms:1};
   }
   if(argv[0]==='git'&&argv.includes('push')) return fakePush(argv);
-  if(argv[2]==='test') return command(actors.test,cwd,input,timeout,prefix);
+  if(argv[2]==='test') return command(nativeActors?argv:actors.test,cwd,input,timeout,prefix,nativeActors?env:undefined);
   if(argv[2]==='repair') {
    if(!${JSON.stringify(t.args.includes('--previous-run') || options.allowImplementation)}) throw Error('Unexpected initial implementation');
-   return command(actors.repair,cwd,input,timeout,prefix);
+   return command(nativeActors?argv:actors.repair,cwd,input,timeout,prefix,nativeActors?env:undefined);
   }
   return command(argv,cwd,input,timeout,prefix);
  },
@@ -497,5 +530,7 @@ mock.module(${JSON.stringify(modulePath('../../implement/orchestrator.ts'))},()=
     t.cwd,
     '',
     10000,
+    undefined,
+    options.actorEnvironment ? { ...process.env, ...options.actorEnvironment } : undefined,
   );
 }

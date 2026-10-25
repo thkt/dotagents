@@ -59,6 +59,11 @@ function actorReason(raw: unknown, role: string | null, name: string) {
   }
   return null;
 }
+export function verifyRuntimeActor(raw: unknown, role: string, name: string) {
+  const reason = actorReason(raw, role, name);
+  assert(reason === null, `actor runtime原記録の対応を照合できません: ${reason}`);
+}
+
 async function actorReference(
   root: string,
   run: string,
@@ -106,7 +111,11 @@ function stageMap(locations: { root: string; listing: Awaited<ReturnType<typeof 
   const expected = new Map<string, string>();
   for (const { root, listing } of locations) {
     for (const entry of listing) {
-      const name = /^(implementation|(?:repair|review|test)-\d+)\.stdout$/.exec(entry.name)?.[1];
+      const match =
+        /^(implementation|(?:repair|review|test)-\d+)\.stdout$|^(test-\d+)\.target\.json$/.exec(
+          entry.name,
+        );
+      const name = match?.[1] ?? match?.[2];
       if (entry.isFile() && name) {
         const role = name === 'implementation' ? 'repair' : name.split('-')[0];
         assert(role);
@@ -175,9 +184,14 @@ async function collectRun(
     const config: unknown = JSON.parse(await readFile(configuration, 'utf8'));
     assert(isRecord(config), 'actor runtime復帰設定の非対応形式');
     for (const input of [
+      config.initialTestReturn,
       config.hostReturn,
+      config.testInterruption,
+      config.humanDecision,
       config.reviewReturn,
-      ...(isRecord(config.revision) ? [config.revision.reviewReturn] : []),
+      ...(isRecord(config.revision)
+        ? [config.revision.reviewReturn, config.revision.localPublication]
+        : []),
     ]) {
       if (isRecord(input) && typeof input.previousRun === 'string') {
         records.push(...(await collectRun(input.previousRun, collected, undefined, lineage)));
@@ -198,7 +212,15 @@ export async function runtimeRecords(config: ReviewConfig) {
     ? await collectRun(parent, visited, parentListing)
     : await stages(dir, [{ root: dir, listing: await entries(dir) }]);
   if (!isRun) {
-    for (const input of [config.hostReturn, config.reviewReturn, config.revision?.reviewReturn]) {
+    for (const input of [
+      config.initialTestReturn,
+      config.hostReturn,
+      config.reviewReturn,
+      config.testInterruption,
+      config.humanDecision,
+      config.revision?.reviewReturn,
+      config.revision?.localPublication,
+    ]) {
       if (input) {
         records.push(...(await collectRun(input.previousRun, visited)));
       }

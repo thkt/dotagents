@@ -13,6 +13,12 @@ import { outside } from '../shared/values.ts';
 import { readPreparedTestRecord, testRecordPaths } from './test-author.ts';
 import type { TestRecord, TestIntake } from './test-author.ts';
 import { verifyInterruptedProcesses } from './interrupted-processes.ts';
+import type {
+  InterruptedEntry,
+  InitialProcessTarget,
+  InitialTestHost,
+  InitialTestOwner,
+} from './interrupted-processes.ts';
 
 export { cliArgument } from './interrupted-processes.ts';
 
@@ -78,35 +84,80 @@ async function observe(argv: string[], cwd: string, directory: string) {
 }
 
 export async function observeInterruptedProcess(
-  input: Pick<ReviewReturn, 'previousRun' | 'branch'>,
-  config: Config,
+  input: Pick<ReviewReturn, 'previousRun' | 'branch'> & {
+    host?: InitialTestHost;
+    owner?: InitialTestOwner;
+  },
+  config: Pick<Config, 'cwd' | 'review' | 'targetText'> & Partial<Pick<Config, 'check'>>,
   directory: string,
   runDirectory: string,
-  entry: '--interrupted-run' | '--check-timeout-run' = '--interrupted-run',
+  entry: InterruptedEntry = '--interrupted-run',
+  initialTarget?: InitialProcessTarget,
 ) {
+  assert(
+    entry !== '--check-timeout-run' || config.check?.length,
+    'check時間切れの保存コマンドがありません',
+  );
+  assert(!initialTarget || (!input.host && !input.owner), '初回テストの対象指定が重複しています');
   const ps = await observe(
-    ['ps', '-ww', '-axo', 'pid=,ppid=,lstart=,command='],
+    [
+      'ps',
+      '-ww',
+      '-axo',
+      entry === '--test-interrupted-run' ? 'pid=,ppid=,command=' : 'pid=,ppid=,lstart=,command=',
+    ],
     config.cwd,
     directory,
   );
+  const commonDirectory = async (cwd: string) => {
+    const observed = await observe(
+      ['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+      cwd,
+      directory,
+    );
+    return realpath(observed.stdout.trim());
+  };
   await verifyInterruptedProcesses(ps.stdout, {
     previousRun: input.previousRun,
     runDirectory,
     review: config.review,
     entry,
+    host: input.host,
+    owner: input.owner,
+    commonDirectory,
     ...(entry === '--check-timeout-run' ? { check: config.check } : {}),
+    ...(initialTarget
+      ? {
+          host: { ...initialTarget, common: await commonDirectory(initialTarget.cwd) },
+          owner: initialTarget.owner
+            ? { ...initialTarget.owner, common: await commonDirectory(initialTarget.owner.cwd) }
+            : undefined,
+          commonDirectory,
+        }
+      : {}),
   });
   return ps.ref;
 }
 
 export async function observeInterruption(
-  input: Pick<ReviewReturn, 'previousRun' | 'branch'>,
-  config: Config,
+  input: Pick<ReviewReturn, 'previousRun' | 'branch'> & {
+    host?: InitialTestHost;
+    owner?: InitialTestOwner;
+  },
+  config: Pick<Config, 'cwd' | 'review' | 'targetText'> & Partial<Pick<Config, 'check'>>,
   directory: string,
   runDirectory: string,
-  entry: '--interrupted-run' | '--check-timeout-run' = '--interrupted-run',
+  entry: InterruptedEntry = '--interrupted-run',
+  initialTarget?: InitialProcessTarget,
 ) {
-  const process = await observeInterruptedProcess(input, config, directory, runDirectory, entry);
+  const process = await observeInterruptedProcess(
+    input,
+    config,
+    directory,
+    runDirectory,
+    entry,
+    initialTarget,
+  );
   const target: unknown = JSON.parse(config.targetText ?? '{}');
   assert(
     typeof target === 'object' &&
