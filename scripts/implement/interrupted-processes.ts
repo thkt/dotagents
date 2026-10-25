@@ -196,19 +196,13 @@ function developmentArgs(command: string) {
     end = token.index + token[0].length;
   }
   assert(tail.slice(end).trim() === '', 'ホストCLIの引数境界を照合できません');
-  return parseArgs({
-    args,
-    allowPositionals: true,
-    strict: false,
-    options: { repo: { type: 'string' }, 'no-publish': { type: 'boolean' } },
-  });
+  return args;
 }
 
-function differentIssue(positionals: string[], host: InitialTestHost) {
-  if (positionals.length !== 1 || !positionals[0]) {
+function differentIssue(input: string | undefined, host: InitialTestHost) {
+  if (!input) {
     return false;
   }
-  const input = positionals[0];
   const repository =
     /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\//.exec(input)?.[1] ?? host.repository;
   try {
@@ -229,10 +223,16 @@ async function verifyDevelopmentHost(
   }
   const host = input.host;
   assert(host, '元ホストの対象root・Issueを照合できません');
-  if (differentIssue(invocation.positionals, host)) {
+  // psはパス内の空白を引用しないため、先頭のIssueだけで別対象を判定する。
+  if (differentIssue(invocation[0], host)) {
     return;
   }
-  const repo = invocation.values.repo;
+  const repo = parseArgs({
+    args: invocation,
+    allowPositionals: true,
+    strict: false,
+    options: { repo: { type: 'string' }, 'no-publish': { type: 'boolean' } },
+  }).values.repo;
   assert(
     typeof repo === 'string' && isAbsolute(repo),
     '同じIssueのホスト対象を照合できません。絶対--repoと追加観測が必要です',
