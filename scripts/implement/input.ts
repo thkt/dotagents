@@ -1,3 +1,5 @@
+import { localPublicationShape } from './local-publication-records.ts';
+import type { LocalPublication } from './local-publication-records.ts';
 import { initialTestReturnShape } from './host-records.ts';
 import type { InitialTestReturn } from './host-records.ts';
 import { humanDecisionShape, fixedSupplementShape } from './human-decision-schema.ts';
@@ -31,6 +33,7 @@ export type Revision = Record<(typeof revisionTextFields)[number], string> & {
   repositoryId: number;
   localOnly: boolean;
   reviewReturn?: ReviewReturn;
+  localPublication?: LocalPublication;
 };
 
 function assertRevision(value: unknown): asserts value is Revision | undefined {
@@ -45,6 +48,9 @@ function assertRevision(value: unknown): asserts value is Revision | undefined {
     typeof value.repositoryId === 'number' && typeof value.localOnly === 'boolean',
     'Invalid revision target',
   );
+  if (value.localPublication !== undefined) {
+    localPublicationShape.parse(value.localPublication);
+  }
   if (value.reviewReturn !== undefined) {
     const returned = reviewReturnShape.parse(value.reviewReturn);
     assert(

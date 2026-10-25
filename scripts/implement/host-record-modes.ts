@@ -119,7 +119,7 @@ export async function verifyFormalModes(
   for (const [path, expected] of expectations) {
     assert(
       modesMatch(expected, await formalModes(path, cwd)),
-      `正式な祖先記録の一覧・モードが変わりました: ${path}`,
+      `正式な祖先記録の一覧・modeが変わりました: ${path}`,
     );
   }
   assert(

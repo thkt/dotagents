@@ -92,7 +92,7 @@ function isCaptureRecord(name: string, destination: string) {
 type SourceFile = [string, number, string];
 type Addition = { path: string; mode: number; symlink: boolean; content: string };
 
-async function sourceFiles(
+export async function sourceFiles(
   cwd: string,
   additions?: Addition[],
   testManifest?: Record<string, string>,

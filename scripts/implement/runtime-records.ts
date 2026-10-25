@@ -189,7 +189,9 @@ async function collectRun(
       config.testInterruption,
       config.humanDecision,
       config.reviewReturn,
-      ...(isRecord(config.revision) ? [config.revision.reviewReturn] : []),
+      ...(isRecord(config.revision)
+        ? [config.revision.reviewReturn, config.revision.localPublication]
+        : []),
     ]) {
       if (isRecord(input) && typeof input.previousRun === 'string') {
         records.push(...(await collectRun(input.previousRun, collected, undefined, lineage)));
@@ -217,6 +219,7 @@ export async function runtimeRecords(config: ReviewConfig) {
       config.testInterruption,
       config.humanDecision,
       config.revision?.reviewReturn,
+      config.revision?.localPublication,
     ]) {
       if (input) {
         records.push(...(await collectRun(input.previousRun, visited)));

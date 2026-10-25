@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { lstat, readFile } from 'node:fs/promises';
+import { lstat, readFile, realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
+import { hash } from './record-observation.ts';
 
 const names = ['bun.lock', 'uv.lock'];
 const manifestShape = z.strictObject({
@@ -27,7 +28,7 @@ function artifactInputs(run: string, records: ReadonlySet<string>) {
 }
 
 async function dependencyPaths(root: string, manifest: string, records: ReadonlySet<string>) {
-  const paths = names.map((name) => join(root, name));
+  const paths: string[] = [];
   if (!records.has(manifest)) {
     return paths;
   }
@@ -45,9 +46,18 @@ async function dependencyPaths(root: string, manifest: string, records: Readonly
         '依存物の入力manifestのpathが不正です',
       );
       const declared = join(root, path);
-      if (records.has(declared)) {
-        paths.push(declared);
-      }
+      assert(
+        (await realpath(dirname(declared))) === dirname(declared),
+        '依存物の親にsymlinkがあります',
+      );
+      const info = await lstat(declared);
+      assert(info.isFile(), '依存物は通常ファイルが必要です');
+      assert(
+        hash(Buffer.concat([Buffer.from(`${info.mode}:`), await readFile(declared)])) ===
+          input.files[path],
+        `依存物の内容・全modeが入力manifestと一致しません: ${declared}`,
+      );
+      paths.push(declared);
     }
   }
   return paths;

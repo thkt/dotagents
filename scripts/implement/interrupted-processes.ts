@@ -7,6 +7,7 @@ import type { TestInterruption } from './test-interruption-schema.ts';
 import { z } from 'zod';
 
 export type InterruptedEntry =
+  | '--adopt-local-run'
   | '--interrupted-run'
   | '--check-timeout-run'
   | '--test-run'

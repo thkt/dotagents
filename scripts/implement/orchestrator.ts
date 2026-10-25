@@ -1,3 +1,4 @@
+import { adoptLocalRun } from './local-publication.ts';
 import { previousTestRun } from './initial-test-recovery.ts';
 import { verifyInitialTestReturn, initialTestOwner } from './initial-test-records.ts';
 import { rejectDecisionBypass } from './recovery-latest.ts';
@@ -21,6 +22,7 @@ import assert from 'node:assert/strict';
 import { reviewModel } from './review.ts';
 import { issueText } from './issue.ts';
 import { prBody } from './pr-body.ts';
+import { referencesIssue } from './pr-identity.ts';
 import { mkdir, readFile, writeFile, realpath, rename } from 'node:fs/promises';
 import { resolve, join, dirname, basename } from 'node:path';
 import { homedir } from 'node:os';
@@ -184,7 +186,10 @@ async function verifyStartReports(
 }
 
 async function prepareRevision(
-  prior: Awaited<ReturnType<typeof previousRun>> | undefined,
+  prior:
+    | Awaited<ReturnType<typeof previousRun>>
+    | Awaited<ReturnType<typeof adoptLocalRun>>
+    | undefined,
   requestPath: string | undefined,
   runDirectory: string | undefined,
   repo: string,
@@ -206,7 +211,12 @@ async function prepareRevision(
       request.trim(),
       'Revision request must contain adopted findings, expected result and authorized scope',
     );
+    const localPublication =
+      'localPublication' in prior
+        ? prior.localPublication
+        : prior.config.revision?.localPublication;
     revision = {
+      ...(localPublication ? { localPublication } : {}),
       previousRun: prior.dir,
       requestFile,
       request,
@@ -235,6 +245,7 @@ async function prepareRevision(
       captureBody: true,
       target,
       issue: issueText,
+      ...('localPublication' in prior ? { draft: 'require' as const } : {}),
     });
     assert(
       !(await git(
@@ -264,6 +275,9 @@ function parseStart(args: string[]) {
       'start-commit': { type: 'string' },
       report: { type: 'string', multiple: true },
       'previous-run': { type: 'string' },
+      'adopt-local-run': { type: 'string' },
+      'adopt-pr': { type: 'string' },
+      'allow-publish': { type: 'boolean' },
       'request-file': { type: 'string' },
       'test-run': { type: 'string' },
       'review-run': { type: 'string' },
@@ -277,9 +291,10 @@ function parseStart(args: string[]) {
   });
   assert(
     parsed.positionals.length === 1,
-    'Usage: bun scripts/implement/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report docs/research/NAME.md=BLOB] [--previous-run DIRECTORY --request-file PATH] [--host-run DIRECTORY --host-evidence PATH] [--test-run DIRECTORY --run-dir DIRECTORY] [--check-timeout-run DIRECTORY --run-dir DIRECTORY] [--human-decision-run DIRECTORY --supplement-file PATH --run-dir DIRECTORY] [--review-run DIRECTORY --run-dir DIRECTORY] [--interrupted-run DIRECTORY --run-dir DIRECTORY [--host-evidence PATH]]',
+    'Usage: bun scripts/implement/development.ts ISSUE [--repo CHECKOUT] [--run-dir DIRECTORY] [--start-commit SHA --report docs/research/NAME.md=BLOB] [--previous-run DIRECTORY --request-file PATH] [--adopt-local-run DIRECTORY --adopt-pr URL --request-file PATH --run-dir DIRECTORY --allow-publish] [--host-run DIRECTORY --host-evidence PATH] [--test-run DIRECTORY --run-dir DIRECTORY] [--check-timeout-run DIRECTORY --run-dir DIRECTORY] [--human-decision-run DIRECTORY --supplement-file PATH --run-dir DIRECTORY] [--review-run DIRECTORY --run-dir DIRECTORY] [--interrupted-run DIRECTORY --run-dir DIRECTORY [--host-evidence PATH]]',
   );
   assertDecisionOptions(parsed);
+  assertAdoptionOptions(parsed);
   const recoveryEntries = [
     'test-run',
     'human-decision-run',
@@ -288,18 +303,16 @@ function parseStart(args: string[]) {
     'check-timeout-run',
     'host-run',
     'previous-run',
+    'adopt-local-run',
   ] as const;
   assert(
     recoveryEntries.filter((name) => parsed.values[name]).length <= 1,
     '復帰入口は併用できません',
   );
   assert(
-    Boolean(parsed.values['previous-run']) === Boolean(parsed.values['request-file']),
+    Boolean(parsed.values['previous-run'] || parsed.values['adopt-local-run']) ===
+      Boolean(parsed.values['request-file']),
     'Revision requires --previous-run and --request-file',
-  );
-  assert(
-    !parsed.values['previous-run'] || (!parsed.values['start-commit'] && !parsed.values.report),
-    'Revision inherits references from previous run',
   );
   assert(
     Boolean(
@@ -349,6 +362,52 @@ function parseStart(args: string[]) {
   return parsed;
 }
 
+function assertAdoptionOptions(parsed: ReturnType<typeof parseStart>) {
+  assert(
+    !(parsed.values['previous-run'] || parsed.values['adopt-local-run']) ||
+      (!parsed.values['start-commit'] && !parsed.values.report),
+    'Revision inherits references from previous run',
+  );
+  assert(
+    Boolean(parsed.values['adopt-local-run']) === Boolean(parsed.values['adopt-pr']),
+    '採用には--adopt-local-runと--adopt-prが必要です',
+  );
+  assert(
+    !parsed.values['adopt-local-run'] ||
+      (parsed.values['run-dir'] && parsed.values['allow-publish'] && !parsed.values['no-publish']),
+    '採用には新しい--run-dirと明示的な公開許可--allow-publishが必要です',
+  );
+  assert(
+    !parsed.values['allow-publish'] || parsed.values['adopt-local-run'],
+    '--allow-publishはローカル公開採用専用です',
+  );
+}
+
+async function selectRevisionPrior(
+  parsed: ReturnType<typeof parseStart>,
+  repo: string,
+  number: string,
+  base: string,
+  target: Awaited<ReturnType<typeof readTarget>>,
+  io: typeof runtime,
+) {
+  const prior = parsed.values['previous-run']
+    ? await previousRun(parsed.values['previous-run'], repo, number, target)
+    : parsed.values['adopt-local-run']
+      ? await adoptLocalRun({
+          directory: parsed.values['adopt-local-run'],
+          url: parsed.values['adopt-pr'] ?? '',
+          runDirectory: parsed.values['run-dir'] ?? '',
+          cwd: repo,
+          issue: number,
+          head: base,
+          target,
+          read: (argv, cwd) => checked(io, argv, cwd),
+        })
+      : undefined;
+  return prior;
+}
+
 async function selectStart(args: string[], io: typeof runtime) {
   const parsed = parseStart(args);
   const repo = await realpath(parsed.values.repo ?? process.cwd());
@@ -361,9 +420,7 @@ async function selectStart(args: string[], io: typeof runtime) {
   const input = parsed.positionals[0];
   assert(input);
   const number = issueNumber(input, repository);
-  const prior = parsed.values['previous-run']
-    ? await previousRun(parsed.values['previous-run'], repo, number, target)
-    : undefined;
+  const prior = await selectRevisionPrior(parsed, repo, number, base, target, io);
   let reports =
     prior?.config.reports ??
     researchHandoff(base, parsed.values['start-commit'], parsed.values.report ?? []);
@@ -465,6 +522,7 @@ async function selectStart(args: string[], io: typeof runtime) {
   const inputs = reusesCheckout(prior, hostPrior, reviewPrior) ? [] : reports;
   const localTarget = await verifyStartInputs(repo, base, target.text, inputs, io);
   return {
+    recovery: Boolean(prior || hostPrior || reviewPrior || testPrior),
     parsed,
     repo,
     base,
@@ -486,6 +544,39 @@ async function selectStart(args: string[], io: typeof runtime) {
     requirements,
     inputs,
   };
+}
+
+async function ownedCheckout(cwd: string) {
+  const content = await readFile(join(dirname(cwd), 'result.json'), 'utf8').catch(
+    (error: unknown) => {
+      assert(isRecord(error) && error.code === 'ENOENT', '既存runの所有記録を照合できません');
+      return undefined;
+    },
+  );
+  if (!content) {
+    return false;
+  }
+  const result: unknown = JSON.parse(content);
+  return isRecord(result) && result.checkout === cwd;
+}
+
+async function rejectInitialPrBypass(
+  recovery: boolean,
+  cwd: string,
+  number: string,
+  target: Awaited<ReturnType<typeof readTarget>>,
+  io: typeof runtime,
+) {
+  if (recovery) {
+    return;
+  }
+  const branch = await checked(io, ['git', 'branch', '--show-current'], cwd);
+  const native = branch === `codex/development-${number}`;
+  if ((!native && (!branch || branch === target.config.baseBranch)) || (await ownedCheckout(cwd))) {
+    return;
+  }
+  // nativeの所有・停止ガードを保ち、別の公開branchでは同じIssueのPRだけを照合する。
+  await checkBranchPulls({ target, branch, cwd }, io, native ? undefined : number);
 }
 
 function initialTestProvenance(
@@ -550,6 +641,7 @@ async function prepare(
   startedAt: string,
 ) {
   const {
+    recovery,
     parsed,
     repo,
     base,
@@ -627,6 +719,7 @@ async function prepare(
   await writeFile(join(dir, 'issue.stdout'), rawIssue);
   await writeFile(join(dir, 'target.json'), JSON.stringify(target, null, 2));
   assert((await git('rev-parse', 'HEAD')) === base, 'Start HEAD changed during preparation');
+  await rejectInitialPrBypass(recovery, repo, number, target, io);
   if (revision) {
     await writeFile(join(dir, 'revision-request.md'), revision.request);
   } else if (testPrior) {
@@ -706,10 +799,16 @@ async function unchangedTarget(
   return current;
 }
 
-async function revisionUnchanged(context: Context, io: typeof runtime, target?: Context['target']) {
+async function revisionUnchanged(
+  context: Context,
+  io: typeof runtime,
+  target?: Context['target'],
+  issue?: string,
+) {
   if (context.revision) {
     await checkRevision(context.revision, context.cwd, (argv, cwd) => checked(io, argv, cwd), {
       target,
+      issue,
     });
   }
 }
@@ -1058,6 +1157,18 @@ async function implement(context: Context, io: typeof runtime) {
     io.command,
   );
   await hostReturnUnchanged(context);
+  // 同じ境界で得た観測を各保存入力と比較し、工程をまたいで使い回さない。
+  let targetAfterTests: Context['target'] | undefined;
+  let issueAfterTests: string | undefined;
+  if (context.revision) {
+    targetAfterTests = await readTarget(
+      cwd,
+      (argv, path) => checked(io, argv, path),
+      !context.localOnly,
+    );
+    issueAfterTests = issueText(await checkedOutput(io, context.issue, cwd));
+  }
+  await revisionUnchanged(context, io, targetAfterTests, issueAfterTests);
   await writeFile(
     join(dir, 'test-records.json'),
     JSON.stringify([...returned.records, ...(tests.record ? [tests.record] : [])]),
@@ -1072,9 +1183,10 @@ async function implement(context: Context, io: typeof runtime) {
     await writeFile(join(dir, 'verification-config.json'), JSON.stringify(testConfig, null, 2));
     await stopForHost(context, testConfig, tests.reply.findings, io);
   }
-  await unchangedTarget(context, io);
+  await unchangedTarget(context, io, context.base, targetAfterTests);
   assert(
-    issueText(await checkedOutput(io, context.issue, cwd)) === issueText(original),
+    (issueAfterTests ?? issueText(await checkedOutput(io, context.issue, cwd))) ===
+      issueText(original),
     'Requirements changed during test authoring',
   );
   const sourceAfterTests = context.hostReturn ? await snapshot(cwd) : undefined;
@@ -1285,7 +1397,16 @@ async function verify(context: Context, config: Config, io: typeof runtime) {
   return { state, target };
 }
 
-async function checkBranchPulls(context: Context, io: typeof runtime) {
+async function checkBranchPulls(
+  context: {
+    target: Awaited<ReturnType<typeof readTarget>>;
+    branch: string;
+    cwd: string;
+    revision?: Revision;
+  },
+  io: typeof runtime,
+  issue?: string,
+) {
   const repository = context.target.config.repository;
   const pages: unknown = JSON.parse(
     await checked(
@@ -1318,6 +1439,12 @@ async function checkBranchPulls(context: Context, io: typeof runtime) {
       'Invalid branch PR response',
     );
     if (pr.head.repo.full_name === repository && pr.head.ref === context.branch) {
+      if (issue !== undefined) {
+        assert(typeof pr.body === 'string' || pr.body === null, 'Invalid branch PR issue response');
+        if (pr.body === null || !referencesIssue(pr.body, issue)) {
+          continue;
+        }
+      }
       assert(
         pr.html_url === context.revision?.url,
         `Open PR already uses this branch: ${pr.html_url}; reconcile other PRs before pushing`,
@@ -1735,7 +1862,8 @@ function selectedRecovery(parsed: ReturnType<typeof parseStart>) {
     parsed.values['review-run'] ??
     parsed.values['interrupted-run'] ??
     parsed.values['check-timeout-run'] ??
-    parsed.values['previous-run']
+    parsed.values['previous-run'] ??
+    parsed.values['adopt-local-run']
   );
 }
 

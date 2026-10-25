@@ -75,6 +75,38 @@ draft確認の開始前から今回の`publication`を`unconfirmed`として既�
 
 `--no-publish`では修正後の独立評価までで止まり、commit・push・本文更新・draft/ready操作をしません。自動コメント投稿、会話のresolve、承認、マージも行いません。媒体がある対象は通常の添付・公開後確認を継続します。制御テストの模擬応答、実モデルの意味判断、実際のPR更新は別の検証です。
 
+### ローカル受入後の単独公開を採用する
+
+[Issue #434](https://github.com/thkt/dotagents/issues/434)で合意した限定入口です。ローカル受入後に同じ成果物を単独公開したopen draft PRを、新しい修正runへ接続します。通常の公開runを使う修正は、引き続き`--previous-run`を使います。旧runの`verified_local`・`localOnly`・`publication: not_attempted`を公開済みへ書き換えません。
+
+担当ホストは、同じrepo・Issue・主体のPRであり、今回の修正と公開が明示的に許可されていることを確認し、採用した修正要求・期待結果・許可範囲を文章ファイルにまとめます。単独公開の事実や旧`localOnly`の欠落を許可の代わりにしません。
+
+```sh
+bun /absolute/path/to/trusted/scripts/implement/development.ts 425 \
+  --repo /absolute/path/to/published-checkout \
+  --adopt-local-run /absolute/path/to/local-accepted-run \
+  --adopt-pr https://github.com/thkt/dotagents/pull/433 \
+  --request-file /absolute/path/to/adopted-revision.md \
+  --run-dir /absolute/path/to/new-revision-run \
+  --allow-publish
+```
+
+`--run-dir`は旧runと同じ親の未使用ディレクトリにします。`--adopt-local-run`・`--adopt-pr`・`--request-file`・`--allow-publish`を組にし、他の復帰入口、`--no-publish`、`--start-commit`、`--report`とは併用しません。採用時の許可を記録し、受付だけではPRを作成・更新しません。
+
+受付では次の条件を照合し、不一致・不明ならsetupや担当AIを起動せず停止します。
+
+- 旧runが真正なローカル受入の終端で、check完了・独立評価accepted・activeなし・管理lockなし・対応する稼働プロセスなしであること。native actorの原応答、評価対象hash、checkログ、設定・Issueの保存記録を照合します。
+- 旧受入source、旧checkout、公開checkoutの内容・全modeが一致し、ローカル対象設定を除く全成果物が公開headのcommit treeに収録されていること。未追跡成果物の収録漏れも拒否します。全modeはcheckout間で比較し、Git treeではGitが保存する種別・実行bit・内容を照合します。
+- 設定原文と追跡状態、元の差分基準・参照資料のpathとblob、repo・Issue・作者・完全なhead commit・branch・base・OPEN・draft、remote ref、実効主体・書込権限が一致すること。
+
+旧checkoutのbranchは旧runの記録と、公開checkoutのbranchは対象PRのhead branchと照合します。旧branchと公開branchの名前が異なる場合も、受入成果物と公開commitの内容・全mode・収録の条件を満たせば採用できます。旧branchの改名や記録の変更は行いません。初回実装の保存済み実行結果が失敗・時間切れ・不明な場合は、終端や評価の成功だけで代用せず拒否します。過去の中断のnull・unknownは原記録に保持します。
+
+新runの`verification-config.json`にある`revision.localPublication`へ、採用の種別、旧run・両checkout・PR・head・sourceと旧原記録の期待hash・modeを保存します。旧checkoutの所有を公開checkoutへ置き換えません。修正中も原記録と稼働プロセス、PRとremote refを再照合し、元の初回実装を繰り返さず、新しい独立テスト・修正・check・独立評価へ進みます。旧成功・評価履歴を新しい受入に流用しません。旧形式の有限上限があるrunは、上限を解除せず拒否します。
+
+以後の公開は通常の既存PR修正と同じ処理で同じPR・branchを更新します。正式なホスト検証停止では採用来歴を保持し、[ホスト検証後の再評価](#ホスト検証後の再評価)へ戻します。停止を別名の通常起動で回避することはできません。原応答・旧結果・lockを編集して受付条件を満たさないでください。
+
+この入口を選ぶ理由は、旧記録を保全したまま、単独公開の照合と今回の許可を別の来歴として追加するためです。従来の公開run必須条件を全体で緩めません。従来条件の当時の導入理由は今回の資料からは未確認であり、この説明は今回の選択理由です。模擬制御テストの成功は実適用の証拠ではありません。独立評価を通した固定版で#433の追加修正に実適用し、旧原本の保全、同じPR・branch、新しい修正・検証への到達を確認します。通常checkはこの実適用を行わないため、担当AIはホストで実行し、生ログ・対象版・親子のツール版を新しい外部証拠へ残して正式な再評価へ戻します。独立受入後の#433更新と同じheadのCI確認は、#425の継続作業です。今回の#425・#434の追加合意ではcantle専用の検証・実適用・製品受入を完了条件から外し、既存のcantle担当へ委ねています。
+
 ## 調査報告を指定した実装開始
 
 必要な報告の選択と共有状態の確認は[scopingの引き継ぎ手順](../skills/scoping/references/session.md#調査成果の引き継ぎ)に従います。この節では、確認済みの報告を実装へ渡すGit操作とCLIの検証条件を説明します。
@@ -601,6 +633,8 @@ bun /absolute/path/to/trusted/scripts/implement/development.ts 99 \
 
 初回テスト中断の祖先がない未公開の正式復帰でも、受付時と工程境界で稼働プロセス、remote ref、全状態のPR、管理／Git lockを再確認します。観測不能や不一致では後続工程を止めます。同じ境界では、各正式停止祖先が新runの兄弟であることを確認してから、兄弟run群を一度走査します。工程をまたいで観測結果を使い回しません。既存PR修正の公開状態は、引き続きその修正契約で照合します。
 
+保存済みのbaseline・独立テストworkspaceでは、制御記録へ束縛された入力manifestが宣言する`bun.lock`・`uv.lock`を、管理lockと区別します。本体が制御記録の個別pathに含まれなくても、通常ファイルで内容・全modeがmanifestのhashと一致すれば受理します。manifestの欠落・改変・束縛不足、依存物の不一致、symlink、未宣言の依存lock、管理／Git lockは拒否します。保存tree全体の個別列挙を追加の受理条件にはしません。
+
 祖先のモードを保存していない旧形式では、過去のモードは不明なまま残します。新しい受付で、現在の成果物checkoutだけを除いた祖先のファイル一覧と全modeを観測し、`host-preservation-*/formal-modes.json`へ保存します。設定内の`hostReturn.formalModes`は、この記録のpath・SHA-256・modeを参照します。後続の工程と正式復帰では保存値を再照合し、既存の期待値を現在値で置き換えません。これは観測以降の保全であり、観測前から変化がなかったことの証明ではありません。symlinkは辿りません。
 
 初回テスト中断を含む祖先では、`checkout`・`test-baseline`と、保存された`test-N.target.json`に対応する`test-N-workspace`を依存lockの照合範囲とします。直下の通常ファイルの`bun.lock`・`uv.lock`に加え、保存済みの入力manifestに記録された同名の下位ファイルを区別します。初回独立テストで止まった祖先には、後続工程の`verification-config.json`の存在を要求しません。管理領域やGit領域のlock、その他のlockは引き続き拒否します。初回実装が`needs_host`または`needs_human`を返す場合も、実行結果を保存してから祖先を再照合し、変化があれば正式停止の保存や後続工程へ進みません。
@@ -620,6 +654,8 @@ Issueの取得・保存・hash・再照合には、[issue.ts](implement/issue.ts
 新しい通常の`development.ts`実行では、最初に`result.json`を読み、`details`や`evidence`から必要な証拠へ進みます。検証停止時と`--no-publish`完了時の`details`は`verification/state.json`を指します。公開へ進んだ後も、`evidence`が示すrun保存先の`verification/state.json`から[検証の要約・評価履歴・生ログ](#レビュー対象と参照記録)を辿れます。安全な新規保存先を確保できた場合、準備途中の失敗から、実装・検証・公開・CIでの停止、成功、`--no-publish`の完了まで同じ場所へ保存します。新規runでは`verification-summary.md`と`stopped.txt`を作りません。単独のcorrection・publish・評価実験CLIの結果形式は変更しません。
 
 `status`は`stopped`、ローカル検証完了の`verified_local`、draft公開と同じ対象のCI確認完了の`published_draft`です。`phase`は`preparation`・`implementation`・`verification`（撮影・独立評価・修正を含む）・`publication`・`ci`を示します。具体的な処理は`operation`、終了理由は`reason`、既知の理由コードは`reasonCode`、次の対応は`nextAction`、残る作業は`remaining`で確認します。setupは`setup-N`、初回実装は`initial implementation`として区別し、`details`のログ接頭辞に`.stdout`・`.stderr`を付けて読みます。検証は`verification/state.json`とそこから参照するログを確認します。例外文から細かい原因コードは推測しません。
+
+子プロセスのgroup終了がEPERMなどで失敗した場合は、取得済みのstdout・stderrを指定の保存先へ書き、終了値・timeout・出力取得の完了状態を伴うエラーで呼出元へ返します。終了未確認のgroupがある間は、同じプロセス内の後続コマンドを起動しません。読み書き途中のpipeは待機を残さないよう解放し、部分出力を完全なログや成功へ読み替えません。出力保存自体が失敗した場合も取得済みの実行結果をエラーへ保持します。この処理は実OSがEPERMを返した原因を特定するものではありません。
 
 新しいrunでは、終端の`result.json`を保存した後に同じ証拠保存先へ`report.html`を1枚作ります。初回実装・既存PR修正・`--no-publish`・停止をそれぞれ1実行として扱います。新しいrunの中間保存は`terminal: true`を持たないため、再生成入口で終端結果として受理しません。`startedAt`と`finishedAt`はその実行のUTC日時で、HTML生成日時とは別です。保存先確定前の失敗や終端結果を保存できない場合はHTMLを約束しません。画面は保存済みの結果・検証state・モデルイベントを読むだけで、欠けた日時や別ログ間の順序を推定せず、モデル・check・公開を再実行しません。モデル操作の長文は抜粋と明示し、入力・出力と原記録へのリンクを分けます。関連記録の一部が不正でも読めた結果を表示し、注意と原記録への導線を残します。`published_draft`、独立評価のaccepted、CI、公開後の本文確認、ready、人の承認は別の状態です。HTMLと生ログはローカル限定で、PRへ自動添付しません。
 

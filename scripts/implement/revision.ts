@@ -1,3 +1,4 @@
+import { verifyLocalPublication } from './local-publication-records.ts';
 import assert from 'node:assert/strict';
 import { readFile, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -102,6 +103,18 @@ export async function previousRun(
   };
 }
 
+async function sourceBranch(revision: Revision) {
+  if (!revision.localPublication) {
+    return revision.branch;
+  }
+  const original = await json(join(revision.localPublication.previousRun, 'result.json'));
+  assert(
+    isRecord(original) && typeof original.branch === 'string' && original.branch.trim(),
+    '採用元のbranch記録を照合できません',
+  );
+  return original.branch;
+}
+
 export async function checkRevision(
   revision: Revision,
   cwd: string,
@@ -122,9 +135,11 @@ export async function checkRevision(
     target?: Awaited<ReturnType<typeof readTarget>>;
   } = {},
 ) {
+  await verifyLocalPublication(revision.localPublication, cwd, revision.runDirectory, read);
   if (revision.reviewReturn) {
     assert(
-      interruptionReturn(revision) && revision.reviewReturn.branch === revision.branch,
+      interruptionReturn(revision) &&
+        revision.reviewReturn.branch === (await sourceBranch(revision)),
       '修正元の停止照合履歴が一致しません',
     );
     await verifyReviewReturn(
@@ -225,6 +240,7 @@ export async function checkRevision(
       ),
     'Revision PR Issue changed',
   );
+  await checkAdoptedRemote(revision, target.config.remote, head, cwd, read);
   const ref = await read(
     ['gh', 'api', `repos/${revision.repository}/git/ref/heads/${revision.branch}`],
     cwd,
@@ -246,6 +262,26 @@ export async function checkRevision(
     assert(match.draft, 'Revision PR is not draft; reconcile before further publication');
   }
   return pr.body;
+}
+
+async function checkAdoptedRemote(
+  revision: Revision,
+  remote: string,
+  head: string,
+  cwd: string,
+  read: Reader,
+) {
+  if (!revision.localPublication) {
+    return;
+  }
+  const refs = await read(
+    ['git', 'ls-remote', '--refs', remote, `refs/heads/${revision.branch}`],
+    cwd,
+  );
+  assert(
+    refs === `${head}\trefs/heads/${revision.branch}`,
+    '採用したremote refとPR headが一致しません',
+  );
 }
 
 export function revisionContext(revision?: Revision) {

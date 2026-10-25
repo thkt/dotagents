@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { expect } from 'bun:test';
-import { chmod, lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { hash } from '../../implement/host-records.ts';
 import { command } from '../../shared/process.ts';
@@ -141,6 +141,97 @@ testReviewRecovery('初回中断と二つの正式停止を保持して現在版
   expect(await formalTree(t.r1, true)).toEqual(r1);
   expect(await formalTree(r2.dir)).toEqual(savedR2);
 });
+
+async function manifestDependency(t: Fixture) {
+  const workspace = join(t.r1, 'test-1-workspace');
+  const path = join(workspace, 'evaluation/uv.lock');
+  const manifest = `${workspace}.json`;
+  const stop = object(JSON.parse(await readFile(join(t.r1, 'host-stop.json'), 'utf8')));
+  assert(Array.isArray(stop.records));
+  const paths = stop.records.map((ref) => object(ref).path);
+  expect(paths).toContain(join(t.r1, 'test-1.target.json'));
+  expect(paths).toContain(manifest);
+  expect(paths).not.toContain(path);
+  const input = object(JSON.parse(await readFile(manifest, 'utf8')));
+  const info = await lstat(path);
+  expect(info.isFile()).toBe(true);
+  expect(info.mode).toBe(0o100644);
+  expect(object(input.files)['evaluation/uv.lock']).toBe(
+    hash(Buffer.concat([Buffer.from(`${info.mode}:`), await readFile(path)])),
+  );
+  return { path, manifest, input };
+}
+
+testReviewRecovery('正式復帰は制御記録に本体を列挙しないmanifest依存lockを受理する', async (f) => {
+  const t = await formalHostFixture(f, { nestedDependency: true });
+  await manifestDependency(t);
+  const before = await formalTree(t.r1, true);
+  const intake = await t.intake(t.r1, 'manifest-dependency-return');
+  await writeFile(t.control, JSON.stringify({ phase: 'accept' }));
+  await writeFile(t.calls, '');
+  const result = await t.cli(intake.args);
+  expect(await formalTree(f.dir)).toEqual(t.savedOrigin);
+  expect(await formalTree(t.r1, true)).toEqual(before);
+  assert.equal(result.code, 0, result.stderr);
+  expect(object(JSON.parse(result.stdout))).toMatchObject({
+    status: 'verified_local',
+    publication: 'not_attempted',
+  });
+  const calls = await t.observations();
+  expect(calls.map((entry) => entry.role)).toEqual(['test', 'check', 'review']);
+  expect(object(calls[0]?.input).stage).toBe('host_return');
+});
+
+for (const fault of [
+  'content',
+  'mode',
+  'symlink',
+  'manifest',
+  'binding',
+  'undeclared',
+  'management',
+] as const) {
+  testReviewRecovery(`正式復帰はmanifest依存の不一致で後続を起動しない: ${fault}`, async (f) => {
+    const t = await formalHostFixture(f, { nestedDependency: true });
+    const dependency = await manifestDependency(t);
+    if (fault === 'content') {
+      await writeFile(dependency.path, 'changed dependency');
+    } else if (fault === 'mode') {
+      await chmod(dependency.path, 0o700);
+      expect((await lstat(dependency.path)).mode).toBe(0o100700);
+    } else if (fault === 'symlink') {
+      const target = `${t.r1}-dependency.txt`;
+      await writeFile(target, await readFile(dependency.path));
+      await rm(dependency.path);
+      await symlink(target, dependency.path);
+    } else if (fault === 'manifest') {
+      const files = object(dependency.input.files);
+      files['evaluation/uv.lock'] = '0'.repeat(64);
+      await writeFile(dependency.manifest, JSON.stringify({ files }));
+    } else if (fault === 'binding') {
+      const path = join(t.r1, 'host-stop.json');
+      const stop = object(JSON.parse(await readFile(path, 'utf8')));
+      assert(Array.isArray(stop.records));
+      stop.records = stop.records.filter((ref) => object(ref).path !== dependency.manifest);
+      await writeFile(path, JSON.stringify(stop));
+    } else if (fault === 'undeclared') {
+      await writeFile(join(t.r1, 'test-1-workspace/evaluation/bun.lock'), 'undeclared');
+    } else {
+      await mkdir(join(t.r1, 'lock'));
+    }
+    const before = await formalTree(t.r1, true);
+    const intake = await t.intake(t.r1, `manifest-reject-${fault}`);
+    await writeFile(t.control, JSON.stringify({ phase: 'accept' }));
+    await writeFile(t.calls, '');
+    const result = await t.cli(intake.args);
+    assert.equal(result.code, 1, result.stderr);
+    expect(result.stderr).not.toMatch(/Unknown option|SyntaxError|Unexpected GitHub/i);
+    expect(await t.observations()).toEqual([]);
+    expect(await formalTree(t.r1, true)).toEqual(before);
+    expect(await formalTree(f.dir)).toEqual(t.savedOrigin);
+    expect(result.stderr).not.toContain(join(t.r1, 'test-baseline/evaluation/uv.lock'));
+  });
+}
 
 // 旧host-stopにはmode欄がない。受付前の不明なmodeを0644と決めつけず、
 // 新しい受付後の既知のmodeからの変化を検査する。

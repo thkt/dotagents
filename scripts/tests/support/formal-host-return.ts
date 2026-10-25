@@ -94,7 +94,12 @@ export async function formalTree(path: string, omitCheckout = false): Promise<un
 
 export async function formalHostFixture(
   f: DevelopmentFixture,
-  options: { pendingImplementation?: boolean; dependencyLock?: boolean; producer?: '430' } = {},
+  options: {
+    pendingImplementation?: boolean;
+    dependencyLock?: boolean;
+    nestedDependency?: boolean;
+    producer?: '430';
+  } = {},
 ) {
   const root = dirname(f.dir);
   const generator = await fixedHostGenerator(root);
@@ -102,6 +107,13 @@ export async function formalHostFixture(
   const { develop: generate } = z
     .object({ develop: z.custom<typeof develop>((value) => typeof value === 'function') })
     .parse(await import(join(generator, 'scripts/implement/orchestrator.ts')));
+  if (options.nestedDependency) {
+    await fs.mkdir(join(f.repo, 'evaluation'));
+    await fs.writeFile(join(f.repo, 'evaluation/uv.lock'), 'version = 1\nrevision = 3\n');
+    await fs.chmod(join(f.repo, 'evaluation/uv.lock'), 0o644);
+    await gitOutput(f.repo, 'add', 'evaluation/uv.lock');
+    await gitOutput(f.repo, 'commit', '-m', '模擬依存manifestの入力');
+  }
   if (options.dependencyLock) {
     // 依存lockfileをsetupで作り、保存後の祖先へ後付けしない。
     f.settings.setup.push(['sh', '-c', 'printf dependency > bun.lock']);
