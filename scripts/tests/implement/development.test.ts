@@ -1299,7 +1299,7 @@ testDevelopment(
     });
     expect(JSON.parse(await readFile(join(dir, 'verification-config.json'), 'utf8'))).toMatchObject(
       {
-        checkTimeMs: 900000,
+        checkTimeMs: null,
       },
     );
     expect(result.url).toContain('/pull/100');

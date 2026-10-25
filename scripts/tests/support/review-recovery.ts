@@ -56,6 +56,7 @@ export async function recoveryFixture(
   stop: 'invalid' | 'interrupted' | 'timeout' = 'invalid',
   origin: 'initial' | 'host_return' = 'initial',
   savedBudget?: number,
+  currentBudget = false,
 ) {
   const script = join(dirname(f.dir), 'review-producer.js');
   const control = join(dirname(f.dir), 'review-control.json');
@@ -100,10 +101,11 @@ if(role==='review') {
   await gitOutput(f.repo, 'add', '.dotagents.json');
   await gitOutput(f.repo, 'commit', '-m', '模擬check契約');
   f.verify = async (config, publicationHead) => {
+    // 旧runの有限値を固定し、通常動作の検証時だけ生成された設定をそのまま使う。
     const actual = {
       ...config,
-      ...(savedBudget !== undefined || stop === 'timeout'
-        ? { checkTimeMs: savedBudget ?? 540000 }
+      ...(!currentBudget
+        ? { checkTimeMs: savedBudget ?? (stop === 'timeout' ? 540000 : 900000) }
         : {}),
       issue: [process.execPath, '-e', `process.stdout.write(${JSON.stringify(issue)})`],
       review: [process.execPath, script, 'review'],
@@ -421,9 +423,10 @@ if(observing) mock.module(${JSON.stringify(modulePath('../../shared/process.ts')
  const control=JSON.parse(await readFile(${JSON.stringify(t.control)},'utf8'));
  if(control.traceSetup&&argv[0]==='sh'&&argv.includes('printf configured > setup.txt')) await appendFile(${JSON.stringify(t.executions)},'setup\\n');
  if(argv[2]==='check'&&control.expectedBudget!==undefined&&timeout!==control.expectedBudget) throw Error('fixture: check budget mismatch '+timeout);
+ // 不完全な実行結果の故障注入。msは経過値で、上限なしのタイマー発火を表さない。
  if(argv[2]==='check'&&control.timeoutCheck) {
   await appendFile(${JSON.stringify(t.executions)},'check\\n');
-  const result={code:null,stdout:'fixture: partial fresh check',stderr:'fixture: timeout',timedOut:true,ms:timeout};
+  const result={code:null,stdout:'fixture: partial fresh check',stderr:'fixture: timeout',timedOut:true,ms:timeout??900000};
   await writeFile(prefix+'.stdout',result.stdout);await writeFile(prefix+'.stderr',result.stderr);
   return result;
  }

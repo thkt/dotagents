@@ -132,7 +132,7 @@ export interface ReviewConfig {
   captureDestination?: string;
   captureRequired?: boolean;
   review: string[];
-  checkTimeMs: number;
+  checkTimeMs: number | null;
 }
 export interface Config extends ReviewConfig {
   repair: string[];
@@ -141,6 +141,7 @@ export interface Config extends ReviewConfig {
   setup?: string[][];
 }
 export interface ProbeConfig extends ReviewConfig {
+  checkTimeMs: number;
   reviewTimeMs: number;
   // 読取り専用の一回評価へ既存の独立記録を付ける。通常開発のテスト工程は代替しない。
   preparedTests?: z.infer<typeof hostPreparationShape>[];
@@ -170,6 +171,7 @@ export function assertConfig(value: unknown): asserts value is Config {
 
 export function assertProbeConfig(value: unknown): asserts value is ProbeConfig {
   assertReviewConfig(value, ['reviewTimeMs', 'preparedTests']);
+  assert(positive(value.checkTimeMs), 'Invalid checkTimeMs');
   assert('reviewTimeMs' in value && positive(value.reviewTimeMs), 'Invalid reviewTimeMs');
   if ('preparedTests' in value && value.preparedTests !== undefined) {
     hostPreparationShape.array().min(1).parse(value.preparedTests);
@@ -267,7 +269,7 @@ function assertReviewConfig(value: unknown, fields: string[]): asserts value is 
     assert(relativeDirectory(value.captureDestination), 'Invalid capture destination');
     assert(typeof value.captureRequired === 'boolean', 'Explicit capture requirement required');
   }
-  assert(positive(value.checkTimeMs), 'Invalid checkTimeMs');
+  assert(value.checkTimeMs === null || positive(value.checkTimeMs), 'Invalid checkTimeMs');
 }
 const savedCount = z.number().nonnegative().refine(Number.isInteger);
 const savedRole = z.enum(['repair', 'review', 'check', 'capture', 'test']);

@@ -205,7 +205,6 @@ for (const scenario of ['accepted', 'invalid', 'change_check', 'change_review'] 
       'baseCommit',
       'targetText',
       'check',
-      'checkTimeMs',
       'setup',
       'capture',
       'captureDestination',
@@ -214,6 +213,7 @@ for (const scenario of ['accepted', 'invalid', 'change_check', 'change_review'] 
       expect(fresh[field]).toEqual(config[field]);
     }
     const state = object(JSON.parse(await readFile(join(dir, 'verification/state.json'), 'utf8')));
+    expect(fresh.checkTimeMs).toBeNull();
     expect(state.configHash).toBe(createHash('sha256').update(JSON.stringify(fresh)).digest('hex'));
     if (changedDuringRun) {
       // 要求4: 正常な応答でも旧記録の変更後は受け入れない。変更工程への到達も確認する。

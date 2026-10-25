@@ -287,7 +287,9 @@ export function verifyCommandContract(
 ) {
   assert(
     JSON.stringify(config.check) === JSON.stringify(targetCommand(target.config.check)) &&
-      (config.checkTimeMs === 540000 || config.checkTimeMs === 900000) &&
+      (config.checkTimeMs === null ||
+        config.checkTimeMs === 540000 ||
+        config.checkTimeMs === 900000) &&
       JSON.stringify(config.setup) === JSON.stringify(target.config.setup.map(targetCommand)) &&
       JSON.stringify(config.capture) ===
         JSON.stringify(

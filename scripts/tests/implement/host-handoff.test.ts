@@ -251,7 +251,7 @@ for (const budget of [540000, 900000, 540001]) {
     let freshChecks = 0;
     f.verify = async (config, head) => {
       freshChecks++;
-      expect(config.checkTimeMs).toBe(900000);
+      expect(config.checkTimeMs).toBeNull();
       return originalVerify(config, head);
     };
     const outcome: unknown = await develop(m.args, f.io).catch((error: unknown) => error);
@@ -272,7 +272,7 @@ for (const budget of [540000, 900000, 540001]) {
       expect(state).toMatchObject({ checks: 1, review: 1, repair: 0 });
       expect(
         object(JSON.parse(await readFile(join(m.dir, 'verification-config.json'), 'utf8'))),
-      ).toMatchObject({ checkTimeMs: 900000 });
+      ).toMatchObject({ checkTimeMs: null });
     }
   });
 }

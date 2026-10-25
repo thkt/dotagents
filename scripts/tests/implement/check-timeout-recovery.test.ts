@@ -88,7 +88,7 @@ for (const response of ['accepted', 'invalid', 'needs_changes', 'check_repair'] 
         t.control,
         JSON.stringify({
           response,
-          expectedBudget: 900000,
+          expectedBudget: null,
           traceSetup: true,
           failCheck: response === 'check_repair',
         }),
@@ -107,7 +107,7 @@ for (const response of ['accepted', 'invalid', 'needs_changes', 'check_repair'] 
       const config = object(
         JSON.parse(await readFile(join(t.dir, 'verification-config.json'), 'utf8')),
       );
-      expect(config.checkTimeMs).toBe(900000);
+      expect(config.checkTimeMs).toBeNull();
       for (const key of [
         'cwd',
         'baseCommit',
@@ -434,25 +434,56 @@ for (const phase of ['changeCheck', 'change'] as const) {
   });
 }
 
-testDevelopment('通常checkの15分設定が実行コマンドへ届く', async (f) => {
-  f.io.verify = (config, head) => f.verify(config, head);
-  const execute = f.observationCommand;
-  const budgets: (number | null)[] = [];
-  const observer = spyOn(processModule, 'command').mockImplementation(async (...args) => {
-    if (args[0][2] === 'check') {
-      budgets.push(args[3]);
+for (const capture of [false, true]) {
+  testDevelopment(`通常check・撮影の上限なし設定が実行コマンドへ届く: ${capture}`, async (f) => {
+    f.io.verify = (config, head) => f.verify(config, head);
+    const captureCommand = [
+      process.execPath,
+      '-e',
+      "require('node:fs').writeFileSync(require('node:path').join(process.argv[1], 'desktop.png'), 'fixture media')",
+    ];
+    if (capture) {
+      f.settings.capture = { command: captureCommand, destination: 'review/media', required: true };
     }
-    return execute(...args);
+    const execute = f.observationCommand;
+    const budgets: { role: string; budget: number | null }[] = [];
+    const observer = spyOn(processModule, 'command').mockImplementation(async (...args) => {
+      if (args[0][2] === 'check' || args[0][2] === captureCommand[2]) {
+        budgets.push({ role: args[0][2] === 'check' ? 'check' : 'capture', budget: args[3] });
+      }
+      return execute(...args);
+    });
+    try {
+      await recoveryFixture(f, true, 'invalid', 'initial', undefined, true);
+      const config = object(
+        JSON.parse(await readFile(join(f.dir, 'verification-config.json'), 'utf8')),
+      );
+      expect(config.checkTimeMs).toBeNull();
+      const state = object(
+        JSON.parse(await readFile(join(f.dir, 'verification/state.json'), 'utf8')),
+      );
+      expect(state.result).toBe('invalid_review');
+      expect(
+        events(state.events).filter(
+          (event) =>
+            ['check', 'capture'].includes(String(object(event).role)) && object(event).code === 0,
+        ),
+      ).toHaveLength(capture ? 2 : 1);
+    } finally {
+      observer.mockImplementation(execute);
+    }
+    expect(budgets).toEqual(
+      capture
+        ? [
+            { role: 'capture', budget: null },
+            { role: 'check', budget: null },
+          ]
+        : [{ role: 'check', budget: null }],
+    );
   });
-  try {
-    await recoveryFixture(f);
-  } finally {
-    observer.mockImplementation(execute);
-  }
-  expect(budgets).toEqual([900000]);
-});
+}
 
-test('CI checks jobの15分とverifyの既存契約を維持する', async () => {
+test('CI checks jobの固定時間指定だけを外し検証とverifyの契約を維持する', async () => {
   const text = await readFile(
     new URL('../../../.github/workflows/ci.yml', import.meta.url),
     'utf8',
@@ -460,19 +491,26 @@ test('CI checks jobの15分とverifyの既存契約を維持する', async () =>
   const checks = text.split('\n  checks:')[1]?.split('\n  verify:')[0];
   const verify = text.split('\n  verify:')[1];
   assert(checks && verify);
-  expect(checks).toMatch(/timeout-minutes: 15\b/);
+  expect(checks).not.toMatch(/timeout-minutes:/);
+  expect(checks).toContain('bun-version: 1.4.4');
+  expect(checks).toContain('run: bun install --frozen-lockfile --ignore-scripts');
+  expect(checks).toContain('ref: ${{ github.event.pull_request.head.sha || github.sha }}');
+  expect(checks).toContain('persist-credentials: false');
+  expect(text).toContain('contents: read');
+  expect(verify).toContain('if: ${{ always() }}');
+  expect(verify).toContain('permissions: {}');
   expect(checks).toContain('run: bun run check');
   expect(verify).toContain('needs: checks');
   expect(verify).toContain('timeout-minutes: 1');
   expect(verify).toContain('test "$CHECKS_RESULT" = success');
 });
 
-testDevelopment('新runも時間切れなら独自に停止し自動連鎖しない', async (f) => {
+testDevelopment('新runの不完全な終了報告を成功にせず自動連鎖しない', async (f) => {
   const t = await fixture(f);
   const original = await records(f.dir);
   await writeFile(
     t.control,
-    JSON.stringify({ response: 'accepted', timeoutCheck: true, expectedBudget: 900000 }),
+    JSON.stringify({ response: 'accepted', timeoutCheck: true, expectedBudget: null }),
   );
   const before = await readFile(t.executions, 'utf8');
   const returned = await recoveryCli(f, t, {}, { observe: true });
@@ -539,7 +577,7 @@ testDevelopment('時間切れ復帰もcommit後の同じheadを模擬公開・CI
   const t = await fixture(f, false);
   const original = await records(f.dir);
   const head = await gitOutput(t.cwd, 'rev-parse', 'HEAD');
-  await writeFile(t.control, JSON.stringify({ response: 'accepted', expectedBudget: 900000 }));
+  await writeFile(t.control, JSON.stringify({ response: 'accepted', expectedBudget: null }));
   const returned = await recoveryCli(f, t, {}, { observe: true, publication: true });
   validEntry(returned.stderr);
   expect(returned.code).toBe(0);
@@ -565,7 +603,7 @@ for (const change of ['none', 'content', 'mode'] as const) {
     const t = await fixture(f);
     await writeFile(
       t.control,
-      JSON.stringify({ response: 'accepted', timeoutCheck: true, expectedBudget: 900000 }),
+      JSON.stringify({ response: 'accepted', timeoutCheck: true, expectedBudget: null }),
     );
     const first = await recoveryCli(f, t, {}, { observe: true });
     validEntry(first.stderr);

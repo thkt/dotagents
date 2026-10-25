@@ -65,7 +65,7 @@ const runtime: {
   publish: typeof publish;
 } = { command, verify: run, publish };
 // Applied separately to each local verification command.
-const checkTimeMs = 900000;
+const checkTimeMs = null;
 // General commands and post-publication target checks retain their 11-minute limit.
 const hostCommandTimeMs = 660000;
 
