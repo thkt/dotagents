@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -29,13 +30,42 @@ export function checkReport(runner: 'bun' | 'playwright', text: string) {
   assert(skipped === 0, `Unexecuted tests or invalid skipped count: ${String(skipped)}`);
 }
 
+async function execute(executable: string, args: string[], report: string) {
+  const child = spawn(executable, args, {
+    stdio: 'inherit',
+    env: { ...process.env, CI: 'true', PLAYWRIGHT_JSON_OUTPUT_FILE: report },
+  });
+  let interrupted = false;
+  const forward = (signal: NodeJS.Signals) => {
+    interrupted = true;
+    child.kill(signal);
+  };
+  process.on('SIGINT', forward);
+  process.on('SIGTERM', forward);
+  try {
+    const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+      (resolve, reject) => {
+        child.once('error', reject);
+        child.once('close', (code, signal) => resolve({ code, signal }));
+      },
+    );
+    assert(
+      !interrupted && result.code === 0,
+      `Command did not succeed (${result.signal ?? result.code})`,
+    );
+  } finally {
+    process.off('SIGINT', forward);
+    process.off('SIGTERM', forward);
+  }
+}
+
 if (import.meta.main) {
   let temporaryReportDir: string | undefined;
   try {
     const runner = process.argv[2];
     assert(
       runner === 'bun' || runner === 'playwright',
-      'Usage: runner.ts bun [TEST_DIRECTORY] | playwright CONFIG REPORT_DIRECTORY',
+      'Usage: runner.ts bun [TEST_PATH...] [--parallel=N] [--timings=FILE] [--update-timings] | playwright CONFIG REPORT_DIRECTORY',
     );
     const config = process.argv[3];
     const reportDirectory = process.argv[4];
@@ -43,6 +73,29 @@ if (import.meta.main) {
       runner === 'bun' || (config && reportDirectory),
       'Playwright config and report directory required',
     );
+    const selected: string[] = [];
+    if (runner === 'bun') {
+      const paths: string[] = [];
+      const options: string[] = [];
+      for (const argument of process.argv.slice(3)) {
+        if (
+          /^--parallel=[1-9]\d*$/.test(argument) ||
+          /^--timings=.+/.test(argument) ||
+          argument === '--update-timings'
+        ) {
+          options.push(argument);
+        } else {
+          assert(
+            !argument.startsWith('-'),
+            `Unsupported argument: ${argument}. Use TEST_PATH..., --parallel=N, --timings=FILE, --update-timings`,
+          );
+          const path = resolve(argument);
+          assert(existsSync(path), `Test path does not exist: ${argument}`);
+          paths.push(path);
+        }
+      }
+      selected.push(...(paths.length ? paths : [resolve('scripts/tests')]), ...options);
+    }
     const artifacts = runner === 'bun' ? tmpdir() : resolve(reportDirectory ?? '');
     await mkdir(artifacts, { recursive: true });
     const dir = await mkdtemp(resolve(artifacts, `${runner}-report-`));
@@ -55,7 +108,8 @@ if (import.meta.main) {
         ? [
             process.execPath,
             'test',
-            resolve(config ?? 'scripts/tests'),
+            ...selected,
+            '--no-orphans',
             '--only-failures',
             '--reporter=junit',
             '--reporter-outfile',
@@ -71,14 +125,7 @@ if (import.meta.main) {
           ];
     const [executable, ...args] = argv;
     assert(executable);
-    const result = spawnSync(executable, args, {
-      stdio: 'inherit',
-      env: { ...process.env, CI: 'true', PLAYWRIGHT_JSON_OUTPUT_FILE: report },
-    });
-    if (result.error) {
-      throw result.error;
-    }
-    assert(result.status === 0, `${runner} did not succeed (${result.signal ?? result.status})`);
+    await execute(executable, args, report);
     const text = await readFile(report, 'utf8');
     try {
       checkReport(runner, text);
