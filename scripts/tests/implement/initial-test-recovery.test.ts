@@ -507,9 +507,14 @@ for (const observation of [
   'old_path',
   'normal_host',
   'return_impostor',
+  'different_issue_quoted',
+  'different_issue_host',
+  'different_issue_review',
+  'different_issue_old_path',
 ] as const) {
   testDevelopment(`プロセス観測の独立判定: ${observation}`, async (f) => {
     const t = await fixture(f);
+    const differentIssue = observation.startsWith('different_issue_');
     const saved = object(JSON.parse(await readFile(join(f.dir, 'result.json'), 'utf8')));
     assert(typeof saved.startedAt === 'string' && typeof saved.finishedAt === 'string');
     const start = new Date(
@@ -520,6 +525,30 @@ for (const observation of [
     const parts = start.toString().split(' ');
     const lstart = `${parts[0]} ${parts[1]} ${parts[2]} ${parts[4]} ${parts[3]}`;
     const host = join(dirname(f.repo), 'shared-harness/scripts/implement/development.ts');
+    const other = join(dirname(f.dir), 'unrelated run');
+    if (differentIssue) {
+      await mkdir(join(other, 'checkout'), { recursive: true });
+      await gitOutput(join(other, 'checkout'), 'init');
+    }
+    const otherHost = [
+      process.execPath,
+      '--preload',
+      join(other, 'preload.ts'),
+      host,
+      '99',
+      '--repo',
+      join(other, 'checkout'),
+    ];
+    const otherReturn = [
+      ...otherHost,
+      '--host-run',
+      join(other, 'stopped'),
+      '--host-evidence',
+      join(other, 'evidence.json'),
+      '--run-dir',
+      join(other, 'return'),
+      '--no-publish',
+    ];
     const commands = {
       unrelated: ['/usr/bin/unrelated-fixture'],
       unrelated_actor: [process.execPath, '/unrelated-fixture/task.ts'],
@@ -532,17 +561,28 @@ for (const observation of [
       ],
       normal_host: [process.execPath, host, '99', '--repo', f.repo, '--no-publish'],
       return_impostor: [process.execPath, host, ...t.args],
+      different_issue_quoted: otherReturn,
+      different_issue_host: otherReturn,
+      different_issue_review: [
+        ...otherHost,
+        '--review-run',
+        join(other, 'stopped'),
+        '--run-dir',
+        join(other, 'return'),
+        '--no-publish',
+      ],
+      different_issue_old_path: [...otherReturn, '--test-interrupted-run', f.dir],
     };
     const input = {
       previousRun: f.dir,
       runDirectory: t.dir,
       review: [process.execPath, t.script, 'review', f.dir],
-      entry: '--test-run' as const,
+      entry: differentIssue ? ('--test-interrupted-run' as const) : ('--test-run' as const),
       host: {
         cwd: f.repo,
         common: await gitOutput(f.repo, 'rev-parse', '--path-format=absolute', '--git-common-dir'),
         repository: f.settings.repository,
-        issue: '99',
+        issue: differentIssue ? '54' : '99',
       },
       commonDirectory: (cwd: string) =>
         gitOutput(cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'),
@@ -551,13 +591,23 @@ for (const observation of [
     const pid = observation === 'self_return' ? process.pid : 424242;
     const ppid = observation === 'self_return' ? process.ppid : 1;
     const command = commands[observation]
-      .map((arg) => (/\s/.test(arg) ? JSON.stringify(arg) : arg))
+      .map((arg) =>
+        /\s/.test(arg) &&
+        observation !== 'different_issue_host' &&
+        observation !== 'different_issue_review'
+          ? JSON.stringify(arg)
+          : arg,
+      )
       .join(' ');
-    const verify = () => verifyInterruptedProcesses(`${pid} ${ppid} ${lstart} ${command}\n`, input);
+    const observed = `${pid} ${ppid} ${differentIssue ? '' : `${lstart} `}${command}\n`;
+    const verify = () => verifyInterruptedProcesses(observed, input);
     if (
       observation === 'unrelated' ||
       observation === 'unrelated_actor' ||
-      observation === 'self_return'
+      observation === 'self_return' ||
+      observation === 'different_issue_quoted' ||
+      observation === 'different_issue_host' ||
+      observation === 'different_issue_review'
     ) {
       await verify();
     } else {
