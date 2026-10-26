@@ -7,7 +7,7 @@ import {
   verifyHostTestInterruption,
   interruptedTestOrigin,
 } from './test-interruption.ts';
-import { RecordObservation } from './record-observation.ts';
+import { RecordObservation, hash } from './record-observation.ts';
 import { runtimeRecords, verifyReviewedRuntime, runtimeInstructions } from './runtime-records.ts';
 import {
   authorTests,
@@ -46,7 +46,6 @@ import type {
   CaptureDecision,
 } from './input.ts';
 import { command, assertRunning, interruptionMessage } from '../shared/process.ts';
-import { createHash } from 'node:crypto';
 import { rmdirSync } from 'node:fs';
 import {
   readFile,
@@ -71,7 +70,6 @@ type RepairReference = {
   sourceAfter: string;
   stdoutHash: string;
 };
-const digest = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 
 async function save(path: string, value: State) {
   await writeFile(`${path}.tmp`, JSON.stringify(value, null, 2));
@@ -131,7 +129,7 @@ export async function sourceFiles(
       continue;
     }
     const { mode, symlink, bytes } = file;
-    entries.push([name, mode, digest(bytes)]);
+    entries.push([name, mode, hash(bytes)]);
     const index = untracked.get(name);
     if (index !== undefined) {
       assert(additions);
@@ -170,7 +168,7 @@ async function readSourceFile(
   const symlink = stat.isSymbolicLink();
   const bytes = symlink ? await readlink(path) : await readFile(path);
   if (testManifest) {
-    testManifest[name] = digest(Buffer.concat([Buffer.from(`${stat.mode}:`), Buffer.from(bytes)]));
+    testManifest[name] = hash(Buffer.concat([Buffer.from(`${stat.mode}:`), Buffer.from(bytes)]));
   }
   return { mode: stat.mode, symlink, bytes };
 }
@@ -191,7 +189,7 @@ function captureFiles(
 }
 
 export async function snapshot(cwd: string, testManifest?: Record<string, string>) {
-  return digest(JSON.stringify(await sourceFiles(cwd, undefined, testManifest)));
+  return hash(JSON.stringify(await sourceFiles(cwd, undefined, testManifest)));
 }
 
 export async function recordArtifacts(cwd: string, baseCommit: string) {
@@ -215,7 +213,7 @@ export async function recordArtifacts(cwd: string, baseCommit: string) {
     10000,
   );
   assert(diff.code === 0 && !diff.timedOut, 'Cannot preserve deliverable diff');
-  const source = digest(JSON.stringify(files));
+  const source = hash(JSON.stringify(files));
   assert(source === (await snapshot(cwd)), 'Source changed while preserving deliverables');
   return { source, files, additions, diff: diff.stdout };
 }
@@ -449,9 +447,7 @@ async function captureIdentity(config: ReviewConfig, source: string, files: Sour
   );
   return config.captureRequired
     ? source
-    : digest(
-        JSON.stringify(captureFiles(files, config.cwd, config.captureDestination, definitions)),
-      );
+    : hash(JSON.stringify(captureFiles(files, config.cwd, config.captureDestination, definitions)));
 }
 
 async function captureDecision(
@@ -569,7 +565,7 @@ async function verifyHost(
   observedFiles?: SourceFile[],
 ): Promise<{ stop?: StopReason; findings?: string }> {
   const files = observedFiles ?? (await sourceFiles(config.cwd));
-  state.source = digest(JSON.stringify(files));
+  state.source = hash(JSON.stringify(files));
   const decision = await captureDecision(config, state.source, files, state.captureSource);
   if (config.capture && decision.outcome === 'execute') {
     state.captureSource = undefined;
@@ -602,7 +598,7 @@ async function verifyHost(
     }
     await installMedia(config, output);
     const installed = await sourceFiles(config.cwd);
-    state.source = digest(JSON.stringify(installed));
+    state.source = hash(JSON.stringify(installed));
     state.captureSource = await captureIdentity(config, state.source, installed);
     await persist();
   }
@@ -641,7 +637,7 @@ async function reviewTarget(
   const prefix = resolve(config.runDir, `review-${state.review + 1}`);
   const additions: Addition[] = [];
   const files = await sourceFiles(config.cwd, additions);
-  if (digest(JSON.stringify(files)) !== state.source) {
+  if (hash(JSON.stringify(files)) !== state.source) {
     return { stop: 'source_changed' as const };
   }
   const check = state.events.findLast((event) => event.role === 'check');
@@ -652,7 +648,7 @@ async function reviewTarget(
   for (const repair of repairsSinceReview) {
     try {
       assert(
-        digest(await readFile(`${repair.prefix}.stdout`)) === repair.stdoutHash,
+        hash(await readFile(`${repair.prefix}.stdout`)) === repair.stdoutHash,
         'Repair response changed',
       );
     } catch (error) {
@@ -680,13 +676,13 @@ async function reviewTarget(
     check: {
       command: config.check,
       ...check,
-      stdoutHash: digest(await readFile(`${check.prefix}.stdout`)),
-      stderrHash: digest(await readFile(`${check.prefix}.stderr`)),
+      stdoutHash: hash(await readFile(`${check.prefix}.stdout`)),
+      stderrHash: hash(await readFile(`${check.prefix}.stderr`)),
     },
     model: { command: config.review, settings: config.reviewModel ?? null },
     configHash: state.configHash,
   };
-  const targetId = digest(JSON.stringify(target));
+  const targetId = hash(JSON.stringify(target));
   await writeFile(`${prefix}.target.json`, JSON.stringify({ targetId, ...target }, null, 2), {
     flag: 'wx',
   });
@@ -822,7 +818,7 @@ function summarizeReviews(state: State) {
 async function requirementsChanged(config: ReviewConfig, state: State) {
   const currentIssue = await readIssue(config);
   await revisionUnchanged(config, currentIssue);
-  return digest(currentIssue) !== state.issueHash;
+  return hash(currentIssue) !== state.issueHash;
 }
 
 async function repairOutcome(
@@ -838,9 +834,7 @@ async function repairOutcome(
     return 'invalid_repair';
   }
   if (value.status === 'needs_host') {
-    state.source = observedFiles
-      ? digest(JSON.stringify(observedFiles))
-      : await snapshot(config.cwd);
+    state.source = observedFiles ? hash(JSON.stringify(observedFiles)) : await snapshot(config.cwd);
     return 'host_verification_required';
   }
   if (value.status === 'needs_human') {
@@ -853,10 +847,8 @@ async function repairOutcome(
       attempt: state.repair,
       prefix: resolve(config.runDir, `repair-${state.repair}`),
       sourceBefore: state.source,
-      sourceAfter: observedFiles
-        ? digest(JSON.stringify(observedFiles))
-        : await snapshot(config.cwd),
-      stdoutHash: digest(stdout),
+      sourceAfter: observedFiles ? hash(JSON.stringify(observedFiles)) : await snapshot(config.cwd),
+      stdoutHash: hash(stdout),
     },
   ];
 }
@@ -956,7 +948,7 @@ async function targetChange(
 ): Promise<StopReason | null> {
   const issue = await readIssue(config);
   await revisionUnchanged(config, issue);
-  if (digest(issue) !== state.issueHash) {
+  if (hash(issue) !== state.issueHash) {
     return 'requirements_changed';
   }
   const manifest: Record<string, string> | undefined = state.testRecords?.length ? {} : undefined;
@@ -1396,7 +1388,7 @@ async function stoppedState(
 ): Promise<State> {
   const manifest: Record<string, string> | undefined = state.testRecords?.length ? {} : undefined;
   const unchanged =
-    state.issueHash === digest(issue) && state.source === (await snapshot(config.cwd, manifest));
+    state.issueHash === hash(issue) && state.source === (await snapshot(config.cwd, manifest));
   if (unchanged) {
     await verifyTestArtifacts(config.cwd, state.testRecords ?? [], manifest, observation);
   }
@@ -1419,7 +1411,7 @@ async function execute(
       throw error;
     }
   }
-  const configHash = digest(JSON.stringify(config));
+  const configHash = hash(JSON.stringify(config));
   if (state && state.configHash !== configHash) {
     throw Error('Run configuration changed; preserve the existing run');
   }
@@ -1452,7 +1444,7 @@ async function execute(
     baseCommit: base,
     reviewHistory: [],
     configHash,
-    issueHash: digest(issue),
+    issueHash: hash(issue),
     repair: 0,
     review: 0,
     checks: 0,

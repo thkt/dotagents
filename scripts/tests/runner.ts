@@ -30,10 +30,32 @@ export function checkReport(runner: 'bun' | 'playwright', text: string) {
   assert(skipped === 0, `Unexecuted tests or invalid skipped count: ${String(skipped)}`);
 }
 
+// commitなどが切り離して起動する自動maintenanceは、終了後もobjects/maintenance.lockを保持します。
+// その間にverifyGitLocksが走ると、テストのGitリポジトリが断続的に拒否されます。
+export function withoutAutoMaintenance(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const count = Number(env.GIT_CONFIG_COUNT ?? 0);
+  assert(
+    Number.isInteger(count) && count >= 0,
+    `Invalid GIT_CONFIG_COUNT: ${env.GIT_CONFIG_COUNT}`,
+  );
+  return {
+    ...env,
+    GIT_CONFIG_COUNT: String(count + 2),
+    [`GIT_CONFIG_KEY_${count}`]: 'maintenance.auto',
+    [`GIT_CONFIG_VALUE_${count}`]: 'false',
+    [`GIT_CONFIG_KEY_${count + 1}`]: 'gc.auto',
+    [`GIT_CONFIG_VALUE_${count + 1}`]: '0',
+  };
+}
+
 async function execute(executable: string, args: string[], report: string) {
   const child = spawn(executable, args, {
     stdio: 'inherit',
-    env: { ...process.env, CI: 'true', PLAYWRIGHT_JSON_OUTPUT_FILE: report },
+    env: withoutAutoMaintenance({
+      ...process.env,
+      CI: 'true',
+      PLAYWRIGHT_JSON_OUTPUT_FILE: report,
+    }),
   });
   let interrupted = false;
   const forward = (signal: NodeJS.Signals) => {
