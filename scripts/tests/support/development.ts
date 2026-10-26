@@ -30,8 +30,11 @@ export const mediaCapture = {
   required: false,
 };
 
+// 時間切れのテストはfinallyのmockRestoreより先に次のテストへ進むため、fixture作成時の
+// commandは差し替え済みのことがある。読込時の本物を委譲先にし、観測が自分自身を呼ぶのを防ぐ。
+const originalCommand = processModule.command;
+
 async function developmentFixture(root: string, overrides: Partial<typeof targetConfig>) {
-  const execute = processModule.command;
   const repo = join(root, 'repo');
   const dir = join(root, 'run');
   const settings = {
@@ -146,7 +149,7 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
     summary,
     args: [`https://github.com/${settings.repository}/issues/99`, '--repo', repo, '--run-dir', dir],
     // Overrides are the actual IO boundaries; individual tests own fault injection.
-    localCommand: command,
+    localCommand: originalCommand,
     async observationCommand(this: void, ...args: Parameters<typeof command>) {
       const [argv, cwd] = args;
       if (cwd === root || cwd.startsWith(`${root}/`)) {
@@ -155,7 +158,7 @@ async function developmentFixture(root: string, overrides: Partial<typeof target
           return response;
         }
       }
-      return execute(...args);
+      return originalCommand(...args);
     },
     async test(
       this: void,
@@ -388,7 +391,8 @@ export function testDevelopment(
   name: string,
   run: (fixture: DevelopmentFixture) => Promise<void>,
   settings: Partial<typeof targetConfig> = {},
-  timeout?: number,
+  // 単独でも1件3秒台かかり、並列実行の負荷でbun既定の5秒を超えるため、重いテストと同じ上限にする。
+  timeout = 60000,
 ) {
   test(
     `development ${name}`,
