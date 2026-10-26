@@ -1,15 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { randomUUID } from 'node:crypto';
 import type { Config, State } from './input.ts';
 import type { ReviewReturn } from './host-records.ts';
-import { readReference } from './host-records.ts';
 import {
-  modes,
-  includeReferenceModes,
+  observeInNewDirectory,
   observeInterruption,
   observeInterruptedProcess,
+  sealRun,
+  verifySealedRun,
 } from './interrupted-records.ts';
 import { reconcileExecutions } from './execution-history.ts';
 
@@ -50,22 +48,17 @@ export async function prepareCheckTimeout(input: {
   await input.text('verification/check-1.stdout');
   await input.text('verification/check-1.stderr');
   await reconcileExecutions({ previousRun: dir, runDirectory: input.runDirectory }, config.cwd);
-  const directory = join(dirname(input.runDirectory), `check-timeout-observation-${randomUUID()}`);
-  await mkdir(directory, { mode: 0o700 });
-  const observations = await observeInterruption(
+  const observations = await observeInNewDirectory(
+    'check-timeout',
     { previousRun: dir, branch: input.branch },
     config,
-    directory,
     input.runDirectory,
     '--check-timeout-run',
   );
   return {
     version: 1 as const,
     state: await input.text('verification/state.json'),
-    modes: await includeReferenceModes(await modes(dir), [
-      ...input.references,
-      ...observations.map((ref) => ref.path),
-    ]),
+    modes: await sealRun(dir, input.references, observations),
     observations,
   };
 }
@@ -79,18 +72,7 @@ export async function verifyCheckTimeout(
 ) {
   const record = input.checkTimeout;
   assert(record);
-  assert(
-    JSON.stringify(
-      await includeReferenceModes(
-        await modes(input.previousRun),
-        record.modes.map((ref) => ref.path),
-      ),
-    ) === JSON.stringify(record.modes),
-    '旧時間切れrunのモード・記録一覧が変わりました',
-  );
-  for (const ref of record.observations) {
-    await readReference(ref);
-  }
+  await verifySealedRun(input.previousRun, record, '旧時間切れrunのモード・記録一覧が変わりました');
   if (entryObservation) {
     // 同一受付で直前に得た観測だけを共有し、工程境界の再観測は省略しない。
     assert(!published && entryObservation === record, '受付内の観測対象が一致しません');
