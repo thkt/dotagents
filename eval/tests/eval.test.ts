@@ -32,10 +32,6 @@ const cases = [
     criteria: ['公開の判定基準'],
   },
 ];
-function validatePlan(input: Parameters<typeof validateInputFiles>[0], selected: typeof cases) {
-  validateInputFiles(input);
-  return selected;
-}
 async function preparePlan(repo: string, input: Parameters<typeof prepareInputs>[1]) {
   validateInputFiles(input);
   return prepareInputs(
@@ -57,7 +53,7 @@ test('共通指示の許可は文書に限定し、課題・評価情報・秘�
     'README.md',
     'scripts/README.md',
   ]) {
-    expect(validatePlan(instructions(path), cases)).toEqual(cases);
+    expect(() => validateInputFiles(instructions(path))).not.toThrow();
   }
   for (const path of [
     'eval/eval.ts',
@@ -67,7 +63,7 @@ test('共通指示の許可は文書に限定し、課題・評価情報・秘�
     'evals/answers.md',
     '.agents/AGENTS.md',
   ]) {
-    expect(() => validatePlan(instructions(path), cases)).toThrow('host-only');
+    expect(() => validateInputFiles(instructions(path))).toThrow('host-only');
   }
   for (const path of [
     'skills/references/.env',
@@ -75,7 +71,7 @@ test('共通指示の許可は文書に限定し、課題・評価情報・秘�
     'skills/references/credentials/guide.md',
     'skills/references/config.toml',
   ]) {
-    expect(() => validatePlan(instructions(path), cases)).toThrow('credentials');
+    expect(() => validateInputFiles(instructions(path))).toThrow('credentials');
   }
   for (const path of [
     'scripts/implement/review.ts',
@@ -84,10 +80,10 @@ test('共通指示の許可は文書に限定し、課題・評価情報・秘�
     'docs/research/expected.md',
     'docs/wiki/arbitrary.md',
   ]) {
-    expect(() => validatePlan(instructions(path), cases)).toThrow('Unsupported instruction');
+    expect(() => validateInputFiles(instructions(path))).toThrow('Unsupported instruction');
   }
   expect(() =>
-    validatePlan({ ...instructions('README.md'), workspaceFiles: ['README.md'] }, cases),
+    validateInputFiles({ ...instructions('README.md'), workspaceFiles: ['README.md'] }),
   ).toThrow('overlap');
 });
 
@@ -98,8 +94,10 @@ for (const path of [
 ]) {
   test(`初回担当の信頼版コード${path}を共通workspaceへ移して指示比較を迂回できない`, () => {
     // 課題側の通常コードは引き続き許可する。
-    expect(validatePlan({ ...config, workspaceFiles: ['src/messages.ts'] }, cases)).toEqual(cases);
-    expect(() => validatePlan({ ...config, workspaceFiles: [path] }, cases)).toThrow();
+    expect(() =>
+      validateInputFiles({ ...config, workspaceFiles: ['src/messages.ts'] }),
+    ).not.toThrow();
+    expect(() => validateInputFiles({ ...config, workspaceFiles: [path] })).toThrow();
   });
 }
 
@@ -130,12 +128,12 @@ test('8課題の追加集合を既存5課題と分離し、採点指示を通常
 });
 
 test('新配置でも課題の通常入力だけを許可し、ホスト用コード・採点情報を拒否する', () => {
-  expect(
-    validatePlan(
-      { ...config, workspaceFiles: ['eval/fixtures/workspace/tests/work-areas.test.ts'] },
-      cases,
-    ),
-  ).toEqual(cases);
+  expect(() =>
+    validateInputFiles({
+      ...config,
+      workspaceFiles: ['eval/fixtures/workspace/tests/work-areas.test.ts'],
+    }),
+  ).not.toThrow();
   for (const path of [
     'eval/eval.ts',
     'eval/README.md',
@@ -144,20 +142,17 @@ test('新配置でも課題の通常入力だけを許可し、ホスト用コ�
     'eval/tests/fixtures/trusted-inputs.json',
     'scripts/tests/eval/task-fixtures.test.ts',
   ]) {
-    expect(() => validatePlan({ ...config, workspaceFiles: [path] }, cases)).toThrow('host-only');
+    expect(() => validateInputFiles({ ...config, workspaceFiles: [path] })).toThrow('host-only');
     expect(() =>
-      validatePlan({ ...config, instructionFiles: [...config.instructionFiles, path] }, cases),
+      validateInputFiles({ ...config, instructionFiles: [...config.instructionFiles, path] }),
     ).toThrow('host-only');
   }
   // 課題用の通常資料でも指示側へ移してA/Bの差に混ぜない。
   expect(() =>
-    validatePlan(
-      {
-        ...config,
-        instructionFiles: [...config.instructionFiles, 'eval/fixtures/workspace/specs.md'],
-      },
-      cases,
-    ),
+    validateInputFiles({
+      ...config,
+      instructionFiles: [...config.instructionFiles, 'eval/fixtures/workspace/specs.md'],
+    }),
   ).toThrow();
 });
 
