@@ -133,7 +133,7 @@ export async function verifyInitialTestReturn(
   runDirectory: string,
   published = false,
   owner?: {
-    entry?: '--host-run' | '--human-decision-run';
+    entry: '--host-run' | '--human-decision-run';
     previousRun: string;
     cwd: string;
     previousRuns?: string[];
@@ -161,7 +161,7 @@ export async function verifyInitialTestReturn(
     cwd: savedTarget.cwd,
     repository: savedTarget.config.repository,
     issue: issueNumber(savedResult.issue, savedTarget.config.repository),
-    ...(owner ? { owner: { ...owner, entry: owner.entry ?? ('--host-run' as const) } } : {}),
+    ...(owner ? { owner } : {}),
   };
   const config = { cwd: input.cwd, review: input.actor, targetText: input.targetText };
   const target = { previousRun: input.previousRun, branch: input.branch };

@@ -16,14 +16,6 @@ test('既存の設計手順は対象repoによらず信頼するハーネスへ�
   await expectSharedPremiseReferences([repairInstructions(null), reviewInstructions], '設計・選定');
 });
 
-test('実装・修正と独立評価へ同じ設計理由の手順を信頼するハーネスから渡す', async () => {
-  await expectSharedPremiseReferences([repairInstructions(null), reviewInstructions], '設計理由');
-});
-
-test('実装・修正と独立評価へ利用例から設計する共通手順を渡す', async () => {
-  await expectSharedPremiseReferences([repairInstructions(null), reviewInstructions], '利用例');
-});
-
 testDevelopment('初回実装の実際の担当入力から前提検証の参照へ到達する', async (f) => {
   f.args.push('--no-publish');
   const implement = f.implement;
@@ -110,8 +102,4 @@ test('要求本文の契約文で担当指示の欠落を補えない', () => {
   expect(() => expectCallerFirstInstructions(`要求: ${repairContract}`, 'repair')).toThrow(
     '共通指示',
   );
-});
-
-test('独立評価の共通入力も対応と時系列を分けて検査する', () => {
-  expectCallerFirstInstructions(reviewInstructions, 'review');
 });

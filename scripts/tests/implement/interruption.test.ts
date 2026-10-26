@@ -26,7 +26,8 @@ afterEach(async () => {
   }
 });
 
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+// SIGINTとSIGTERMは同じ中断ハンドラへ届くため、各条件は片方のシグナルで検査し、両方の登録はファイル全体で確認する。
+for (const signal of ['SIGINT'] as const) {
   for (const boundary of ['active', 'completed', 'terminal', 'release-failure'] as const) {
     test(`${signal} at ${boundary} verification preserves interruption and reservation`, async () => {
       const t = await trial('normal');
@@ -101,7 +102,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   }
 }
 
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+for (const signal of ['SIGTERM'] as const) {
   for (const boundary of ['active', 'terminal', 'release-failure'] as const) {
     test(`${signal} at ${boundary} retains previous state when interruption save fails`, async () => {
       const t = await trial('normal');
@@ -191,7 +192,7 @@ test('normal terminal save excludes another verification through synchronous loc
   await assert.rejects(() => fs.access(lock), { code: 'ENOENT' });
 });
 
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+for (const signal of ['SIGINT'] as const) {
   test(`${signal} preserves exclusion throughout interruption state update`, async () => {
     const t = await trial('normal');
     await fs.writeFile(join(t.config.cwd, 'source.txt'), 'correct');
@@ -225,53 +226,55 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     expect(excluded).toBe(true);
     expect((await t.state()).result).toBe('interrupted');
   });
+}
 
-  for (const mode of ['stopped', 'rejected'] as const) {
-    test(`${signal} at failed lock release preserves ${mode} original record`, async () => {
-      const realOutput = signal === 'SIGINT' && mode === 'stopped';
-      const t = await terminalRecord(realOutput);
-      const path = join(t.config.runDir, 'state.json');
-      const original = await fs.readFile(path, 'utf8');
-      const files = (await fs.readdir(t.config.runDir)).sort();
-      // 直接準備した記録も正常に読めることを、障害注入前の同じrunで確認する。
-      expect((await withInterrupts(() => run(t.config))).result).toBe(
-        realOutput ? 'ready_for_human_review' : 'check_failed',
-      );
-      expect(await fs.readFile(path, 'utf8')).toBe(original);
-      const finiteBudget = t.config.checkTimeMs;
-      assert(typeof finiteBudget === 'number');
-      const config =
-        mode === 'rejected' ? { ...t.config, checkTimeMs: finiteBudget + 1 } : t.config;
-      const rmdir = syncFs.rmdirSync;
-      let injected = false;
-      const hook = spyOn(syncFs, 'rmdirSync').mockImplementation((...args) => {
-        if (args[0] === join(t.config.runDir, 'lock')) {
-          injected = true;
-          process.emit(signal);
-          throw Error('injected lock release failure');
-        }
-        rmdir(...args);
-      });
-      try {
-        await assert.rejects(
-          () => withInterrupts(() => run(config)),
-          new RegExp(
-            mode === 'rejected'
-              ? 'Run configuration changed.*injected lock release failure'
-              : 'injected lock release failure',
-          ),
-        );
-      } finally {
-        hook.mockRestore();
+for (const [signal, mode] of [
+  ['SIGINT', 'stopped'],
+  ['SIGTERM', 'rejected'],
+] as const) {
+  test(`${signal} at failed lock release preserves ${mode} original record`, async () => {
+    const realOutput = mode === 'stopped';
+    const t = await terminalRecord(realOutput);
+    const path = join(t.config.runDir, 'state.json');
+    const original = await fs.readFile(path, 'utf8');
+    const files = (await fs.readdir(t.config.runDir)).sort();
+    // 直接準備した記録も正常に読めることを、障害注入前の同じrunで確認する。
+    expect((await withInterrupts(() => run(t.config))).result).toBe(
+      realOutput ? 'ready_for_human_review' : 'check_failed',
+    );
+    expect(await fs.readFile(path, 'utf8')).toBe(original);
+    const finiteBudget = t.config.checkTimeMs;
+    assert(typeof finiteBudget === 'number');
+    const config = mode === 'rejected' ? { ...t.config, checkTimeMs: finiteBudget + 1 } : t.config;
+    const rmdir = syncFs.rmdirSync;
+    let injected = false;
+    const hook = spyOn(syncFs, 'rmdirSync').mockImplementation((...args) => {
+      if (args[0] === join(t.config.runDir, 'lock')) {
+        injected = true;
+        process.emit(signal);
+        throw Error('injected lock release failure');
       }
-      expect(injected).toBe(true);
-      expect(await fs.readFile(path, 'utf8')).toBe(original);
-      expect(syncFs.existsSync(join(t.config.runDir, 'lock'))).toBe(true);
-      expect((await fs.readdir(t.config.runDir)).filter((name) => name !== 'lock').sort()).toEqual(
-        files,
-      );
+      rmdir(...args);
     });
-  }
+    try {
+      await assert.rejects(
+        () => withInterrupts(() => run(config)),
+        new RegExp(
+          mode === 'rejected'
+            ? 'Run configuration changed.*injected lock release failure'
+            : 'injected lock release failure',
+        ),
+      );
+    } finally {
+      hook.mockRestore();
+    }
+    expect(injected).toBe(true);
+    expect(await fs.readFile(path, 'utf8')).toBe(original);
+    expect(syncFs.existsSync(join(t.config.runDir, 'lock'))).toBe(true);
+    expect((await fs.readdir(t.config.runDir)).filter((name) => name !== 'lock').sort()).toEqual(
+      files,
+    );
+  });
 }
 
 // 終端読取りへの実出力接続は1件残し、他は各checkoutに対応する記録だけを準備する。
@@ -306,7 +309,7 @@ async function terminalRecord(realOutput: boolean) {
   return t;
 }
 
-for (const signal of [null, 'SIGINT', 'SIGTERM'] as const) {
+for (const signal of [null, 'SIGINT'] as const) {
   test(`output storage failure with ${signal ?? 'no interruption'} retains acquired output and reservation`, async () => {
     const t = await trial('normal');
     await fs.writeFile(join(t.config.cwd, 'source.txt'), 'correct');
@@ -368,7 +371,7 @@ test('lock release failure without interruption preserves success and lock', asy
   await assert.rejects(() => run(t.config), { code: 'EEXIST' });
 });
 
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+for (const signal of ['SIGTERM'] as const) {
   test(`${signal} retains output storage error when interruption state storage also fails`, async () => {
     const t = await trial('normal');
     await fs.writeFile(join(t.config.cwd, 'source.txt'), 'correct');
