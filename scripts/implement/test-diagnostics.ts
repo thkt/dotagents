@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { hash } from './record-observation.ts';
 import { readFile, writeFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { parseReview } from './review.ts';
@@ -7,7 +7,6 @@ import type { Review } from './review.ts';
 import type { State } from './input.ts';
 import { isRecord } from '../shared/values.ts';
 
-const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const targetShape = z
   .object({
     targetId: z.string(),

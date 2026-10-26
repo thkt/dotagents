@@ -7,7 +7,8 @@ import { assertState } from './input.ts';
 import type { State } from './input.ts';
 import { parseRunResult } from './run-result.ts';
 import type { SelectedRun, Selection } from './usage-input.ts';
-import { hash, readUsageEvents, sumUsage } from './usage-events.ts';
+import { hash } from './record-observation.ts';
+import { readUsageEvents, sumUsage } from './usage-events.ts';
 import { isRecord } from '../shared/values.ts';
 
 const nonnegative = z.number().nonnegative();

@@ -44,33 +44,17 @@ function processStart(text: string) {
 }
 
 function processRows(stdout: string) {
-  const rows = [];
-  const pids = new Set<number>();
-  for (const line of stdout.split('\n').filter((value) => value.trim())) {
+  return initialProcessRows(stdout).map((row) => {
     const match =
-      /^\s*(\d+)\s+(\d+)\s+((?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.+)$/.exec(
-        line,
+      /^((?:Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.+)$/.exec(
+        row.command,
       );
     assert(match, 'プロセス観測にPID・親PID・開始時刻・commandの列がありません');
-    const pid = Number(match[1]);
-    const parent = Number(match[2]);
-    assert(
-      Number.isSafeInteger(pid) &&
-        pid > 0 &&
-        Number.isSafeInteger(parent) &&
-        parent >= 0 &&
-        pid !== parent &&
-        !pids.has(pid),
-      'プロセス観測のPID・親PIDが不正または矛盾しています',
-    );
-    pids.add(pid);
-    const started = match[3];
-    const command = match[4]?.trim();
+    const started = match[1];
+    const command = match[2]?.trim();
     assert(started && command, 'プロセス観測の開始時刻・commandがありません');
-    rows.push({ pid, parent, startedAt: processStart(started), command });
-  }
-  assert(rows.length > 0, 'プロセス一覧が空で照合できません');
-  return rows;
+    return { ...row, startedAt: processStart(started), command };
+  });
 }
 
 export async function verifyInterruptedProcesses(

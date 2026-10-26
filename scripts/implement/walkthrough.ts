@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { hash } from './record-observation.ts';
 import { lstat, readFile } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
@@ -42,7 +42,6 @@ export const savedWalkthrough = z.strictObject({
 });
 export type WalkthroughSteps = z.infer<typeof walkthroughSteps>;
 export type SavedWalkthrough = z.infer<typeof savedWalkthrough>;
-const hash = (content: string | Buffer) => createHash('sha256').update(content).digest('hex');
 
 export function validateWalkthrough(
   steps: WalkthroughSteps,
