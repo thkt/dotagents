@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { verifyInitialTestActor } from './initial-test-actor.ts';
-import { readFile, realpath, lstat } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { dirname, join, resolve, isAbsolute } from 'node:path';
 import { z } from 'zod';
 import {
@@ -14,7 +14,7 @@ import {
   testReplyShape,
   verifyTestBaseline,
 } from './test-author.ts';
-import { hash } from './record-observation.ts';
+import { hash, recordText } from './record-observation.ts';
 import { assertReportReferences } from './input.ts';
 import { command } from '../shared/process.ts';
 import { isRecord } from '../shared/values.ts';
@@ -62,11 +62,7 @@ export async function previousTestRun(input: {
     '新runは旧runと同じ親の別保存先が必要です',
   );
   const records = await initialTestRecords(dir);
-  const text = async (name: string) => {
-    const path = join(dir, name);
-    assert((await lstat(path)).isFile(), '旧runの原記録は通常ファイルが必要です');
-    return readFile(path, 'utf8');
-  };
+  const text = (name: string) => recordText(join(dir, name));
   const result: unknown = JSON.parse(await text('result.json'));
   assert(isRecord(result), '旧runの結果が不正です');
   assert(
