@@ -2,7 +2,7 @@ import { verifyLocalPublication } from './local-publication-records.ts';
 import assert from 'node:assert/strict';
 import { readFile, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
+import { hash } from './record-observation.ts';
 import { assertPreviousConfig, assertState } from './input.ts';
 import type { Revision } from './input.ts';
 import { isRecord } from '../shared/values.ts';
@@ -17,7 +17,6 @@ import { hasExecutionLock, reconcileExecutions } from './execution-history.ts';
 
 export { reconcileExecutions } from './execution-history.ts';
 
-const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 async function json(path: string): Promise<unknown> {
   return JSON.parse(await readFile(path, 'utf8'));
 }

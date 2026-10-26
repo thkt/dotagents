@@ -4,11 +4,10 @@ import { researchContext } from './research-handoff.ts';
 import type { ReportReference } from './input.ts';
 import type { TestDiagnostic } from './test-diagnostics.ts';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { cp, mkdir, readFile, writeFile, lstat, realpath, rm, readlink } from 'node:fs/promises';
 import { dirname, resolve, isAbsolute } from 'node:path';
 import { z } from 'zod';
-import type { RecordObservation } from './record-observation.ts';
+import { hash, type RecordObservation } from './record-observation.ts';
 import { command } from '../shared/process.ts';
 import { outside } from '../shared/values.ts';
 
@@ -55,7 +54,6 @@ async function readTestRecord(path: string, observation?: RecordObservation) {
   const content = await readFile(path);
   return { content, sha256: hash(content) };
 }
-const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const isTestArtifact = (path: string) =>
   /(?:^|\/)(?:tests?|__tests__|fixtures?)(?:\/)|\.(?:test|spec)\./.test(path);
 
