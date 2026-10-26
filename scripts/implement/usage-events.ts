@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { isRecord } from '../shared/values.ts';
 import { addTokenUsage, parseTokenUsage } from '../shared/token-usage.ts';
 import type { TokenUsage } from '../shared/token-usage.ts';
+import { hash } from './record-observation.ts';
 
 export type Usage = TokenUsage;
-export const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
 export function sumUsage(values: Usage[]): Usage | null {
   if (!values.length) {

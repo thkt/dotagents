@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { parseSelection } from './usage-input.ts';
 import { readRun } from './usage-records.ts';
-import { hash, sumUsage } from './usage-events.ts';
+import { hash } from './record-observation.ts';
+import { sumUsage } from './usage-events.ts';
 
 export async function aggregateUsage(value: unknown, base: string) {
   const selection = parseSelection(value);
