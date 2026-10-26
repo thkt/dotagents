@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import assert from 'node:assert/strict';
-import { checkReport } from '../runner.ts';
+import { checkReport, withoutAutoMaintenance } from '../runner.ts';
 import { isRecord } from '../../shared/values.ts';
 import { cp, mkdtemp, mkdir, writeFile, readFile, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -71,6 +71,55 @@ test('通常とevalのpackage入口はそれぞれのテストだけをJUnit run
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
+});
+
+test('package入口から起動したテストのcommitは自動maintenanceのlockを残さない', async () => {
+  const cwd = await commandFixture();
+  try {
+    await commandProbe(cwd, 'eval/tests', 'EVAL_SUITE', true);
+    await writeFile(
+      join(cwd, 'scripts/tests', 'probe.test.js'),
+      `import { test, expect } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+const git = (cwd, ...argv) => spawnSync('git', argv, { cwd, encoding: 'utf8' }).stdout.trim();
+test('probe', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'maintenance-probe-'));
+  git(repo, 'init', '-q');
+  expect([git(repo, 'config', 'maintenance.auto'), git(repo, 'config', 'gc.auto')]).toEqual(['false', '0']);
+  for (let i = 0; i < 10; i++) {
+    writeFileSync(join(repo, 'file'), String(i));
+    git(repo, 'add', 'file');
+    git(repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', String(i));
+    expect(existsSync(join(repo, '.git/objects/maintenance.lock'))).toBe(false);
+  }
+});`,
+    );
+    const result = runCommand(cwd, 'test:control');
+    expect(result.code, result.output).toBe(0);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('自動maintenanceの無効化は既存のGIT_CONFIG指定を残して後ろへ追加する', () => {
+  const env = withoutAutoMaintenance({
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'core.autocrlf',
+    GIT_CONFIG_VALUE_0: 'false',
+  });
+  expect(env).toMatchObject({
+    GIT_CONFIG_COUNT: '3',
+    GIT_CONFIG_KEY_0: 'core.autocrlf',
+    GIT_CONFIG_VALUE_0: 'false',
+    GIT_CONFIG_KEY_1: 'maintenance.auto',
+    GIT_CONFIG_VALUE_1: 'false',
+    GIT_CONFIG_KEY_2: 'gc.auto',
+    GIT_CONFIG_VALUE_2: '0',
+  });
+  expect(() => withoutAutoMaintenance({ GIT_CONFIG_COUNT: '-1' })).toThrow('GIT_CONFIG_COUNT');
 });
 
 test('総合checkは通常とevalを実行し、evalの失敗を成功へ変換しない', async () => {
