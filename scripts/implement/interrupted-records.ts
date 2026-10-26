@@ -24,7 +24,7 @@ export { cliArgument } from './interrupted-processes.ts';
 
 type Interruption = NonNullable<ReviewReturn['interruption']>;
 
-export async function modes(dir: string): Promise<Interruption['modes']> {
+async function modes(dir: string): Promise<Interruption['modes']> {
   const result: Interruption['modes'] = [{ path: dir, mode: (await lstat(dir)).mode }];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     if (entry.name === 'checkout' || entry.name.endsWith('-workspace')) {
@@ -44,7 +44,7 @@ export async function modes(dir: string): Promise<Interruption['modes']> {
   return result;
 }
 
-export async function includeReferenceModes(initial: Interruption['modes'], paths: string[]) {
+async function includeReferenceModes(initial: Interruption['modes'], paths: string[]) {
   const result = new Map(initial.map((entry) => [entry.path, entry]));
   for (const path of new Set(paths)) {
     if (!result.has(path)) {
@@ -52,6 +52,36 @@ export async function includeReferenceModes(initial: Interruption['modes'], path
     }
   }
   return [...result.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+export async function sealRun(
+  previousRun: string,
+  references: string[],
+  observations: Interruption['observations'],
+) {
+  return includeReferenceModes(await modes(previousRun), [
+    ...references,
+    ...observations.map((ref) => ref.path),
+  ]);
+}
+
+export async function verifySealedRun(
+  previousRun: string,
+  record: Pick<Interruption, 'modes' | 'observations'>,
+  message: string,
+) {
+  assert(
+    JSON.stringify(
+      await includeReferenceModes(
+        await modes(previousRun),
+        record.modes.map((ref) => ref.path),
+      ),
+    ) === JSON.stringify(record.modes),
+    message,
+  );
+  for (const ref of record.observations) {
+    await readReference(ref);
+  }
 }
 
 async function observe(argv: string[], cwd: string, directory: string) {
@@ -137,6 +167,18 @@ export async function observeInterruptedProcess(
       : {}),
   });
   return ps.ref;
+}
+
+export async function observeInNewDirectory(
+  kind: 'interrupted' | 'check-timeout',
+  input: Pick<ReviewReturn, 'previousRun' | 'branch'>,
+  config: Config,
+  runDirectory: string,
+  entry?: InterruptedEntry,
+) {
+  const directory = join(dirname(runDirectory), `${kind}-observation-${randomUUID()}`);
+  await mkdir(directory, { mode: 0o700 });
+  return observeInterruption(input, config, directory, runDirectory, entry);
 }
 
 export async function observeInterruption(
@@ -293,12 +335,10 @@ export async function prepareInterruption(input: {
     );
   }
   await reconcileExecutions({ previousRun: dir, runDirectory: input.runDirectory }, input.cwd, dir);
-  const directory = join(dirname(input.runDirectory), `interrupted-observation-${randomUUID()}`);
-  await mkdir(directory, { mode: 0o700 });
-  const observations = await observeInterruption(
+  const observations = await observeInNewDirectory(
+    'interrupted',
     { previousRun: dir, branch: input.branch },
     config,
-    directory,
     input.runDirectory,
   );
   // 原state自体を保持し、予約・計上済み時間と今回分を分離する。不明量をゼロにしない。
@@ -316,12 +356,11 @@ export async function prepareInterruption(input: {
     version: 1,
     oldSource: state.source,
     state: await input.text('verification/state.json'),
-    modes: await includeReferenceModes(await modes(dir), [
-      ...input.runtimePaths,
-      ...(prior?.references ?? []),
-      ...(evidence?.references ?? []),
-      ...observations.map((ref) => ref.path),
-    ]),
+    modes: await sealRun(
+      dir,
+      [...input.runtimePaths, ...(prior?.references ?? []), ...(evidence?.references ?? [])],
+      observations,
+    ),
     observations,
     ...(evidence ? { evidence: evidence.reference } : {}),
     unknown: '中断区間の時間・usageは未記録。累計は記録済み量の下限',
@@ -331,18 +370,7 @@ export async function prepareInterruption(input: {
 export async function verifyInterruption(input: ReviewReturn, cwd: string, runDirectory: string) {
   const record = input.interruption;
   assert(record);
-  assert(
-    JSON.stringify(
-      await includeReferenceModes(
-        await modes(input.previousRun),
-        record.modes.map((ref) => ref.path),
-      ),
-    ) === JSON.stringify(record.modes),
-    '旧中断runのモード・記録一覧が変化しました',
-  );
-  for (const ref of record.observations) {
-    await readReference(ref);
-  }
+  await verifySealedRun(input.previousRun, record, '旧中断runのモード・記録一覧が変化しました');
   if (record.evidence) {
     assert(
       JSON.stringify(
