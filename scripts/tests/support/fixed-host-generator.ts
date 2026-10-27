@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import { mkdir, readFile, symlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { command } from '../../shared/process.ts';
 import { z } from 'zod';
+
+const require = createRequire(import.meta.url);
 
 // ホスト提供の固定入力。#430の実装でも受入記録でもなく、合成祖先の生成だけに使う。
 // source: 1a3cb85fee42f16e4490935b77a43adb37a1b0eea370b8cf16da44c3920b4ffa
@@ -32,42 +35,36 @@ export async function fixedHostGenerator(root: string, version: '428' | '430' = 
   await mkdir(directory);
   const result = await command(['tar', '-xzf', archive.pathname, '-C', directory], root, '', 10000);
   assert.equal(result.code, 0, result.stderr);
-  // 開発ツールの移行でlockfile全体は変わる。実行時依存の宣言と解決結果を照合する。
-  const manifest = (path: string | URL) =>
-    readFile(path, 'utf8').then(
-      (raw) =>
-        z.object({ dependencies: z.record(z.string(), z.string()) }).parse(JSON.parse(raw))
-          .dependencies,
-    );
-  const dependencies = await manifest(join(directory, 'package.json'));
-  assert.deepEqual(dependencies, await manifest(new URL('../../../package.json', import.meta.url)));
+  // 現行Zodの更新が旧producerの入力を変えないよう、fixture専用aliasで旧実体を用意する。
+  const fixtureZodManifest = require.resolve('zod-host-fixture/package.json');
+  const dependencies = z
+    .object({ dependencies: z.record(z.string(), z.string()) })
+    .parse(JSON.parse(await readFile(join(directory, 'package.json'), 'utf8'))).dependencies;
   const fixedLock = await readFile(join(directory, 'bun.lock'), 'utf8');
   const currentLock = await readFile(new URL('../../../bun.lock', import.meta.url), 'utf8');
-  for (const name of Object.keys(dependencies)) {
+  const modules = join(directory, 'node_modules');
+  await mkdir(modules);
+  for (const [name, dependencyVersion] of Object.entries(dependencies)) {
+    const installedName = name === 'zod' ? 'zod-host-fixture' : name;
     const prefix = `${JSON.stringify(name)}: [`;
+    const installedPrefix = `${JSON.stringify(installedName)}: [`;
     const fixed = fixedLock.split('\n').find((line) => line.trimStart().startsWith(prefix));
-    const current = currentLock.split('\n').find((line) => line.trimStart().startsWith(prefix));
+    const current = currentLock
+      .split('\n')
+      .find((line) => line.trimStart().startsWith(installedPrefix));
     assert(fixed && current, `実行時依存の解決記録がありません: ${name}`);
-    assert.equal(current.trim(), fixed.trim(), `実行時依存の解決結果が変化しました: ${name}`);
+    assert.equal(
+      current.trim().replace(installedPrefix, prefix),
+      fixed.trim(),
+      `実行時依存の解決結果が変化しました: ${name}`,
+    );
+    const manifestPath =
+      name === 'zod' ? fixtureZodManifest : require.resolve(`${name}/package.json`);
+    const installed = z
+      .object({ version: z.string() })
+      .parse(JSON.parse(await readFile(manifestPath, 'utf8')));
+    assert.equal(installed.version, dependencyVersion, `実行時依存の実体が変化しました: ${name}`);
+    await symlink(dirname(manifestPath), join(modules, name));
   }
-  if (version === '430') {
-    for (const [name, version] of Object.entries(dependencies)) {
-      const installed = z
-        .object({ version: z.string() })
-        .parse(
-          JSON.parse(
-            await readFile(
-              new URL(`../../../node_modules/${name}/package.json`, import.meta.url),
-              'utf8',
-            ),
-          ),
-        );
-      assert.equal(installed.version, version, `実行時依存の実体が変化しました: ${name}`);
-    }
-  }
-  await symlink(
-    new URL('../../../node_modules', import.meta.url).pathname,
-    join(directory, 'node_modules'),
-  );
   return directory;
 }
