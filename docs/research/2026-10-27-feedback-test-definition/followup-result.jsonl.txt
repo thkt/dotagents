@@ -1,0 +1,9 @@
+{"kind":"flake","mutant":null,"i":0,"code":0,"pass":15,"fail":0,"ms":6636,"fails":[]}
+{"kind":"flake","mutant":null,"i":1,"code":0,"pass":15,"fail":0,"ms":6947,"fails":[]}
+{"kind":"flake","mutant":null,"i":2,"code":0,"pass":15,"fail":0,"ms":6756,"fails":[]}
+{"kind":"flake","mutant":"M5","i":0,"code":0,"pass":15,"fail":0,"ms":6764,"fails":[]}
+{"kind":"flake","mutant":"M5","i":1,"code":0,"pass":15,"fail":0,"ms":6760,"fails":[]}
+{"kind":"flake","mutant":"M5","i":2,"code":0,"pass":15,"fail":0,"ms":6797,"fails":[]}
+{"kind":"assurance","mutant":"M4","i":null,"code":1,"pass":528,"fail":8,"ms":268233,"fails":["development 復帰入口の全組合せを後続処理の起動前に拒否する","development 保存した実CLIの検証契約を保った新run: accepted","development 保存した実CLIの検証契約を保った新run: invalid","development 保存した実CLIの検証契約を保った新run: change_check","development 保存した実CLIの検証契約を保った新run: change_review","development 公開CLIで初回不正評価から新規検証する: accepted","development 公開CLIで初回不正評価から新規検証する: invalid","development 公開CLIは旧runの稼働プロセスを拒否し、終了後は新規検証する"]}
+{"kind":"assurance","mutant":"M6","i":null,"code":1,"pass":528,"fail":8,"ms":259090,"fails":["CLIの通常入力と同名のローカル変数を許可し、ブラウザー処理もlintできる","development 保存した実CLIの検証契約を保った新run: accepted","development 保存した実CLIの検証契約を保った新run: invalid","development 保存した実CLIの検証契約を保った新run: change_check","development 保存した実CLIの検証契約を保った新run: change_review","development 公開CLIで初回不正評価から新規検証する: accepted","development 公開CLIで初回不正評価から新規検証する: invalid","development 公開CLIは旧runの稼働プロセスを拒否し、終了後は新規検証する"]}
+{"kind":"assurance","mutant":"M9","i":null,"code":1,"pass":527,"fail":9,"ms":268185,"fails":["CLIの通常入力と同名のローカル変数を許可し、ブラウザー処理もlintできる","development 保存した実CLIの検証契約を保った新run: accepted","development 保存した実CLIの検証契約を保った新run: invalid","development 保存した実CLIの検証契約を保った新run: change_check","development 保存した実CLIの検証契約を保った新run: change_review","development 公開CLIで初回不正評価から新規検証する: accepted","development 公開CLIで初回不正評価から新規検証する: invalid","development 公開CLIは旧runの稼働プロセスを拒否し、終了後は新規検証する","正常なgroup終了は取得出力と既知の非zero終了を保存する"]}

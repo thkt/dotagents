@@ -1,0 +1,38 @@
+# 文献の取得記録（2026-10-27取得）
+# 列: ID | 文献 | URL | 読んだ範囲 | 参照した箇所
+# 読んだ範囲は「全文」「本文の一部」「要旨のみ」「目次・見出しのみ」のいずれか。
+# 取得した本文は著作物のため保存していない。取得には scout fetch / scout repo-read を使った。
+
+L1  | Mike Cohn, The Forgotten Layer of the Test Automation Pyramid (2009-12-17) | https://www.mountaingoatsoftware.com/blog/the-forgotten-layer-of-the-test-automation-pyramid | 全文（書籍 Succeeding with Agile は未読） | unit・service・UIの3層、UIテストを最小にする理由
+L2  | Martin Fowler, bliki: TestPyramid | https://martinfowler.com/bliki/TestPyramid.html | 全文 | 本文、注2、end-to-end・UI・customer-facingの直交、second line of defense
+L3  | Martin Fowler, bliki: UnitTest | https://martinfowler.com/bliki/UnitTest.html | 全文 | 共通要素の段落、§ Speed（compile suite・commit suite）
+L4  | Martin Fowler, bliki: DeploymentPipeline | https://martinfowler.com/bliki/DeploymentPipeline.html | 全文 | 第1段落
+L5  | Ham Vocke, The Practical Test Pyramid | https://martinfowler.com/articles/practical-test-pyramid.html | 全文 | § The Test Pyramid、§ Putting Tests Into Your Deployment Pipeline、§ Avoid Test Duplication
+L6  | Kent Beck, Test Desiderata | https://testdesiderata.com/ と https://github.com/KentBeck/TestDesiderata/blob/master/index.md | 全文（12性質の一覧ページ。Medium の原論文は403で未読） | 12性質、性質の支え合いと干渉
+L7  | Kent Beck, Programmer Test Principles (2019-06-27) | https://medium.com/@kentbeck_7670/programmer-test-principles-d01c064d7934 | 全文（L6が原論文として挙げる2本の1つ） | § Programmer Tests、Summary
+L8  | Kent Beck, Desirable Unit Tests (2022-01-20) | https://newsletter.kentbeck.com/p/desirable-unit-tests | 全文 | 12性質ごとのunit testの設定
+L9  | Simon Stewart, Test Sizes, Google Testing Blog (2010-12) | https://testing.googleblog.com/2010/12/test-sizes.html | 全文（ページのHTMLは本文を抽出できず、同ブログのRSSから本文を取得） | 資源と時間上限の表
+L10 | Mike Wacker, Just Say No to More End-to-End Tests, Google Testing Blog (2015-04-22) | https://testing.googleblog.com/2015/04/just-say-no-to-more-end-to-end-tests.html | 全文（RSSから取得） | § Building the Right Feedback Loop、§ Testing Pyramid
+L11 | Software Engineering at Google, 11章 Testing Overview | https://abseil.io/resources/swe-book/html/ch11.html | 全文 | § Why Do We Write Tests?、§ Test Size、§ Test Scope、§ A Note on Code Coverage
+L12 | 同 12章 Unit Testing | https://abseil.io/resources/swe-book/html/ch12.html | 全文 | 冒頭の利点、§ Preventing Brittle Tests、§ Test via Public APIs、§ Test Behaviors, Not Methods
+L13 | 同 13章 Test Doubles | https://abseil.io/resources/swe-book/html/ch13.html | 全文 | § Fidelity、§ Real Implementations、§ The Fidelity of Fakes
+L14 | 同 14章 Larger Testing | https://abseil.io/resources/swe-book/html/ch14.html | 全文 | § Fidelity、§ Common Gaps in Unit Tests、§ Why Not Have Larger Tests?、§ Types of Larger Tests
+L15 | Brian Marick, Agile testing directions (2003-08-21, blog "Exploration Through Example") | http://www.exampler.com/old-blog/2003/08/21.1.html | 全文 | § My Agile testing project（business/technology facing、support programming/critique product）
+L16 | Lisa Crispin, Using the Agile Testing Quadrants (2011-11-08) | https://lisacrispin.com/2011/11/08/using-the-agile-testing-quadrants/ | 全文 | 番号が順序を表さないことの記述
+L17 | Gerard Meszaros, xUnit Test Patterns, Goals of Test Automation | http://xunitpatterns.com/Goals%20of%20Test%20Automation.html | 全文（著者が公開したWeb版の章） | § Goals of Test Automation、Bug Repellent、Defect Localization、Safety Net、Repeatable Test
+L18 | Freeman & Pryce, Growing Object-Oriented Software, Guided by Tests | http://growing-object-oriented-software.com/toc.html | 目次・見出しのみ | 1章 Feedback Is the Fundamental Tool、5章 Separate Tests That Measure Progress from Those That Catch Regressions
+L19 | Michael Feathers, A Set of Unit Testing Rules (2005-09-09) | https://www.artima.com/weblogs/viewpost.jsp?thread=126923 | 全文 | unit testでない条件の一覧と理由
+L20 | 和田卓人, 自動テストとテスト駆動開発、その全体像（Software Design 2022年3月号、gihyo.jp 2024年公開） | https://gihyo.jp/article/2024/01/automated-test-and-tdd | 全文 | § 自動テストに必須の性質、§ 自動テストが持つべき性質、§ すぐに発揮される効果、§ 最大の効果は「根拠ある自信」、§ 品質保証としてはもの足りない
+L21 | 和田卓人, Qiita Conference 2023 講演の書き起こし（ログミー） | https://logmi.jp/main/technology/329184 と https://logmi.jp/main/technology/330972 | 全文（媒体による書き起こし） | § より曖昧さの少ない分類「テストサイズ」、§ 短時間でのテスト実行、§ テストサイズに基づくピラミッドの再構築
+L22 | Kent C. Dodds, The Testing Trophy and Testing Classifications | https://kentcdodds.com/blog/the-testing-trophy-and-testing-classifications | 全文 | Static・Unit・Integration・E2Eの分類、確信と時間の投資対効果
+L23 | Kent C. Dodds, Write tests. Not too many. Mostly integration. | https://kentcdodds.com/blog/write-tests | 全文 | 静的解析の位置づけ、§ Mostly integration
+L24 | André Schaffer, Testing of Microservices, Spotify Engineering (2018-01) | https://engineering.atspotify.com/2018/01/testing-of-microservices | 全文 | テストに求める条件、Testing Honeycomb、速さとの交換
+L25 | Vladimir Khorikov, Unit Testing Principles, Practices, and Patterns, 4章 | https://livebook.manning.com/book/unit-testing/chapter-4/v-3 と https://www.sammancoaching.org/learning_hours/test_design/four_pillars_khorikov.html | 目次・見出しのみ（本文は有料。第三者の研修資料の要約を併読） | 四本柱の名前
+L26 | Petrović & Ivanković, State of Mutation Testing at Google (ICSE-SEIP 2018) | https://research.google/pubs/state-of-mutation-testing-at-google/ | 要旨のみ | 差分単位、arid lineの除外
+L27 | Petrović et al., Practical Mutation Testing at Scale (arXiv:2102.11378) | https://arxiv.org/html/2102.11378v2 | 本文の一部（§I〜§II） | §II冒頭、§II-A、§II-C、§II-D、§II-E
+L28 | Petrović et al., Does mutation testing improve testing practices? (ICSE 2021, arXiv:2103.07189) | https://arxiv.org/html/2103.07189v1 | 本文の一部（要旨、§IV-C、§VII） | §IV-C1、§IV-C2、§IV-C3
+L29 | Beller et al., What It Would Take to Use Mutation Testing in Industry—A Study at Facebook (ICSE-SEIP 2021, arXiv:2010.13464) | https://arxiv.org/abs/2010.13464v3 | 要旨のみ | 要旨
+L30 | Meta, Mutation-Guided LLM-based Test Generation (ACH, arXiv:2501.12862) と公式ブログ | https://arxiv.org/abs/2501.12862 と https://engineering.fb.com/2025/09/30/security/llms-are-the-key-to-mutation-testing-and-better-compliance/ | 要旨と公式ブログのみ | 要旨、ブログの5つの障壁
+L31 | PIT, Incremental analysis | https://pitest.org/quickstart/incremental_analysis/ | 全文 | 最適化1〜5と未証明の前提
+L32 | StrykerJS, Incremental | https://stryker-mutator.io/docs/stryker-js/incremental/ | 全文 | § Incremental mode
+L33 | cargo-mutants, Incremental tests of pull requests | https://mutants.rs/pr-diff.html | 全文 | `--in-diff`

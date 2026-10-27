@@ -1,0 +1,11 @@
+// Usage: bun lint-mutant.ts <copyDir> <mutants.json> <id>
+import { readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+const [dir, spec, id] = process.argv.slice(2);
+const mu = JSON.parse(readFileSync(spec, 'utf8')).find((m: any) => m.id === id);
+const path = `${dir}/${mu.file}`; const orig = readFileSync(path, 'utf8');
+writeFileSync(path, orig.replace(mu.from, mu.to));
+try {
+  const r = spawnSync('bunx', ['oxlint', '--deny-warnings', mu.file], { cwd: dir, encoding: 'utf8' });
+  console.log(`${id} oxlint exit=${r.status}\n${(r.stdout + r.stderr).split('\n').filter((l) => /×|!|warning|error|Found/.test(l)).slice(0, 8).join('\n')}`);
+} finally { writeFileSync(path, orig); }

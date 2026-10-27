@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "files": {
+    "scripts/tests/feedback/checks/test-runner-selection.test.ts": 2753,
+    "scripts/tests/feedback/shared/target.test.ts": 1493,
+    "scripts/tests/feedback/checks/test-runner.test.ts": 1067,
+    "scripts/tests/feedback/implement/premise-reference.test.ts": 1035,
+    "scripts/tests/feedback/implement/test-stage.test.ts": 514,
+    "scripts/tests/feedback/implement/host-correction.test.ts": 283,
+    "scripts/tests/feedback/ui/run.test.ts": 253,
+    "scripts/tests/feedback/implement/test-artifacts.test.ts": 220,
+    "scripts/tests/feedback/capture/capture.test.ts": 132,
+    "scripts/tests/feedback/capture/media-io.test.ts": 105,
+    "scripts/tests/feedback/implement/usage.test.ts": 104,
+    "scripts/tests/feedback/implement/ci.test.ts": 89,
+    "scripts/tests/feedback/implement/run-report.test.ts": 57,
+    "scripts/tests/feedback/implement/allocation.test.ts": 31,
+    "scripts/tests/feedback/implement/runtime-history.test.ts": 28,
+    "scripts/tests/feedback/checks/premise-reference.test.ts": 25,
+    "scripts/tests/feedback/implement/usage-contract.test.ts": 24,
+    "scripts/tests/feedback/implement/recovery-option-boundaries.test.ts": 20,
+    "scripts/tests/feedback/checks/test-tiers.test.ts": 17,
+    "scripts/tests/feedback/implement/document-references.test.ts": 15,
+    "scripts/tests/feedback/ui/width-sweep.test.ts": 15,
+    "scripts/tests/feedback/ui/records.test.ts": 13,
+    "scripts/tests/feedback/implement/check-timeout-processes.test.ts": 11,
+    "scripts/tests/feedback/implement/actor-records.test.ts": 5,
+    "scripts/tests/feedback/implement/command-inputs.test.ts": 1
+  }
+}

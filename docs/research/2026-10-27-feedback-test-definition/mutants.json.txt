@@ -1,0 +1,11 @@
+[
+ {"id":"M1","band":"high","file":"scripts/implement/usage.ts","from":"run.retryOf !== null","to":"run.retryOf === null"},
+ {"id":"M2","band":"high","file":"scripts/shared/target.ts","from":"new Set(value.ciChecks).size === value.ciChecks.length","to":"true"},
+ {"id":"M3","band":"high","file":"scripts/implement/run-report.ts","from":"path.startsWith('/tmp/') || path.startsWith('/private/tmp/')","to":"path.startsWith('/tmp/')"},
+ {"id":"M4","band":"mid-covered","file":"scripts/implement/orchestrator.ts","from":"recoveryEntries.filter((name) => parsed.values[name]).length <= 1","to":"recoveryEntries.filter((name) => parsed.values[name]).length <= 2"},
+ {"id":"M5","band":"mid-uncovered","file":"scripts/implement/orchestrator.ts","from":"!parsed.values['review-run'] ||","to":"true ||"},
+ {"id":"M6","band":"low","file":"scripts/implement/correction.ts","from":"assert(source === (await snapshot(cwd)), 'Source changed while preserving deliverables');","to":"assert(true || source === (await snapshot(cwd)), 'Source changed while preserving deliverables');"},
+ {"id":"M7","band":"low","file":"scripts/implement/correction.ts","from":"assert(config.targetText === config.revision.targetText,","to":"assert(true,"},
+ {"id":"M8","band":"low","file":"scripts/implement/publish.ts","from":"assert(match.draft,","to":"assert(true || match.draft,"},
+ {"id":"M9","band":"low","file":"scripts/implement/revision.ts","from":"interruptionReturn(revision) &&\n        revision.reviewReturn.branch === (await sourceBranch(revision)),","to":"interruptionReturn(revision),"}
+]
