@@ -4,6 +4,12 @@ import { lstat, readFile } from 'node:fs/promises';
 
 export const hash = (text: string | Buffer) => createHash('sha256').update(text).digest('hex');
 
+// symlinkを辿らず、通常ファイルの原記録だけを読む。
+export async function recordText(path: string) {
+  assert((await lstat(path)).isFile(), `原記録が通常ファイルではありません: ${path}`);
+  return readFile(path, 'utf8');
+}
+
 // 一回の照合境界だけで共有する。各期待値との比較は呼出側で必ず行う。
 export class RecordObservation {
   private readonly contents = new Map<string, Promise<{ content: Buffer; sha256: string }>>();

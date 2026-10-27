@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { lstat, readFile, readdir } from 'node:fs/promises';
+import { lstat, readdir } from 'node:fs/promises';
+import { recordText } from './record-observation.ts';
 import { basename, dirname, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { codeHash, runtimeShape } from './actor-runtime.ts';
@@ -7,11 +8,6 @@ import { testPrompt, testReplySchema } from './test-author.ts';
 import type { Config } from './input.ts';
 import { isRecord } from '../shared/values.ts';
 import { reviewModel } from './review.ts';
-
-async function text(path: string) {
-  assert((await lstat(path)).isFile(), `担当の原記録は通常ファイルに限ります: ${path}`);
-  return readFile(path, 'utf8');
-}
 
 const actorShape = z.object({
   recordFormat: z.literal(2),
@@ -33,7 +29,7 @@ async function nativeActor(dir: string, targetId: string) {
     }
     const path = join(dir, name);
     assert((await lstat(path)).isDirectory(), '付属テスト担当の保存先が不正です');
-    const contents: unknown = JSON.parse(await text(join(path, 'actor.json')));
+    const contents: unknown = JSON.parse(await recordText(join(path, 'actor.json')));
     const raw = z.object({ hostPrefix: z.string().nullable() }).parse(contents);
     if (raw.hostPrefix !== null && resolve(dir, raw.hostPrefix) === join(dir, 'test-1')) {
       matches.push({
@@ -45,7 +41,7 @@ async function nativeActor(dir: string, targetId: string) {
   assert(matches.length === 1, '判断待ちに対応する付属テスト担当を一意に照合できません');
   const matched = matches[0];
   assert(matched);
-  const schema: unknown = JSON.parse(await text(join(matched.path, 'schema.json')));
+  const schema: unknown = JSON.parse(await recordText(join(matched.path, 'schema.json')));
   const fixedSchema = {
     ...testReplySchema,
     properties: {
@@ -58,12 +54,12 @@ async function nativeActor(dir: string, targetId: string) {
     assert.deepStrictEqual(schema, fixedSchema, '付属テスト担当の応答schemaが一致しません');
   }
   assert(
-    `${await text(join(matched.path, 'final.json'))}\n` ===
-      (await text(join(dir, 'test-1.stdout'))),
+    `${await recordText(join(matched.path, 'final.json'))}\n` ===
+      (await recordText(join(dir, 'test-1.stdout'))),
     '付属担当の原finalとstdoutが一致しません',
   );
-  await text(join(matched.path, 'events.jsonl'));
-  await text(join(matched.path, 'stderr.log'));
+  await recordText(join(matched.path, 'events.jsonl'));
+  await recordText(join(matched.path, 'stderr.log'));
   return matched.actor;
 }
 
