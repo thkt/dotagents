@@ -1,0 +1,679 @@
+import { test, expect, afterEach } from 'bun:test';
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { mkdir, symlink, writeFile, readFile, rm, rename, chmod } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import {
+  correctionConfig,
+  correctionFixture,
+  object,
+  events,
+  reviewReplySource,
+} from '../../support/correction.ts';
+import { parseRepairReply } from '../../../implement/repair.ts';
+import {
+  assertConfig,
+  assertProbeConfig,
+  assertPreviousConfig,
+  assertState,
+} from '../../../implement/input.ts';
+import { snapshot } from '../../../implement/correction.ts';
+import { git } from '../../support/target.ts';
+
+const { trial, cleanup } = correctionFixture();
+afterEach(cleanup);
+
+for (const mutation of ['delete', 'rename'] as const) {
+  test(`verified ${mutation} survives staging and commit but rejects later artifacts`, async () => {
+    const t = await trial('normal');
+    const cwd = t.config.cwd;
+    await writeFile(join(cwd, 'obsolete.txt'), 'old');
+    git(cwd, 'add', '--all');
+    git(cwd, 'commit', '-m', 'base');
+    if (mutation === 'delete') {
+      await rm(join(cwd, 'obsolete.txt'));
+    } else {
+      await rename(join(cwd, 'obsolete.txt'), join(cwd, 'renamed.txt'));
+    }
+    expect(t.execute().status).toBe(0);
+    const verified = await t.state();
+    expect(verified.checks).toBe(2);
+    git(cwd, 'add', '--all');
+    expect(t.execute().status).toBe(0);
+    git(cwd, 'commit', '-m', 'verified artifacts');
+    expect(t.execute().status).toBe(0);
+    expect(await t.state()).toEqual(verified);
+    if (mutation === 'delete') {
+      await writeFile(join(cwd, 'obsolete.txt'), 'restored after acceptance');
+    } else {
+      await chmod(join(cwd, 'renamed.txt'), 0o755);
+    }
+    const stale = t.execute();
+    expect(stale.status).toBe(1);
+    expect(object(JSON.parse(stale.stdout)).result).toBe('target_changed_after_stop');
+    expect(await t.state()).toEqual(verified);
+  });
+}
+
+async function checkRepairEvidence(mode: string, runDir: string, findings: unknown) {
+  if (mode === 'invalid_repair' || mode === 'human') {
+    expect(findings).toBe(mode === 'human' ? 'Need changed requirements' : 'Unrecognized outcome');
+    expect(await readFile(join(runDir, 'repair-1.stdout'), 'utf8')).toContain(String(findings));
+  }
+  if (mode === 'normal') {
+    const prompt = await readFile(join(runDir, 'repair-1.prompt'), 'utf8');
+    expect(prompt).toContain('Agreed requirement: correct source and docs');
+  }
+}
+
+for (const [mode, result, repairs, reviews] of [
+  ['normal', 'ready_for_human_review', 1, 1],
+  ['invalid_repair', 'invalid_repair', 1, 0],
+  ['null_review', 'invalid_review', 1, 1],
+  ['human', 'human_decision_required', 1, 0],
+  ['issue_changed', 'requirements_changed', 1, 1],
+  ['review_failed', 'review_failed', 1, 1],
+  ['malformed', 'invalid_review', 1, 1],
+  ['changed', 'source_changed', 1, 1],
+] as const) {
+  test(mode, async () => {
+    const t = await trial(mode);
+    expect(t.execute().status).toBe(result === 'ready_for_human_review' ? 0 : 1);
+    const state = await t.state();
+    expect(state.result).toBe(result);
+    expect(state.repair).toBe(repairs);
+    expect(state.review).toBe(reviews);
+    await checkRepairEvidence(mode, t.config.runDir, state.findings);
+    if (reviews && result !== 'ready_for_human_review') {
+      expect(state.reviewHistory).toEqual([]);
+      expect(await Bun.file(join(t.config.runDir, 'review-1.stdout')).exists()).toBe(true);
+      expect(await Bun.file(join(t.config.runDir, 'review-1.target.json')).exists()).toBe(true);
+      expect(await Bun.file(join(t.config.runDir, 'review-1.json')).exists()).toBe(false);
+    }
+    if (result === 'ready_for_human_review') {
+      expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('correct');
+      const models = events(state.events)
+        .map(object)
+        .filter((event) => event.role !== 'check');
+      expect(models.map((event) => event.role)).toEqual(['repair', 'review']);
+      let total = 0;
+      for (const event of models) {
+        expect(event.timedOut).toBe(false);
+        expect(typeof event.ms).toBe('number');
+        if (typeof event.ms !== 'number') {
+          throw Error('Missing model elapsed time');
+        }
+        expect(event.ms).toBeGreaterThan(0);
+        total += event.ms;
+      }
+      expect(state.modelMs).toBe(total);
+    }
+    if (mode === 'normal') {
+      const before = await t.state();
+      const repeated = t.execute();
+      expect(repeated.status).toBe(0);
+      expect(object(JSON.parse(repeated.stdout))).toEqual(before);
+      expect(await t.state()).toEqual(before);
+    }
+  });
+}
+
+test('unlimited attempts check and accept the latest repair after recurring findings', async () => {
+  const t = await trial('docs');
+  await writeFile(join(t.config.cwd, 'source.txt'), 'correct-0');
+  await writeFile(
+    join(t.root, 'helper.js'),
+    `
+import {readFileSync,writeFileSync,existsSync} from 'node:fs';
+const role=process.argv[2];
+${reviewReplySource}
+const stage=existsSync('README.md')?Number(readFileSync('README.md','utf8')):0;
+if(role==='issue') console.log('Agreed requirement: complete source and instructions through stage 3');
+if(role==='check') {
+ console.log(readFileSync('source.txt','utf8'));
+ process.exit(readFileSync('source.txt','utf8')==='correct-'+stage?0:1);
+}
+if(role==='repair') {
+ writeFileSync('README.md',String(stage+1));
+ writeFileSync('source.txt','correct-'+(stage+1));
+ console.log(JSON.stringify({status:'repaired',findings:'Completed stage '+(stage+1)}));
+}
+if(role==='review') console.log(JSON.stringify(reviewReply(stage===3?'accepted':'needs_changes',stage===3?'Instructions complete':'Instructions incomplete')));
+`,
+  );
+  expect(t.execute().status).toBe(0);
+  const state = await t.state();
+  expect(state).toMatchObject({
+    result: 'ready_for_human_review',
+    repair: 3,
+    review: 4,
+    checks: 4,
+    active: null,
+  });
+  const history = events(state.reviewHistory).map(object);
+  expect(history.map((review) => review.status)).toEqual([
+    'needs_changes',
+    'needs_changes',
+    'needs_changes',
+    'accepted',
+  ]);
+  expect(new Set(history.map((review) => review.targetId)).size).toBe(4);
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const prompt = await readFile(join(t.config.runDir, `review-${attempt}.prompt`), 'utf8');
+    const context = object(
+      JSON.parse(prompt.split('ホストコンテキスト: ')[1]?.split('\n')[0] ?? ''),
+    );
+    const target = object(JSON.parse(await readFile(String(context.targetRecord), 'utf8')));
+    expect(context.targetId).toBe(target.targetId);
+    if (attempt === 1) {
+      expect(target.latestRepair).toBeNull();
+      continue;
+    }
+    const prefix = join(t.config.runDir, `repair-${attempt - 1}`);
+    const raw = await readFile(`${prefix}.stdout`, 'utf8');
+    const repairEvent = events(state.events)
+      .map(object)
+      .find((event) => event.prefix === prefix);
+    expect(target.latestRepair).toEqual({
+      attempt: attempt - 1,
+      prefix,
+      sourceBefore: repairEvent?.source,
+      sourceAfter: target.source,
+      stdoutHash: createHash('sha256').update(raw).digest('hex'),
+    });
+    expect(object(target.latestRepair).sourceBefore).not.toBe(target.source);
+    expect(JSON.parse(raw)).toEqual({
+      status: 'repaired',
+      findings: `Completed stage ${attempt - 1}`,
+    });
+  }
+  expect(history.at(-1)).toMatchObject({ items: [{ id: 'R1-1', disposition: 'fixed' }] });
+  const recorded = events(state.events).map(object);
+  const source = await snapshot(t.config.cwd);
+  expect(state.source).toBe(source);
+  expect(recorded.slice(-2)).toMatchObject([
+    { role: 'check', code: 0, source },
+    { role: 'review', code: 0, source },
+  ]);
+  expect(await readFile(join(t.config.runDir, 'check-4.stdout'), 'utf8')).toBe('correct-3\n');
+  const prompt = await readFile(join(t.config.runDir, 'repair-3.prompt'), 'utf8');
+  for (const review of [1, 2, 3]) {
+    expect(prompt).toContain(join(t.config.runDir, `review-${review}.json`));
+  }
+  expect(prompt).toContain('R1-1');
+});
+
+test('blank human findings stop repair and preserve work and prior review evidence', async () => {
+  const t = await trial('blank_human');
+  expect(t.execute().status).toBe(1);
+  const state = await t.state();
+  expect(state).toMatchObject({
+    result: 'invalid_repair',
+    findings: '',
+    repair: 2,
+    review: 1,
+    checks: 2,
+  });
+  expect(await readFile(join(t.config.cwd, 'README.md'), 'utf8')).toBe('current');
+  expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('correct');
+  expect(state.reviewHistory).toEqual([
+    object(JSON.parse(await readFile(join(t.config.runDir, 'review-1.json'), 'utf8'))).review,
+  ]);
+  expect(state.reviewHistory).toMatchObject([
+    { status: 'needs_changes', findings: 'README missing' },
+  ]);
+  expect(JSON.parse(await readFile(join(t.config.runDir, 'repair-2.stdout'), 'utf8'))).toEqual({
+    status: 'needs_human',
+    findings: '',
+  });
+  const paths = [
+    'state.json',
+    'check-1.stdout',
+    'check-1.stderr',
+    'check-2.stdout',
+    'repair-1.stdout',
+    'repair-2.stdout',
+    'review-1.stdout',
+    'review-1.json',
+  ].map((path) => join(t.config.runDir, path));
+  const before = await Promise.all(paths.map((path) => readFile(path, 'utf8')));
+  expect(t.execute().status).toBe(1);
+  expect(await Promise.all(paths.map((path) => readFile(path, 'utf8')))).toEqual(before);
+  for (const path of ['check-3.stdout', 'repair-3.stdout', 'review-2.stdout']) {
+    expect(await Bun.file(join(t.config.runDir, path)).exists()).toBe(false);
+  }
+});
+
+test('Issue retrieval failure after repair preserves reservation and refuses reexecution', async () => {
+  const t = await trial('normal');
+  const helper = join(t.root, 'helper.js');
+  await writeFile(
+    helper,
+    (await readFile(helper, 'utf8')) +
+      "\nif(role==='issue' && readFileSync('source.txt','utf8')==='correct') process.exit(1);\n",
+  );
+  const result = t.execute();
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('Issue unavailable');
+  expect(await t.state()).toMatchObject({
+    active: { role: 'repair', prefix: join(t.config.runDir, 'repair-1') },
+    repair: 1,
+    review: 0,
+    checks: 1,
+    reviewHistory: [],
+  });
+  const paths = ['state.json', 'repair-1.stdout', 'repair-1.stderr'].map((path) =>
+    join(t.config.runDir, path),
+  );
+  paths.push(join(t.config.cwd, 'source.txt'));
+  const before = await Promise.all(paths.map((path) => readFile(path, 'utf8')));
+  expect(JSON.parse(before[1] ?? '')).toEqual({ status: 'repaired', findings: 'fixed' });
+  expect(before[3]).toBe('correct');
+  const retry = t.execute();
+  expect(retry.status).toBe(1);
+  expect(retry.stderr).toContain('Interrupted execution');
+  expect(await Promise.all(paths.map((path) => readFile(path, 'utf8')))).toEqual(before);
+});
+
+test('changed commands cannot reuse a completed run', async () => {
+  const t = await trial('normal');
+  expect(t.execute().status).toBe(0);
+  const stateFile = join(t.config.runDir, 'state.json');
+  const before = await readFile(stateFile, 'utf8');
+  await writeFile(t.configFile, JSON.stringify({ ...t.config, check: ['true'] }));
+  const result = t.execute();
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('configuration changed');
+  expect(await readFile(stateFile, 'utf8')).toEqual(before);
+});
+
+test('terminal success still refuses an active reservation or an existing lock', async () => {
+  const t = await trial('normal');
+  expect(t.execute().status).toBe(0);
+  const stateFile = join(t.config.runDir, 'state.json');
+  const saved = await readFile(stateFile, 'utf8');
+  const active = JSON.stringify({
+    ...(await t.state()),
+    active: { role: 'review', prefix: join(t.config.runDir, 'review-2') },
+  });
+  await writeFile(stateFile, active);
+  const interrupted = t.execute();
+  expect(interrupted.status).toBe(1);
+  expect(interrupted.stderr).toContain('Interrupted execution');
+  expect(await readFile(stateFile, 'utf8')).toBe(active);
+
+  await writeFile(stateFile, saved);
+  const lock = join(t.config.runDir, 'lock');
+  await mkdir(lock);
+  await writeFile(join(lock, 'owner'), 'existing execution');
+  const locked = t.execute();
+  expect(locked.status).toBe(1);
+  expect(locked.stderr).toContain('EEXIST');
+  expect(await readFile(join(lock, 'owner'), 'utf8')).toBe('existing execution');
+  expect(await readFile(stateFile, 'utf8')).toBe(saved);
+});
+
+for (const [target, path, content] of [
+  ['documentation', 'work/README.md', 'new documentation'],
+  ['Issue', 'helper.js', "console.log('Updated requirements');"],
+] as const) {
+  test(`terminal success is not reused for changed ${target}`, async () => {
+    const t = await trial('normal');
+    expect(t.execute().status).toBe(0);
+    const before = await t.state();
+    await writeFile(join(t.root, path), content);
+    const result = t.execute();
+    expect(result.status).toBe(1);
+    expect(object(JSON.parse(result.stdout)).result).toBe('target_changed_after_stop');
+    expect(await t.state()).toEqual(before);
+  });
+}
+
+for (const [name, change, reason] of [
+  ['missing cwd', { cwd: undefined }, 'Invalid cwd'],
+  [
+    'report without base',
+    { reports: [{ path: 'docs/research/reset.md', blob: 'a'.repeat(40) }] },
+    'Required reports need baseCommit',
+  ],
+  [
+    'ambiguous report versions',
+    {
+      baseCommit: 'a'.repeat(40),
+      reports: [
+        { path: 'docs/research/reset.md', blob: 'a'.repeat(40) },
+        { path: 'docs/research/reset.md', blob: 'b'.repeat(40) },
+      ],
+    },
+    'Duplicate required report',
+  ],
+] as const) {
+  test(`invalid config: ${name}`, () => {
+    expect(() => assertConfig({ ...correctionConfig('/correction-config'), ...change })).toThrow(
+      reason,
+    );
+  });
+}
+
+test('correction command arrays preserve executable whitespace and every argument', () => {
+  const base = correctionConfig('/correction-config');
+  for (const key of ['issue', 'check', 'repair', 'review', 'capture']) {
+    for (const command of [null, 'tool', [], [''], [1], ['tool', 1]]) {
+      expect(() => assertConfig({ ...base, [key]: command })).toThrow(`Invalid ${key} command`);
+    }
+    if (key !== 'capture') {
+      expect(() => assertConfig({ ...base, [key]: undefined })).toThrow(`Invalid ${key} command`);
+    }
+    for (const executable of ['tool', ' tool ', ' \t\n']) {
+      const config = { ...base, [key]: [executable, '', ' \t ', 'last', 'first'] };
+      const original = structuredClone(config);
+      expect(() => assertConfig(config)).not.toThrow();
+      expect(config).toEqual(original);
+    }
+  }
+});
+
+test('correction capture remains optional unless required and needs explicit metadata', () => {
+  const config = correctionConfig('/correction-config');
+  expect(() => assertConfig(config)).not.toThrow();
+  expect(() => assertConfig({ ...config, captureRequired: true })).toThrow(
+    'Required capture command missing',
+  );
+  const capture = { ...config, capture: ['tool'], captureRequired: true };
+  expect(() => assertConfig(capture)).not.toThrow();
+  expect(() => assertConfig({ ...capture, captureDestination: undefined })).toThrow(
+    'Invalid capture destination',
+  );
+  expect(() => assertConfig({ ...capture, captureRequired: undefined })).toThrow(
+    'Explicit capture requirement required',
+  );
+});
+
+test('normal execution rejects invalid config before commands or evidence writes', async () => {
+  const t = await trial('normal');
+  const executed = join(t.root, 'unexpected-execution');
+  await writeFile(
+    join(t.root, 'helper.js'),
+    `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(executed)}, 'executed');`,
+  );
+  await writeFile(t.configFile, JSON.stringify({ ...t.config, repair: [] }));
+  const result = t.execute();
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('Invalid repair command');
+  expect(existsSync(executed)).toBe(false);
+  expect(existsSync(t.config.runDir)).toBe(false);
+  expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
+});
+
+test('通常設定は明示した上限なしを受理する', () => {
+  expect(() =>
+    assertConfig({ ...correctionConfig('/correction-config'), checkTimeMs: null }),
+  ).not.toThrow();
+});
+
+test('通常設定と単独評価は有限check値・不正入力・旧保存値の契約を維持する', () => {
+  const config = correctionConfig('/correction-config');
+  for (const key of ['repairLimit', 'reviewLimit', 'modelTimeMs', 'unexpected']) {
+    expect(() => assertConfig({ ...config, [key]: null })).toThrow('Unknown configuration field');
+  }
+  for (const checkTimeMs of [undefined, 0, -1, NaN, Infinity, '900000', false]) {
+    expect(() => assertConfig({ ...config, checkTimeMs })).toThrow('Invalid checkTimeMs');
+  }
+  for (const checkTimeMs of [540000, 900000, 1000]) {
+    expect(() => assertConfig({ ...config, checkTimeMs })).not.toThrow();
+  }
+  const { repair: _repair, ...review } = config;
+  for (const checkTimeMs of [null, undefined, 0, -1, NaN, Infinity, '900000']) {
+    expect(() => assertProbeConfig({ ...review, checkTimeMs, reviewTimeMs: 100 })).toThrow(
+      'Invalid checkTimeMs',
+    );
+  }
+  for (const checkTimeMs of [540000, 900000, 1000]) {
+    expect(() => assertProbeConfig({ ...review, checkTimeMs, reviewTimeMs: 100 })).not.toThrow();
+  }
+  for (const reviewTimeMs of [null, undefined, 0, -1, NaN, Infinity, '100']) {
+    expect(() => assertProbeConfig({ ...review, reviewTimeMs })).toThrow('Invalid reviewTimeMs');
+  }
+  expect(() => assertProbeConfig({ ...config, reviewTimeMs: 100 })).toThrow(
+    'Unknown configuration field',
+  );
+  const saved = { ...config, repairLimit: 2, reviewLimit: null, modelTimeMs: 1000 };
+  const original = structuredClone(saved);
+  expect(() => assertPreviousConfig(saved)).not.toThrow();
+  expect(saved).toEqual(original);
+  for (const change of [{ repairLimit: undefined }, { reviewLimit: 0 }, { modelTimeMs: '1000' }]) {
+    expect(() => assertPreviousConfig({ ...saved, ...change })).toThrow('Invalid saved');
+  }
+});
+test('invalid saved state is retained and rejected before execution', async () => {
+  const t = await trial('docs');
+  await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
+  expect(t.execute().status).toBe(0);
+  const stateFile = join(t.config.runDir, 'state.json');
+  const saved = await t.state();
+  const review = object(events(saved.reviewHistory)[0]);
+  const item = object(events(review.items)[0]);
+  expect(saved.reviewFormat).toBe(4);
+  expect(() => assertState(saved)).not.toThrow();
+  expect(() => assertState({ ...saved, reviewHistory: [] })).not.toThrow();
+  for (const [change, reason] of [
+    ...[null, 0, 5, '4'].map(
+      (reviewFormat) => [{ reviewFormat }, 'Invalid saved state: reviewFormat'] as const,
+    ),
+    ...[undefined, '', 42].map(
+      (baseCommit) => [{ baseCommit }, 'Invalid saved state: baseCommit'] as const,
+    ),
+    ...[undefined, null].map(
+      (reviewHistory) => [{ reviewHistory }, 'Invalid saved state: reviewHistory'] as const,
+    ),
+    [{ repair: -1 }, 'Invalid saved state: repair'],
+    [{ active: { role: 'repair' } }, 'Invalid saved state: active'],
+    [{ events: [{}] }, 'Invalid saved state: events'],
+    [{ result: 'unrecognized_success' }, 'Invalid saved state: result'],
+    [{ captureSource: 42 }, 'Invalid saved state: captureSource'],
+    [
+      { reviewHistory: [{ ...review, status: 'unrecognized_success' }] },
+      'Invalid saved state: reviewHistory',
+    ],
+    ...[
+      { id: undefined },
+      { id: ' ' },
+      { introducedIn: undefined },
+      { introducedIn: ' ' },
+      { disposition: undefined },
+      { disposition: 'accepted' },
+      { condition: undefined },
+      { location: { path: null, line: 1 } },
+      { unexpected: true },
+    ].map(
+      (change) =>
+        [
+          { reviewHistory: [{ ...review, items: [{ ...item, ...change }] }] },
+          'Invalid saved state: reviewHistory',
+        ] as const,
+    ),
+  ] as const) {
+    expect(() => assertState({ ...saved, ...change })).toThrow(reason);
+  }
+  const executed = join(t.root, 'unexpected-execution');
+  await writeFile(
+    join(t.root, 'helper.js'),
+    `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(executed)}, 'executed');`,
+  );
+  const invalid = JSON.stringify({ ...saved, baseCommit: undefined });
+  await writeFile(stateFile, invalid);
+  const result = t.execute();
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('Invalid saved state: baseCommit');
+  expect(await readFile(stateFile, 'utf8')).toBe(invalid);
+  expect(await Bun.file(executed).exists()).toBe(false);
+});
+for (const path of ['.', 'evidence', '..evidence', '../..external']) {
+  test(`evidence directory boundary: ${path}`, async () => {
+    const t = await trial('boundary');
+    const runDir = resolve(t.config.cwd, path);
+    await writeFile(t.configFile, JSON.stringify({ ...t.config, runDir }));
+    const result = t.execute();
+    if (path === '../..external') {
+      expect(result.status).toBe(0);
+    } else {
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('Evidence must be outside the worktree');
+      expect(await Bun.file(join(runDir, 'state.json')).exists()).toBe(false);
+      expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
+    }
+  });
+}
+
+test('evidence directory boundary: symlink resolving into the worktree', async () => {
+  const t = await trial('boundary');
+  const inside = join(t.config.cwd, 'inside');
+  await mkdir(inside);
+  const runDir = join(t.root, 'linked-evidence');
+  await symlink(inside, runDir);
+  await writeFile(t.configFile, JSON.stringify({ ...t.config, runDir }));
+  const result = t.execute();
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain('Evidence must not resolve inside the worktree');
+  expect(await Bun.file(join(inside, 'state.json')).exists()).toBe(false);
+  expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('broken');
+});
+
+// Response boundaries run without another repository or actor process per malformed value.
+test('repair reply contract rejects malformed values and preserves diagnostic findings', () => {
+  for (const stdout of [
+    'not JSON',
+    'null',
+    '[]',
+    '{}',
+    '{"status":1,"findings":"detail"}',
+    '{"status":"repaired"}',
+    '{"status":"repaired","findings":1}',
+  ]) {
+    expect(parseRepairReply(stdout)).toEqual({ status: 'invalid' });
+  }
+  expect(parseRepairReply('{"status":"accepted","findings":"detail"}')).toEqual({
+    status: 'invalid',
+    findings: 'detail',
+  });
+  for (const status of ['needs_host', 'needs_human']) {
+    for (const findings of ['', ' \t\r\n\u3000']) {
+      expect(parseRepairReply(JSON.stringify({ status, findings }))).toEqual({
+        status: 'invalid',
+        findings,
+      });
+    }
+  }
+  for (const findings of ['', ' \t\n', 'Implemented agreed change']) {
+    expect(parseRepairReply(JSON.stringify({ status: 'repaired', findings, extra: true }))).toEqual(
+      {
+        status: 'repaired',
+        findings,
+      },
+    );
+  }
+  const findings = ' \n問い: 対象範囲を広げますか。追加機能を含める場合は検証範囲も増えます。\n ';
+  expect(parseRepairReply(JSON.stringify({ status: 'needs_human', findings }))).toEqual({
+    status: 'needs_human',
+    findings,
+  });
+});
+
+for (const failure of ['base', 'retrieval']) {
+  test(`initial Issue evidence survives reuse after ${failure} failure before state`, async () => {
+    const t = await trial('normal', { baseCommit: 'invalid' });
+    const raw = ' {"title":"要求","body":"  本文\\n"}\n';
+    t.config.issue = [
+      process.execPath,
+      '-e',
+      `process.stdout.write(${JSON.stringify(raw)}); process.stderr.write('first diagnostic'); process.exit(${failure === 'retrieval' ? 1 : 0});`,
+    ];
+    await writeFile(t.configFile, JSON.stringify(t.config));
+    const first = t.execute();
+    expect(first.status).toBe(1);
+    expect(first.stderr).toContain(
+      failure === 'base' ? 'Review requires a base commit' : 'Issue unavailable',
+    );
+    const paths = ['issue.stdout', 'issue.stderr'];
+    const evidence = [raw, 'first diagnostic'];
+    if (failure === 'base') {
+      paths.push('issue.txt');
+      evidence.push('{"title":"要求","body":"  本文\\n"}');
+    }
+    const readEvidence = () =>
+      Promise.all(paths.map((path) => readFile(join(t.config.runDir, path), 'utf8')));
+    expect(await readEvidence()).toEqual(evidence);
+    expect(existsSync(join(t.config.runDir, 'state.json'))).toBe(false);
+    const marker = join(t.root, 'retrieved-again');
+    t.config.issue = [
+      process.execPath,
+      '-e',
+      `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'called'); process.stdout.write('second'); process.stderr.write('second diagnostic');`,
+    ];
+    await writeFile(t.configFile, JSON.stringify(t.config));
+    const repeated = t.execute();
+    expect(repeated.status).toBe(1);
+    expect(await readEvidence()).toEqual(evidence);
+    expect(repeated.stderr).toContain('Initial Issue evidence already exists');
+    expect(existsSync(marker)).toBe(false);
+    expect(existsSync(join(t.config.runDir, 'state.json'))).toBe(false);
+    expect(existsSync(join(t.config.runDir, 'lock'))).toBe(false);
+    expect(existsSync(join(t.config.runDir, 'issue.txt'))).toBe(failure === 'base');
+  });
+}
+
+for (const json of [true, false]) {
+  test(`Issue evidence preserves requirements and rereads one representation: json=${json}`, async () => {
+    const t = await trial('normal');
+    const requirements = {
+      title: '日本語 🐈',
+      body: '  本文\n\n末尾  \n',
+      state: 'OPEN',
+      updatedAt: '1',
+    };
+    const text = json ? JSON.stringify(requirements) : '  平文の要求\n\n末尾  \n';
+    const raw = json ? ` \n${text}\n` : text;
+    const input = join(t.root, 'issue.txt');
+    await writeFile(input, raw);
+    t.config.issue = ['cat', input];
+    await writeFile(t.configFile, JSON.stringify(t.config));
+    expect(t.execute().status).toBe(0);
+    const state = await t.state();
+    expect(state.issueHash).toBe(createHash('sha256').update(text).digest('hex'));
+    expect(state.issueFormat).toBe(1);
+    expect(await readFile(join(t.config.runDir, 'issue.txt'), 'utf8')).toBe(text);
+    expect(await readFile(join(t.config.runDir, 'issue.stdout'), 'utf8')).toBe(raw);
+    const target = object(
+      JSON.parse(await readFile(join(t.config.runDir, 'review-1.target.json'), 'utf8')),
+    );
+    expect(target.issue).toEqual({ hash: state.issueHash, content: text });
+    expect(await readFile(join(t.config.runDir, 'check-1.stdout'), 'utf8')).toBe(
+      'source must be correct\n',
+    );
+    await writeFile(input, text);
+    expect(t.execute().status).toBe(0);
+    const changes = json
+      ? [
+          { title: '別題' },
+          { body: requirements.body + ' ' },
+          { state: 'CLOSED' },
+          { updatedAt: '2' },
+        ].map((change) => JSON.stringify({ ...requirements, ...change }))
+      : [text.trim(), text + '\n'];
+    for (const changed of changes) {
+      await writeFile(input, changed);
+      const result = t.execute();
+      expect(result.status).toBe(1);
+      expect(object(JSON.parse(result.stdout)).result).toBe('target_changed_after_stop');
+      expect(await t.state()).toEqual(state);
+    }
+    expect(await readFile(join(t.config.runDir, 'issue.stdout'), 'utf8')).toBe(raw);
+    const invalid = JSON.stringify({ ...state, issueFormat: undefined });
+    await writeFile(join(t.config.runDir, 'state.json'), invalid);
+    const stopped = t.execute();
+    expect(stopped.status).toBe(1);
+    expect(stopped.stderr).toContain('Invalid saved state: issueFormat');
+    expect(await readFile(join(t.config.runDir, 'state.json'), 'utf8')).toBe(invalid);
+    expect(await readFile(join(t.config.runDir, 'issue.stdout'), 'utf8')).toBe(raw);
+  });
+}
