@@ -126,11 +126,16 @@ if(role==='review') {
     const config = { ...correctionConfig(root, mode), ...overrides };
     const configFile = join(root, 'config.json');
     await writeFile(configFile, JSON.stringify(config));
-    const execute = (entry: 'run' | 'review' = 'run') =>
-      spawnSync(process.execPath, [controller, configFile, entry], {
+    const execute = (entry: 'run' | 'review' = 'run') => {
+      const env = { ...process.env };
+      // Bunの自動回収を外し、controller自身による子孫の終了を検証する。
+      delete env.BUN_FEATURE_FLAG_NO_ORPHANS;
+      return spawnSync(process.execPath, [controller, configFile, entry], {
         encoding: 'utf8',
         timeout: 20000,
+        env,
       });
+    };
     return {
       root,
       config,
