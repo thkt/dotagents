@@ -1,6 +1,14 @@
 import { test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { loadRecords, saveRecords } from '../../affected-records.ts';
@@ -9,7 +17,15 @@ import { selectAffected } from '../../affected.ts';
 function git(root: string, ...args: string[]): string {
   const result = spawnSync(
     'git',
-    ['-c', 'user.name=test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', ...args],
+    [
+      '-c',
+      'user.name=test',
+      '-c',
+      'user.email=test@example.com',
+      '-c',
+      'commit.gpgsign=false',
+      ...args,
+    ],
     { cwd: root, encoding: 'utf8' },
   );
   expect(result.status, result.stderr).toBe(0);
@@ -67,7 +83,11 @@ test('実行したテストファイルの記録だけを置き換え、実行�
     try {
       const linkedRoot = realpathSync(linked);
       expect(storedPath(linkedRoot)).not.toBe(storedPath(root));
-      saveRecords({ root: linkedRoot, ran: new Map([[a, modules(root, 'linked.ts')]]), failed: [] });
+      saveRecords({
+        root: linkedRoot,
+        ran: new Map([[a, modules(root, 'linked.ts')]]),
+        failed: [],
+      });
       expect(existsSync(storedPath(linkedRoot))).toBe(true);
       expect(loadRecords(linkedRoot).records.get(a)).toEqual(modules(root, 'linked.ts'));
       expect(loadRecords(root).records.get(a)).toEqual(modules(root, 'a2.ts'));
@@ -100,15 +120,15 @@ test('失敗したテストファイルの記録は消し、次回は記録な�
     expect(records.has(bad)).toBe(false);
     expect(records.get(ok)).toEqual(modules(root, 'ok.ts'));
 
-    // 記録なしのテストファイルは、無関係な変更でも選ばれる。
+    // 記録なしのテストファイルは、自分が読んだと分かっていない変更でも選ばれる。
     const selection = selectAffected({
       root,
-      changed: [join(root, 'unrelated.ts')],
+      changed: [join(root, 'ok.ts')],
       testFiles: [ok, bad],
       records,
       readText: () => '',
     });
-    expect(selection).toEqual({ kind: 'tests', tests: [bad] });
+    expect(selection).toEqual({ kind: 'tests', tests: [ok, bad] });
   });
 });
 
@@ -136,7 +156,7 @@ test('読めない記録ファイルは記録なしとして扱い、警告を�
         records: loaded.records,
         readText: () => '',
       });
-      expect(selection, label).toEqual({ kind: 'tests', tests: [a, b] });
+      expect(selection, label).toEqual({ kind: 'all', reasons: [join(root, 'a-dep.ts')] });
 
       // 次の保存は、読めなかった記録を捨てて新しい記録を書く。
       saveRecords({ root, ran: new Map([[a, modules(root, 'a-dep.ts')]]), failed: [] });

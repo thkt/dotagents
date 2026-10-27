@@ -206,6 +206,38 @@ async function planAffected(base: string, paths: string[]): Promise<AffectedPlan
   return { modules, root, files };
 }
 
+// JUnit レポートで、失敗も skip もなく完了したテストファイルの絶対パスを返します。
+// 読み込みで止まったファイルはレポートに現れないため、成功に数えません。
+function passedTestFiles(text: string): Set<string> {
+  const passed = new Set<string>();
+  for (const [, attributes = ''] of text.matchAll(/<testsuite\s+([^>]*)>/g)) {
+    const file = /\bfile="([^"]+)"/.exec(attributes)?.[1];
+    if (file && /\bfailures="0"/.test(attributes) && /\bskipped="0"/.test(attributes)) {
+      passed.add(resolve(file));
+    }
+  }
+  return passed;
+}
+
+// 成功したファイルの記録を今回の読み込みで置き換え、それ以外の選んだファイルは記録なしに戻します。
+// レポートを検査で拒否した実行は成功に数えず、選んだ全ファイルを記録なしに戻します。
+async function saveAffectedRecords(affected: AffectedPlan, recordDir: string, report: string) {
+  let passed = new Set<string>();
+  try {
+    const text = await readFile(report, 'utf8');
+    checkReport('bun', text);
+    passed = passedTestFiles(text);
+  } catch {
+    // passed を空のままにし、選んだ全ファイルを記録なしに戻す。
+  }
+  const recorded = await affected.modules.readRecords(recordDir);
+  affected.modules.saveRecords({
+    root: affected.root,
+    ran: new Map([...recorded].filter(([file]) => passed.has(file))),
+    failed: affected.files.filter((file) => !passed.has(file)),
+  });
+}
+
 const usage =
   'Usage: runner.ts bun [TEST_PATH...] [--parallel=N] [--timings=FILE] [--update-timings] [--affected[=REF]] | playwright CONFIG REPORT_DIRECTORY';
 
@@ -269,13 +301,8 @@ if (import.meta.main) {
         args,
         affected.modules.recorderEnv(runEnvironment(report), recordDir),
       );
-      if (!outcome.interrupted && outcome.code !== 0) {
-        // 失敗したファイルは読み込みが途中で止まった可能性があるため、実行した全ファイルを記録なしに戻す。
-        affected.modules.saveRecords({
-          root: affected.root,
-          ran: new Map(),
-          failed: affected.files,
-        });
+      if (!outcome.interrupted) {
+        await saveAffectedRecords(affected, recordDir, report);
       }
       assertSucceeded(outcome);
     } else {
@@ -292,11 +319,6 @@ if (import.meta.main) {
       throw error;
     }
     if (affected) {
-      affected.modules.saveRecords({
-        root: affected.root,
-        ran: await affected.modules.readRecords(recordDir),
-        failed: [],
-      });
       console.log(
         `選んだテストファイル ${affected.files.length} 件が成功しました。全体 check ではありません。提出前は bun run check を実行してください。`,
       );

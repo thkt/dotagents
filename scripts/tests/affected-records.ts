@@ -56,7 +56,10 @@ export function loadRecords(root: string): LoadedRecords {
       return { records: new Map(), warning: undefined };
     }
     const reason = error instanceof Error ? error.message : String(error);
-    return { records: new Map(), warning: `${path} を読めないため、記録なしとして扱います: ${reason}` };
+    return {
+      records: new Map(),
+      warning: `${path} を読めないため、記録なしとして扱います: ${reason}`,
+    };
   }
   const records = parseRecords(text);
   if (records === undefined) {
@@ -74,7 +77,9 @@ export function saveRecords({ root, ran, failed }: SaveInput): void {
   for (const file of failed) {
     records.delete(file);
   }
-  const body = Object.fromEntries([...records].map(([file, modules]) => [file, [...modules].sort()]));
+  const body = Object.fromEntries(
+    [...records].map(([file, modules]) => [file, [...modules].sort()]),
+  );
   mkdirSync(dirname(path), { recursive: true });
   const temp = `${path}.${process.pid}.tmp`;
   try {

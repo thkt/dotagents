@@ -8,7 +8,15 @@ import { changedFiles, existingTestFiles, selectAffected } from '../../affected.
 function git(root: string, ...args: string[]) {
   const result = spawnSync(
     'git',
-    ['-c', 'user.name=test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', ...args],
+    [
+      '-c',
+      'user.name=test',
+      '-c',
+      'user.email=test@example.com',
+      '-c',
+      'commit.gpgsign=false',
+      ...args,
+    ],
     { cwd: root, encoding: 'utf8' },
   );
   expect(result.status, result.stderr).toBe(0);
@@ -96,6 +104,8 @@ test('.claude/workspace/・docs/issues/・.issue-drafts/だけの変更は全部
       records: new Map([[join(root, 'a.test.ts'), new Set([join(root, 'touched.ts')])]]),
       readText: () => '',
     });
-    expect(selection.kind === 'all' ? selection.reasons : []).toEqual([join(root, 'docs/wiki/policy.md')]);
+    expect(selection.kind === 'all' ? selection.reasons : []).toEqual([
+      join(root, 'docs/wiki/policy.md'),
+    ]);
   });
 });

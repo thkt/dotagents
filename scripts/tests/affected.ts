@@ -26,51 +26,47 @@ function pathTail(path: string): string {
   return path.split('/').slice(-2).join('/');
 }
 
-export function selectAffected(input: SelectionInput): Selection {
-  const { root, changed, testFiles, records, readText } = input;
-  const fixed = new Set(fixedAllPaths.map((path) => `${root}/${path}`));
-  const testSet = new Set(testFiles);
-  // 記録のないテストファイルは何を読むか分からないため、常に選ぶ。
-  const unrecorded = testFiles.filter((file) => !records.has(file));
-  const selected = new Set(unrecorded);
-  const reasons: string[] = [];
-  const bodies = new Map<string, string>();
-  const body = (file: string) => {
-    const cached = bodies.get(file);
-    if (cached !== undefined) {
-      return cached;
-    }
-    const text = readText(file);
-    bodies.set(file, text);
+// 変更ファイルを記録に持つか、パスの末尾2要素を本文に書いたテストファイルを返す。
+function reachingTests(
+  path: string,
+  testFiles: string[],
+  records: Map<string, Set<string>>,
+  body: (file: string) => string,
+): string[] {
+  const tail = pathTail(path);
+  return testFiles.filter((file) => records.get(file)?.has(path) || body(file).includes(tail));
+}
+
+function cachedReader(readText: (path: string) => string): (path: string) => string {
+  const texts = new Map<string, string>();
+  return (path) => {
+    const text = texts.get(path) ?? readText(path);
+    texts.set(path, text);
     return text;
   };
+}
+
+export function selectAffected(input: SelectionInput): Selection {
+  const { root, changed, testFiles, records } = input;
+  const fixed = new Set(fixedAllPaths.map((path) => `${root}/${path}`));
+  const testSet = new Set(testFiles);
+  const body = cachedReader(input.readText);
+  // 記録のないテストファイルは何を読むか分からないため、常に選ぶ。
+  const selected = new Set(testFiles.filter((file) => !records.has(file)));
+  const reasons: string[] = [];
 
   for (const path of changed) {
-    if (fixed.has(path)) {
-      reasons.push(path);
-      continue;
-    }
     if (testSet.has(path)) {
       selected.add(path);
       continue;
     }
-    let reached = false;
-    for (const file of testFiles) {
-      if (records.get(file)?.has(path)) {
-        selected.add(file);
-        reached = true;
-      }
-    }
-    const tail = pathTail(path);
-    for (const file of testFiles) {
-      if (body(file).includes(tail)) {
-        selected.add(file);
-        reached = true;
-      }
-    }
-    // 記録にも本文にもない変更は、記録のないテストファイルが読む可能性があるときだけ、そのテストに任せる。
-    if (!reached && unrecorded.length === 0) {
+    const reached = fixed.has(path) ? [] : reachingTests(path, testFiles, records, body);
+    // 固定一覧の変更と、どのテストにも届かない入力ファイルの変更は全部実行にする。
+    if (reached.length === 0) {
       reasons.push(path);
+    }
+    for (const file of reached) {
+      selected.add(file);
     }
   }
 
@@ -89,7 +85,11 @@ export type ChangedFilesInput = {
 const workPathPrefixes = ['.claude/workspace/', 'docs/issues/', '.issue-drafts/'];
 
 function git(root: string, args: string[]): string {
-  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const result = spawnSync('git', args, {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
   if (result.status !== 0) {
     throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
   }

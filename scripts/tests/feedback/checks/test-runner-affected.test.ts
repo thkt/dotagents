@@ -305,3 +305,51 @@ test('SIGINT で中断した--affected は記録ファイルを書き換えな�
     },
   );
 }, 90000);
+
+const failing = (marker: string) =>
+  `${header}test('fails', () => {
+  console.log('${marker}');
+  expect(1).toBe(2);
+});\n`;
+
+const skipping = (marker: string) =>
+  `${header}test('plain', () => {
+  console.log('${marker}');
+  expect(1).toBe(1);
+});
+test.skip('skipped', () => {});\n`;
+
+test('失敗した--affected は、成功したテストファイルの記録を残し、失敗したファイルの記録だけを消す', async () => {
+  await fixture(twoTests, async (f) => {
+    await changeTarget(f, 2);
+    const first = runAffected(f);
+    expect(first.code, first.output).toBe(0);
+    await writeFile(join(f.repo, 'scripts/tests/b.test.ts'), failing('B_FAILED'));
+    await changeTarget(f, 3);
+    const second = runAffected(f);
+    expect(second.output).toContain('A_RAN');
+    expect(second.output).toContain('B_FAILED');
+    expect(second.code, second.output).not.toBe(0);
+    const records = readRecordFile(f.repo);
+    expect(records[join(f.repo, 'scripts/tests/a.test.ts')]).toContain(
+      join(f.repo, 'scripts/tests/target.ts'),
+    );
+    expect(Object.keys(records)).not.toContain(join(f.repo, 'scripts/tests/b.test.ts'));
+  });
+}, 60000);
+
+test('テストが成功してもskipを含む--affected は、選んだテストファイルの記録を消す', async () => {
+  await fixture(twoTests, async (f) => {
+    await changeTarget(f, 2);
+    const first = runAffected(f);
+    expect(first.code, first.output).toBe(0);
+    await writeFile(join(f.repo, 'scripts/tests/b.test.ts'), skipping('B_SKIPPING'));
+    await changeTarget(f, 3);
+    const second = runAffected(f);
+    expect(second.output).toContain('B_SKIPPING');
+    expect(second.code, second.output).not.toBe(0);
+    const records = readRecordFile(f.repo);
+    expect(Object.keys(records)).not.toContain(join(f.repo, 'scripts/tests/a.test.ts'));
+    expect(Object.keys(records)).not.toContain(join(f.repo, 'scripts/tests/b.test.ts'));
+  });
+}, 60000);

@@ -47,7 +47,7 @@ test('記録のないテストファイルと変更されたテストファイ�
   const selection = select({
     changed: [moduleX, testB],
     testFiles: [testA, testB, testC],
-    records: records({ [testA]: [testA, moduleY], [testB]: [testB, moduleY] }),
+    records: records({ [testA]: [testA, moduleY], [testB]: [testB, moduleX] }),
   });
   // testA は x.ts を読まない。testB は自身が変更された。testC は記録がない。
   expect(selectedTests(selection)).toEqual([testB, testC]);
@@ -93,4 +93,15 @@ test('パスの末尾 2 要素がテスト本文に書かれた変更ファイ�
     },
   });
   expect(selectedTests(selection)).toEqual([testA]);
+});
+
+test('記録のないテストファイルがあっても、どのテストにも届かない入力ファイルの変更は全テストを選ぶ', () => {
+  const orphan = abs('scripts/tests/fixtures/data.json');
+  const selection = select({
+    changed: [orphan],
+    testFiles: [testA, testC],
+    records: records({ [testA]: [testA, moduleX] }),
+  });
+  // testC は記録がないが、data.json を読むかは分からないため、全部実行にする。
+  expect(selection).toEqual({ kind: 'all', reasons: [orphan] });
 });
