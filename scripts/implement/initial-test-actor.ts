@@ -1,14 +1,10 @@
 import assert from 'node:assert/strict';
-import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
+import { lstat, readdir, realpath } from 'node:fs/promises';
+import { recordText } from './record-observation.ts';
 import { join } from 'node:path';
 import { verifyRuntimeActor } from './runtime-records.ts';
 import { testReplySchema } from './test-author.ts';
 import { isRecord } from '../shared/values.ts';
-
-async function recordText(path: string) {
-  assert((await lstat(path)).isFile(), `原記録が通常ファイルではありません: ${path}`);
-  return readFile(path, 'utf8');
-}
 
 export async function verifyInitialTestActor(dir: string, stdout: string) {
   const names = await readdir(dir);

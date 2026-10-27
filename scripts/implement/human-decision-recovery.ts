@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
+import { readFile, readdir, realpath } from 'node:fs/promises';
+import { recordText } from './record-observation.ts';
 import { dirname, join, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { assertConfig, testRecordsShape } from './input.ts';
@@ -16,11 +17,6 @@ import { verifyHumanDecision } from './human-decision-verify.ts';
 import type { HumanDecision } from './human-decision-schema.ts';
 import { verifyStoppedTestActor } from './stopped-test-actor.ts';
 import { verifyInitialTestReturn } from './initial-test-records.ts';
-
-async function text(path: string) {
-  assert((await lstat(path)).isFile(), `原記録は通常ファイルに限ります（symlink不可）: ${path}`);
-  return readFile(path, 'utf8');
-}
 
 async function latestDecisionStop(dir: string, cwd: string, runDirectory: string) {
   for (const name of await readdir(dirname(dir))) {
@@ -54,7 +50,7 @@ async function latestDecisionStop(dir: string, cwd: string, runDirectory: string
 
 async function stoppedTest(dir: string, config: Config, original: string) {
   const prefix = join(dir, 'test-1');
-  const raw: unknown = JSON.parse(await text(`${prefix}.target.json`));
+  const raw: unknown = JSON.parse(await recordText(`${prefix}.target.json`));
   assert(isRecord(raw), '保存テスト入力が不正です');
   const input = z
     .object({
@@ -90,7 +86,7 @@ async function stoppedTest(dir: string, config: Config, original: string) {
       files: z.array(z.string()).length(0),
       findings: z.string().regex(/\S/),
     })
-    .parse(JSON.parse(await text(`${prefix}.stdout`)));
+    .parse(JSON.parse(await recordText(`${prefix}.stdout`)));
   assert(reply.targetId === targetId, '原応答の対象IDが入力と一致しません');
   const pending = z
     .object({
@@ -99,7 +95,7 @@ async function stoppedTest(dir: string, config: Config, original: string) {
       findings: z.string(),
       pendingFiles: z.record(z.string(), z.string()),
     })
-    .parse(JSON.parse(await text(`${prefix}.json`)));
+    .parse(JSON.parse(await recordText(`${prefix}.json`)));
   assert(
     pending.targetId === targetId &&
       pending.findings === reply.findings &&
@@ -107,9 +103,9 @@ async function stoppedTest(dir: string, config: Config, original: string) {
     '判断待ちのfiles・未採用成果物が空ではありません',
   );
   z.object({ code: z.literal(0), timedOut: z.literal(false), ms: z.number().nonnegative() }).parse(
-    JSON.parse(await text(`${prefix}.execution.json`)),
+    JSON.parse(await recordText(`${prefix}.execution.json`)),
   );
-  const prompt = await text(`${prefix}.prompt`);
+  const prompt = await recordText(`${prefix}.prompt`);
   assert(
     prompt.includes(`"targetId":"${targetId}"`) && prompt.includes(original),
     '原指示と保存テスト入力が一致しません',
@@ -131,7 +127,7 @@ async function stoppedTest(dir: string, config: Config, original: string) {
     input.targetId,
     prompt,
   );
-  await text(`${prefix}.stderr`);
+  await recordText(`${prefix}.stderr`);
   const manifest: Record<string, string> = {};
   await snapshot(`${prefix}-workspace`, manifest);
   const sorted = (value: Record<string, string>) =>
@@ -172,7 +168,7 @@ export async function previousHumanDecision(input: {
   );
   await latestDecisionStop(dir, input.cwd, runDirectory);
   const selectedRecords = await preserveDecisionRecords([dir], input.cwd);
-  const original = await text(join(dir, 'issue.json'));
+  const original = await recordText(join(dir, 'issue.json'));
   assert(original === input.original, '合意済みIssueの版が変わりました');
   const supplement = await readSupplement(
     input.supplementFile,
@@ -183,9 +179,9 @@ export async function previousHumanDecision(input: {
     outside(input.cwd, supplement.path) && outside(dir, supplement.path),
     '補足合意はcheckoutと旧runの外に固定してください',
   );
-  const result: unknown = JSON.parse(await text(join(dir, 'result.json')));
+  const result: unknown = JSON.parse(await recordText(join(dir, 'result.json')));
   assertDecisionStop(result);
-  const savedInput: unknown = JSON.parse(await text(join(dir, 'test-1.target.json')));
+  const savedInput: unknown = JSON.parse(await recordText(join(dir, 'test-1.target.json')));
   assert(
     isRecord(savedInput) && savedInput.stage === 'host_return',
     '復帰対象の段階はhost_returnだけです',
@@ -205,7 +201,9 @@ export async function previousHumanDecision(input: {
   const source = await snapshot(input.cwd, manifest);
   if (history) {
     await verifyDecisionAncestors(history, config, original, input.target);
-    const artifacts: unknown = JSON.parse(await text(join(dir, 'host-current-artifacts.json')));
+    const artifacts: unknown = JSON.parse(
+      await recordText(join(dir, 'host-current-artifacts.json')),
+    );
     assert(
       isRecord(artifacts) && artifacts.source === source && history.source === source,
       '判断待ち後に成果物checkoutが変更されました',
@@ -213,7 +211,9 @@ export async function previousHumanDecision(input: {
   } else {
     await verifyInitialDecision(config, input, runDirectory, dir, original, stopped, manifest);
   }
-  const tests = testRecordsShape.parse(JSON.parse(await text(join(dir, 'test-records.json'))));
+  const tests = testRecordsShape.parse(
+    JSON.parse(await recordText(join(dir, 'test-records.json'))),
+  );
   await verifyTestArtifacts(input.cwd, tests);
   const roots = [
     ...new Set([
@@ -261,7 +261,7 @@ async function decisionConfig(
   result: Record<string, unknown>,
   supplement: Awaited<ReturnType<typeof readSupplement>>,
 ) {
-  const config: unknown = JSON.parse(await text(join(dir, 'verification-config.json')));
+  const config: unknown = JSON.parse(await recordText(join(dir, 'verification-config.json')));
   assertConfig(config);
   assert(
     (config.hostReturn || config.initialTestReturn) &&
@@ -286,7 +286,7 @@ async function decisionConfig(
     typeof result.localOnly === 'boolean' && (!result.localOnly || input.localOnly),
     '復帰で旧runの公開権限を拡大できません',
   );
-  const target: unknown = JSON.parse(await text(join(dir, 'target.json')));
+  const target: unknown = JSON.parse(await recordText(join(dir, 'target.json')));
   assert(
     isRecord(target) &&
       target.text === input.target.text &&
@@ -343,11 +343,13 @@ async function verifyInitialDecision(
   });
   const targetPath = join(origin.previousRun, 'target.json');
   verifyAncestorTarget(
-    new Map([[targetPath, await text(targetPath)]]),
+    new Map([[targetPath, await recordText(targetPath)]]),
     origin.previousRun,
     input.target,
   );
-  const initial: unknown = JSON.parse(await text(join(origin.previousRun, 'test-1.target.json')));
+  const initial: unknown = JSON.parse(
+    await recordText(join(origin.previousRun, 'test-1.target.json')),
+  );
   assert(
     isRecord(initial) && initial.issue === original && initial.baseCommit === config.baseCommit,
     '初回テスト復帰の要求・差分基準が一致しません',
@@ -392,7 +394,7 @@ async function verifyDecisionAncestors(
 async function intakeDecisionRecords(dir: string, roots: string[], cwd: string) {
   const records = await preserveDecisionRecords(roots, cwd);
   // 新版の停止は保存時の原記録・全modeへも照合する。旧版のmodeを補作しない。
-  const seal = await text(join(dir, 'human-decision-stop.json')).catch((error: unknown) => {
+  const seal = await recordText(join(dir, 'human-decision-stop.json')).catch((error: unknown) => {
     assert(isRecord(error) && error.code === 'ENOENT', '停止時の保全記録を取得できません');
     return undefined;
   });

@@ -3,7 +3,7 @@ import { lstat, readFile, readdir, readlink, realpath, mkdir } from 'node:fs/pro
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { reconcileExecutions } from './execution-history.ts';
-import { hash } from './record-observation.ts';
+import { hash, recordText } from './record-observation.ts';
 import { verifyTestBaseline } from './test-author.ts';
 import { observeInterruption } from './interrupted-records.ts';
 import { command } from '../shared/process.ts';
@@ -16,11 +16,6 @@ import { formalDependencyLocks } from './dependency-locks.ts';
 import { issueNumber } from '../shared/target.ts';
 
 import type { TestInterruption } from './test-interruption-schema.ts';
-
-async function recordText(path: string) {
-  assert((await lstat(path)).isFile(), `原記録が通常ファイルではありません: ${path}`);
-  return readFile(path, 'utf8');
-}
 
 async function tree(path: string): Promise<unknown> {
   const info = await lstat(path);
