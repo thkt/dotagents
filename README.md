@@ -46,10 +46,10 @@ Bun 1.4.4 を使います。check は次の順に実行します。ツールご�
 | 3 | `complexity` | Biome | 認知的複雑度の上限 15 だけ。formatter と他の規則は無効です |
 | 4 | `typecheck` | `bun --check` | `tsconfig.json`に従う通常ハーネスとeval実行コード・模擬テストの型の整合。テストからimportされないCLIも含みます |
 | 5 | `check:unused` | fallow | 未使用のファイル・export・型・依存と、実行時 import の循環 |
-| 6 | `test:control` | Bun | 通常ハーネスの制御テスト |
+| 6 | `test:control` | Bun | 通常ハーネスの制御テスト（`feedback`・`quality`・`assurance`の全階層） |
 | 7 | `test:eval` | Bun | eval専用の模擬テスト |
 
-制御テストはBunのファイル単位の隔離を保ち、2workerで実行します。eval専用の模擬テストは直列です。修正中は複数の関連パスを指定でき、提出前は引数なしの`bun run check`を使います。選択・直列実行・計時の操作は[CLIガイド](scripts/README.md#制御テストの選択と計時)を参照してください。
+制御テストはBunのファイル単位の隔離を保ち、2workerで実行します。eval専用の模擬テストは直列です。修正中は`bun run test:feedback`で`feedback`階層だけを実行するか、複数の関連パスを指定できます。提出前は引数なしの`bun run check`を使います。階層の目的と選び方は[開発方針](docs/wiki/development-policy.md#制御テストの階層)を参照してください。選択・直列実行・計時の操作は[CLIガイド](scripts/README.md#制御テストの選択と計時)を参照してください。
 
 型検査だけを実行する場合は`bun run typecheck`を使います。直接呼び出す場合は`bun --check`と指定します。このrepoには`check`スクリプトがあるため、`bun check`は総合検証を実行します。
 

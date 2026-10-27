@@ -836,25 +836,29 @@ jq -e '
 
 現在の共通checkの順序やハーネスの検証範囲は[README](../README.md#セットアップと検証)を、書式や型情報を用いるlintおよびテスト完了の方針は[開発方針](../docs/wiki/development-policy.md#typescriptの書き方)を参照してください。
 未使用コード・循環依存の検査の設定は[未使用コード検査とコードベース調査](#未使用コード検査とコードベース調査)を、重複・複雑度・循環依存の調査コマンドは[READMEのコードベース調査](../README.md#未使用コード検査とコードベース調査)を参照してください。循環検出は共通checkの`check:unused`にも含めます。重複・複雑度の追加調査は共通checkの失敗条件に含めません。
-制御テストは `scripts/tests/` に配置し、対象の責務に合わせて分割しています。
+制御テストは `scripts/tests/` の`feedback/`・`quality/`・`assurance/`のいずれかの階層に配置し、各階層の下を対象の責務に合わせて分割しています。階層の目的と選び方は[開発方針](../docs/wiki/development-policy.md#制御テストの階層)を参照してください。
 
 `bun run test:control`は成功時に件数を要約し、失敗時は診断を表示します。Bunが成功してもJUnit集計を拒否した場合は`JUnit report retained:`に実際の一時ファイルのパスを表示します。skipしたテストの特定にはそのXMLを開いてください。調査後は利用者が削除します。Bun自体の失敗やレポート未生成・読取り失敗では一時レポートを削除し、自動再実行はしません。
 
 ### 制御テストの選択と計時
 
-`bun run test:control`はBun 1.4.4の`--parallel=2`でファイルを分離して実行します。同じプロセス内のケースは直列のままです。`test:eval`は直列で実行します。修正中は関連するパスをすべて渡せます。
+`bun run test:control`はBun 1.4.4の`--parallel=2`でファイルを分離して実行します。同じプロセス内のケースは直列のままです。`test:eval`は直列で実行します。修正中は`bun run test:feedback`で`scripts/tests/feedback`だけを同じrunnerと2workerで実行できます。関連するパスをすべて渡すこともできます。
 
 ```sh
-bun run test:control scripts/tests/checks/test-runner.test.ts scripts/tests/checks/test-runner-selection.test.ts
+# feedback階層だけを実行する
+bun run test:feedback
+
+# 関連する2ファイルを指定して実行する
+bun run test:control scripts/tests/feedback/checks/test-runner.test.ts scripts/tests/feedback/checks/test-runner-selection.test.ts
 ```
 
-パスを省略すると`scripts/tests`全体を選びます。複数のファイル・ディレクトリを渡した場合はすべてを実行し、後続ファイルの失敗も非zeroで終了します。存在しないパスと未対応オプションは拒否します。対象を絞った成功は全体checkの成功とは区別してください。
+`test:control`はパスを省略すると`scripts/tests`全体、つまり全階層を選びます。複数のファイル・ディレクトリを渡した場合はすべてを実行し、後続ファイルの失敗も非zeroで終了します。存在しないパスと未対応オプションは拒否します。対象を絞った成功は全体checkの成功とは区別してください。
 
 runnerのBun経路で受け付けるオプションは`--parallel=N`（正整数）、`--timings=FILE`、`--update-timings`です。直列の対照や別のworker数を調べる場合は、package scriptの既定値を重ねず、runnerを直接呼びます。
 
 ```sh
 # 直列で指定した2ファイルを確認する
-bun scripts/tests/runner.ts bun scripts/tests/shared/process-cleanup.test.ts scripts/tests/implement/correction-process.test.ts
+bun scripts/tests/runner.ts bun scripts/tests/assurance/shared/process-cleanup.test.ts scripts/tests/quality/implement/correction-process.test.ts
 
 # 同じ集合を2workerで実行し、ファイル別の所要時間を外部へ保存する
 bun scripts/tests/runner.ts bun scripts/tests --parallel=2 --timings=/absolute/path/outside-checkout/control-times.json --update-timings
@@ -875,9 +879,9 @@ bun scripts/tests/runner.ts bun scripts/tests --parallel=2 --timings=/absolute/p
 | 共有入口で守る条件 | 既存検証と残る確認 |
 | --- | --- |
 | スキルの役割・参照解決・合意の引き継ぎ | スキルと原資料の意味は既存の独立評価で照合し、選択・登録は[新しいタスクでの手順確認](#scopingの切替と手順確認)で観測します。文字列一致のテストでは代替しません |
-| 対象設定・CLI引数と対象照合 | [target.test.ts](tests/shared/target.test.ts)はIssue形式、argvの保持、CI指定・未知キーや不正値の拒否、実CLIからの対象解決と`--write`の効果を確認します。[development.test.ts](tests/implement/development.test.ts)は対象不一致、開始入力やsetup後の変更、別技術構成、`--no-publish`の公開抑止を確認します。GitHub応答は模擬のため実際の認証・権限は別途照合します |
-| 通常開発・既存PR修正・1回レビュー試行と公開 | [development.test.ts](tests/implement/development.test.ts)、[revision.test.ts](tests/implement/revision.test.ts)、[correction.test.ts](tests/implement/correction.test.ts)、[correction-process.test.ts](tests/implement/correction-process.test.ts)、[review-probe.test.ts](tests/implement/review-probe.test.ts)、[publish.test.ts](tests/implement/publish.test.ts)が停止・保全・評価試行のレビュー1回・draft・公開対象を確認します。実モデルの判断品質や実際の公開の成功は別の証拠です |
-| 結果の状態・理由・証拠への導線 | developmentの成功・停止・ローカル完了の記録と、[run-report.test.ts](tests/implement/run-report.test.ts)の状態の区別・証拠リンク・不正記録・既存出力の保持を使います。HTMLの生成確認はブラウザーでの実表示確認ではありません |
+| 対象設定・CLI引数と対象照合 | [target.test.ts](tests/feedback/shared/target.test.ts)はIssue形式、argvの保持、CI指定・未知キーや不正値の拒否、実CLIからの対象解決と`--write`の効果を確認します。[development.test.ts](tests/quality/implement/development.test.ts)は対象不一致、開始入力やsetup後の変更、別技術構成、`--no-publish`の公開抑止を確認します。GitHub応答は模擬のため実際の認証・権限は別途照合します |
+| 通常開発・既存PR修正・1回レビュー試行と公開 | [development.test.ts](tests/quality/implement/development.test.ts)、[revision.test.ts](tests/quality/implement/revision.test.ts)、[correction.test.ts](tests/quality/implement/correction.test.ts)、[correction-process.test.ts](tests/quality/implement/correction-process.test.ts)、[review-probe.test.ts](tests/quality/implement/review-probe.test.ts)、[publish.test.ts](tests/quality/implement/publish.test.ts)が停止・保全・評価試行のレビュー1回・draft・公開対象を確認します。実モデルの判断品質や実際の公開の成功は別の証拠です |
+| 結果の状態・理由・証拠への導線 | developmentの成功・停止・ローカル完了の記録と、[run-report.test.ts](tests/feedback/implement/run-report.test.ts)の状態の区別・証拠リンク・不正記録・既存出力の保持を使います。HTMLの生成確認はブラウザーでの実表示確認ではありません |
 
 文書・設定・CLIの変更前後で、今回影響する呼出し方の成功と想定する失敗を同じ条件で確認し、対象版・入力・結果・未実施範囲を既存のfindingsと独立評価へ残します。未使用検査の成功は、この確認の代わりにはなりません。
 
@@ -889,7 +893,7 @@ bun scripts/capture/verify.ts /absolute/path/to/target-repo firefox
 
 最後の引数は`chromium`、`firefox`、`webkit`のいずれかです。通常の相対`testDir`およびその範囲外にあるspec、依存project、既定の`webServer.cwd`、選択したブラウザー、checkoutの不変性、ならびに0件・skip・失敗・不正媒体・起動不能を実際のPlaywrightで確認します。この確認は共通checkには含めず、対象のPlaywrightバージョン、選択したブラウザー、ログの保存場所、および実行結果を別の証拠として報告します。
 
-Playwright runnerを起動する契約テストは[trial repoのtrial/control/](https://github.com/thkt/dotagents-workflow-trial/tree/93b38f0bc690373b4b1f68e37a42f721929d6386/trial/control)に置き、同repoの `test:trial-control` が商品側の依存を使って実行します。Bun runnerと両レポート形式の拒否条件は `scripts/tests/checks/test-runner.test.ts` に残します。
+Playwright runnerを起動する契約テストは[trial repoのtrial/control/](https://github.com/thkt/dotagents-workflow-trial/tree/93b38f0bc690373b4b1f68e37a42f721929d6386/trial/control)に置き、同repoの `test:trial-control` が商品側の依存を使って実行します。Bun runnerと両レポート形式の拒否条件は `scripts/tests/feedback/checks/test-runner.test.ts` に残します。
 
 開発入口と必要報告のGitによる版照合、公開対象・権限、PR公開、Codex実行は、それぞれ `development.test.ts`、`target.test.ts`、`publish.test.ts`、`codex-actor.test.ts` で確認します。scopingの会話上の判断は[新しいタスクでの手順確認](#scopingの切替と手順確認)で扱います。共有する試験環境とモデル応答データの組み立ては `tests/support/` に置き、テストケースと期待値は各テストファイルに置きます。
 
@@ -929,7 +933,7 @@ OSの一時ディレクトリに公開可能な小さなページ分割関数の
 
 checkoutとレビュー記録は正誤と無関係なランダム名の`case-*`配下に置き、両ケースの実行順もランダムに決めます。開始時に表示する保存先の`host/cases.json`が、実行順のケースIDと正誤の対応表です。最初のレビュー前に保存するため、中断時も対象を照合できます。実行環境とハーネスの版・差分は`host/environment.json`に保持します。停止したrunの上限や記録を変更して続行しません。
 
-cwd、prompt、target record、差分・追加ファイル、checkログ、actor・Codexの実行引数には正誤ラベルやホスト用資料への参照を渡しません。通常の要求、コード、テスト、レビュー基準、対象版の記録は維持します。`test`や`review`という一般名や、欠陥を読み取れるコード・テストは隠しません。これは偶発的な手掛かりを減らす措置であり、意図的な周辺ファイル探索を防ぐセキュリティ境界ではありません。[制御テスト](tests/implement/review-probe.test.ts)は実際のCLIとactorを通し、Codexだけを模擬して生成入力と参照資料を捕捉します。実モデルの判断の証拠とは区別します。
+cwd、prompt、target record、差分・追加ファイル、checkログ、actor・Codexの実行引数には正誤ラベルやホスト用資料への参照を渡しません。通常の要求、コード、テスト、レビュー基準、対象版の記録は維持します。`test`や`review`という一般名や、欠陥を読み取れるコード・テストは隠しません。これは偶発的な手掛かりを減らす措置であり、意図的な周辺ファイル探索を防ぐセキュリティ境界ではありません。[制御テスト](tests/quality/implement/review-probe.test.ts)は実際のCLIとactorを通し、Codexだけを模擬して生成入力と参照資料を捕捉します。実モデルの判断の証拠とは区別します。
 
 各レビュー後に`host/ケースID/oracle.ts`で独立した再現手順を実行し、同じディレクトリの`result.json`に制御上の終了理由、対象、実時間、モデル時間、使用量、独立した再現入力と期待値・実結果、裁定待ちの指摘を保存します。対応表・既知の欠陥・再現・裁定結果を既定のレビュー入力に含めません。ホストは対応表と結果を照合し、各指摘をコードと再現入力で裁定して、真の指摘、誤指摘、未確認、既知の欠陥の見落としを理由とともに記録します。単にneeds_changesなら検出成功、acceptedなら誤指摘なしとは扱いません。モデルが委譲した場合は子の使用量も照合し、合計を確定できないときは未確認とします。CLIの集計だけで親子合計を保証しません。
 

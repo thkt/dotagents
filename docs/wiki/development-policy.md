@@ -179,6 +179,26 @@ UI E2Eテストを作成・更新する場合の待機とデータ独立性は�
 
 共通ハーネスは `scripts/`、スキルは `skills/` に置きます。対象repoの検証・必要媒体はそのrepoの `.dotagents.json` で指定します。試行商品・ブラウザーの検証・媒体・旧App版コードと履歴は[trial repo](https://github.com/thkt/dotagents-workflow-trial/blob/d0134086ad9bdddb5ed2693327cb1ffb0859c4a2/README.md)に残し、このrepoのcheckには含めません。
 
+### 制御テストの階層
+
+このrepoの制御テスト（`scripts/tests`）は、目的で`feedback`・`quality`・`assurance`の3階層に分けます。修正中は`bun run test:feedback`で`feedback`階層だけを実行し、変更直後に壊れたかを短時間で確かめます。提出前の`bun run check`とCIは、`test:control`で全階層を実行します。`eval/tests`はこの分類の対象外です。
+
+| 階層 | 目的 | 置くテストの例 |
+| --- | --- | --- |
+| `feedback` | 変更直後に壊れたかが分かる、速くて結果が決まった検査 | runnerの判定、対象設定や入力の検査、記録の形式、利用量の集計 |
+| `quality` | 主要な流れ（開発・修正・評価・公開）の要求を入口から守る | development・revision・correction・review・publishの入口から観測する結果 |
+| `assurance` | まれな事故からの復帰、プロセス後始末、repo全体の走査などの保険 | 中断・時間切れ・ホスト復帰からの回復、プロセスの後始末、ローカル公開の整合、コードベース全体の検査 |
+
+新しいテストファイルの階層は、ファイルが守る目的と、その確かめ方の範囲で選びます。次の順に判断し、最初に当てはまる階層に置きます。
+
+1. 1つの判定・形式・境界を小さな入力で確かめ、同じ入力で同じ結果になり、変更のたびに実行しても待ち時間にならないテストは`feedback`に置きます。
+2. 主要な流れの要求を、公開入口から一連のfixtureを通して確かめるテストは`quality`に置きます。
+3. まれな事故を一連の流れや実プロセスで再現し、復帰や後始末を確かめる保険と、repo全体を走査する検査は`assurance`に置きます。
+
+階層の下には、対象の責務で分けたディレクトリ（`implement/`・`checks/`・`shared/`・`capture/`・`ui/`）を置きます。各階層から共有する`scripts/tests/support/`・`scripts/tests/fixtures/`と`runner.ts`は、階層の外に置きます。階層の外や未知の階層にテストファイルを置くと、`feedback`階層の[分類漏れの検査](../../scripts/tests/feedback/checks/test-tiers.test.ts)が失敗します。
+
+`test:feedback`の成功は全体checkの成功ではありません。修正中の`feedback`で見逃した失敗が全階層の実行で見つかった場合は、その失敗を検出したテストの階層を見直します。
+
 ### 改善効果の比較
 
 改善案の採用判断に比較が必要な場合に、次の順で確認します。既存の根拠で判断できる変更に実験を追加しません。結果と適用限界は既存のIssue・PRやrun記録へ残し、専用の台帳・採点基盤・定期監査を設けません。
@@ -268,7 +288,7 @@ const copies = items.reduce<{ message: string }[]>((acc, item) => {
 
 適用対象は[lint設定](../../.oxlintrc.json)の`scripts/**/*.ts`と`eval/**/*.ts`です。spreadは`oxc/no-accumulating-spread`、配列のコピー操作や`Object.assign`などは[既存のローカルルール](../../scripts/lint/local/index.ts)の`no-reduce-accumulator-copy`で確認します。文書は理由と適用境界を説明し、機械的な判定は設定・実装を正本とします。新しい検査や進行ゲートは追加しません。
 
-集計処理を書く前にこの節と関係するコードを読み、差分作成後に`bun run lint`、提出前に`bun run check`を使います。対象規則を調べる場合は`bun test ./scripts/tests/checks/codebase-checks.test.ts --test-name-pattern 'lint rejects unsafe assertions'`で[既存の正例・違反例・適用外の検査](../../scripts/tests/checks/codebase-checks.test.ts)を実行できます。
+集計処理を書く前にこの節と関係するコードを読み、差分作成後に`bun run lint`、提出前に`bun run check`を使います。対象規則を調べる場合は`bun test ./scripts/tests/assurance/checks/codebase-checks.test.ts --test-name-pattern 'lint rejects unsafe assertions'`で[既存の正例・違反例・適用外の検査](../../scripts/tests/assurance/checks/codebase-checks.test.ts)を実行できます。
 
 ローカルルールは構文、変数の参照、配列と確認できる初期値などを使った検査です。未知の値や別の呼出し形での検出、所有権・副作用・実際の性能は保証しません。外部から渡された共有配列への変更を、上の正例だけを理由に認めません。必要な処理を妨げる指摘や見落としがあれば、対象コード・入力・期待結果・診断を残し、適用境界を見直します。
 
@@ -290,4 +310,4 @@ const copies = items.reduce<{ message: string }[]>((acc, item) => {
 
 `bun run test:control`はBunの実行成功に加え、JUnit集計でテスト0件、skip等の未実行、集計の欠落・不正、切れたレポートを失敗とします。`CI=true`ではonlyも拒否します。集計が拒否された場合は理由と保持したJUnitのパスを表示し、元の記録を残します。一時領域なので恒久保存は保証しません。レポート未生成・読取り失敗では保存を案内しません。
 
-対象を絞った調査には`bun test`を使えます。提出前は引数なしの`bun run check`を実行します。テスト削除や未登録まで自動保証するものではなく、検証定義と意味のある検出力を独立評価します。実モデル、公開、登録切替、復元確認は制御テストとは別の証拠です。runnerの出力と一時ファイルの扱いは[CLIガイド](../../scripts/README.md#検証)を参照してください。
+修正中は`bun run test:feedback`で[`feedback`階層](#制御テストの階層)だけを同じrunnerの判定で実行できます。対象を絞った調査には`bun test`を使えます。提出前は引数なしの`bun run check`を実行します。テスト削除や未登録まで自動保証するものではなく、検証定義と意味のある検出力を独立評価します。実モデル、公開、登録切替、復元確認は制御テストとは別の証拠です。runnerの出力と一時ファイルの扱いは[CLIガイド](../../scripts/README.md#検証)を参照してください。
