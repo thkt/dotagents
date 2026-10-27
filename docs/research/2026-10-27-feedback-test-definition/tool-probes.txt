@@ -1,0 +1,60 @@
+# 道具の試行記録（2026-10-27、Bun 1.4.4、oxlint 1.87.0、biome 2.5.15、対象版 4466983）
+# 一時ディレクトリのパスは <scratch> に置き換えた。
+
+## 1. 試行用テストファイル
+--- bun.test.ts
+import { test } from 'bun:test';
+test('no assertion', () => { const x = 1; });
+test.skip('skipped', () => {});
+--- global.test.ts
+test('no assertion', () => { const x = 1; });
+test.skip('skipped', () => {});
+--- vitest.test.ts
+import { test } from 'vitest';
+test('no assertion', () => { const x = 1; });
+--- focus.test.ts
+import { test } from 'bun:test';
+test.only('focused', () => {});
+
+## 2. oxlint の jest/vitest 規則（bun:test から import したファイルだけ報告されない）
+$ oxlint --jest-plugin --vitest-plugin -A all -D jest/expect-expect -D jest/no-disabled-tests -D vitest/no-disabled-tests <scratch>/lintprobe
+<scratch>/lintprobe/global.test.ts:1:1: error jest(expect-expect): Test has no assertions help: Add assertion(s) in this Test
+<scratch>/lintprobe/global.test.ts:2:1: error jest(expect-expect): Test has no assertions help: Add assertion(s) in this Test
+<scratch>/lintprobe/global.test.ts:2:1: error jest(no-disabled-tests): Disabled test help: Remove the appending `.skip`
+<scratch>/lintprobe/global.test.ts:2:1: error vitest(no-disabled-tests): Disabled test help: Remove the appending `.skip`
+<scratch>/lintprobe/vitest.test.ts:2:1: error jest(expect-expect): Test has no assertions help: Add assertion(s) in this Test
+
+$ oxlint --jest-plugin -A all -D jest/expect-expect -D jest/no-disabled-tests -D jest/no-conditional-expect -D jest/no-standalone-expect scripts/tests
+exit=0
+
+## 3. biome の noSkippedTests・noFocusedTests（bun:test でも報告される）
+$ biome lint <scratch>/lintprobe   # biome.json: suspicious.noSkippedTests, suspicious.noFocusedTests
+bun.test.ts:3:6 lint/suspicious/noSkippedTests  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+focus.test.ts:2:6 lint/suspicious/noFocusedTests  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+global.test.ts:2:6 lint/suspicious/noSkippedTests  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Found 3 errors.
+
+## 4. bun test --changed（git archive HEAD の別コピーで実行）
+$ bun test --changed scripts/tests/feedback   # 変更なし
+--changed: no changed files, nothing to run
+Ran 0 tests across 0 files. [44.00ms]
+
+$ echo "// probe" >> scripts/implement/usage.ts && bun test --changed scripts/tests/feedback
+--changed: 1 changed file, running 1/25 test files
+Ran 10 tests across 1 file. [249.00ms]
+
+$ echo "// probe" >> scripts/implement/local-publication.ts && bun test --changed scripts/tests/feedback   # testから直接importされず、orchestrator.ts経由でだけ届く
+--changed: 1 changed file, running 1/25 test files
+scripts/tests/feedback/implement/premise-reference.test.ts:
+Ran 8 tests across 1 file. [1043.00ms]
+
+# orchestrator.ts を静的に import する feedback のテスト: premise-reference.test.ts（選ばれた）。
+# allocation.test.ts は orchestrator.ts の本文を一時ファイルへ写して import 文を絶対パスへ書き換え、動的 import で実行する（allocation.test.ts:18-27）。local-publication.ts も実行されるが、--changed では選ばれなかった。
+
+## 5. runner.ts は Bun の --changed・--rerun-each・--randomize を受け付けない
+$ bun scripts/tests/runner.ts bun scripts/tests/feedback --changed
+Unsupported argument: --changed. Use TEST_PATH..., --parallel=N, --timings=FILE, --update-timings
+$ bun scripts/tests/runner.ts bun scripts/tests/feedback --rerun-each=3
+Unsupported argument: --rerun-each=3. Use TEST_PATH..., --parallel=N, --timings=FILE, --update-timings
+$ bun scripts/tests/runner.ts bun scripts/tests/feedback --randomize
+Unsupported argument: --randomize. Use TEST_PATH..., --parallel=N, --timings=FILE, --update-timings

@@ -1,0 +1,27 @@
+// Usage: bun run-mutants.ts <copyDir> <mutants.json> <outJsonl>
+import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+const [dir, spec, out] = process.argv.slice(2);
+const mutants = JSON.parse(readFileSync(spec, 'utf8'));
+const run = (args: string[]) => {
+  const t = Date.now();
+  const r = spawnSync('bun', ['scripts/tests/runner.ts', 'bun', ...args], { cwd: dir, encoding: 'utf8', maxBuffer: 1 << 28 });
+  const text = (r.stdout ?? '') + (r.stderr ?? '');
+  const m = text.match(/(\d+) pass[\s\S]*?(\d+) fail/);
+  const fails = [...text.matchAll(/^\(fail\) (.*?)(?: \[[\d.]+ms\])?$/gm)].map((x) => x[1]).slice(0, 5);
+  return { code: r.status, pass: m ? +m[1] : null, fail: m ? +m[2] : null, ms: Date.now() - t, fails };
+};
+for (const mu of mutants) {
+  const path = `${dir}/${mu.file}`;
+  const orig = readFileSync(path, 'utf8');
+  const n = orig.split(mu.from).length - 1;
+  if (n !== 1) { appendFileSync(out, JSON.stringify({ id: mu.id, error: `from matched ${n} times` }) + '\n'); continue; }
+  writeFileSync(path, orig.replace(mu.from, mu.to));
+  try {
+    const feedback = run(['scripts/tests/feedback', '--parallel=2']);
+    const quality = run(['scripts/tests/quality', '--parallel=4']);
+    appendFileSync(out, JSON.stringify({ id: mu.id, band: mu.band, file: mu.file, feedback, quality }) + '\n');
+  } finally {
+    writeFileSync(path, orig);
+  }
+}
