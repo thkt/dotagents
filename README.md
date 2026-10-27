@@ -49,7 +49,7 @@ Bun 1.4.4 を使います。check は次の順に実行します。ツールご�
 | 6 | `test:control` | Bun | 通常ハーネスの制御テスト（`feedback`・`quality`・`assurance`の全階層） |
 | 7 | `test:eval` | Bun | eval専用の模擬テスト |
 
-制御テストはBunのファイル単位の隔離を保ち、2workerで実行します。eval専用の模擬テストは直列です。修正中は`bun run test:feedback`で`feedback`階層だけを実行するか、複数の関連パスを指定できます。提出前は引数なしの`bun run check`を使います。階層の目的と選び方は[開発方針](docs/wiki/development-policy.md#制御テストの階層)を参照してください。選択・直列実行・計時の操作は[CLIガイド](scripts/README.md#制御テストの選択と計時)を参照してください。
+制御テストはBunのファイル単位の隔離を保ち、2workerで実行します。eval専用の模擬テストは直列です。修正中は`bun run test:feedback`で`feedback`階層だけを実行するか、複数の関連パスを指定できます。さらに絞る場合は、変更したファイルを実行時に読み込んだテストファイルだけを実行する`bun run test:affected`を使えます。提出前は引数なしの`bun run check`を使います。階層の目的と選び方は[開発方針](docs/wiki/development-policy.md#制御テストの階層)を参照してください。選択・`test:affected`の選び方と既知の漏れ・直列実行・計時の操作は[CLIガイド](scripts/README.md#制御テストの選択と計時)を参照してください。
 
 型検査だけを実行する場合は`bun run typecheck`を使います。直接呼び出す場合は`bun --check`と指定します。このrepoには`check`スクリプトがあるため、`bun check`は総合検証を実行します。
 
