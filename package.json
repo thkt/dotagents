@@ -5,6 +5,7 @@
   "packageManager": "bun@1.4.4",
   "scripts": {
     "test:control": "bun scripts/tests/runner.ts bun --parallel=2",
+    "test:affected": "bun scripts/tests/runner.ts bun --affected --parallel=2",
     "test:feedback": "bun scripts/tests/runner.ts bun scripts/tests/feedback --parallel=2",
     "mutate:diff": "bun scripts/tests/mutation/cli.ts",
     "lint:docs": "textlint --config .textlintrc.json",
