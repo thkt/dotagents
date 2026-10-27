@@ -56,14 +56,34 @@ const groupFile = join(root, 'group.pid');
 const prefix = join(root, 'acquired');
 const marker = join(root, 'next-command');
 const deadlineMs = 2000;
+let cleaningUp = false;
+let cleanupChecks = 0;
 
 function alive(pid: number) {
   try {
+    if (cleaningUp) {
+      cleanupChecks += 1;
+      if (
+        injection === 'cleanup-EPERM' ||
+        (injection === 'cleanup-EPERM-once' && cleanupChecks === 1) ||
+        injection === 'cleanup-exception'
+      ) {
+        const error = Object.assign(Error('controlled cleanup existence failure'), {
+          code: injection === 'cleanup-exception' ? 'EIO' : 'EPERM',
+          syscall: 'kill',
+        });
+        injected.push({ pid, signal: 0, error: serialize(error) });
+        throw error;
+      }
+    }
     originalKill(pid, 0);
     return true;
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ESRCH') {
       return false;
+    }
+    if (cleaningUp && error instanceof Error && 'code' in error && error.code === 'EPERM') {
+      return true;
     }
     throw error;
   }
@@ -96,7 +116,10 @@ async function outcome(action: () => Promise<unknown>): Promise<Outcome> {
   }
 }
 
-process.on('uncaughtException', (error) => escaped.push(serialize(error)));
+process.on('uncaughtException', (error) => {
+  escaped.push(serialize(error));
+  process.exitCode = 1;
+});
 process.kill = (pid, signal) => {
   const ownedGroup = existsSync(groupFile) ? Number(readFileSync(groupFile, 'utf8')) : undefined;
   if (
@@ -164,8 +187,10 @@ try {
   );
 } catch (error) {
   report.harnessError = serialize(error);
-} finally {
-  process.kill = originalKill;
+}
+cleaningUp = true;
+process.kill = originalKill;
+try {
   if (existsSync(groupFile)) {
     const group = Number(readFileSync(groupFile, 'utf8'));
     if (Number.isSafeInteger(group) && group > 1) {
@@ -173,16 +198,26 @@ try {
         originalKill(-group, 'SIGKILL');
       } catch (error) {
         if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) {
-          report.cleanupError = serialize(error);
+          throw error;
         }
       }
       const deadline = Date.now() + 1000;
-      while (alive(-group) && Date.now() < deadline) {
+      let groupAlive = true;
+      do {
+        groupAlive = alive(-group);
+        if (!groupAlive) {
+          break;
+        }
         await Bun.sleep(20);
+      } while (Date.now() < deadline);
+      report.groupAliveAfterCleanup = groupAlive;
+      if (groupAlive) {
+        throw Error('process group disappearance unconfirmed after cleanup');
       }
-      report.groupAliveAfterCleanup = alive(-group);
     }
   }
-  writeFileSync(join(root, 'report.json'), `${JSON.stringify(report, null, 2)}\n`);
-  process.exit(0);
+} catch (error) {
+  report.cleanupError = serialize(error);
 }
+writeFileSync(join(root, 'report.json'), `${JSON.stringify(report, null, 2)}\n`);
+process.exit(process.exitCode ?? 0);

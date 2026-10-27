@@ -61,8 +61,14 @@ async function cleanup(root: string) {
   }
 }
 
-async function probe(trigger: string, injection: string) {
+async function runProbe(trigger: string, injection: string, blockReport = false) {
   const root = await mkdtemp(join(evidenceRoot, `${trigger}-${injection}-`));
+  if (blockReport) {
+    await mkdir(join(root, 'report.json'));
+  }
+  const env = { ...process.env };
+  // Bunの自動回収を外し、command自身による子孫の終了を検証する。
+  delete env.BUN_FEATURE_FLAG_NO_ORPHANS;
   const child = spawn(
     process.execPath,
     [
@@ -72,7 +78,7 @@ async function probe(trigger: string, injection: string) {
       trigger,
       injection,
     ],
-    { stdio: ['ignore', 'pipe', 'pipe'] },
+    { stdio: ['ignore', 'pipe', 'pipe'], env },
   );
   let stdout = '',
     stderr = '';
@@ -92,16 +98,23 @@ async function probe(trigger: string, injection: string) {
   await writeFile(join(root, 'probe.stdout'), stdout);
   await writeFile(join(root, 'probe.stderr'), stderr);
   try {
-    expect({ code, forced, stderr }).toMatchObject({ code: 0, forced: false });
-    const parsed: unknown = JSON.parse(await readFile(join(root, 'report.json'), 'utf8'));
-    const report = object(parsed);
-    expect(report.harnessError).toBeUndefined();
-    expect(report.cleanupError).toBeUndefined();
-    expect(report.groupAliveAfterCleanup).toBe(false);
-    return report;
+    const report: unknown = blockReport
+      ? undefined
+      : JSON.parse(await readFile(join(root, 'report.json'), 'utf8'));
+    return { code, forced, stderr, report };
   } finally {
     await cleanup(root);
   }
+}
+
+async function probe(trigger: string, injection: string) {
+  const result = await runProbe(trigger, injection);
+  expect(result).toMatchObject({ code: 0, forced: false });
+  const report = object(result.report);
+  expect(report.harnessError).toBeUndefined();
+  expect(report.cleanupError).toBeUndefined();
+  expect(report.groupAliveAfterCleanup).toBe(false);
+  return report;
 }
 
 test('正常なgroup終了は取得出力と既知の非zero終了を保存する', async () => {
@@ -145,3 +158,36 @@ for (const trigger of ['exit', 'timeout', 'signal']) {
     }
   }, 10000);
 }
+
+test('後片付けの一時的な存在確認EPERMでも消滅を再確認して報告を保存する', async () => {
+  const report = await probe('exit', 'cleanup-EPERM-once');
+  expect(report.injected).toMatchObject([{ signal: 0, error: { code: 'EPERM' } }]);
+  expect(report.escaped).toEqual([]);
+  expect(report.saved).toEqual({ stdout: '取得済みstdout\n', stderr: '取得済みstderr\n' });
+}, 10000);
+
+for (const injection of ['cleanup-EPERM', 'cleanup-exception']) {
+  test(`後片付けの${injection}でも失敗と取得出力の報告を保存する`, async () => {
+    const result = await runProbe('exit', injection);
+    expect(result).toMatchObject({ code: 0, forced: false });
+    const report = object(result.report);
+    expect(report.harnessError).toBeUndefined();
+    expect(report.cleanupError).toBeDefined();
+    expect(report.groupAliveAfterCleanup).not.toBe(false);
+    expect(report.escaped).toEqual([]);
+    expect(report.saved).toEqual({ stdout: '取得済みstdout\n', stderr: '取得済みstderr\n' });
+    assert(Array.isArray(report.injected));
+    expect(report.injected.length).toBeGreaterThan(injection === 'cleanup-EPERM' ? 1 : 0);
+    expect(report.injected[0]).toMatchObject({ signal: 0 });
+    if (injection === 'cleanup-exception') {
+      expect(report.cleanupError).toMatchObject({ code: 'EIO' });
+    }
+  }, 10000);
+}
+
+test('報告自体を書き込めない場合は非zero終了する', async () => {
+  const result = await runProbe('exit', 'none', true);
+  expect(result.forced).toBe(false);
+  expect(result.code).not.toBeNull();
+  expect(result.code).not.toBe(0);
+}, 10000);
