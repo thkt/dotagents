@@ -12,7 +12,7 @@ export const recordDirVariable = 'DOTAGENTS_RECORD_DIR';
 // テストファイルを起動した側が決めた持ち主です。子のbunは環境変数で引き継ぎます。
 export const recordOwnerVariable = 'DOTAGENTS_RECORD_TEST';
 
-const testFilePattern = /[._](?:test|spec)\.[cm]?[jt]sx?$/;
+export const testFilePattern = /[._](?:test|spec)\.[cm]?[jt]sx?$/;
 const recordedPattern = /^(?!.*[\\/]node_modules[\\/]).*\.(?:[cm]?[jt]sx?|json|toml)$/;
 const loaders = new Map<string, Bun.Loader>([
   ['ts', 'ts'],
