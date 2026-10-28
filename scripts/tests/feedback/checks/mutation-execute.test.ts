@@ -5,10 +5,14 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { withoutAutoMaintenance } from '../../runner.ts';
-import { planMutants, readChanges, selectMutants } from '../../mutation/mutants.ts';
-import type { Changes } from '../../mutation/mutants.ts';
-import { createCopy, executeMutation, formatReport } from '../../mutation/execute.ts';
+import { withoutAutoMaintenance } from '../../../test-runtime/runner.ts';
+import { planMutants, readChanges, selectMutants } from '../../../test-runtime/mutation/mutants.ts';
+import type { Changes } from '../../../test-runtime/mutation/mutants.ts';
+import {
+  createCopy,
+  executeMutation,
+  formatReport,
+} from '../../../test-runtime/mutation/execute.ts';
 
 function git(cwd: string, ...args: string[]) {
   const result = spawnSync(

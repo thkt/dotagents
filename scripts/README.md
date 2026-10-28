@@ -842,6 +842,8 @@ jq -e '
 
 ### 制御テストの選択と計時
 
+実行基盤は`scripts/test-runtime/`、検証するテスト本体は`scripts/tests/`に置きます。独立テストの成果物保護を維持し、実行基盤の修正をテストの変更と混同しない配置です。旧`scripts/tests/runner.ts`・`scripts/tests/mutation/cli.ts`の直接実行は互換入口として残し、新しい実体へ同一プロセスで委譲します。
+
 `bun run test:control`はBun 1.4.4の`--parallel=2`でファイルを分離して実行します。同じプロセス内のケースは直列のままです。`test:eval`は直列で実行します。修正中は`bun run test:feedback`で`scripts/tests/feedback`だけを同じrunnerと2workerで実行できます。関連するパスをすべて渡すこともできます。
 
 ```sh
@@ -858,10 +860,10 @@ runnerのBun経路で受け付けるオプションは`--parallel=N`（正整数
 
 ```sh
 # 直列で指定した2ファイルを確認する
-bun scripts/tests/runner.ts bun scripts/tests/assurance/shared/process-cleanup.test.ts scripts/tests/quality/implement/correction-process.test.ts
+bun scripts/test-runtime/runner.ts bun scripts/tests/assurance/shared/process-cleanup.test.ts scripts/tests/quality/implement/correction-process.test.ts
 
 # 同じ集合を2workerで実行し、ファイル別の所要時間を外部へ保存する
-bun scripts/tests/runner.ts bun scripts/tests --parallel=2 --timings=/absolute/path/outside-checkout/control-times.json --update-timings
+bun scripts/test-runtime/runner.ts bun scripts/tests --parallel=2 --timings=/absolute/path/outside-checkout/control-times.json --update-timings
 ```
 
 計時ファイルが既にある場合、Bunは記録した所要時間で重いファイルを先に割り当てます。初回と再利用時を分けて記録し、異なるコードや対象集合の数値を同じ比較に混ぜないでください。計測用の記録はcheckout外へ置き、常設のCI入力や新しい必須検査にはしません。
@@ -885,7 +887,7 @@ bun run test:affected
 3. 本文に変更ファイルのパスの末尾2要素を書いたテストファイルを選びます。
 4. 記録のないテストファイルは、何を読むか分からないため常に選びます。
 
-全テストを実行する場合があります。`runner.ts`・`record-modules.ts`・`affected.ts`・`package.json`・`bun.lock`・`tsconfig.json`の変更は、記録の有無によらず全部実行にします。上の1〜4のどれにも当たらない変更も、全部実行にして理由のファイルを表示します。
+全テストを実行する場合があります。`scripts/test-runtime/`の`runner.ts`・`record-modules.ts`・`affected.ts`、旧runner互換入口・`package.json`・`bun.lock`・`tsconfig.json`の変更は、記録の有無によらず全部実行にします。上の1〜4のどれにも当たらない変更も、全部実行にして理由のファイルを表示します。
 
 記録は、worktreeのgit dirの下にある`dotagents/test-deps.json`へ保存します。記録器は、実行時に`BUN_OPTIONS`へ`--preload`を足して、テストファイルと、そのテストファイルが起動した子のbunが読み込んだモジュールを集めます。保存は一時ファイルへ書いてからrenameで置き換え、実行しなかったテストファイルの記録を残します。失敗したテストファイルの記録は消すため、次回は記録なしとして選ばれます。記録ファイルを読めないか形が不正な場合は、警告を表示して記録なしとして扱い、全テストを選びます。
 
@@ -912,7 +914,7 @@ bun run mutate:diff
 bun run mutate:diff -- --base origin/main --max 10 --quality
 ```
 
-`--base`の既定は`main`で、`git merge-base`で求めた分岐点と作業ツリーを`git diff -M`で比べます。変異の対象は`scripts/`の製品コードと`scripts/tests/runner.ts`の追加・変更行です。他の`scripts/tests/**`には変異を作りません。対象ファイルの他の場所で削除した行と前後の空白を除いて同じ追加行は、移動とみなして除きます。同じhunkの連続する削除行（最大5行）と、空白を除いて完全に一致する連続する追加行は、行の分割・結合だけの整形とみなして除きます。演算子は条件の否定（`===`と`!==`の入替え、`if`・`while`の条件の否定）、比較の境界の入替え（`<`と`<=`、`>`と`>=`）、真偽値の入替え、`assert`の条件の否定の4種類です。カバレッジによる除外はしません。
+`--base`の既定は`main`で、`git merge-base`で求めた分岐点と作業ツリーを`git diff -M`で比べます。変異の対象は`scripts/`の製品コード（`scripts/test-runtime/`を含む）と旧`scripts/tests/runner.ts`互換入口の追加・変更行です。他の`scripts/tests/**`には変異を作りません。対象ファイルの他の場所で削除した行と前後の空白を除いて同じ追加行は、移動とみなして除きます。同じhunkの連続する削除行（最大5行）と、空白を除いて完全に一致する連続する追加行は、行の分割・結合だけの整形とみなして除きます。演算子は条件の否定（`===`と`!==`の入替え、`if`・`while`の条件の否定）、比較の境界の入替え（`<`と`<=`、`>`と`>=`）、真偽値の入替え、`assert`の条件の否定の4種類です。カバレッジによる除外はしません。
 
 コマンドは実checkoutを変更しません。追跡中と未追跡（ignore以外）のファイルを一意の一時ディレクトリへ写し、`node_modules`をリンクして実行し、終了時に削除します。
 

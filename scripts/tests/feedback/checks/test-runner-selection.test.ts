@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { isRecord } from '../../../shared/values.ts';
 
-const entry = resolve(import.meta.dir, '../../runner.ts');
+const entry = resolve(import.meta.dir, '../../../test-runtime/runner.ts');
 
 async function fixture(run: (cwd: string) => Promise<void>) {
   const cwd = await mkdtemp(join(tmpdir(), 'runner-selection-'));
@@ -71,7 +71,7 @@ for (const selection of ['default', 'selected', 'serial'] as const) {
         join(cwd, 'package.json'),
         JSON.stringify({
           scripts: {
-            'test:control': script.replace('scripts/tests/runner.ts', entry),
+            'test:control': script.replace('scripts/test-runtime/runner.ts', entry),
           },
         }),
       );

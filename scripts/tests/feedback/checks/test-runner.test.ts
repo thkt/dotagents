@@ -1,22 +1,27 @@
 import { test, expect } from 'bun:test';
 import assert from 'node:assert/strict';
-import { checkReport, withoutAutoMaintenance } from '../../runner.ts';
+import { checkReport, withoutAutoMaintenance } from '../../../test-runtime/runner.ts';
 import { isRecord } from '../../../shared/values.ts';
 import { cp, mkdtemp, mkdir, writeFile, readFile, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-const entry = resolve(import.meta.dir, '../../runner.ts');
+const entry = resolve(import.meta.dir, '../../../test-runtime/runner.ts');
 
 // 実際のpackage入口とJUnit runnerを使い、無関係な静的検査だけを模擬する。
 async function commandFixture() {
   const cwd = await mkdtemp(join(tmpdir(), 'test-commands-'));
   const repo = resolve(import.meta.dir, '../../../..');
-  for (const directory of ['scripts/tests', 'scripts/shared', 'eval/tests']) {
+  for (const directory of [
+    'scripts/test-runtime',
+    'scripts/tests',
+    'scripts/shared',
+    'eval/tests',
+  ]) {
     await mkdir(join(cwd, directory), { recursive: true });
   }
-  for (const path of ['scripts/tests/runner.ts', 'scripts/shared/values.ts']) {
+  for (const path of ['scripts/test-runtime/runner.ts', 'scripts/shared/values.ts']) {
     await cp(join(repo, path), join(cwd, path));
   }
   const manifest: unknown = await Bun.file(join(repo, 'package.json')).json();
@@ -218,6 +223,30 @@ const selections = [
     directory: 'eval/tests',
   })),
 ];
+
+test('旧runner CLIは対象パス・終了結果・完了判定を新しい入口へ渡す', async () => {
+  for (const scenario of ['normal', 'failure'] as const) {
+    const cwd = await mkdtemp(join(tmpdir(), 'legacy-test-runner-'));
+    try {
+      await runnerFixture(cwd, scenario);
+      const result = spawnSync(
+        process.execPath,
+        [resolve(import.meta.dir, '../../runner.ts'), 'bun', 'scripts/tests'],
+        { cwd, encoding: 'utf8', timeout: 15000 },
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(scenario === 'normal' ? 0 : 1);
+      const output = result.stdout + result.stderr;
+      for (const diagnostic of diagnostics[scenario]) {
+        expect(output).toMatch(diagnostic);
+      }
+      expect(output.includes('All tests executed.')).toBe(scenario === 'normal');
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }
+});
+
 for (const { scenario, directory } of selections) {
   test(`bun runner: ${directory ?? 'default'} ${scenario}`, async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'test-completion-'));

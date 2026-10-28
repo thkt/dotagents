@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { isRecord } from '../../../shared/values.ts';
 
-const entry = resolve(import.meta.dir, '../../runner.ts');
+const entry = resolve(import.meta.dir, '../../../test-runtime/runner.ts');
 
 type Fixture = {
   // 変更を数える git の作業ツリーです。

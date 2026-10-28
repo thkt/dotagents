@@ -5,9 +5,9 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { withoutAutoMaintenance } from '../../runner.ts';
+import { withoutAutoMaintenance } from '../../../test-runtime/runner.ts';
 
-const cli = resolve(import.meta.dir, '../../mutation/cli.ts');
+const cli = resolve(import.meta.dir, '../../../test-runtime/mutation/cli.ts');
 
 function git(cwd: string, ...args: string[]) {
   const result = spawnSync(
@@ -99,6 +99,21 @@ test('T-011 小さな検証用 repo の変更差分に対してコマンドを�
     expect(result.stdout).toContain('  演算子別: boundary-flip 1');
     expect(result.stdout).toContain('  削除行だけ: scripts/lib/limit.ts:-1,1');
     expect(result.stdout).toMatch(/所要時間: \d+(\.\d+)?秒/);
+  });
+});
+
+test('旧mutation CLIは差分の対象・終了結果・変異の報告を新しい入口へ渡す', async () => {
+  await fixture(false, async (root) => {
+    const result = spawnSync(
+      process.execPath,
+      [resolve(import.meta.dir, '../../mutation/cli.ts'), '--base', 'HEAD'],
+      { cwd: root, encoding: 'utf8', env: withoutAutoMaintenance(process.env) },
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('変異の実行: 検出 1 / 生き残り 1 / 不安定 0（実行 2 件）');
+    expect(result.stdout).toContain('破棄（lint・型検査で失敗）: 1');
+    expect(result.stdout).toContain('削除行だけ: scripts/lib/limit.ts:-1,1');
   });
 });
 

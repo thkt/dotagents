@@ -3,7 +3,12 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readRecords, recordDirVariable, recorderEnv, recorderPath } from '../../record-modules.ts';
+import {
+  readRecords,
+  recordDirVariable,
+  recorderEnv,
+  recorderPath,
+} from '../../../test-runtime/record-modules.ts';
 
 async function fixture(
   files: Record<string, string>,

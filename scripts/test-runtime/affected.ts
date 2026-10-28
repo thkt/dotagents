@@ -14,9 +14,10 @@ export type SelectionInput = {
 
 // 記録の有無によらず、変更すると全部実行にするファイルです（root からの相対パス）。
 const fixedAllPaths = [
+  'scripts/test-runtime/runner.ts',
+  'scripts/test-runtime/record-modules.ts',
+  'scripts/test-runtime/affected.ts',
   'scripts/tests/runner.ts',
-  'scripts/tests/record-modules.ts',
-  'scripts/tests/affected.ts',
   'package.json',
   'bun.lock',
   'tsconfig.json',

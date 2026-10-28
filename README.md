@@ -28,6 +28,8 @@
 
 内部の TypeScript export、参照されているだけのファイル、fallow の`entry`全体は、公開契約にしません。repo 外から内部 export を使う実例は未確認です。利用が見つかったら、対象と必要な保証を明示し、合意する範囲を見直します。
 
+テスト実行基盤の実体は`scripts/test-runtime/`に置き、独立テストが保護するテスト本体・fixtureと区別します。package scriptsはこの実体を使います。旧`scripts/tests/runner.ts`と`scripts/tests/mutation/cli.ts`は、直接実行する既存利用のために同一プロセスで実体へ委譲する互換入口として残します。
+
 ## セットアップと検証
 
 ```sh
