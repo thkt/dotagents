@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { selectAffected, type Selection } from '../../affected.ts';
+import { selectAffected, type Selection } from '../../../test-runtime/affected.ts';
 
 const root = '/repo';
 const abs = (path: string) => `${root}/${path}`;
@@ -63,9 +63,9 @@ test('どの記録にもない入力ファイルか runner.ts などの固定一
   expect(orphanSelection).toEqual({ kind: 'all', reasons: [orphan] });
 
   const fixed = [
-    'scripts/tests/runner.ts',
-    'scripts/tests/record-modules.ts',
-    'scripts/tests/affected.ts',
+    'scripts/test-runtime/runner.ts',
+    'scripts/test-runtime/record-modules.ts',
+    'scripts/test-runtime/affected.ts',
     'package.json',
     'bun.lock',
     'tsconfig.json',

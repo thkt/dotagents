@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { changedFiles, existingTestFiles, selectAffected } from '../../affected.ts';
+import { changedFiles, existingTestFiles, selectAffected } from '../../../test-runtime/affected.ts';
 
 function git(root: string, ...args: string[]) {
   const result = spawnSync(

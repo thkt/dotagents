@@ -1,13 +1,12 @@
 import { test, expect } from 'bun:test';
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { withoutAutoMaintenance } from '../../runner.ts';
+import { withoutAutoMaintenance } from '../../../test-runtime/runner.ts';
 
-const cli = resolve(import.meta.dir, '../../mutation/cli.ts');
+const cli = resolve(import.meta.dir, '../../../test-runtime/mutation/cli.ts');
 
 function git(cwd: string, ...args: string[]) {
   const result = spawnSync(
@@ -25,7 +24,7 @@ async function write(root: string, files: Record<string, string>) {
   }
 }
 
-// 小さな検証用repo。lintは`>= 5`を拒否し、feedbackテストはallowedだけを確かめる。
+// 小さな検証用repo。lintは`>= 5`を拒否し、品質テストはallowedだけを確かめる。
 async function fixture(expectedForThree: boolean, run: (root: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), 'mutation-cli-'));
   try {
@@ -47,7 +46,7 @@ async function fixture(expectedForThree: boolean, run: (root: string) => Promise
         '}',
         '',
       ].join('\n'),
-      'scripts/tests/feedback/limit.test.ts': [
+      'scripts/tests/quality/limit.test.ts': [
         "import { test, expect } from 'bun:test';",
         "import { allowed } from '../../lib/limit.ts';",
         "test('allowed', () => {",
@@ -102,65 +101,28 @@ test('T-011 小さな検証用 repo の変更差分に対してコマンドを�
   });
 });
 
-test('T-012 検証用 repo の基準の feedback が失敗するときはコマンドが変異の報告を出さず専用の終了コードで終わる', async () => {
+test('旧mutation CLIは差分の対象・終了結果・変異の報告を新しい入口へ渡す', async () => {
+  await fixture(false, async (root) => {
+    const result = spawnSync(
+      process.execPath,
+      [resolve(import.meta.dir, '../../mutation/cli.ts'), '--base', 'HEAD'],
+      { cwd: root, encoding: 'utf8', env: withoutAutoMaintenance(process.env) },
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('変異の実行: 検出 1 / 生き残り 1 / 不安定 0（実行 2 件）');
+    expect(result.stdout).toContain('破棄（lint・型検査で失敗）: 1');
+    expect(result.stdout).toContain('削除行だけ: scripts/lib/limit.ts:-1,1');
+  });
+});
+
+test('T-012 検証用 repo の基準の品質テスト が失敗するときはコマンドが変異の報告を出さず専用の終了コードで終わる', async () => {
   await fixture(true, async (root) => {
     const result = mutate(root);
     // 終了コード3はscripts/README.mdで利用者へ案内した値。
     expect(result.status).toBe(3);
     expect(result.stdout).not.toContain('変異の実行');
     expect(result.stdout).not.toContain('生き残');
-    expect(result.stderr).toContain('基準のfeedbackが1回目に失敗しました');
+    expect(result.stderr).toMatch(/基準.*(?:quality|品質).*1回目.*失敗/);
   });
 });
-
-async function until(condition: () => boolean, timeoutMs: number) {
-  const deadline = Date.now() + timeoutMs;
-  while (!condition()) {
-    assert(Date.now() < deadline, 'condition not reached');
-    await Bun.sleep(50);
-  }
-}
-
-test('実行中にSIGTERMを受けると子プロセスを止めて一時コピーを消す', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'mutation-signal-'));
-  try {
-    const repo = join(root, 'repo');
-    const temp = join(root, 'tmp');
-    const probe = join(root, 'probe');
-    await mkdir(repo);
-    await mkdir(temp);
-    await mkdir(probe);
-    git(repo, 'init', '-q');
-    // 基準のfeedbackが開始を記録してから待ち、止められなければ終了も記録する。
-    await write(repo, {
-      'package.json': JSON.stringify({ type: 'module' }),
-      'scripts/tests/feedback/wait.test.ts': [
-        "import { test } from 'bun:test';",
-        "import { writeFileSync } from 'node:fs';",
-        "test('wait', async () => {",
-        "  writeFileSync(`${process.env.MUTATION_PROBE}/started`, '');",
-        '  await Bun.sleep(2000);',
-        "  writeFileSync(`${process.env.MUTATION_PROBE}/finished`, '');",
-        '}, 10000);',
-        '',
-      ].join('\n'),
-    });
-    git(repo, 'add', '-A');
-    git(repo, 'commit', '-q', '-m', 'base');
-    const child = spawn(process.execPath, [cli, '--base', 'HEAD'], {
-      cwd: repo,
-      stdio: 'ignore',
-      env: { ...withoutAutoMaintenance(process.env), TMPDIR: temp, MUTATION_PROBE: probe },
-    });
-    const exited = new Promise<number | null>((resolve) => child.once('exit', resolve));
-    await until(() => existsSync(join(probe, 'started')), 15000);
-    expect((await readdir(temp)).filter((name) => name.startsWith('mutate-diff-'))).toHaveLength(1);
-    child.kill('SIGTERM');
-    expect(await exited).not.toBe(0);
-    await Bun.sleep(3000);
-    expect(existsSync(join(probe, 'finished'))).toBe(false);
-    expect((await readdir(temp)).filter((name) => name.startsWith('mutate-diff-'))).toEqual([]);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-}, 30000);

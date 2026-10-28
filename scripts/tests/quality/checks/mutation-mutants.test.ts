@@ -4,10 +4,10 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { withoutAutoMaintenance } from '../../runner.ts';
-import { planMutants, readChanges, selectMutants } from '../../mutation/mutants.ts';
-import type { Changes, Mutant } from '../../mutation/mutants.ts';
-import { formatReport } from '../../mutation/execute.ts';
+import { withoutAutoMaintenance } from '../../../test-runtime/runner.ts';
+import { planMutants, readChanges, selectMutants } from '../../../test-runtime/mutation/mutants.ts';
+import type { Changes, Mutant } from '../../../test-runtime/mutation/mutants.ts';
+import { formatReport } from '../../../test-runtime/mutation/execute.ts';
 
 function git(cwd: string, ...args: string[]) {
   const result = spawnSync(
@@ -64,8 +64,8 @@ test('T-001 変更差分の追加・変更行にだけ変異を作り、移動�
         'export const kept = (n: number) => n <= 9;',
         '',
       ].join('\n'),
-      'scripts/tests/runner.ts': 'export const ok = 1;\n',
-      'scripts/tests/feedback/limit.test.ts': 'export const a = 1;\n',
+      'scripts/test-runtime/runner.ts': 'export const ok = 1;\n',
+      'scripts/tests/quality/limit.test.ts': 'export const a = 1;\n',
     },
     {
       'scripts/lib/limit.ts': [
@@ -80,8 +80,8 @@ test('T-001 変更差分の追加・変更行にだけ変異を作り、移動�
         'export const kept = (n: number) => n <= 9;',
         '',
       ].join('\n'),
-      'scripts/tests/runner.ts': 'export const ok = 1 === 1;\n',
-      'scripts/tests/feedback/limit.test.ts': 'export const a = 1 < 2;\n',
+      'scripts/test-runtime/runner.ts': 'export const ok = 1 === 1;\n',
+      'scripts/tests/quality/limit.test.ts': 'export const a = 1 < 2;\n',
       'scripts/lib/untracked.ts': 'export const on = true;\n',
       'docs/note.ts': 'export const off = false;\n',
     },
@@ -90,7 +90,7 @@ test('T-001 変更差分の追加・変更行にだけ変異を作り、移動�
       expect(plan.mutants.map(describe).sort()).toEqual([
         'scripts/lib/limit.ts:5 boundary-flip <= -> <',
         'scripts/lib/untracked.ts:1 boolean-flip true -> false',
-        'scripts/tests/runner.ts:1 condition-negation === -> !==',
+        'scripts/test-runtime/runner.ts:1 condition-negation === -> !==',
       ]);
       expect(plan.movedLines).toBeGreaterThan(0);
     },
@@ -153,7 +153,6 @@ test('T-003 行の削除だけの差分は変異を作れない削除行とし�
   const selection = await selectMutants(plan, 10, async () => true);
   const report = formatReport(plan, selection, {
     outcomes: [],
-    qualityRequested: false,
   });
   expect(report).toContain('削除行だけ: scripts/a.ts:-4,1');
   expect(report).toContain('実行した変異は0件です');

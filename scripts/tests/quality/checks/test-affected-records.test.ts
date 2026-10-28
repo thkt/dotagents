@@ -11,8 +11,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { loadRecords, saveRecords } from '../../affected-records.ts';
-import { selectAffected } from '../../affected.ts';
+import { loadRecords, saveRecords } from '../../../test-runtime/affected-records.ts';
+import { selectAffected } from '../../../test-runtime/affected.ts';
 
 function git(root: string, ...args: string[]): string {
   const result = spawnSync(

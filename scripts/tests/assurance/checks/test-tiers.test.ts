@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-const tiers = ['feedback', 'quality', 'assurance'];
+const tiers = ['quality', 'assurance'];
 // Bunが既定で探すテストファイル名。階層外に置かれてもtest:controlでは実行されるため、すべてを対象にする。
 const testFile = /[._](?:test|spec)\.[cm]?[jt]sx?$/;
 
@@ -31,7 +31,7 @@ async function tree(paths: string[], run: (root: string) => Promise<void>) {
 }
 
 const tiered = [
-  'feedback/checks/runner.test.ts',
+  'quality/checks/runner.test.ts',
   'quality/implement/development.test.ts',
   'assurance/shared/process-cleanup.test.ts',
   'runner.ts',
@@ -39,7 +39,7 @@ const tiered = [
   'fixtures/human-decision-recovery/public-contract.json',
 ];
 
-test('3階層のいずれかに置いたテストと、階層外の補助ファイルは分類漏れにしない', async () => {
+test('2分類のいずれかに置いたテストと、階層外の補助ファイルは分類漏れにしない', async () => {
   await tree(tiered, async (root) => {
     const result = await untieredTests(root);
     expect(result.files).toHaveLength(3);
@@ -48,6 +48,7 @@ test('3階層のいずれかに置いたテストと、階層外の補助ファ�
 });
 
 for (const misplaced of [
+  'feedback/checks/legacy.test.ts',
   'root.test.ts',
   'implement/development.test.ts',
   'support/helper.test.ts',
@@ -64,6 +65,6 @@ for (const misplaced of [
 
 test('scripts/testsのテストファイルはすべていずれか1つの階層に置かれている', async () => {
   const result = await untieredTests(resolve(import.meta.dir, '../..'));
-  expect(result.files).toContain('feedback/checks/test-tiers.test.ts');
+  expect(result.files).toContain('assurance/checks/test-tiers.test.ts');
   expect(result.untiered).toEqual([]);
 });

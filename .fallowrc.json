@@ -10,6 +10,7 @@
     "eval/light.ts",
     "scripts/scoping/target.ts",
     "scripts/tests/runner.ts",
+    "scripts/tests/mutation/cli.ts",
     "scripts/tests/support/process-cleanup-probe.ts",
     "scripts/tests/support/process-cleanup-worker.ts",
     "scripts/tests/support/process-pipe-release-probe.ts",

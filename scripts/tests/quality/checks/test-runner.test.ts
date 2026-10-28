@@ -1,22 +1,27 @@
 import { test, expect } from 'bun:test';
 import assert from 'node:assert/strict';
-import { checkReport, withoutAutoMaintenance } from '../../runner.ts';
+import { checkReport, withoutAutoMaintenance } from '../../../test-runtime/runner.ts';
 import { isRecord } from '../../../shared/values.ts';
 import { cp, mkdtemp, mkdir, writeFile, readFile, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-const entry = resolve(import.meta.dir, '../../runner.ts');
+const entry = resolve(import.meta.dir, '../../../test-runtime/runner.ts');
 
 // 実際のpackage入口とJUnit runnerを使い、無関係な静的検査だけを模擬する。
 async function commandFixture() {
   const cwd = await mkdtemp(join(tmpdir(), 'test-commands-'));
   const repo = resolve(import.meta.dir, '../../../..');
-  for (const directory of ['scripts/tests', 'scripts/shared', 'eval/tests']) {
+  for (const directory of [
+    'scripts/test-runtime',
+    'scripts/tests',
+    'scripts/shared',
+    'eval/tests',
+  ]) {
     await mkdir(join(cwd, directory), { recursive: true });
   }
-  for (const path of ['scripts/tests/runner.ts', 'scripts/shared/values.ts']) {
+  for (const path of ['scripts/test-runtime/runner.ts', 'scripts/shared/values.ts']) {
     await cp(join(repo, path), join(cwd, path));
   }
   const manifest: unknown = await Bun.file(join(repo, 'package.json')).json();
@@ -68,32 +73,6 @@ test('通常とevalのpackage入口はそれぞれのテストだけをJUnit run
       expect(failure.output).toContain('SELECTED_SUITE');
       expect(failure.output).not.toContain('All tests executed.');
     }
-  } finally {
-    await rm(cwd, { recursive: true, force: true });
-  }
-});
-
-test('feedbackのpackage入口はfeedback階層だけをJUnit runnerで実行する', async () => {
-  const cwd = await commandFixture();
-  try {
-    for (const directory of ['feedback', 'quality', 'assurance']) {
-      await mkdir(join(cwd, 'scripts/tests', directory));
-    }
-    await commandProbe(cwd, 'scripts/tests/feedback', 'FEEDBACK_TIER', true);
-    for (const directory of ['scripts/tests/quality', 'scripts/tests/assurance', 'eval/tests']) {
-      await commandProbe(cwd, directory, 'OTHER_TIER', false);
-    }
-    const normal = runCommand(cwd, 'test:feedback');
-    expect(normal.code, normal.output).toBe(0);
-    expect(normal.output).toContain('FEEDBACK_TIER');
-    expect(normal.output).not.toContain('OTHER_TIER');
-    expect(normal.output).toMatch(/Ran 1 test across 1 file/);
-    expect(normal.output).toContain('All tests executed.');
-    await commandProbe(cwd, 'scripts/tests/feedback', 'FEEDBACK_TIER', false);
-    const failure = runCommand(cwd, 'test:feedback');
-    expect(failure.code, failure.output).toBe(1);
-    expect(failure.output).toContain('FEEDBACK_TIER');
-    expect(failure.output).not.toContain('All tests executed.');
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
@@ -151,11 +130,15 @@ test('自動maintenanceの無効化は既存のGIT_CONFIG指定を残して後�
 test('総合checkは通常とevalを実行し、evalの失敗を成功へ変換しない', async () => {
   const cwd = await commandFixture();
   try {
-    await commandProbe(cwd, 'scripts/tests', 'CONTROL_SUITE', true);
+    for (const tier of ['quality', 'assurance']) {
+      await mkdir(join(cwd, 'scripts/tests', tier));
+      await commandProbe(cwd, `scripts/tests/${tier}`, tier.toUpperCase() + '_SUITE', true);
+    }
     await commandProbe(cwd, 'eval/tests', 'EVAL_SUITE', true);
     const normal = runCommand(cwd, 'check');
     expect(normal.code, normal.output).toBe(0);
-    expect(normal.output).toContain('CONTROL_SUITE');
+    expect(normal.output).toContain('QUALITY_SUITE');
+    expect(normal.output).toContain('ASSURANCE_SUITE');
     expect(normal.output).toContain('EVAL_SUITE');
     await commandProbe(cwd, 'eval/tests', 'EVAL_SUITE', false);
     const failure = runCommand(cwd, 'check');
@@ -218,6 +201,30 @@ const selections = [
     directory: 'eval/tests',
   })),
 ];
+
+test('旧runner CLIは対象パス・終了結果・完了判定を新しい入口へ渡す', async () => {
+  for (const scenario of ['normal', 'failure'] as const) {
+    const cwd = await mkdtemp(join(tmpdir(), 'legacy-test-runner-'));
+    try {
+      await runnerFixture(cwd, scenario);
+      const result = spawnSync(
+        process.execPath,
+        [resolve(import.meta.dir, '../../runner.ts'), 'bun', 'scripts/tests'],
+        { cwd, encoding: 'utf8', timeout: 15000 },
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(scenario === 'normal' ? 0 : 1);
+      const output = result.stdout + result.stderr;
+      for (const diagnostic of diagnostics[scenario]) {
+        expect(output).toMatch(diagnostic);
+      }
+      expect(output.includes('All tests executed.')).toBe(scenario === 'normal');
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }
+});
+
 for (const { scenario, directory } of selections) {
   test(`bun runner: ${directory ?? 'default'} ${scenario}`, async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'test-completion-'));

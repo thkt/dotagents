@@ -17,17 +17,15 @@ import { command } from '../../shared/process.ts';
 import { applyMutant } from './mutants.ts';
 import type { Mutant, Plan, Selection } from './mutants.ts';
 
-type Tier = 'feedback' | 'quality';
+type Tier = 'quality';
 type RunResult = { passed: boolean; ms: number; timedOut: boolean };
 type Run = (tier: Tier, timeoutMs: number | null) => Promise<RunResult>;
 type Status = 'killed' | 'survived' | 'unstable';
-type Outcome = { mutant: Mutant; status: Status; quality?: Status };
+type Outcome = { mutant: Mutant; status: Status };
 export type Execution = {
   outcomes: Outcome[];
-  qualityRequested: boolean;
-  qualityBaseline?: boolean;
 };
-// 基準のfeedbackが3回とも成功しない環境では、検出と生き残りを区別できない。
+// 基準の品質テストが3回とも成功しない環境では、検出と生き残りを区別できない。
 const baselineFailedExitCode = 3;
 const baselineRuns = 3;
 
@@ -131,7 +129,6 @@ const limit = (runs: RunResult[]) => Math.max(...runs.map((run) => run.ms)) * 3 
 
 export async function executeMutation(input: {
   copy: string;
-  quality: boolean;
   run: Run;
   select: () => Promise<Selection>;
   log?: (message: string) => void;
@@ -142,9 +139,9 @@ export async function executeMutation(input: {
   const log = input.log ?? (() => {});
   const baseline: RunResult[] = [];
   while (baseline.length < baselineRuns) {
-    const result = await input.run('feedback', null);
+    const result = await input.run('quality', null);
     baseline.push(result);
-    log(`基準のfeedback ${baseline.length}/${baselineRuns}: ${result.passed ? '成功' : '失敗'}`);
+    log(`基準の品質テスト ${baseline.length}/${baselineRuns}: ${result.passed ? '成功' : '失敗'}`);
     if (!result.passed) {
       return { exitCode: baselineFailedExitCode, baseline };
     }
@@ -153,23 +150,12 @@ export async function executeMutation(input: {
   const outcomes: Outcome[] = [];
   for (const [index, mutant] of selection.selected.entries()) {
     const status = await withMutant(input.copy, mutant, () =>
-      judge(input.run, 'feedback', limit(baseline)),
+      judge(input.run, 'quality', limit(baseline)),
     );
     log(`変異 ${index + 1}/${selection.selected.length} ${mutant.id}: ${status}`);
     outcomes.push({ mutant, status });
   }
-  const execution: Execution = { outcomes, qualityRequested: input.quality };
-  const survivors = outcomes.filter((outcome) => outcome.status === 'survived');
-  if (input.quality && survivors.length > 0) {
-    const qualityBaseline = await input.run('quality', null);
-    execution.qualityBaseline = qualityBaseline.passed;
-    for (const outcome of qualityBaseline.passed ? survivors : []) {
-      outcome.quality = await withMutant(input.copy, outcome.mutant, () =>
-        judge(input.run, 'quality', limit([qualityBaseline])),
-      );
-      log(`quality ${outcome.mutant.id}: ${outcome.quality}`);
-    }
-  }
+  const execution: Execution = { outcomes };
   return { exitCode: 0, selection, execution };
 }
 
@@ -208,18 +194,6 @@ function executionLines(execution: Execution | undefined) {
   }
   lines.push(...list('生き残った変異', of('survived').map(describe)));
   lines.push(...list('不安定（初回失敗・再実行で成功）', of('unstable').map(describe)));
-  if (execution.qualityRequested && execution.qualityBaseline === false) {
-    lines.push('quality の基準実行が失敗したため、生き残りを quality で実行していません。');
-  }
-  if (execution.qualityRequested) {
-    const quality = execution.outcomes.filter((outcome) => outcome.quality === 'killed');
-    lines.push(
-      ...list(
-        'quality だけが検出した候補',
-        quality.map((o) => describe(o.mutant)),
-      ),
-    );
-  }
   return lines;
 }
 

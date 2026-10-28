@@ -1,10 +1,12 @@
 import { plugin } from 'bun';
+import { afterAll } from 'bun:test';
 import { appendFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, isAbsolute, join } from 'node:path';
 
-// Bun 1.4.4のplugin()のonLoad（https://bun.com/docs/runtime/plugins）で、読み込んだモジュールをテストファイルごとに記録します。
-// 公式文書はonLoadの戻り値を説明しません。1.4.4はundefinedを返すと "onLoad() expects an object returned" で失敗するため、
-// 対象の拡張子だけをcontentsとloaderを付けて返します。対象外の拡張子はBun既定の読み込みに任せ、記録しません。
+// Bun 1.4.4のplugin()で読み込むモジュールをテストごとに記録します。
+// onLoadはundefined返却を拒否するため、コードをUTF-8文字列とloaderで返します。
+// JSON/TOMLは既定のloaderを使い、onResolveと完了時のキャッシュから記録します。
 
 export const recorderPath = import.meta.path;
 
@@ -13,7 +15,7 @@ export const recordDirVariable = 'DOTAGENTS_RECORD_DIR';
 export const recordOwnerVariable = 'DOTAGENTS_RECORD_TEST';
 
 export const testFilePattern = /[._](?:test|spec)\.[cm]?[jt]sx?$/;
-const recordedPattern = /^(?!.*[\\/]node_modules[\\/]).*\.(?:[cm]?[jt]sx?|json|toml)$/;
+const recordedPattern = /^(?!.*[\\/]node_modules[\\/]).*\.(?:[cm]?[jt]sx?)$/;
 const loaders = new Map<string, Bun.Loader>([
   ['ts', 'ts'],
   ['mts', 'ts'],
@@ -23,8 +25,6 @@ const loaders = new Map<string, Bun.Loader>([
   ['mjs', 'js'],
   ['cjs', 'js'],
   ['jsx', 'jsx'],
-  ['json', 'json'],
-  ['toml', 'toml'],
 ]);
 
 export function recorderEnv(
@@ -78,27 +78,68 @@ function register(recordDir: string) {
   const written = new Set<string>();
   let owner = inherited;
 
+  const record = (path: string) => {
+    if (owner !== undefined && isAbsolute(path) && !path.split(/[\\/]/).includes('node_modules')) {
+      const line = JSON.stringify([owner, path]);
+      if (!written.has(line)) {
+        written.add(line);
+        appendFileSync(recordFile, `${line}\n`);
+      }
+    }
+  };
+
+  // Bun 1.4.4の省略JSON importはonResolveを通らないため、読み込み済みのパスを補います。
+  const recordCachedData = () => {
+    for (const path of Object.keys(createRequire(import.meta.url).cache)) {
+      if (/\.(?:json|toml)$/.test(path)) {
+        record(path);
+      }
+    }
+  };
+  try {
+    afterAll(recordCachedData);
+  } catch (error) {
+    // 同じpreloadを使う通常の子Bunにはテストのライフサイクルがありません。
+    if (
+      !(error instanceof Error) ||
+      !error.message.startsWith('Cannot use afterAll() outside of the test runner.')
+    ) {
+      throw error;
+    }
+    process.on('exit', recordCachedData);
+  }
+
+  let resolvingData = false;
   plugin({
     name: 'record-modules',
     setup(build) {
+      // データはBun既定のloaderで読みます。1.4.4のonLoadはJSONのcontentsを解釈できません。
+      build.onResolve({ filter: /\.(?:json|toml)$/ }, (args) => {
+        // resolveSyncもこのcallbackを通るため、再入時は既定の解決へ渡します。
+        if (resolvingData) {
+          return;
+        }
+        resolvingData = true;
+        try {
+          const path = Bun.resolveSync(args.path, dirname(args.importer));
+          record(path);
+          return { path };
+        } finally {
+          resolvingData = false;
+        }
+      });
       build.onLoad({ filter: recordedPattern }, (args) => {
         const path = args.path;
         if (inherited === undefined && testFilePattern.test(path)) {
           owner = path;
           process.env[recordOwnerVariable] = path;
         }
-        if (owner !== undefined && isAbsolute(path)) {
-          const line = JSON.stringify([owner, path]);
-          if (!written.has(line)) {
-            written.add(line);
-            appendFileSync(recordFile, `${line}\n`);
-          }
-        }
+        record(path);
         const loader = loaders.get(path.slice(path.lastIndexOf('.') + 1));
         if (loader === undefined) {
           throw new Error(`No loader for recorded module: ${path}`);
         }
-        return { contents: readFileSync(path), loader };
+        return { contents: readFileSync(path, 'utf8'), loader };
       });
     },
   });

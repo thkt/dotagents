@@ -99,6 +99,9 @@ async function boundedExit(closed: Promise<number | null>, ms: number) {
 
 async function probe(inputBytes: number) {
   const root = await mkdtemp(join(evidenceRoot, `stdin-${inputBytes}-`));
+  const env = { ...process.env };
+  // Bunの自動回収を外し、group終了失敗後のcommand自身によるpipe解放を検証する。
+  delete env.BUN_FEATURE_FLAG_NO_ORPHANS;
   const child = spawn(
     process.execPath,
     [
@@ -110,6 +113,7 @@ async function probe(inputBytes: number) {
     {
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
+      env,
     },
   );
   let stdout = '',

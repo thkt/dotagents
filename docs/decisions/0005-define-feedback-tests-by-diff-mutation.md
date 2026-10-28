@@ -1,5 +1,5 @@
 ---
-status: "accepted"
+status: "superseded by DR-0006"
 date: "2026-10-27"
 decision-makers: "Issue #450の要求を合意した利用者"
 ---
