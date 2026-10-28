@@ -1,10 +1,12 @@
 import { plugin } from 'bun';
+import { afterAll } from 'bun:test';
 import { appendFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join } from 'node:path';
 
 // Bun 1.4.4のplugin()で読み込むモジュールをテストごとに記録します。
 // onLoadはundefined返却を拒否するため、コードをUTF-8文字列とloaderで返します。
-// JSON/TOMLはonResolveで記録し、既定のloaderへ渡します。
+// JSON/TOMLは既定のloaderを使い、onResolveと完了時のキャッシュから記録します。
 
 export const recorderPath = import.meta.path;
 
@@ -85,6 +87,27 @@ function register(recordDir: string) {
       }
     }
   };
+
+  // Bun 1.4.4の省略JSON importはonResolveを通らないため、読み込み済みのパスを補います。
+  const recordCachedData = () => {
+    for (const path of Object.keys(createRequire(import.meta.url).cache)) {
+      if (/\.(?:json|toml)$/.test(path)) {
+        record(path);
+      }
+    }
+  };
+  try {
+    afterAll(recordCachedData);
+  } catch (error) {
+    // 同じpreloadを使う通常の子Bunにはテストのライフサイクルがありません。
+    if (
+      !(error instanceof Error) ||
+      !error.message.startsWith('Cannot use afterAll() outside of the test runner.')
+    ) {
+      throw error;
+    }
+    process.on('exit', recordCachedData);
+  }
 
   let resolvingData = false;
   plugin({

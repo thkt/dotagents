@@ -74,11 +74,13 @@ test('テストが起動した子の bun が読み込んだモジュールは、
   await fixture(
     {
       'child-dependency.ts': 'export const value = 2;\n',
-      'child.ts': "import { value } from './child-dependency.ts';\nconsole.log(value);\n",
+      'child-data.json': JSON.stringify({ value: '日本語🌸' }),
+      'child.ts':
+        "import { value } from './child-dependency.ts';\nimport data from './child-data';\nconsole.log(value);\nconsole.log(JSON.stringify(data));\n",
       'spawn.test.ts':
         "import { spawnSync } from 'node:child_process';\n" +
         passing +
-        "test('spawns', () => {\n  const child = spawnSync(process.execPath, [`${import.meta.dir}/child.ts`], { env: process.env, encoding: 'utf8' });\n  expect(child.stdout.trim()).toBe('2');\n});\n",
+        "test('spawns', () => {\n  const child = spawnSync(process.execPath, [`${import.meta.dir}/child.ts`], { env: process.env, encoding: 'utf8' });\n  expect(child.status).toBe(0);\n  expect(child.stdout.trim()).toBe('2\\n' + JSON.stringify({ value: '\\u65e5\\u672c\\u8a9e\\ud83c\\udf38' }));\n});\n",
     },
     async (root, recordDir) => {
       bunTest(root, recordDir, ['spawn.test.ts']);
@@ -86,6 +88,7 @@ test('テストが起動した子の bun が読み込んだモジュールは、
       const recorded = [...(records.get(join(root, 'spawn.test.ts')) ?? [])];
       expect(recorded).toContain(join(root, 'child.ts'));
       expect(recorded).toContain(join(root, 'child-dependency.ts'));
+      expect(recorded).toContain(join(root, 'child-data.json'));
     },
   );
 });
@@ -93,10 +96,11 @@ test('テストが起動した子の bun が読み込んだモジュールは、
 test('同じモジュールを import する 2 ファイルを 2worker で実行すると、両方の記録にそのモジュールが入る', async () => {
   const importsShared =
     passing +
-    "test('imports', async () => { expect((await import('./shared.ts')).value).toBe(3); });\n";
+    "test('imports', async () => { expect((await import('./shared.ts')).value).toBe(3); expect((await import('./shared-data')).default.value).toBe('\\u65e5\\u672c\\u8a9e\\ud83c\\udf38'); });\n";
   await fixture(
     {
       'shared.ts': 'export const value = 3;\n',
+      'shared-data.json': JSON.stringify({ value: '日本語🌸' }),
       'first.test.ts': importsShared,
       'second.test.ts': importsShared,
     },
@@ -112,6 +116,8 @@ test('同じモジュールを import する 2 ファイルを 2worker で実行
       const second = [...(records.get(join(root, 'second.test.ts')) ?? [])];
       expect(first).toContain(join(root, 'shared.ts'));
       expect(second).toContain(join(root, 'shared.ts'));
+      expect(first).toContain(join(root, 'shared-data.json'));
+      expect(second).toContain(join(root, 'shared-data.json'));
       expect(first).not.toContain(join(root, 'second.test.ts'));
       expect(second).not.toContain(join(root, 'first.test.ts'));
     },
@@ -132,13 +138,22 @@ test('利用者の BUN_OPTIONS を残して記録器を足し、空白を含む�
 });
 
 // 比較先をASCIIエスケープで書き、実値と期待値が同時に文字化けして通ることを防ぐ。
-for (const source of ['ascii', 'unicode', 'json-ascii', 'json'] as const) {
+for (const source of [
+  'ascii',
+  'unicode',
+  'json-ascii',
+  'json',
+  'json-dynamic',
+  'json-extensionless',
+  'json-dynamic-extensionless',
+] as const) {
   for (const fails of [false, true]) {
     const expected =
       source === 'ascii' || source === 'json-ascii' ? 'hello' : '\u65e5\u672c\u8a9e\ud83c\udf38';
     const status = fails ? 1 : 0;
     const summary = fails ? '1 fail' : '1 pass';
     const module = source.startsWith('json') ? 'value.json' : 'value.ts';
+    const specifier = source.endsWith('extensionless') ? './value' : './value.json';
     test(`記録の有無で値・assertion・完了件数を変えない: ${source} ${fails ? '失敗' : '成功'}`, async () => {
       await fixture(
         {
@@ -152,7 +167,9 @@ for (const source of ['ascii', 'unicode', 'json-ascii', 'json'] as const) {
           'value.test.ts':
             passing +
             (source.startsWith('json')
-              ? "import data from './value.json';\nconst { value } = data;\n"
+              ? (source.includes('dynamic')
+                  ? `const { default: data } = await import('${specifier}');\n`
+                  : `import data from '${specifier}';\n`) + 'const { value } = data;\n'
               : "import { value } from './value.ts';\n") +
             `test('value', () => {\n` +
             `console.log('OBSERVED=' + JSON.stringify(value));\n` +

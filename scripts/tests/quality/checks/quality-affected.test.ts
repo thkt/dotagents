@@ -194,6 +194,67 @@ test('安心の直接実行と全件実行は両分類に届き、記録なし�
   });
 }, 30000);
 
+for (const mode of ['static', 'dynamic'] as const) {
+  test(`拡張子を省略したJSON依存も品質の関連実行で選ぶ: ${mode}`, async () => {
+    const explicit = 'scripts/tests/quality/explicit.test.ts';
+    const extensionless = 'scripts/tests/quality/extensionless.test.ts';
+    const unrelated = 'scripts/tests/quality/unrelated.test.ts';
+    const json = 'config/value.json';
+    await fixture(
+      {
+        'package.json': JSON.stringify({ type: 'module', scripts }),
+        [json]: JSON.stringify({ value: '日本語🌸', count: 7 }),
+        [explicit]:
+          header +
+          "import data from '../../../config/value.json';\n" +
+          "test('explicit', () => { console.log('EXPLICIT_RAN'); expect(data.count).toBeGreaterThanOrEqual(7); });\n",
+        [extensionless]:
+          header +
+          (mode === 'static'
+            ? "import data from '../../../config/value';\n"
+            : "const { default: data } = await import('../../../config/value');\n") +
+          "test('extensionless', () => { console.log('EXTENSIONLESS_RAN'); expect(data.value).toBe('\\u65e5\\u672c\\u8a9e\\ud83c\\udf38'); expect(data.count).toBe(7); });\n",
+        [unrelated]: header + "test('unrelated', () => console.log('UNRELATED_RAN'));\n",
+        'scripts/tests/assurance/guard.test.ts':
+          header + "test('assurance', () => { throw new Error('ASSURANCE_RAN'); });\n",
+      },
+      async (f) => {
+        // 内容は正常なままJSONだけを変更し、初回の品質全件記録を作る。
+        await writeFile(join(f.repo, json), JSON.stringify({ count: 7, value: '日本語🌸' }));
+        const direct = run(f, [entry, 'bun', 'scripts/tests/quality']);
+        expect(direct.code, direct.output).toBe(0);
+        expect(direct.output).toMatch(/Ran 3 tests across 3 files/);
+        const first = run(f, ['run', 'test:affected']);
+        expect(first.code, first.output).toBe(0);
+        expect(first.output).toMatch(/Ran 3 tests across 3 files/);
+        expect(first.output).toContain('UNRELATED_RAN');
+        expect(first.output).not.toContain('ASSURANCE_RAN');
+        const records = readRecordFile(f.repo);
+        expect(Object.keys(records).sort()).toEqual(
+          [explicit, extensionless, unrelated].map((path) => join(f.repo, path)).sort(),
+        );
+        expect(records[join(f.repo, explicit)]).toContain(join(f.repo, json));
+        // 明示import側は成功を続け、省略import側だけが失敗する入力。
+        // 本文には変更パス末尾のconfig/value.jsonを書かず、記録で選ばれることを確かめる。
+        await writeFile(join(f.repo, json), JSON.stringify({ value: '日本語🌸', count: 8 }));
+        const failedDirect = run(f, [entry, 'bun', extensionless]);
+        expect(failedDirect.code, failedDirect.output).toBe(1);
+        expect(failedDirect.output).toContain('EXTENSIONLESS_RAN');
+        expect(failedDirect.output).toContain('1 fail');
+        const affected = run(f, ['run', 'test:affected']);
+        expect(affected.output).toContain('EXPLICIT_RAN');
+        expect(affected.output).not.toContain('UNRELATED_RAN');
+        expect(affected.output).not.toContain('ASSURANCE_RAN');
+        expect(affected.code, affected.output).toBe(1);
+        expect(affected.output).toContain('EXTENSIONLESS_RAN');
+        expect(affected.output).toMatch(/Ran 2 tests across 2 files/);
+        expect(affected.output).toContain('1 fail');
+        expect(records[join(f.repo, extensionless)]).toContain(join(f.repo, json));
+      },
+    );
+  }, 30000);
+}
+
 for (const dependency of ['fs', 'branch', 'isolated-child'] as const) {
   test(`一部だけ依存が記録された変更は全件へ戻る保証がない: ${dependency}`, async () => {
     const body =
