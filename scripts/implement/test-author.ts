@@ -309,9 +309,20 @@ async function testChanges(cwd: string, before: Files, reply: z.infer<typeof tes
   return { after, changed };
 }
 
-async function installTestFiles(cwd: string, destination: string, changed: string[], after: Files) {
-  const files: Files = Object.fromEntries(
-    Object.entries(after).filter(([path]) => isTestArtifact(path)),
+async function installTestFiles(
+  cwd: string,
+  destination: string,
+  changed: string[],
+  after: Files,
+  previous: TestRecord[],
+) {
+  const files: Files = {};
+  for (const record of previous) {
+    Object.assign(files, record.files);
+  }
+  Object.assign(
+    files,
+    Object.fromEntries(Object.entries(after).filter(([path]) => isTestArtifact(path))),
   );
   for (const path of changed) {
     if (after[path]) {
@@ -445,7 +456,7 @@ export async function authorTests(
     return { reply, result };
   }
   await verifyTestManifest(afterImplementation, input.previous);
-  const files = await installTestFiles(cwd, input.cwd, changed, after);
+  const files = await installTestFiles(cwd, input.cwd, changed, after, input.previous);
   const record = {
     prefix: input.prefix,
     targetId,

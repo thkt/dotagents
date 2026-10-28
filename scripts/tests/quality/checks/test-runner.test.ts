@@ -78,32 +78,6 @@ test('通常とevalのpackage入口はそれぞれのテストだけをJUnit run
   }
 });
 
-test('feedbackのpackage入口はfeedback階層だけをJUnit runnerで実行する', async () => {
-  const cwd = await commandFixture();
-  try {
-    for (const directory of ['feedback', 'quality', 'assurance']) {
-      await mkdir(join(cwd, 'scripts/tests', directory));
-    }
-    await commandProbe(cwd, 'scripts/tests/feedback', 'FEEDBACK_TIER', true);
-    for (const directory of ['scripts/tests/quality', 'scripts/tests/assurance', 'eval/tests']) {
-      await commandProbe(cwd, directory, 'OTHER_TIER', false);
-    }
-    const normal = runCommand(cwd, 'test:feedback');
-    expect(normal.code, normal.output).toBe(0);
-    expect(normal.output).toContain('FEEDBACK_TIER');
-    expect(normal.output).not.toContain('OTHER_TIER');
-    expect(normal.output).toMatch(/Ran 1 test across 1 file/);
-    expect(normal.output).toContain('All tests executed.');
-    await commandProbe(cwd, 'scripts/tests/feedback', 'FEEDBACK_TIER', false);
-    const failure = runCommand(cwd, 'test:feedback');
-    expect(failure.code, failure.output).toBe(1);
-    expect(failure.output).toContain('FEEDBACK_TIER');
-    expect(failure.output).not.toContain('All tests executed.');
-  } finally {
-    await rm(cwd, { recursive: true, force: true });
-  }
-});
-
 test('package入口から起動したテストのcommitは自動maintenanceのlockを残さない', async () => {
   const cwd = await commandFixture();
   try {
@@ -156,11 +130,15 @@ test('自動maintenanceの無効化は既存のGIT_CONFIG指定を残して後�
 test('総合checkは通常とevalを実行し、evalの失敗を成功へ変換しない', async () => {
   const cwd = await commandFixture();
   try {
-    await commandProbe(cwd, 'scripts/tests', 'CONTROL_SUITE', true);
+    for (const tier of ['quality', 'assurance']) {
+      await mkdir(join(cwd, 'scripts/tests', tier));
+      await commandProbe(cwd, `scripts/tests/${tier}`, tier.toUpperCase() + '_SUITE', true);
+    }
     await commandProbe(cwd, 'eval/tests', 'EVAL_SUITE', true);
     const normal = runCommand(cwd, 'check');
     expect(normal.code, normal.output).toBe(0);
-    expect(normal.output).toContain('CONTROL_SUITE');
+    expect(normal.output).toContain('QUALITY_SUITE');
+    expect(normal.output).toContain('ASSURANCE_SUITE');
     expect(normal.output).toContain('EVAL_SUITE');
     await commandProbe(cwd, 'eval/tests', 'EVAL_SUITE', false);
     const failure = runCommand(cwd, 'check');

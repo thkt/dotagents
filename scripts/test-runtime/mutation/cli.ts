@@ -35,6 +35,9 @@ async function main() {
     console.error(`${error instanceof Error ? error.message : String(error)}\n${usage}`);
     return usageExitCode;
   }
+  if (parsed.quality) {
+    console.error('--qualityは互換指定です。品質全件を通常実行するため、追加の追試はしません。');
+  }
   const repo = await git(process.cwd(), 'rev-parse', '--show-toplevel');
   const base = await git(repo, 'merge-base', parsed.base, 'HEAD');
   const plan = planMutants(await readChanges(repo, base));
@@ -43,14 +46,13 @@ async function main() {
     copy = await createCopy(repo);
     const result = await executeMutation({
       copy,
-      quality: parsed.quality,
       run: runnerRun(copy),
       select: async () => selectMutants(plan, parsed.max, await staticChecks(copy ?? '')),
       log: (message) => console.error(message),
     });
     if (result.exitCode !== 0) {
       console.error(
-        `基準のfeedbackが${result.baseline.length}回目に失敗しました。検出と生き残りを区別できないため、変異の報告は出しません。`,
+        `基準の品質テストが${result.baseline.length}回目に失敗しました。検出と生き残りを区別できないため、変異の報告は出しません。`,
       );
       return result.exitCode;
     }

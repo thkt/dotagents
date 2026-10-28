@@ -65,7 +65,7 @@ test('T-001 変更差分の追加・変更行にだけ変異を作り、移動�
         '',
       ].join('\n'),
       'scripts/test-runtime/runner.ts': 'export const ok = 1;\n',
-      'scripts/tests/feedback/limit.test.ts': 'export const a = 1;\n',
+      'scripts/tests/quality/limit.test.ts': 'export const a = 1;\n',
     },
     {
       'scripts/lib/limit.ts': [
@@ -81,7 +81,7 @@ test('T-001 変更差分の追加・変更行にだけ変異を作り、移動�
         '',
       ].join('\n'),
       'scripts/test-runtime/runner.ts': 'export const ok = 1 === 1;\n',
-      'scripts/tests/feedback/limit.test.ts': 'export const a = 1 < 2;\n',
+      'scripts/tests/quality/limit.test.ts': 'export const a = 1 < 2;\n',
       'scripts/lib/untracked.ts': 'export const on = true;\n',
       'docs/note.ts': 'export const off = false;\n',
     },
@@ -153,7 +153,6 @@ test('T-003 行の削除だけの差分は変異を作れない削除行とし�
   const selection = await selectMutants(plan, 10, async () => true);
   const report = formatReport(plan, selection, {
     outcomes: [],
-    qualityRequested: false,
   });
   expect(report).toContain('削除行だけ: scripts/a.ts:-4,1');
   expect(report).toContain('実行した変異は0件です');

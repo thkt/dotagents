@@ -361,7 +361,7 @@ PR作成・添付・CIの登録と成功の確認はCLI、PR内の表示確認�
 
 新しいCodexセッション、`test-1`というファイル名、前回テストの件数、診断の有無から段階を推測しません。段階だけが違う入力も別の`targetId`になり、保存入力のhashと既存の改変拒否の対象に含まれます。実装・評価担当は既存のテスト記録から保存入力を辿れます。段階は判断材料であり、新しい工程・actor・ゲート・再試行・公開権限は加えません。旧runは変換・再開・上書きせず、旧形式のテスト記録へ段階を補完しません。[試行用の初回条件](#成果物の要求と実験の管理)もこの明示された段階で適用範囲を判断します。
 
-方針の正本は[開発方針](../docs/wiki/development-policy.md#実装とテストの整理)です。通常開発はsetup・対象照合の後、実装前のcheckoutをrun内の`test-baseline/`へ複製し、隣接する`test-baseline.json`へpath・mode・内容のhashを保存します。各テスト工程は、この固定版と前回の独立テスト成果物を新しい`test-N-workspace/`へ渡します。初回はrun直下、追加修正は`verification/`内です。既存PR修正でも新runの実装前の版を基準にし、旧runを変換・再開しません。
+方針の正本は[開発方針](../docs/wiki/development-policy.md#実装とテストの整理)です。通常開発はsetup・対象照合の後、実装前のcheckoutをrun内の`test-baseline/`へ複製し、隣接する`test-baseline.json`へpath・mode・内容のhashを保存します。各テスト工程は、この固定版と前回の独立テスト成果物を新しい`test-N-workspace/`へ渡します。後続の記録も、削除済みパスを含む前回までの保護対象を保持し、今回の担当が申告した変更を反映します。最新の準備記録だけを採用する場合も、削除済みテストの復元は保護違反として拒否します。初回はrun直下、追加修正は`verification/`内です。既存PR修正でも新runの実装前の版を基準にし、旧runを変換・再開しません。
 
 初回実装・追加修正・既存PR修正のテスト担当、実装・修正担当、独立評価は、信頼するハーネスの[設計・選定手順](../skills/implement/references/testing.md#検証命題とケースの設計手順)と対象repoの方針を読みます。テスト担当は命題・必要条件と実際のケースの対応、判定根拠、選定理由、未充足・未確認事項を既存のfindingsへ残します。独立評価はその主張を要求・ケース・対象版と実行証拠へ照合し、assessments.testsへ渡します。参照する指示の追加であり、下記の入力境界・保存形式・停止条件は変えません。
 
@@ -836,7 +836,7 @@ jq -e '
 
 現在の共通checkの順序やハーネスの検証範囲は[README](../README.md#セットアップと検証)を、書式や型情報を用いるlintおよびテスト完了の方針は[開発方針](../docs/wiki/development-policy.md#typescriptの書き方)を参照してください。
 未使用コード・循環依存の検査の設定は[未使用コード検査とコードベース調査](#未使用コード検査とコードベース調査)を、重複・複雑度・循環依存の調査コマンドは[READMEのコードベース調査](../README.md#未使用コード検査とコードベース調査)を参照してください。循環検出は共通checkの`check:unused`にも含めます。重複・複雑度の追加調査は共通checkの失敗条件に含めません。
-制御テストは `scripts/tests/` の`feedback/`・`quality/`・`assurance/`のいずれかの階層に配置し、各階層の下を対象の責務に合わせて分割しています。階層の目的と選び方は[開発方針](../docs/wiki/development-policy.md#制御テストの階層)を参照してください。
+制御テストは `scripts/tests/` の`quality/`・`assurance/`のいずれかの分類に配置し、各階層の下を対象の責務に合わせて分割しています。階層の目的と選び方は[開発方針](../docs/wiki/development-policy.md#制御テストの階層)を参照してください。
 
 `bun run test:control`は成功時に件数を要約し、失敗時は診断を表示します。Bunが成功してもJUnit集計を拒否した場合は`JUnit report retained:`に実際の一時ファイルのパスを表示します。skipしたテストの特定にはそのXMLを開いてください。調査後は利用者が削除します。Bun自体の失敗やレポート未生成・読取り失敗では一時レポートを削除し、自動再実行はしません。
 
@@ -844,14 +844,14 @@ jq -e '
 
 実行基盤は`scripts/test-runtime/`、検証するテスト本体は`scripts/tests/`に置きます。独立テストの成果物保護を維持し、実行基盤の修正をテストの変更と混同しない配置です。旧`scripts/tests/runner.ts`・`scripts/tests/mutation/cli.ts`の直接実行は互換入口として残し、新しい実体へ同一プロセスで委譲します。
 
-`bun run test:control`はBun 1.4.4の`--parallel=2`でファイルを分離して実行します。同じプロセス内のケースは直列のままです。`test:eval`は直列で実行します。修正中は`bun run test:feedback`で`scripts/tests/feedback`だけを同じrunnerと2workerで実行できます。関連するパスをすべて渡すこともできます。
+`bun run test:control`はBun 1.4.4の`--parallel=2`でファイルを分離して実行します。同じプロセス内のケースは直列のままです。`test:eval`は直列で実行します。通常のAI実装ではlint・型検査等と`bun run test:affected`で品質候補の関連実行を行います。関連するパスをすべて渡すこともできます。
 
 ```sh
-# feedback階層だけを実行する
-bun run test:feedback
+# 品質候補から関連テストを実行する（feedbackモード）
+bun run test:affected
 
 # 関連する2ファイルを指定して実行する
-bun run test:control scripts/tests/feedback/checks/test-runner.test.ts scripts/tests/feedback/checks/test-runner-selection.test.ts
+bun run test:control scripts/tests/quality/checks/test-runner.test.ts scripts/tests/quality/checks/test-runner-selection.test.ts
 ```
 
 `test:control`はパスを省略すると`scripts/tests`全体、つまり全階層を選びます。複数のファイル・ディレクトリを渡した場合はすべてを実行し、後続ファイルの失敗も非zeroで終了します。存在しないパスと未対応オプションは拒否します。対象を絞った成功は全体checkの成功とは区別してください。
@@ -872,57 +872,73 @@ bun scripts/test-runtime/runner.ts bun scripts/tests --parallel=2 --timings=/abs
 
 ### 変更に影響されるテストだけを実行する
 
-`bun run test:affected`は、変更したファイルを実行時に読み込んだテストファイルだけを実行します。runnerの`--affected[=REF]`に当たり、`--isolate`を付けて実行します。修正中に、触ったモジュールを読むテストの結果を早く知るために使います。提出前の確認には使わず、引数なしの`bun run check`を実行します。
+`bun run test:affected`は、既存runnerへ`scripts/tests/quality`と`--affected`を渡し、品質候補の中から関連テストを選びます。これをfeedbackモードと呼び、lint・型検査等と並べて実行します。安心を通常の候補へ追加しません。汎用runnerの明示パス指定は維持します。Bun標準の`bun test --changed`は併用していません。提出前・CIは引数なしの`bun run check`で品質・安心全件と既存の他のcheckを実行します。
 
 ```sh
 bun run test:affected
+
+# 品質内の影響先が不明なら品質全件
+bun run test:control scripts/tests/quality
+
+# 安心テスト自体、またはその検証対象を修正した場合
+bun run test:control scripts/tests/assurance/shared/process-cleanup.test.ts
+
+# 比較基点を指定する場合はrunnerを直接呼ぶ
+bun scripts/test-runtime/runner.ts bun scripts/tests/quality --affected=origin/main --parallel=2
 ```
 
-変更は、`--affected=REF`で指定した基点との分岐点以降のcommit、未commitの変更、未追跡ファイルです。`REF`を省略した場合は、mainとの分岐点を基点にします。renameは旧パスと新パスの両方を数えます。`.claude/workspace/`・`docs/issues/`・`.issue-drafts/`だけの変更は読み込まれないため、実行の理由にしません。変更がない場合は、変更なしと表示して非zeroで終わり、テストを実行しません。
+安心への影響を判断できなければ全体checkへ広げます。安心が自動選択に出ないことを不要の根拠にしません。旧`test:feedback`はREADME・CLIで案内していた既存利用のため`test:affected`へ委譲する互換名として残します。固定集合はありません。
 
-テストファイルは次の順で選びます。
+変更はmainまたは`--affected=REF`との分岐点以降のcommit、未commitの変更、未追跡ファイルです。renameは旧パスと新パスの両方を数えます。安心・共有入力も変更一覧に含めます。`.claude/workspace/`・`docs/issues/`・`.issue-drafts/`だけの変更は読み込まれないため実行の理由にしません。変更なしは非zeroで終了し、成功にしません。
 
-1. 変更したテストファイル自身を選びます。
-2. 記録に変更したモジュールを持つテストファイルを選びます。
-3. 本文に変更ファイルのパスの末尾2要素を書いたテストファイルを選びます。
-4. 記録のないテストファイルは、何を読むか分からないため常に選びます。
+品質候補内で、変更したテスト自身、変更モジュールを記録に持つテスト、本文に変更パスの末尾2要素を書いたテストを選びます。記録のないテストも常に選びます。初回・記録の読取り不能・形式不正では品質全件です。`scripts/test-runtime/`の`runner.ts`・`record-modules.ts`・`affected.ts`、旧runner互換入口・`package.json`・`bun.lock`・`tsconfig.json`という現行の固定一覧の変更と、品質候補に影響先が見つからない変更も品質全件へ戻り、理由を表示します。安心だけの変更や影響先不明の文書変更でも品質全件になる場合があります。
 
-全テストを実行する場合があります。`scripts/test-runtime/`の`runner.ts`・`record-modules.ts`・`affected.ts`、旧runner互換入口・`package.json`・`bun.lock`・`tsconfig.json`の変更は、記録の有無によらず全部実行にします。上の1〜4のどれにも当たらない変更も、全部実行にして理由のファイルを表示します。
+出力は品質候補数・選択数、品質全件になった理由と、全体checkではないことを示します。候補0件・変更なし・skip・only・集計不正・取消は成功にしません。通常のパス指定は同じrunnerの完了判定を使います。
 
-記録は、worktreeのgit dirの下にある`dotagents/test-deps.json`へ保存します。記録器は、実行時に`BUN_OPTIONS`へ`--preload`を足して、テストファイルと、そのテストファイルが起動した子のbunが読み込んだモジュールを集めます。保存は一時ファイルへ書いてからrenameで置き換え、実行しなかったテストファイルの記録を残します。失敗したテストファイルの記録は消すため、次回は記録なしとして選ばれます。記録ファイルを読めないか形が不正な場合は、警告を表示して記録なしとして扱い、全テストを選びます。
+記録はworktreeのgit dir配下の`dotagents/test-deps.json`です。`BUN_OPTIONS`へ記録器の`--preload`を足し、テストと環境を引き継ぐ子Bunが読むモジュールを親テストへ帰属させます。実行は`--isolate`付きです。非ASCIIのコードはUTF-8文字列で読み、JSON/TOMLは解決したパスを記録してBun標準の読込みへ渡します。保存は一時ファイルからrenameで置き換え、未実行テストの記録を保持します。失敗・skipしたファイルの記録は成功として保存せず、次回は記録なしとして選びます。中断時は既存記録を書き換えません。
 
-成功時は`All tests executed.`とは別に、選んだテストファイルの件数と、全体checkではないことを表示します。SIGINTで中断した場合は、記録ファイルを書き換えません。
+影響先が1件でも見つかり、別のテストの依存だけが漏れている場合、全件へ戻るとは限りません。
 
-次の4つは記録から検出できない漏れです。これらに当たる変更は、`test:affected`の成功では確かめたことになりません。記録に記録時のcommitは刻まないため、rebaseの後などの古い記録も検出しません。
+| 漏れの条件 | 対処 |
+| --- | --- |
+| 未実行分岐・完了を待たない動的import | 対応する分岐を検査するテストを直接実行します。記録の再生成だけで解消済みにしません |
+| 通常のfs読取り・組み立てたパス | 読む側の品質・安心テストを直接実行します。品質内の影響先が不明なら品質全件、安心への影響を判断できなければ全体checkへ広げます |
+| 記録用の環境変数を引き継がない子プロセス | 対象テストを直接実行します。試験目的の環境分離を記録のために壊しません |
+| rebase・依存構造変更などによる古い記録 | 関係するテストを直接確認します。記録を信頼できなければ退避し、品質全件を記録付きで実行して作り直します。古さの自動判定はしません |
 
-| 漏れ | 内容 | 確かめ方 |
-| --- | --- | --- |
-| env を空にした子プロセス | テストが子のbunを`env: {}`などで起動すると、記録器を渡す`BUN_OPTIONS`が届かず、子の読み込みを記録できません | 該当のテストファイルを直接指定して実行し、`bun run check`で確かめます |
-| 本文にパスのない fs 読み | `readFileSync`などで読むファイルは、モジュールの読み込みではないため記録されません。パスを組み立てて本文に書かない場合は、末尾2要素の照合にも掛かりません | 読まれる側を変えたら、読むテストファイルを指定して実行します |
-| 待たない動的 import | `import()`の完了を待たずにテストが終わると、読み込みが記録に間に合わないことがあります | テスト側で`await`を足すか、`bun run check`で確かめます |
-| check だけで確かめた依存の変更 | モジュールへ新しいimportを足した変更を、`test:affected`を実行せずに`bun run check`だけで確かめると、記録に新しい依存が入りません | 依存を足した後に`test:affected`を一度実行して記録を更新します |
+通常check・直接実行の成功は依存記録の更新を意味しません。必要なら記録付きaffected経路でも対象を実行します。再生成の例は次のとおりです。退避先は既存ファイルと重ならない名前を選んでください。
+
+```sh
+record_path="$(git rev-parse --git-path dotagents/test-deps.json)"
+# 記録が存在する場合だけ退避する。既存の退避先を上書きしない
+mv -i "$record_path" "$record_path.backup"
+bun run test:affected
+```
+
+変更が存在する状態で、記録がなければ品質全件を記録付きで実行します。変更なしは実行を拒否するため、その場合は実在する変更を含む合意済みの基点を明示してください。品質全件を再生成しても未実行分岐の依存まで埋まる保証はありません。記録器の動作確認より先に品質限定の通常運用へ切り替えない方針です。
 
 取消は子プロセスへ転送し、Bunの`--no-orphans`で子孫も終了させます。失敗や取消は成功にせず、一時レポートを後片付けします。Bunが終了0でもJUnit集計が不正な場合のレポート保持は、上の説明に従います。`--concurrent`、`--no-isolate`、任意のBunオプションの透過転送は扱いません。
 
-変更差分の行に入れた変異を`feedback`が検出するかは、`bun run mutate:diff`で報告します。報告だけのコマンドで、`bun run check`とCIには含めません。
+変更差分の行に入れた変異を品質全件が検出するかは、`bun run mutate:diff`で任意に調べられます。報告だけのコマンドで、`bun run check`とCIには含めません。
 
 ```sh
 # mainとの分岐点から作業ツリー（未コミット・未追跡を含む）までの差分を対象にする
 bun run mutate:diff
 
-# 基準を指定し、変異の上限を10件にして、生き残った変異をqualityでも実行する
-bun run mutate:diff -- --base origin/main --max 10 --quality
+# 基準を指定し、変異の上限を10件にする
+bun run mutate:diff -- --base origin/main --max 10
 ```
 
 `--base`の既定は`main`で、`git merge-base`で求めた分岐点と作業ツリーを`git diff -M`で比べます。変異の対象は`scripts/`の製品コード（`scripts/test-runtime/`を含む）と旧`scripts/tests/runner.ts`互換入口の追加・変更行です。他の`scripts/tests/**`には変異を作りません。対象ファイルの他の場所で削除した行と前後の空白を除いて同じ追加行は、移動とみなして除きます。同じhunkの連続する削除行（最大5行）と、空白を除いて完全に一致する連続する追加行は、行の分割・結合だけの整形とみなして除きます。演算子は条件の否定（`===`と`!==`の入替え、`if`・`while`の条件の否定）、比較の境界の入替え（`<`と`<=`、`>`と`>=`）、真偽値の入替え、`assert`の条件の否定の4種類です。カバレッジによる除外はしません。
 
 コマンドは実checkoutを変更しません。追跡中と未追跡（ignore以外）のファイルを一意の一時ディレクトリへ写し、`node_modules`をリンクして実行し、終了時に削除します。
 
-1. 一時コピーで、このハーネスの`runner.ts`から`scripts/tests/feedback`を3回実行します。1回でも失敗すると、変異の報告を出さず終了コード3で止まります。
+1. 一時コピーで、このハーネスの`runner.ts`から`scripts/tests/quality`全件を3回実行します。1回でも失敗すると、変異の報告を出さず終了コード3で止まります。
 2. 変異前のコピーで`bun run lint`と`bun run typecheck`を確かめます。失敗すると終了コード1で止まります。
 3. 決定的な順（各hunkから1件ずつ順番）で変異を1件ずつ入れ、lintか型検査で失敗した変異は破棄します。通った変異が`--max`（既定30）に達するまで続けます。
-4. 変異ごとに`feedback`を実行し、失敗したら1回だけ再実行します。両方失敗なら検出、初回だけ失敗なら不安定、成功なら生き残りとします。
-5. `--quality`を指定したときだけ、`quality`の基準実行が成功した場合に、生き残った変異を`quality`で同じように判定します。
+4. 変異ごとに品質全件を実行し、失敗したら1回だけ再実行します。両方失敗なら検出、初回だけ失敗なら不安定、成功なら生き残りとします。
+
+旧`--quality`は案内済みの利用を維持する互換指定として受理します。通常実行が品質全件になったため、同じ集合を二段階で追試しません。固定feedbackとqualityだけの追加検出という区別は廃止します。
 
 判定は常にこのハーネスの`runner.ts`で行い、一時コピーの`runner.ts`への変異が判定を変えないようにします。変異を入れた実行は、基準の最長時間の3倍に30秒を足した時間で止め、失敗として扱います。
 
@@ -931,13 +947,12 @@ bun run mutate:diff -- --base origin/main --max 10 --quality
 | 行 | 読み方 |
 | --- | --- |
 | `変異の実行: 検出 N / 生き残り N / 不安定 N` | 実行した変異の内訳。実行0件のときは、その旨を別の行で示します。生き残り0件を検出できる結果として扱わないでください |
-| `生き残った変異` | `feedback`が検出しなかった変異。位置・演算子・置換前後の式を示します |
+| `生き残った変異` | 品質全件が検出しなかった変異。位置・演算子・置換前後の式を示します |
 | `不安定（初回失敗・再実行で成功）` | 再実行で失敗を再現できなかった変異。検出には数えません |
-| `quality だけが検出した候補` | `--quality`のときだけ。`feedback`は見逃し、`quality`が再実行でも検出した変異 |
 | `破棄（lint・型検査で失敗）` | 実行しなかった変異の数。破棄があれば演算子別・ファイル別の内訳を続けます |
 | `変異を作れなかった差分` | 削除行だけのhunk、追加と混在するhunkの削除した行、移動・整形だけ、演算子を当てられる箇所なし、全候補を破棄、上限で変異しなかったhunkの一覧。削除した行は変異を作れないため、消したコードを読んで確認してください |
 
-終了コードは、報告を出した場合（生き残りがあっても）0、基準の`feedback`が失敗した場合3、引数の誤りは2、それ以外の失敗は1です。実行中にSIGINT・SIGTERMを受けると、子のプロセスグループを止め、一時コピーを消して終了コード1で終わります。生き残りの処置の残し方は[テスト設計資料](../skills/implement/references/testing.md#差分変異で検出を確かめる)に従います。
+終了コードは、報告を出した場合（生き残りがあっても）0、基準の品質全件が失敗した場合3、引数の誤りは2、それ以外の失敗は1です。実行中にSIGINT・SIGTERMを受けると、子のプロセスグループを止め、一時コピーを消して終了コード1で終わります。生き残りの処置の残し方は[テスト設計資料](../skills/implement/references/testing.md#差分変異で検出を確かめる)に従います。
 
 人の注意や記憶に依存する条件を見つけた場合は、[機械化の共通手順](../skills/references/mechanization.md)で既存保証と追加しない案も比較します。scopingの判断・成果物から参照し、初回実装・追加修正・既存PR修正には共通の`repairInstructions`、独立評価には`reviewInstructions`、独立テスト担当にはテスト作成プロンプトから、信頼するハーネス実体を基点に解決した同じ資料の絶対パスを渡します。対象repo内の同名資料へ解決せず、呼出元へ全文を複製しません。実装は合意範囲内の通常の選択を進め、要求・権限・規約の変更は人へ、検証資産の変更は独立テストへ戻します。テスト担当の期待値は要求から独立して決め、独立評価は採用・見送りの保証・費用・限界を確認します。範囲外の提案だけで今回の完了を待たせません。参照検査と実モデルの行動・効果の実測は区別し、手順の詳細は共通資料を正本とします。
 
@@ -948,9 +963,9 @@ bun run mutate:diff -- --base origin/main --max 10 --quality
 | 共有入口で守る条件 | 既存検証と残る確認 |
 | --- | --- |
 | スキルの役割・参照解決・合意の引き継ぎ | スキルと原資料の意味は既存の独立評価で照合し、選択・登録は[新しいタスクでの手順確認](#scopingの切替と手順確認)で観測します。文字列一致のテストでは代替しません |
-| 対象設定・CLI引数と対象照合 | [target.test.ts](tests/feedback/shared/target.test.ts)はIssue形式、argvの保持、CI指定・未知キーや不正値の拒否、実CLIからの対象解決と`--write`の効果を確認します。[development.test.ts](tests/quality/implement/development.test.ts)は対象不一致、開始入力やsetup後の変更、別技術構成、`--no-publish`の公開抑止を確認します。GitHub応答は模擬のため実際の認証・権限は別途照合します |
+| 対象設定・CLI引数と対象照合 | [target.test.ts](tests/quality/shared/target.test.ts)はIssue形式、argvの保持、CI指定・未知キーや不正値の拒否、実CLIからの対象解決と`--write`の効果を確認します。[development.test.ts](tests/quality/implement/development.test.ts)は対象不一致、開始入力やsetup後の変更、別技術構成、`--no-publish`の公開抑止を確認します。GitHub応答は模擬のため実際の認証・権限は別途照合します |
 | 通常開発・既存PR修正・1回レビュー試行と公開 | [development.test.ts](tests/quality/implement/development.test.ts)、[revision.test.ts](tests/quality/implement/revision.test.ts)、[correction.test.ts](tests/quality/implement/correction.test.ts)、[correction-process.test.ts](tests/quality/implement/correction-process.test.ts)、[review-probe.test.ts](tests/quality/implement/review-probe.test.ts)、[publish.test.ts](tests/quality/implement/publish.test.ts)が停止・保全・評価試行のレビュー1回・draft・公開対象を確認します。実モデルの判断品質や実際の公開の成功は別の証拠です |
-| 結果の状態・理由・証拠への導線 | developmentの成功・停止・ローカル完了の記録と、[run-report.test.ts](tests/feedback/implement/run-report.test.ts)の状態の区別・証拠リンク・不正記録・既存出力の保持を使います。HTMLの生成確認はブラウザーでの実表示確認ではありません |
+| 結果の状態・理由・証拠への導線 | developmentの成功・停止・ローカル完了の記録と、[run-report.test.ts](tests/quality/implement/run-report.test.ts)の状態の区別・証拠リンク・不正記録・既存出力の保持を使います。HTMLの生成確認はブラウザーでの実表示確認ではありません |
 
 文書・設定・CLIの変更前後で、今回影響する呼出し方の成功と想定する失敗を同じ条件で確認し、対象版・入力・結果・未実施範囲を既存のfindingsと独立評価へ残します。未使用検査の成功は、この確認の代わりにはなりません。
 
@@ -962,9 +977,9 @@ bun scripts/capture/verify.ts /absolute/path/to/target-repo firefox
 
 最後の引数は`chromium`、`firefox`、`webkit`のいずれかです。通常の相対`testDir`およびその範囲外にあるspec、依存project、既定の`webServer.cwd`、選択したブラウザー、checkoutの不変性、ならびに0件・skip・失敗・不正媒体・起動不能を実際のPlaywrightで確認します。この確認は共通checkには含めず、対象のPlaywrightバージョン、選択したブラウザー、ログの保存場所、および実行結果を別の証拠として報告します。
 
-Playwright runnerを起動する契約テストは[trial repoのtrial/control/](https://github.com/thkt/dotagents-workflow-trial/tree/93b38f0bc690373b4b1f68e37a42f721929d6386/trial/control)に置き、同repoの `test:trial-control` が商品側の依存を使って実行します。Bun runnerと両レポート形式の拒否条件は `scripts/tests/feedback/checks/test-runner.test.ts` に残します。
+Playwright runnerを起動する契約テストは[trial repoのtrial/control/](https://github.com/thkt/dotagents-workflow-trial/tree/93b38f0bc690373b4b1f68e37a42f721929d6386/trial/control)に置き、同repoの `test:trial-control` が商品側の依存を使って実行します。Bun runnerと両レポート形式の拒否条件は `scripts/tests/quality/checks/test-runner.test.ts` に残します。
 
-開発入口と必要報告のGitによる版照合、公開対象・権限、PR公開、Codex実行は、それぞれ `development.test.ts`、`target.test.ts`、`publish.test.ts`、`codex-actor.test.ts` で確認します。scopingの会話上の判断は[新しいタスクでの手順確認](#scopingの切替と手順確認)で扱います。共有する試験環境とモデル応答データの組み立ては `tests/support/` に置き、テストケースと期待値は各テストファイルに置きます。
+開発入口と必要報告のGitによる版照合、公開対象・権限、PR公開、Codex実行は、それぞれ `development.test.ts`、`target.test.ts`、`publish.test.ts`、`codex-actor.test.ts` で確認します。scopingの会話上の判断は[新しいタスクでの手順確認](#scopingの切替と手順確認)で扱います。共有する試験環境とモデル応答データの組み立ては `tests/support/` に置きます。品質と安心に分けたケースで実行手順・assertionを共有する場合もsupportで定義し、各分類のテストファイルで対象ケースを登録します。
 
 SIGKILLのテストでは残存プロセスをテスト側で後片付けしており、CLIの自動停止保証ではありません。
 

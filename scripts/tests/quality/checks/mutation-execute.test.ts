@@ -31,7 +31,7 @@ async function write(root: string, files: Record<string, string>) {
   }
 }
 
-type Tier = 'feedback' | 'quality';
+type Tier = string;
 
 const sources: Record<string, string> = {
   'scripts/a.ts': 'export const a = (n: number) => n < 1;\n',
@@ -53,8 +53,7 @@ const changes: Changes = {
 };
 
 // 実行の順序と、実行時の一時コピーの内容を記録する模擬runnerで実行する。
-async function execute(feedback: boolean[], quality: boolean[], withQuality: boolean) {
-  const results = { feedback, quality };
+async function execute(results: boolean[]) {
   const copy = await mkdtemp(join(tmpdir(), 'mutation-execute-'));
   try {
     await write(copy, sources);
@@ -63,13 +62,13 @@ async function execute(feedback: boolean[], quality: boolean[], withQuality: boo
     const plan = planMutants(changes);
     const result = await executeMutation({
       copy,
-      quality: withQuality,
       run: async (tier) => {
         const files = (
           await Promise.all(Object.keys(sources).map((file) => readFile(join(copy, file), 'utf8')))
         ).join('');
         calls.push({ tier, files });
-        const passed = results[tier].shift();
+        expect(tier).toBe('quality');
+        const passed = results.shift();
         assert(passed !== undefined, `unexpected ${tier} run`);
         return { passed, ms: 1, timedOut: false };
       },
@@ -89,27 +88,32 @@ async function execute(feedback: boolean[], quality: boolean[], withQuality: boo
   }
 }
 
-test('T-005 基準の feedback 実行が 3 回とも成功しないときは変異を実行せず専用の終了コードで止まる', async () => {
+test('T-005 基準の品質テスト 実行が 3 回とも成功しないときは変異を実行せず専用の終了コードで止まる', async () => {
   for (const baseline of [[false], [true, false], [true, true, false]]) {
-    const { result, calls, selected } = await execute([...baseline], [], false);
+    const { result, calls, selected } = await execute([...baseline]);
     // 終了コード3はscripts/README.mdで利用者へ案内した値。
     expect(result.exitCode).toBe(3);
     expect(calls).toHaveLength(baseline.length);
     expect(selected).toBe(0);
     expect('execution' in result).toBe(false);
   }
-  const passing = await execute([true, true, true, true, true, true], [], false);
+  const passing = await execute([true, true, true, true, true, true]);
   expect(passing.result.exitCode).toBe(0);
-  expect(passing.calls.filter((call) => call.tier === 'feedback')).toHaveLength(6);
+  expect(passing.calls.filter((call) => call.tier === 'quality')).toHaveLength(6);
 });
 
-test('T-006 変異を入れた feedback 実行の失敗は再実行で確かめた場合だけ検出として数える', async () => {
+test('T-006 変異を入れた品質テスト 実行の失敗は再実行で確かめた場合だけ検出として数える', async () => {
   // 基準3回の後、aは失敗・再失敗、bは失敗・再成功、cは成功。
-  const { result, calls, restored, plan } = await execute(
-    [true, true, true, false, false, false, true, true],
-    [],
+  const { result, calls, restored, plan } = await execute([
+    true,
+    true,
+    true,
     false,
-  );
+    false,
+    false,
+    true,
+    true,
+  ]);
   assert(result.exitCode === 0);
   const statuses = result.execution.outcomes.map((outcome) => [
     outcome.mutant.file,
@@ -152,7 +156,6 @@ test('T-007 実際の checkout を変えずに未コミットの変更を含む�
     const seen: string[] = [];
     const result = await executeMutation({
       copy,
-      quality: false,
       run: async () => {
         seen.push(
           (await readFile(join(copy, 'scripts/a.ts'), 'utf8')) +
@@ -181,36 +184,20 @@ test('T-007 実際の checkout を変えずに未コミットの変更を含む�
   }
 });
 
-test('T-008 quality の追加実行を指定したときだけ生き残った変異を quality で実行し quality だけが検出した候補として報告する', async () => {
-  // aは検出、bとcは生き残る。
-  const feedback = [true, true, true, false, false, true, true];
-  const without = await execute([...feedback], [], false);
-  assert(without.result.exitCode === 0);
-  expect(without.calls.some((call) => call.tier === 'quality')).toBe(false);
-  expect(
-    formatReport(without.plan, without.result.selection, without.result.execution),
-  ).not.toContain('quality だけが検出した候補');
-  // qualityは基準1回の後、bで失敗・再失敗、cで成功。
-  const withQuality = await execute([...feedback], [true, false, false, true], true);
-  assert(withQuality.result.exitCode === 0);
-  const qualityCalls = withQuality.calls.filter((call) => call.tier === 'quality');
-  expect(qualityCalls).toHaveLength(4);
-  expect(qualityCalls.slice(1, 3).every((call) => call.files.includes('n >= 2'))).toBe(true);
-  expect(qualityCalls[3]?.files).toContain('n > 3');
-  expect(
-    withQuality.result.execution.outcomes.map((outcome) => [outcome.status, outcome.quality]),
-  ).toEqual([
-    ['killed', undefined],
-    ['survived', 'killed'],
-    ['survived', 'survived'],
+test('品質集合は変異の判定後に第二段で重複して追試しない', async () => {
+  // 基準3回、aは検出のため2回、bとcは各1回。同じ集合を第二段で再実行しない。
+  const run = await execute([true, true, true, false, false, true, true]);
+  assert(run.result.exitCode === 0);
+  expect(run.calls).toHaveLength(7);
+  expect(run.calls.every((call) => call.tier === 'quality')).toBe(true);
+  expect(run.result.execution.outcomes.map((outcome) => outcome.status)).toEqual([
+    'killed',
+    'survived',
+    'survived',
   ]);
-  const report = formatReport(
-    withQuality.plan,
-    withQuality.result.selection,
-    withQuality.result.execution,
-  );
-  expect(report).toContain('quality だけが検出した候補');
-  expect(report).toMatch(/quality だけが検出した候補:\n {2}- scripts\/b\.ts:1:\d+ boundary-flip/);
+  const report = formatReport(run.plan, run.result.selection, run.result.execution);
+  expect(report).toContain('検出 1 / 生き残り 2 / 不安定 0');
+  expect(report).not.toContain('quality だけが検出した候補');
 });
 
 test('未追跡の入れ子のgit repoがあっても一時コピーを作り、通常ファイルだけを写す', async () => {

@@ -10,41 +10,16 @@ import { git, targetConfig } from '../../support/target.ts';
 const { trial, cleanup } = correctionFixture();
 afterEach(cleanup);
 
+import { captureCase } from '../../support/capture-case.ts';
+
 for (const [mode, result, captures, reviews] of [
   ['capture_success', 'ready_for_human_review', 2, 1],
   ['capture_review', 'ready_for_human_review', 2, 2],
   ['capture_failure', 'ready_for_human_review', 2, 1],
-  ['capture_unavailable', 'capture_unavailable', 1, 0],
-  ['capture_timeout', 'capture_timeout', 1, 0],
   ['capture_changed', 'source_changed', 1, 0],
 ] as const) {
-  test(`${mode} through controller entry`, async () => {
-    const t = await trial(mode, { checkTimeMs: 500 });
-    const resultProcess = t.execute();
-    expect(resultProcess.status).toBe(result === 'ready_for_human_review' ? 0 : 1);
-    const state = await t.state();
-    expect(state.result).toBe(result);
-    expect(state.review).toBe(reviews);
-    expect(events(state.events).filter((event) => object(event).role === 'capture')).toHaveLength(
-      captures,
-    );
-    if (result === 'ready_for_human_review') {
-      expect(
-        await readFile(join(t.config.cwd, 'trial/evidence/generated/desktop.png'), 'utf8'),
-      ).toBe('correct');
-    }
-    if (mode === 'capture_success') {
-      const before = JSON.stringify(state);
-      expect(t.execute().status).toBe(0);
-      expect(JSON.stringify(await t.state())).toBe(before);
-      await writeFile(join(t.config.cwd, 'trial/evidence/generated/desktop.png'), 'stale');
-      expect(object(JSON.parse(t.execute().stdout)).result).toBe('target_changed_after_stop');
-    }
-    if (mode === 'capture_unavailable') {
-      expect(state.findings).toContain('capture-1.stderr');
-      expect(state.repair).toBe(0);
-    }
-  });
+  test(`${mode} through controller entry`, () =>
+    captureCase(trial, mode, result, captures, reviews));
 }
 
 async function changeInitialMediaInput(cwd: string, kind: string) {

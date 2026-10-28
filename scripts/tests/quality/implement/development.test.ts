@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { test, expect, spyOn } from 'bun:test';
-import * as fs from 'node:fs/promises';
+import { test, expect } from 'bun:test';
 import {
   mkdtemp,
   mkdir,
@@ -21,7 +20,7 @@ import { run } from '../../../implement/correction.ts';
 import { createHash } from 'node:crypto';
 import { reviewReplySource } from '../../support/correction.ts';
 import { PublicationError } from '../../../implement/publish.ts';
-import { command, interruptionMessage, withInterrupts } from '../../../shared/process.ts';
+import { command } from '../../../shared/process.ts';
 import type { Config, State } from '../../../implement/input.ts';
 import { isRecord } from '../../../shared/values.ts';
 import { initializeTarget, githubTarget, targetConfig } from '../../support/target.ts';
@@ -29,10 +28,25 @@ import { initializeTarget, githubTarget, targetConfig } from '../../support/targ
 import { gitOutput, issue, ok, mediaCapture, testDevelopment } from '../../support/development.ts';
 import type { DevelopmentFixture } from '../../support/development.ts';
 
-const reportPath = 'docs/research/result-behavior.md';
-const reportContent = 'Reviewed finding: keep the result visible until reset.\n';
-const secondReport = 'docs/wiki/result-validation.md';
-
+import {
+  reportPath,
+  reportContent,
+  secondReport,
+  commitReport,
+  runDevelopment,
+  noPublication,
+  stopped,
+  rejectedBeforeStart,
+  verificationEvidence,
+  verifiedLocal,
+  publishedEvidence,
+  commitSettings,
+  initialStop,
+  publicationFields,
+  finalFields,
+  ciStop,
+  publicationReadStop,
+} from '../../support/development-observations.ts';
 testDevelopment('ローカル除外設定を引き継ぎ公開差分へ混入させない', async (f) => {
   await gitOutput(f.repo, 'rm', '--cached', '.dotagents.json');
   await gitOutput(f.repo, 'commit', '-m', 'local configuration');
@@ -282,163 +296,6 @@ test('development CLI rejects a missing Issue before reading a target', () => {
   expect(result.stderr).toContain('Usage: bun scripts/implement/development.ts ISSUE');
 });
 
-async function commitReport(repo: string) {
-  await mkdir(join(repo, 'docs/research'), { recursive: true });
-  await mkdir(join(repo, 'docs/wiki'), { recursive: true });
-  await writeFile(join(repo, reportPath), reportContent);
-  await writeFile(join(repo, secondReport), 'Existing result tests cover reset and empty input.\n');
-  await gitOutput(repo, 'add', '--', reportPath, secondReport);
-  await gitOutput(repo, 'commit', '-m', 'required research');
-  return gitOutput(repo, 'rev-parse', `HEAD:${reportPath}`);
-}
-async function savedResult(dir: string) {
-  const saved: unknown = JSON.parse(await readFile(join(dir, 'result.json'), 'utf8'));
-  assert(isRecord(saved));
-  return saved;
-}
-
-async function pendingWork(repo: string) {
-  if (!existsSync(join(repo, 'notes.txt'))) {
-    return undefined;
-  }
-  return {
-    status: await gitOutput(repo, 'status', '--porcelain'),
-    staged: await gitOutput(repo, 'diff', '--cached', '--binary'),
-    working: await gitOutput(repo, 'diff', '--binary'),
-    notes: await readFile(join(repo, 'notes.txt'), 'utf8'),
-    notesMode: (await stat(join(repo, 'notes.txt'))).mode,
-    untracked: await readFile(join(repo, 'unrelated.txt'), 'utf8'),
-    untrackedMode: (await stat(join(repo, 'unrelated.txt'))).mode,
-  };
-}
-
-// Only fixed observations are shared. Each test supplies its own mutation and stop reason.
-async function runDevelopment(f: DevelopmentFixture) {
-  const original = await gitOutput(f.repo, 'rev-parse', 'HEAD');
-  const pending = await pendingWork(f.repo);
-  try {
-    return await withInterrupts(() => develop(f.args, f.io));
-  } finally {
-    await withInterrupts(async () => {});
-    expect(await gitOutput(f.repo, 'rev-parse', 'HEAD')).toBe(original);
-    expect(await readFile(join(f.repo, 'result.txt'), 'utf8')).toBe('old');
-    if (pending) {
-      expect(await pendingWork(f.repo)).toEqual(pending);
-    }
-  }
-}
-
-function noPublication(f: DevelopmentFixture) {
-  expect(f.calls.pushes).toBe(0);
-  expect(f.calls.publications).toBe(0);
-  expect(f.calls.attachments).toBe(0);
-  expect(f.prReads).toEqual([]);
-}
-
-async function stopped(f: DevelopmentFixture, reason: RegExp) {
-  await assert.rejects(() => runDevelopment(f), reason);
-  const saved = await savedResult(f.dir);
-  expect([saved.reasonCode, saved.reason].join(': ')).toMatch(reason);
-  expect(saved.status).toBe('stopped');
-  expect(saved.nextAction).toBeTruthy();
-  expect(saved.evidence).toBe(f.dir);
-  expect(saved.issue).toContain('/issues/99');
-  expect(saved.startCommit).toMatch(/^[a-f0-9]{40}$/);
-  expect(saved.startedAt).toMatch(/^\d{4}-\d\d-\d\dT/);
-  expect(saved.finishedAt).toMatch(/^\d{4}-\d\d-\d\dT/);
-  expect(await readFile(join(f.dir, 'report.html'), 'utf8')).toContain('停止');
-  expect(saved.remaining).toContain('human_review');
-  return saved;
-}
-
-async function rejectedBeforeStart(f: DevelopmentFixture, reason: RegExp) {
-  await assert.rejects(() => runDevelopment(f), reason);
-  expect(f.calls.implementations).toBe(0);
-  expect(f.calls.verificationEntries).toBe(0);
-  noPublication(f);
-  expect(existsSync(f.dir)).toBe(false);
-}
-
-async function verificationEvidence(f: DevelopmentFixture, result: State['result']) {
-  const statePath = join(f.dir, 'verification/state.json');
-  expect(JSON.parse(await readFile(statePath, 'utf8'))).toMatchObject({
-    findings: f.summary,
-    reviewHistory: f.history,
-    result,
-  });
-  expect(await readFile(join(f.dir, 'verification/review-2.stdout'), 'utf8')).toBe(f.rawReview);
-  return statePath;
-}
-
-async function verifiedLocal(f: DevelopmentFixture) {
-  const result = await runDevelopment(f);
-  expect(await savedResult(f.dir)).toEqual(result);
-  expect(result.evidence).toBe(f.dir);
-  expect(result.status).toBe('verified_local');
-  expect(await readFile(join(f.dir, 'report.html'), 'utf8')).toContain('ローカル検証済み');
-  expect(result.remaining).toContain('publication');
-  expect(result.remaining).toContain('human_review');
-  expect(existsSync(join(f.dir, 'pr.md'))).toBe(false);
-  noPublication(f);
-  const statePath = await verificationEvidence(f, 'ready_for_human_review');
-  expect(result.details).toBe(statePath);
-  return result;
-}
-
-async function publishedEvidence(f: DevelopmentFixture, saved: Record<string, unknown>) {
-  expect(f.calls.pushes).toBe(1);
-  expect(f.calls.publications).toBe(1);
-  expect(saved.commit).toBe(await gitOutput(join(f.dir, 'checkout'), 'rev-parse', 'HEAD'));
-  expect(saved.branch).toBe('codex/development-99');
-  expect(saved.nextAction).toContain('GitHub');
-}
-
-async function commitSettings(f: DevelopmentFixture, settings: unknown) {
-  await writeFile(join(f.repo, '.dotagents.json'), JSON.stringify(settings));
-  await gitOutput(f.repo, 'add', '.dotagents.json');
-  await gitOutput(f.repo, 'commit', '-m', 'fixture configuration');
-}
-
-function failSetup(f: DevelopmentFixture) {
-  f.localCommand = (argv, cwd, input, timeout, prefix) =>
-    command(
-      argv[0] === 'sh' ? ['sh', '-c', 'echo setup fixture failure >&2; exit 1'] : argv,
-      cwd,
-      input,
-      timeout,
-      prefix,
-    );
-}
-
-testDevelopment('worktree_failure', async (f) => {
-  f.localCommand = (argv, ...rest) =>
-    argv[1] === 'worktree'
-      ? Promise.resolve({ ...ok(), code: 1, stderr: 'worktree fixture failure' })
-      : command(argv, ...rest);
-  const saved = await stopped(f, /worktree fixture failure/);
-  expect(saved).toMatchObject({
-    phase: 'preparation',
-    operation: 'prepare worktree',
-    publication: 'not_attempted',
-  });
-  expect(f.calls.implementations).toBe(0);
-  expect(f.calls.verificationEntries).toBe(0);
-  noPublication(f);
-});
-
-testDevelopment('setup_failure', async (f) => {
-  failSetup(f);
-  const saved = await stopped(f, /setup fixture failure/);
-  expect(saved).toMatchObject({
-    phase: 'implementation',
-    operation: 'setup-1',
-    publication: 'not_attempted',
-  });
-  expect(f.calls.implementations).toBe(0);
-  expect(f.calls.verificationEntries).toBe(0);
-  noPublication(f);
-});
-
 testDevelopment('missing_check', async (f) => {
   await commitSettings(f, { ...f.settings, check: [] });
   await rejectedBeforeStart(f, /Verification command is required/);
@@ -461,51 +318,6 @@ testDevelopment(
   },
   { ciChecks: [] },
 );
-
-testDevelopment('report failure preserves a verified local result', async (f) => {
-  f.args.push('--no-publish');
-  const verify = f.verify;
-  f.verify = async (config) => {
-    const state = await verify(config);
-    await writeFile(join(f.dir, 'report.html'), 'existing report');
-    return state;
-  };
-  await assert.rejects(
-    () => runDevelopment(f),
-    (error: unknown) =>
-      error instanceof Error &&
-      error.message.includes('Run verified_local') &&
-      error.message.includes('report generation failed') &&
-      error.message.includes(`'${f.dir}'`) &&
-      error.message.includes("run-report.ts'") &&
-      error.message.includes("report-new.html'"),
-  );
-  expect((await savedResult(f.dir)).status).toBe('verified_local');
-  expect(await readFile(join(f.dir, 'report.html'), 'utf8')).toBe('existing report');
-  expect(f.calls.verificationEntries).toBe(1);
-  noPublication(f);
-});
-
-testDevelopment('report failure preserves an earlier stop', async (f) => {
-  const local = f.localCommand;
-  f.localCommand = async (argv, cwd, input, timeout, prefix) => {
-    if (argv[0] === 'sh') {
-      await writeFile(join(f.dir, 'report.html'), 'existing report');
-      return { ...ok(), code: 1, stderr: 'setup failed' };
-    }
-    return local(argv, cwd, input, timeout, prefix);
-  };
-  await assert.rejects(
-    () => runDevelopment(f),
-    /Run stopped:.*setup failed.*report generation failed/,
-  );
-  const saved = await savedResult(f.dir);
-  expect(saved).toMatchObject({ status: 'stopped', phase: 'implementation', operation: 'setup-1' });
-  expect(saved.reason).toContain('setup failed');
-  expect(await readFile(join(f.dir, 'report.html'), 'utf8')).toBe('existing report');
-  expect(f.calls.implementations).toBe(0);
-  noPublication(f);
-});
 
 for (const [name, replacement, reason] of [
   ['wrong_repo', ['team/component', 'other/repo'], /GitHub repository mismatch/],
@@ -641,16 +453,6 @@ for (const status of ['repaired', 'needs_host'] as const) {
   });
 }
 
-async function initialStop(f: DevelopmentFixture, reason: RegExp) {
-  const saved = await stopped(f, reason);
-  expect(f.calls.implementations).toBe(1);
-  expect(f.calls.verificationEntries).toBe(0);
-  noPublication(f);
-  expect(saved.publication).toBe('not_attempted');
-  expect(existsSync(join(f.dir, 'verification-config.json'))).toBe(false);
-  return saved;
-}
-
 for (const [name, response, reason] of [
   ['initial_failure', { code: 1 }, /Initial implementation process failed/],
   ['initial_timeout', { timedOut: true }, /Initial implementation timed out/],
@@ -665,26 +467,6 @@ for (const [name, response, reason] of [
     expect(existsSync(join(f.dir, 'implementation.json'))).toBe(true);
   });
 }
-
-testDevelopment('initial_startup_failure', async (f) => {
-  f.implement = (_argv, ...rest) => command(['/nonexistent-implementation-test-command'], ...rest);
-  await initialStop(f, /Initial implementation process failed \(null\)/);
-  expect(await readFile(join(f.dir, 'implementation.stderr'), 'utf8')).toContain('ENOENT');
-  expect(existsSync(join(f.dir, 'implementation.json'))).toBe(true);
-});
-
-testDevelopment('initial_interruption', async (f) => {
-  f.implement = async (_argv, _cwd, _input, _timeout, prefix) => {
-    await writeFile(`${prefix}.stdout`, 'interrupted actor output');
-    await writeFile(`${prefix}.stderr`, 'Actor diagnostic');
-    throw Error(interruptionMessage);
-  };
-  await initialStop(f, /Interrupted execution/);
-  expect(await readFile(join(f.dir, 'implementation.stderr'), 'utf8')).toContain(
-    'Actor diagnostic',
-  );
-  expect(existsSync(join(f.dir, 'implementation.json'))).toBe(false);
-});
 
 for (const [name, reply, reason] of [
   [
@@ -810,170 +592,6 @@ testDevelopment('source_changed', async (f) => {
   const statePath = await verificationEvidence(f, 'ready_for_human_review');
   expect(saved.details).toBe(statePath);
 });
-testDevelopment('save_failure', async (f) => {
-  failSetup(f);
-  const localCommand = f.localCommand;
-  f.localCommand = async (argv, ...rest) => {
-    if (argv[0] === 'sh') {
-      await mkdir(join(f.dir, 'result.json'));
-    }
-    return localCommand(argv, ...rest);
-  };
-  await assert.rejects(() => runDevelopment(f), /setup fixture failure.*result not saved.*EISDIR/s);
-  expect((await stat(join(f.dir, 'result.json'))).isDirectory()).toBe(true);
-  expect(await readFile(join(f.dir, 'setup-1.stderr'), 'utf8')).toContain('setup fixture failure');
-  expect(f.calls.implementations).toBe(0);
-  expect(f.calls.verificationEntries).toBe(0);
-  noPublication(f);
-});
-
-testDevelopment('save_success_failure', async (f) => {
-  f.args.push('--no-publish');
-  f.localCommand = async (argv, ...rest) => {
-    if (argv[0] === 'sh') {
-      await writeFile(join(f.dir, 'result.json'), 'previous complete record');
-      await writeFile(join(f.dir, 'result.json.tmp'), 'retained temporary evidence');
-    }
-    return command(argv, ...rest);
-  };
-  await assert.rejects(
-    () => runDevelopment(f),
-    /Local check and independent review accepted.*result not saved.*EEXIST/,
-  );
-  expect(await readFile(join(f.dir, 'result.json'), 'utf8')).toBe('previous complete record');
-  expect(await readFile(join(f.dir, 'result.json.tmp'), 'utf8')).toBe(
-    'retained temporary evidence',
-  );
-  expect(f.calls.implementations).toBe(1);
-  expect(f.calls.verificationEntries).toBe(1);
-  noPublication(f);
-});
-
-// Notify the real interrupt scope at deterministic async storage boundaries.
-function interruptWrite(dir: string) {
-  const writeFile = fs.writeFile;
-  let notified = false;
-  return spyOn(fs, 'writeFile').mockImplementation(async (...args) => {
-    if (args[0] === join(dir, 'result.json.tmp') && !notified) {
-      notified = true;
-      process.emit('SIGINT');
-    }
-    await writeFile(...args);
-  });
-}
-
-function interruptRename(dir: string) {
-  const rename = fs.rename;
-  let notified = false;
-  return spyOn(fs, 'rename').mockImplementation(async (...args) => {
-    await rename(...args);
-    if (args[1] === join(dir, 'result.json') && !notified) {
-      notified = true;
-      process.emit('SIGTERM');
-    }
-  });
-}
-
-async function interruptedRecord(f: DevelopmentFixture) {
-  const saved = await savedResult(f.dir);
-  expect(saved.status).toBe('stopped');
-  expect(saved.reason).toContain(interruptionMessage);
-  expect(saved.nextAction).toContain('Reconcile');
-  return saved;
-}
-
-async function retainedPublication(f: DevelopmentFixture, saved: Record<string, unknown>) {
-  expect(saved.publication).toBe('published');
-  expect(saved.url).toBe(await readFile(join(f.dir, 'pr-url.txt'), 'utf8'));
-  expect(saved.commit).toBe(await gitOutput(join(f.dir, 'checkout'), 'rev-parse', 'HEAD'));
-  expect(saved.ci).toBe('passed');
-  expect(saved.ciDetails).toMatchObject({ status: 'passed' });
-  expect(saved.remaining).toEqual(['published_body_check', 'mark_ready', 'human_review']);
-  expect(f.calls.pushes).toBe(1);
-  expect(f.calls.publications).toBe(1);
-  expect(f.calls.attachments).toBe(0);
-}
-
-testDevelopment('save_write_interruption', async (f) => {
-  f.args.push('--no-publish');
-  const write = interruptWrite(f.dir);
-  try {
-    await assert.rejects(() => runDevelopment(f), /Interrupted execution.*Result:/s);
-    const saved = await interruptedRecord(f);
-    expect(saved.publication).toBe('not_attempted');
-    expect(saved.reasonCode).toBeUndefined();
-    expect(saved.remaining).toEqual([
-      'publication',
-      'ci',
-      'published_body_check',
-      'mark_ready',
-      'human_review',
-    ]);
-    noPublication(f);
-  } finally {
-    write.mockRestore();
-  }
-});
-
-testDevelopment('save_stopped_interruption', async (f) => {
-  failSetup(f);
-  const write = interruptWrite(f.dir);
-  try {
-    await assert.rejects(
-      () => runDevelopment(f),
-      /setup fixture failure.*Interrupted execution.*Result:/s,
-    );
-    const saved = await interruptedRecord(f);
-    expect(saved.reason).toContain('setup fixture failure');
-    expect(await readFile(join(f.dir, 'setup-1.stderr'), 'utf8')).toContain(
-      'setup fixture failure',
-    );
-    expect(f.calls.implementations).toBe(0);
-    expect(f.calls.verificationEntries).toBe(0);
-    noPublication(f);
-  } finally {
-    write.mockRestore();
-  }
-});
-
-testDevelopment('save_rename_interruption', async (f) => {
-  const rename = interruptRename(f.dir);
-  try {
-    await assert.rejects(() => runDevelopment(f), /Interrupted execution.*Result:/s);
-    await retainedPublication(f, await interruptedRecord(f));
-  } finally {
-    rename.mockRestore();
-  }
-});
-
-testDevelopment('save_interruption_failure', async (f) => {
-  const rename = interruptRename(f.dir);
-  const writeFile = fs.writeFile;
-  let written = false;
-  const write = spyOn(fs, 'writeFile').mockImplementation(async (...args) => {
-    if (args[0] === join(f.dir, 'result.json.tmp')) {
-      if (written) {
-        throw Error('storage fixture failure');
-      }
-      written = true;
-    }
-    await writeFile(...args);
-  });
-  try {
-    await assert.rejects(
-      () => runDevelopment(f),
-      /Interrupted execution.*result not saved.*storage fixture failure/s,
-    );
-    const saved = await savedResult(f.dir);
-    // A failed replacement retains the previous complete record, not partial JSON.
-    expect(saved.status).toBe('published_draft');
-    await retainedPublication(f, saved);
-  } finally {
-    write.mockRestore();
-    rename.mockRestore();
-  }
-});
-
 for (const [name, error, url] of [
   ['publication_unconfirmed', Error('PR author or body could not be confirmed'), undefined],
   [
@@ -1084,95 +702,6 @@ testDevelopment(
   },
   { capture: mediaCapture },
 );
-
-testDevelopment('ci_interruption', async (f) => {
-  const prView = f.prView;
-  f.prView = async (...args) => {
-    const response = await prView(...args);
-    process.emit('SIGINT');
-    return response;
-  };
-  const saved = await stopped(f, /Interrupted execution/);
-  await publishedEvidence(f, saved);
-  expect(saved).toMatchObject({ publication: 'published', phase: 'ci' });
-  expect(saved.url).toBe(await readFile(join(f.dir, 'pr-url.txt'), 'utf8'));
-  expect(saved.url).toContain('/pull/100');
-  expect(saved.ci).toBeUndefined();
-  expect(await readFile(join(f.dir, 'pr-publication.stdout'), 'utf8')).toContain('headRefOid');
-  expect(existsSync(join(f.dir, 'ci-final-target.stdout'))).toBe(false);
-  expect(f.prReads).toHaveLength(1);
-  expect(f.calls.attachments).toBe(0);
-});
-const publicationFields = 'url,headRefOid,baseRefName,state,isDraft,body,statusCheckRollup';
-const finalFields = 'headRefOid,baseRefName,state,isDraft';
-
-async function ciStop(f: DevelopmentFixture, status: string, action: string) {
-  const saved = await stopped(f, new RegExp(`${status}:`));
-  const url = await readFile(join(f.dir, 'pr-url.txt'), 'utf8');
-  expect(url).toContain('/pull/100');
-  const body = await readFile(join(f.dir, 'pr.md'), 'utf8');
-  expect(body).toContain('draft公開・CI・本文と媒体の確認・ready切替・人の承認は未完了');
-  expect(body).not.toMatch(/媒体を添付|rendered_media_check|新規添付対象/);
-  expect(saved.url).toBe(url);
-  expect(saved).toMatchObject({
-    publication: 'published',
-    requiredChecks: ['checks'],
-    ci: status,
-    remaining: ['ci', 'published_body_check', 'mark_ready', 'human_review'],
-  });
-  expect(saved.commit).toBe(await gitOutput(join(f.dir, 'checkout'), 'rev-parse', 'HEAD'));
-  expect(saved.nextAction).toContain(action);
-  expect(f.calls.pushes).toBe(1);
-  expect(f.calls.publications).toBe(1);
-  expect(f.calls.attachments).toBe(0);
-  assert(isRecord(saved.ciDetails));
-  return { saved, details: saved.ciDetails };
-}
-
-async function publicationReadStop(
-  f: DevelopmentFixture,
-  status: string,
-  action: string,
-  reason: string,
-) {
-  const { details } = await ciStop(f, status, action);
-  const log = join(f.dir, 'pr-publication');
-  expect(f.prReads).toEqual([publicationFields]);
-  expect(details.logs).toEqual([log]);
-  expect(details.lastObservation).toBeNull();
-  expect(details.timedOut).toBe(false); // The CI wait budget has not started.
-  expect(details.reason).toContain(reason);
-  expect(existsSync(join(f.dir, 'ci-registration-1.stdout'))).toBe(false);
-  expect(existsSync(join(f.dir, 'ci-final-target.stdout'))).toBe(false);
-  expect(await readFile(join(f.dir, 'pr.json'), 'utf8')).toBe(
-    await readFile(`${log}.stdout`, 'utf8'),
-  );
-}
-
-for (const [name, failure, status, action, reason] of [
-  [
-    'ci_publication_unavailable',
-    { code: 1, stderr: 'API unavailable in fixture' },
-    'unavailable',
-    'Check gh',
-    'exit 1',
-  ],
-  ['ci_publication_timeout', { timedOut: true }, 'unavailable', 'Check gh', 'timedOut true'],
-] as const) {
-  testDevelopment(name, async (f) => {
-    const prView = f.prView;
-    f.prView = async (argv, cwd, timeout) => {
-      const response = await prView(argv, cwd, timeout);
-      return argv.at(-1) === publicationFields ? { ...response, ...failure } : response;
-    };
-    await publicationReadStop(f, status, action, reason);
-    if ('stderr' in failure) {
-      expect(await readFile(join(f.dir, 'pr-publication.stderr'), 'utf8')).toBe(
-        'API unavailable in fixture',
-      );
-    }
-  });
-}
 
 // CI owns the initial target field matrix; development retains the stop/result connection.
 testDevelopment('CI publication rejects changed head', async (f) => {

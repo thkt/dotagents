@@ -198,10 +198,24 @@ async function planAffected(base: string, paths: string[]): Promise<AffectedPlan
     records,
     readText: (path) => readFileSync(path, 'utf8'),
   });
-  if (selection.kind === 'all') {
-    console.log(`全テストファイルを実行します。理由: ${selection.reasons.join(', ')}`);
-  }
+  const qualityOnly =
+    testFiles.length > 0 &&
+    testFiles.every((file) => file.startsWith(join(root, 'scripts/tests/quality') + sep));
+  const label = qualityOnly ? '品質' : 'テスト';
+  console.log(`${label}候補: ${testFiles.length}件（全体checkではありません）`);
   const files = selection.kind === 'all' ? testFiles : selection.tests;
+  if (warning !== undefined || testFiles.every((file) => !records.has(file))) {
+    console.log(`${label}全件を実行します。理由: ${warning ?? '依存記録なし'}`);
+  } else if (selection.kind === 'all') {
+    console.log(
+      `全テストファイルを実行します。${label}全件の理由: ${selection.reasons.join(', ')}`,
+    );
+  } else if (files.length === testFiles.length) {
+    console.log(
+      `${label}候補全件が関連選択規則に該当しました（変更テスト自身・依存記録・本文照合・記録なし）`,
+    );
+  }
+  console.log(`${label}選択: ${files.length}件`);
   assert(files.length > 0, '実行するテストファイルがありません');
   return { modules, root, files };
 }

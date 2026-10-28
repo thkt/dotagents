@@ -48,10 +48,10 @@ Bun 1.4.4 を使います。check は次の順に実行します。ツールご�
 | 3 | `complexity` | Biome | 認知的複雑度の上限 15 だけ。formatter と他の規則は無効です |
 | 4 | `typecheck` | `bun --check` | `tsconfig.json`に従う通常ハーネスとeval実行コード・模擬テストの型の整合。テストからimportされないCLIも含みます |
 | 5 | `check:unused` | fallow | 未使用のファイル・export・型・依存と、実行時 import の循環 |
-| 6 | `test:control` | Bun | 通常ハーネスの制御テスト（`feedback`・`quality`・`assurance`の全階層） |
+| 6 | `test:control` | Bun | 通常ハーネスの制御テスト（`quality`・`assurance`の両分類） |
 | 7 | `test:eval` | Bun | eval専用の模擬テスト |
 
-制御テストはBunのファイル単位の隔離を保ち、2workerで実行します。eval専用の模擬テストは直列です。修正中は`bun run test:feedback`で`feedback`階層だけを実行するか、複数の関連パスを指定できます。さらに絞る場合は、変更したファイルを実行時に読み込んだテストファイルだけを実行する`bun run test:affected`を使えます。提出前は引数なしの`bun run check`を使います。階層の目的と選び方は[開発方針](docs/wiki/development-policy.md#制御テストの階層)を参照してください。選択・`test:affected`の選び方と既知の漏れ・直列実行・計時の操作は[CLIガイド](scripts/README.md#制御テストの選択と計時)を参照してください。
+制御テストはBunのファイル単位の隔離を保ち、2workerで実行します。eval専用の模擬テストは直列です。通常のAI実装では、lint・型検査等と、品質候補に限定した`bun run test:affected`を実行します。これをfeedbackモードと呼びます。安心テストやその検証対象を修正した場合は、該当安心テストをパス指定で直接実行します。品質内の影響先が不明なら品質全件、安心への影響を判断できなければ全体checkへ広げます。提出前・CIは引数なしの`bun run check`で両分類全件と既存の他のcheckを実行します。分類の基準は[開発方針](docs/wiki/development-policy.md#制御テストの階層)、選択漏れと記録の再生成、直接実行、計時は[CLIガイド](scripts/README.md#制御テストの選択と計時)を参照してください。旧`test:feedback`は既存利用のため`test:affected`へ委譲する互換名として残します。
 
 過去の固定snapshotを使う復旧テストでは、テスト専用の開発依存`zod-host-fixture`でsnapshotが要求するZodを使います。現行ハーネスの`zod`とは分けて導入し、テスト中のパッケージ取得は行いません。
 

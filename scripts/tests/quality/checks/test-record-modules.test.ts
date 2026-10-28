@@ -130,3 +130,62 @@ test('利用者の BUN_OPTIONS を残して記録器を足し、空白を含む�
     /whitespace|空白/,
   );
 });
+
+// 比較先をASCIIエスケープで書き、実値と期待値が同時に文字化けして通ることを防ぐ。
+for (const source of ['ascii', 'unicode', 'json-ascii', 'json'] as const) {
+  for (const fails of [false, true]) {
+    const expected =
+      source === 'ascii' || source === 'json-ascii' ? 'hello' : '\u65e5\u672c\u8a9e\ud83c\udf38';
+    const status = fails ? 1 : 0;
+    const summary = fails ? '1 fail' : '1 pass';
+    const module = source.startsWith('json') ? 'value.json' : 'value.ts';
+    test(`記録の有無で値・assertion・完了件数を変えない: ${source} ${fails ? '失敗' : '成功'}`, async () => {
+      await fixture(
+        {
+          [module]: source.startsWith('json')
+            ? JSON.stringify({
+                value: source === 'json-ascii' ? 'hello' : '日本語🌸',
+                count: 7,
+                nested: { enabled: true },
+              }) + '\n'
+            : `export const value = '${source === 'ascii' || source === 'json-ascii' ? 'hello' : '日本語🌸'}';\n`,
+          'value.test.ts':
+            passing +
+            (source.startsWith('json')
+              ? "import data from './value.json';\nconst { value } = data;\n"
+              : "import { value } from './value.ts';\n") +
+            `test('value', () => {\n` +
+            `console.log('OBSERVED=' + JSON.stringify(value));\n` +
+            `expect(value).toBe('${source === 'ascii' || source === 'json-ascii' ? 'hello' : '\\u65e5\\u672c\\u8a9e\\ud83c\\udf38'}');\n` +
+            (source.startsWith('json')
+              ? 'expect(data.count).toBe(7); expect(data.nested.enabled).toBe(true);\n'
+              : '') +
+            (fails ? "expect(value).toBe('INTENTIONAL_FAILURE');\n" : '') +
+            '});\n',
+        },
+        async (root, recordDir) => {
+          for (const recorded of [false, true]) {
+            const result = spawnSync(process.execPath, ['test', 'value.test.ts'], {
+              cwd: root,
+              encoding: 'utf8',
+              timeout: 30000,
+              env: recorded ? recorderEnv(baseEnv(), recordDir) : baseEnv(),
+            });
+            const output = result.stdout + result.stderr;
+            expect(result.error).toBeUndefined();
+            expect(result.signal).toBeNull();
+            expect(result.stdout, output).toContain(`OBSERVED=${JSON.stringify(expected)}`);
+            expect(output).toMatch(/Ran 1 test across 1 file/);
+            expect(result.status, output).toBe(status);
+            expect(output).toContain(summary);
+            expect(output.includes('INTENTIONAL_FAILURE')).toBe(fails);
+          }
+          const records = await readRecords(recordDir);
+          expect([...(records.get(join(root, 'value.test.ts')) ?? [])]).toContain(
+            join(root, module),
+          );
+        },
+      );
+    });
+  }
+}
