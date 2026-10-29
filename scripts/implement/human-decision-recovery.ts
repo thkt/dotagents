@@ -61,6 +61,7 @@ async function stoppedTest(dir: string, config: Config, original: string) {
       files: z.record(z.string(), z.string()),
       baseline: z.record(z.string(), z.string()),
       check: z.array(z.string()),
+      feedbackCheck: z.array(z.string()).optional(),
       setup: z.array(z.array(z.string())),
       reports: z.array(z.unknown()),
       evidence: z.array(z.unknown()),
@@ -75,6 +76,7 @@ async function stoppedTest(dir: string, config: Config, original: string) {
     input.issue === original &&
       input.baseCommit === config.baseCommit &&
       JSON.stringify(input.check) === JSON.stringify(config.check) &&
+      JSON.stringify(input.feedbackCheck) === JSON.stringify(config.feedbackCheck) &&
       JSON.stringify(input.setup) === JSON.stringify(config.setup ?? []) &&
       JSON.stringify(input.reports) === JSON.stringify(config.reports ?? []),
     '保存テスト入力と要求・設定が一致しません',

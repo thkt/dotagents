@@ -32,6 +32,7 @@ const targetShape = z.strictObject({
   reports: z.array(z.unknown()),
   evidence: z.array(z.unknown()).length(0),
   check: z.array(z.string()),
+  feedbackCheck: z.array(z.string()).optional(),
   setup: z.array(z.array(z.string())),
 });
 const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -117,6 +118,12 @@ export async function previousTestRun(input: {
     target.issue === input.original &&
       target.baseCommit === input.head &&
       equal(target.check, targetCommand(input.target.config.check)) &&
+      equal(
+        target.feedbackCheck,
+        input.target.config.feedbackCheck
+          ? targetCommand(input.target.config.feedbackCheck)
+          : undefined,
+      ) &&
       equal(target.setup, input.target.config.setup.map(targetCommand)),
     '旧テストの要求・開始版・実行契約が一致しません',
   );

@@ -135,6 +135,7 @@ export interface ReviewConfig {
   checkTimeMs: number | null;
 }
 export interface Config extends ReviewConfig {
+  feedbackCheck?: string[];
   repair: string[];
   test?: string[];
   testBaseline?: string;
@@ -154,7 +155,13 @@ const optionalString = (value: unknown) => value === undefined || typeof value =
 const command = (value: unknown) => isCommandArray(value) && value[0].length > 0;
 
 export function assertConfig(value: unknown): asserts value is Config {
-  assertReviewConfig(value, ['repair', 'test', 'testBaseline', 'setup']);
+  assertReviewConfig(value, ['repair', 'test', 'testBaseline', 'setup', 'feedbackCheck']);
+  assert(
+    !('feedbackCheck' in value) ||
+      value.feedbackCheck === undefined ||
+      command(value.feedbackCheck),
+    'Invalid feedbackCheck command',
+  );
   assert('repair' in value && command(value.repair), 'Invalid repair command');
   assert(
     !('test' in value) || value.test === undefined || command(value.test),

@@ -42,6 +42,7 @@ export async function fixture(
   report = false,
   local: false | 'untracked' | 'ignored' = false,
   initialPublication = false,
+  settings: Partial<typeof targetConfig> = {},
 ) {
   const prior = join(root, 'prior');
   const cwd = join(prior, 'checkout');
@@ -52,6 +53,7 @@ export async function fixture(
     ...targetConfig,
     setup,
     capture: media ? { command: ['capture'], destination: 'media', required: true } : null,
+    ...settings,
   });
   if (local) {
     git(repo, 'rm', '--cached', '.dotagents.json');

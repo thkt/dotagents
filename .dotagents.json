@@ -4,6 +4,7 @@
   "baseBranch": "main",
   "setup": "bun install --frozen-lockfile --ignore-scripts",
   "check": "bun run check",
+  "feedbackCheck": "bun run test:feedback",
   "capture": null,
   "ciChecks": ["checks", "verify"]
 }

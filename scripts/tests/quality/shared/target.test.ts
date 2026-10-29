@@ -320,3 +320,76 @@ test('target rejects unknown settings before GitHub access', async () => {
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+test('feedbackCheckは省略・シェル文字列・argvを受け付け、設定原文と引数を保つ', async () => {
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'target-feedback-')));
+  try {
+    await initializeTarget(cwd);
+    const shell = `  printf '%s\\n' "quoted value" '' "$PWD"; exit 7  `;
+    const argv = [' tool ', '', ' \t ', 'last', 'first'];
+    for (const [feedbackCheck, expected] of [
+      [undefined, undefined],
+      [shell, ['/bin/sh', '-c', shell]],
+      [argv, argv],
+    ] as const) {
+      const text = JSON.stringify({ ...targetConfig, feedbackCheck });
+      await writeFile(join(cwd, '.dotagents.json'), text);
+      const target = await readTarget(
+        cwd,
+        async (args) => githubTarget(args) ?? git(cwd, ...args.slice(1)),
+      );
+      expect(target.text).toBe(text);
+      expect(target.config.check).toEqual(targetConfig.check);
+      if (expected === undefined) {
+        expect(target.config).not.toHaveProperty('feedbackCheck');
+      } else {
+        expect(target.config).toHaveProperty('feedbackCheck', expected);
+      }
+      if (feedbackCheck === shell) {
+        assert(expected);
+        const result = await command([...expected], target.cwd, '', 10000);
+        expect(result).toMatchObject({
+          code: 7,
+          stdout: `quoted value\n\n${cwd}\n`,
+          stderr: '',
+          timedOut: false,
+        });
+      }
+    }
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('不正なfeedbackCheckはcheckと同じ入力条件で外部アクセス前に拒否する', async () => {
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'invalid-feedback-')));
+  try {
+    await initializeTarget(cwd);
+    for (const key of ['check', 'feedbackCheck']) {
+      await writeFile(
+        join(cwd, '.dotagents.json'),
+        JSON.stringify({ ...targetConfig, [key]: ['echo', 'valid-command'] }),
+      );
+      const valid = await readTarget(
+        cwd,
+        async (argv) => githubTarget(argv) ?? git(cwd, ...argv.slice(1)),
+      );
+      expect(valid.config).toHaveProperty(key, ['echo', 'valid-command']);
+      for (const value of ['', ' \t\n', null, false, 1, {}, [], [''], [' \t'], ['tool', 1]]) {
+        const text = JSON.stringify({ ...targetConfig, [key]: value });
+        await writeFile(join(cwd, '.dotagents.json'), text);
+        const reads: string[][] = [];
+        await assert.rejects(() =>
+          readTarget(cwd, async (argv) => {
+            reads.push(argv);
+            return cwd;
+          }),
+        );
+        expect(reads).toEqual([['git', 'rev-parse', '--show-toplevel']]);
+        expect(await Bun.file(join(cwd, '.dotagents.json')).text()).toBe(text);
+      }
+    }
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});

@@ -1231,3 +1231,59 @@ testReviewRecovery('複数回のホスト復帰は祖先と検証工程の原記
   expect(f.calls.publications).toBe(0);
   expect(f.calls.pushes).toBe(0);
 });
+
+for (const scenario of ['omitted', 'same', 'changed_text'] as const) {
+  testDevelopment(`feedbackCheck設定をホスト検証後の再評価で照合する: ${scenario}`, async (f) => {
+    if (scenario !== 'omitted') {
+      Object.assign(f.settings, { feedbackCheck: "printf '%s' 'host-return-feedback'" });
+      await writeFile(join(f.repo, '.dotagents.json'), JSON.stringify(f.settings));
+      await gitOutput(f.repo, 'add', '.dotagents.json');
+      await gitOutput(f.repo, 'commit', '-m', '反復用checkを設定');
+    }
+    const cwd = await prepareStop(f);
+    const original = await runRecords(f.dir);
+    const oldConfig = object(
+      JSON.parse(await readFile(join(f.dir, 'verification-config.json'), 'utf8')),
+    );
+    expect(oldConfig.check).toEqual(f.settings.check);
+    if (scenario === 'omitted') {
+      expect(oldConfig).not.toHaveProperty('feedbackCheck');
+    }
+    if (scenario === 'changed_text') {
+      const path = join(cwd, '.dotagents.json');
+      await writeFile(path, (await readFile(path, 'utf8')) + '\n');
+    }
+    const m = await measurement(f, cwd);
+    const outcome = await genericHostCli(f, m.args, 'safe', 'intake');
+    if (scenario === 'changed_text') {
+      expect(outcome.result.code).toBe(1);
+      expect(outcome.result.stderr).toMatch(
+        /Host handoff (?:configuration|target).*(?:differ|chang)/,
+      );
+      expect(outcome.calls.filter((call) => call.role !== 'observation')).toEqual([]);
+      expect(await Bun.file(join(m.dir, 'verification/check-1.stdout')).exists()).toBe(false);
+    } else {
+      expectGenericHostResult(outcome, 'safe', 'intake');
+      const fresh = object(
+        JSON.parse(await readFile(join(m.dir, 'verification-config.json'), 'utf8')),
+      );
+      expect(fresh.check).toEqual(f.settings.check);
+      expect(fresh.targetText).toBe(oldConfig.targetText);
+      const target = object(
+        JSON.parse(await readFile(join(m.dir, 'verification/review-1.target.json'), 'utf8')),
+      );
+      expect(object(target.check).command).toEqual(f.settings.check);
+      if (scenario === 'same') {
+        const author = outcome.calls.find((call) => call.role === 'test');
+        expect(object(author?.input).feedbackCheck).toEqual([
+          '/bin/sh',
+          '-c',
+          "printf '%s' 'host-return-feedback'",
+        ]);
+      }
+    }
+    expect(f.calls.pushes).toBe(0);
+    expect(f.calls.publications).toBe(0);
+    expect(await runRecords(f.dir)).toEqual(original);
+  });
+}

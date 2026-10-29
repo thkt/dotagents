@@ -287,6 +287,10 @@ export function verifyCommandContract(
 ) {
   assert(
     JSON.stringify(config.check) === JSON.stringify(targetCommand(target.config.check)) &&
+      JSON.stringify(config.feedbackCheck) ===
+        JSON.stringify(
+          target.config.feedbackCheck ? targetCommand(target.config.feedbackCheck) : undefined,
+        ) &&
       (config.checkTimeMs === null ||
         config.checkTimeMs === 540000 ||
         config.checkTimeMs === 900000) &&
