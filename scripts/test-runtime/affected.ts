@@ -80,6 +80,7 @@ export function selectAffected(input: SelectionInput): Selection {
 export type ChangedFilesInput = {
   root: string;
   base: string;
+  ignoredPathPrefixes?: string[];
 };
 
 // 読み込まれず、実行の理由にならない作業用のパスです（root からの相対パスの接頭辞）。
@@ -103,13 +104,17 @@ function nulSeparated(text: string): string[] {
 
 // base との分岐点以降の commit・未 commit の変更・未追跡ファイルを、root 配下の絶対パスで返す。
 // --no-renames により rename は旧パスと新パスの両方を数える。
-export function changedFiles({ root, base }: ChangedFilesInput): string[] {
+export function changedFiles({
+  root,
+  base,
+  ignoredPathPrefixes = workPathPrefixes,
+}: ChangedFilesInput): string[] {
   const mergeBase = git(root, ['merge-base', base, 'HEAD']).trim();
   // --relative と ls-files の既定出力は root からの相対パスで、root の外は含まない。
   const tracked = git(root, ['diff', '--name-only', '--no-renames', '--relative', '-z', mergeBase]);
   const untracked = git(root, ['ls-files', '--others', '--exclude-standard', '-z']);
   return [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])]
-    .filter((path) => !workPathPrefixes.some((prefix) => path.startsWith(prefix)))
+    .filter((path) => !ignoredPathPrefixes.some((prefix) => path.startsWith(prefix)))
     .map((path) => join(root, path));
 }
 

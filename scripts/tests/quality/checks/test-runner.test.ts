@@ -21,8 +21,8 @@ async function commandFixture() {
   ]) {
     await mkdir(join(cwd, directory), { recursive: true });
   }
-  for (const path of ['scripts/test-runtime/runner.ts', 'scripts/shared/values.ts']) {
-    await cp(join(repo, path), join(cwd, path));
+  for (const path of ['scripts/test-runtime', 'scripts/shared/values.ts']) {
+    await cp(join(repo, path), join(cwd, path), { recursive: true });
   }
   const manifest: unknown = await Bun.file(join(repo, 'package.json')).json();
   assert(isRecord(manifest) && isRecord(manifest.scripts));
