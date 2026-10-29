@@ -7,7 +7,7 @@ import { assertPreviousConfig, assertState } from './input.ts';
 import type { Revision } from './input.ts';
 import { isRecord } from '../shared/values.ts';
 import { issueText } from './issue.ts';
-import { readTarget } from '../shared/target.ts';
+import { readTarget, targetCommand } from '../shared/target.ts';
 import { assertRunning } from '../shared/process.ts';
 import type { Reader } from '../shared/target.ts';
 import { graphQlPrPublication, matchPrPublication, referencesIssue } from './pr-identity.ts';
@@ -63,6 +63,10 @@ export async function previousRun(
     result.repository === target.config.repository &&
       result.issue === `https://github.com/${target.config.repository}/issues/${issue}` &&
       savedTarget.text === target.text &&
+      JSON.stringify(config.feedbackCheck) ===
+        JSON.stringify(
+          target.config.feedbackCheck ? targetCommand(target.config.feedbackCheck) : undefined,
+        ) &&
       savedTarget.actor === target.actor &&
       savedTarget.repositoryId === target.repositoryId,
     'Previous repository, Issue, configuration or actor differs',

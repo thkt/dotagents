@@ -1,3 +1,4 @@
+import { feedbackInstructions } from './feedback.ts';
 import type { FixedSupplement } from './human-decision-schema.ts';
 import { supplementContext, verifySupplement } from './supplement.ts';
 import { researchContext } from './research-handoff.ts';
@@ -356,6 +357,7 @@ export async function authorTests(
     supplement?: FixedSupplement;
     baseCommit: string;
     check: string[];
+    feedbackCheck?: string[];
     setup?: string[][];
     reports?: ReportReference[];
     diagnostics?: TestDiagnostic[];
@@ -395,6 +397,7 @@ export async function authorTests(
     reports: input.reports ?? [],
     evidence: input.evidence ?? [],
     check: input.check,
+    ...(input.feedbackCheck ? { feedbackCheck: input.feedbackCheck } : {}),
     setup: input.setup ?? [],
     ...(input.diagnostics?.length ? { diagnostics: input.diagnostics } : {}),
   };
@@ -479,6 +482,7 @@ export function testAuthorPrompt(
     stage: string;
     baseCommit: string;
     check: string[];
+    feedbackCheck?: string[];
     setup?: string[][];
     diagnostics?: unknown[];
     evidence?: unknown[];
@@ -509,7 +513,8 @@ export function testAuthorPrompt(
     '実装コードを変更しないでください。必要なテスト・fixture・接続定義の変更だけをfilesへ列挙してください。期待値と機械的な接続変更は区別し、期待値はIssueへ照合してください。前回テストの不足・誤りもこの別セッションで判断し、通すためだけに期待値を変更しないでください。',
     'commit・push・公開、ブラウザー・サーバー起動は禁止です。statusは独立テストの準備状態です。必要な資産が準備できればprepared、既存検証で十分ならunnecessaryです。設定済み全体checkとIssue全体の受入は後でホストと独立評価が確認します。その実行待ちだけでneeds_hostにしないでください。テストの準備に必要な未解決のホスト作業・入力がある場合はneeds_hostとして不足を具体的に示してください。要求・範囲・権限の変更は質問・選択肢・影響をfindingsに示してneeds_humanで止めてください。未確認の受入条件と限界はfindingsへ残し、成功扱いしないでください。',
     'targetIdをそのまま返し、status: prepared | unnecessary | needs_human | needs_host、空白以外のfindings、変更したfilesの配列を含むJSONだけを返してください。unnecessaryではfilesは空配列です。',
-    `入力: ${JSON.stringify({ targetId, stage: input.stage, baseCommit: input.baseCommit, ...(baseline ? { baseline } : {}), check: input.check, setup: input.setup ?? [] })}`,
+    ...feedbackInstructions(input.feedbackCheck),
+    `入力: ${JSON.stringify({ targetId, stage: input.stage, baseCommit: input.baseCommit, ...(baseline ? { baseline } : {}), check: input.check, ...(input.feedbackCheck ? { feedbackCheck: input.feedbackCheck } : {}), setup: input.setup ?? [] })}`,
     `ホスト実行証拠: ${JSON.stringify(input.evidence ?? [])}`,
     `要求:\n${input.issue}`,
     ...(input.revisionRequest ? [`人が採用した固定の修正要求:\n${input.revisionRequest}`] : []),
@@ -524,6 +529,7 @@ export function testPrompt(
     baseCommit: string;
     baseline: Files;
     check: string[];
+    feedbackCheck?: string[];
     setup?: string[][];
     reports?: ReportReference[];
     diagnostics?: unknown[];
@@ -558,7 +564,8 @@ export function testPrompt(
     '実装コードを変更しないでください。必要なテスト・fixture・接続定義の変更だけをfilesへ列挙してください。期待値と機械的な接続変更は区別し、期待値はIssueへ照合してください。前回テストの不足・誤りもこの別セッションで判断し、通すためだけに期待値を変更しないでください。',
     'commit・push・公開、ブラウザー・サーバー起動は禁止です。statusは独立テストの準備状態です。必要な資産が準備できればprepared、既存検証で十分ならunnecessaryです。設定済み全体checkとIssue全体の受入は後でホストと独立評価が確認します。その実行待ちだけでneeds_hostにしないでください。テストの準備に必要な未解決のホスト作業・入力がある場合はneeds_hostとして不足を具体的に示してください。要求・範囲・権限の変更は質問・選択肢・影響をfindingsに示してneeds_humanで止めてください。未確認の受入条件と限界はfindingsへ残し、成功扱いしないでください。',
     'targetIdをそのまま返し、status: prepared | unnecessary | needs_human | needs_host、空白以外のfindings、変更したfilesの配列を含むJSONだけを返してください。unnecessaryではfilesは空配列です。',
-    `入力: ${JSON.stringify({ targetId, stage: input.stage, baseCommit: input.baseCommit, ...(legacy ? { baseline: input.baseline } : {}), check: input.check, setup: input.setup ?? [] })}`,
+    ...feedbackInstructions(input.feedbackCheck),
+    `入力: ${JSON.stringify({ targetId, stage: input.stage, baseCommit: input.baseCommit, ...(legacy ? { baseline: input.baseline } : {}), check: input.check, ...(input.feedbackCheck ? { feedbackCheck: input.feedbackCheck } : {}), setup: input.setup ?? [] })}`,
     `ホスト実行証拠: ${JSON.stringify(input.evidence ?? [])}`,
     `要求:\n${input.issue}`,
     ...(input.revisionRequest ? [`人が採用した固定の修正要求:\n${input.revisionRequest}`] : []),

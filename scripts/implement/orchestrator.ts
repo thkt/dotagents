@@ -1,3 +1,4 @@
+import { feedbackInstructions } from './feedback.ts';
 import { adoptLocalRun } from './local-publication.ts';
 import { previousTestRun } from './initial-test-recovery.ts';
 import { verifyInitialTestReturn, initialTestOwner } from './initial-test-records.ts';
@@ -831,6 +832,9 @@ function verificationConfig(context: Context): Config {
     runDir: join(dir, 'verification'),
     issue: context.issue,
     check: targetCommand(context.target.config.check),
+    ...(context.target.config.feedbackCheck
+      ? { feedbackCheck: targetCommand(context.target.config.feedbackCheck) }
+      : {}),
     ...(context.target.config.capture
       ? {
           capture: targetCommand(context.target.config.capture.command),
@@ -1148,6 +1152,7 @@ async function implement(context: Context, io: typeof runtime) {
       revisionRequest: context.revision?.request,
       baseCommit: context.reviewBase,
       check: testConfig.check,
+      feedbackCheck: testConfig.feedbackCheck,
       setup: testConfig.setup,
       reports: testConfig.reports,
       actor: testConfig.test,
@@ -1208,6 +1213,7 @@ async function implement(context: Context, io: typeof runtime) {
     '合意範囲内の通常の選択について承認待ちで止まらず、合意した実装、必要なテストと文書、ホスト検証の準備に必要な範囲の確認を完了してください。十分な既存検証を再利用してください。Issueを変更したり、受入基準を弱めたりしないでください。',
     '文書だけのIssueにも同じ流れを使い、合意済みの要求で必要な場合だけテストやコードを追加してください。変更文書を既存の独立評価に含めてください。',
     repairInstructions(context.target.config.capture),
+    ...feedbackInstructions(testConfig.feedbackCheck),
     `独立テストの記録: ${join(dir, 'test-1.json')}。findingsと成果物を読み、修正前の再現と実装後の成功・正常動作を区別してください。`,
     `対象のsetup/check/capture契約（弱めたり置き換えたりしないでください）: ${JSON.stringify(context.target.config)}`,
     'このcheckoutの外にある制御スクリプトや認証情報を編集しないでください。',

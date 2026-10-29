@@ -301,6 +301,7 @@ async function verifyFormalAncestor(
       prior.targetText === config.targetText &&
       JSON.stringify(prior.issue) === JSON.stringify(config.issue) &&
       JSON.stringify(prior.check) === JSON.stringify(config.check) &&
+      JSON.stringify(prior.feedbackCheck) === JSON.stringify(config.feedbackCheck) &&
       JSON.stringify(prior.reports ?? []) === JSON.stringify(config.reports ?? []) &&
       !prior.reviewReturn &&
       !prior.revision &&

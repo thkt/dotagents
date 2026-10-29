@@ -10,15 +10,20 @@ export interface TargetConfig {
   baseBranch: string;
   setup: string[][];
   check: string[];
+  feedbackCheck?: string[];
   ciChecks: string[];
   capture: null | { command: string[]; destination: string; required: boolean };
 }
-type TargetSettings = Omit<TargetConfig, 'setup' | 'check'> & {
+type TargetSettings = Omit<TargetConfig, 'setup' | 'check' | 'feedbackCheck'> & {
   setup: string[][] | string;
   check: string[] | string;
+  feedbackCheck?: string[] | string;
 };
 function argv(value: unknown): value is string[] {
   return isCommandArray(value) && value[0].trim().length > 0;
+}
+function configuredCommand(value: unknown): value is string | string[] {
+  return typeof value === 'string' ? value.trim().length > 0 : argv(value);
 }
 function shellCommand(command: string) {
   return ['/bin/sh', '-c', command];
@@ -27,7 +32,16 @@ function assertTarget(value: unknown): asserts value is TargetSettings {
   assert(isRecord(value), 'Missing target configuration');
   assert(
     Object.keys(value).every((key) =>
-      ['repository', 'remote', 'baseBranch', 'setup', 'check', 'ciChecks', 'capture'].includes(key),
+      [
+        'repository',
+        'remote',
+        'baseBranch',
+        'setup',
+        'check',
+        'feedbackCheck',
+        'ciChecks',
+        'capture',
+      ].includes(key),
     ),
     'Unknown target configuration field',
   );
@@ -43,9 +57,10 @@ function assertTarget(value: unknown): asserts value is TargetSettings {
       : Array.isArray(value.setup) && value.setup.every(argv),
     'Explicit setup commands required (empty array allowed)',
   );
+  assert(configuredCommand(value.check), 'Verification command is required');
   assert(
-    typeof value.check === 'string' ? value.check.trim().length > 0 : argv(value.check),
-    'Verification command is required',
+    value.feedbackCheck === undefined || configuredCommand(value.feedbackCheck),
+    'フィードバック用checkには空でないコマンドが必要です',
   );
   assert(
     Array.isArray(value.ciChecks) &&
@@ -95,10 +110,17 @@ export async function readTarget(checkout: string, read: Reader, writable = fals
   const text = await readFile(path, 'utf8');
   const settings: unknown = JSON.parse(text);
   assertTarget(settings);
+  const { feedbackCheck, ...required } = settings;
   const config: TargetConfig = {
-    ...settings,
+    ...required,
     setup: typeof settings.setup === 'string' ? [shellCommand(settings.setup)] : settings.setup,
     check: typeof settings.check === 'string' ? shellCommand(settings.check) : settings.check,
+    ...(feedbackCheck !== undefined
+      ? {
+          feedbackCheck:
+            typeof feedbackCheck === 'string' ? shellCommand(feedbackCheck) : feedbackCheck,
+        }
+      : {}),
   };
   for (const direction of [[], ['--push']]) {
     const urls = await read(

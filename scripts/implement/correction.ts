@@ -1,3 +1,4 @@
+import { feedbackInstructions } from './feedback.ts';
 import { verifyInitialTestReturn, initialTestOwner } from './initial-test-records.ts';
 import { verifyHumanDecision } from './human-decision-verify.ts';
 import { DecisionObservation } from './human-decision-records.ts';
@@ -923,6 +924,7 @@ async function performRepair(
         ? { destination: config.captureDestination }
         : null,
     ),
+    ...feedbackInstructions(config.feedbackCheck),
     `対象のcheck/capture契約（弱めたり置き換えたりしないでください）: ${JSON.stringify({ check: config.check, capture: config.capture ? { command: config.capture, destination: config.captureDestination, required: config.captureRequired } : null })}`,
     `要求:\n${issue}\n失敗の根拠:\n${findings}`,
     researchContext(state.baseCommit, config.reports),
@@ -1054,6 +1056,7 @@ async function testBeforeRepair(
       baseCommit: state.baseCommit,
       revisionRequest: config.revision?.request,
       check: config.check,
+      feedbackCheck: config.feedbackCheck,
       setup: config.setup,
       reports: config.reports,
       actor: config.test,
