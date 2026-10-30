@@ -1,18 +1,28 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const [root, trigger, role] = process.argv.slice(2);
+const [root, trigger, role, injection] = process.argv.slice(2);
 assert(root && trigger);
 if (role === 'descendant') {
+  if (
+    injection === 'delayed-kill' ||
+    injection === 'pending-kill' ||
+    injection?.startsWith('existence-')
+  ) {
+    closeSync(1);
+    closeSync(2);
+  }
   writeFileSync(join(root, 'descendant.pid'), String(process.pid));
   const beat = () => writeFileSync(join(root, 'heartbeat'), String(Date.now()));
   beat();
   setInterval(beat, 20);
 } else {
   writeFileSync(join(root, 'group.pid'), String(process.pid));
-  spawn(process.execPath, [import.meta.path, root, trigger, 'descendant'], { stdio: 'inherit' });
+  spawn(process.execPath, [import.meta.path, root, trigger, 'descendant', injection ?? 'none'], {
+    stdio: 'inherit',
+  });
   while (!existsSync(join(root, 'heartbeat'))) {
     await Bun.sleep(10);
   }
