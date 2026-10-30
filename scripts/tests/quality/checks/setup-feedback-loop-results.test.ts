@@ -22,6 +22,7 @@ const fs = require('node:fs');
 const original = cp.spawn;
 cp.spawn = function(command, args, options) {
   const child = original(command, args, options);
+  const observe = (args) => {
   const index = args.indexOf('--reporter-outfile');
   if (args.includes('test') && index >= 0 && process.env.REPORT_FAULT) {
     child.prependListener('close', () => {
@@ -47,6 +48,14 @@ cp.spawn = function(command, args, options) {
       fs.appendFileSync(process.env.REPORT_FAULT_MARKER, mode + '\\n');
     });
   }
+  };
+  observe(args);
+  // 監視プロセス経由でも、実行argvを受け取って結果を読む前の境界へ接続する。
+  const send = child.send;
+  if (typeof send === 'function') child.send = function(message, ...rest) {
+    if (message && Array.isArray(message.argv)) observe(message.argv);
+    return send.call(this, message, ...rest);
+  };
   return child;
 };
 require('node:module').syncBuiltinESMExports();
