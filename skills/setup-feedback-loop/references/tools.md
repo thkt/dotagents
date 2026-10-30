@@ -8,7 +8,7 @@
 | Biome | 既存のformatter・lint対象と規則を確認し、同じ対象へOxlint・Oxfmtを重ねない |
 | Bunの整形 | 固定runtimeの書込みなし検査を利用する。対象版の機能を確認する |
 | 未導入のJS／TS | Oxlint・Oxfmtを候補にし、必要な規則・対象拡張子と互換性を確認する |
-| 型検査 | 既存tsconfig・生成物・プロジェクト単位を保つ。準備に含まれる型検査をfeedbackで重ねない |
+| 型検査 | 既存tsconfig・生成物・プロジェクト単位を保つ。Bunでは[内蔵型検査](typecheck.md)の機能・互換性を確認して接続する。準備に含まれる型検査をfeedbackで重ねない |
 | fallow | entry・framework・生成物・動的利用を専用設定へ反映する。未使用コード・依存・循環の採否と解析完了を確認する |
 
 依存は対象repoのdevDependenciesへ固定版で置く。共有ハーネスのnode_modules、グローバルツール、毎回取得する最新版に日常実行を依存させない。runtime付属機能にはruntimeの固定を使う。npmは既存package-lock、Bunは既存Bun lockを更新し、通常の固定依存インストールから起動を確認する。

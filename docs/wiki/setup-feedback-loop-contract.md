@@ -89,6 +89,10 @@ bun /absolute/harness/scripts/feedback-loop/setup.ts apply --repo /absolute/proj
 
 上例では、型検査は`test:affected`の`prepare`に含まれます。`check:feedback`へ同じ型検査を別途追加しません。準備処理が不要なrepoでは`prepare: []`を使い、必要な型検査はそのrepoの既存構成に合わせて接続します。
 
+Bun内蔵の型検査を採用する場合は、[接続手順](../../skills/setup-feedback-loop/references/typecheck.md)に従い、固定Bunの機能・対応TypeScript版と既存の検査範囲を確認します。`bun run check`は全体check、`bun check --no-script -p tsconfig.json`は指定プロジェクトの型検査です。同名のpackage scriptを起動しないよう、内蔵型検査には`--no-script`を付けます。変更ファイルや関連テストの集合へ型検査を狭めません。
+
+cantleでBun型検査を使う反復用の準備入口を用意した場合は、`prepare`を`["bun", "--no-env-file", "scripts/test.ts", "--prepare-feedback"]`へ切り替えます。このフラグは導入先へ追加する接続例です。依存版の照合・既存tsconfigの型検査・Python構文検査を一度だけ実行し、通常checkの準備入口と既存の型検査は保ちます。複数のtsconfig、参照先、型生成・codegen等を含め、接続前後の範囲を確認します。型エラーでテスト開始前に失敗し、修正後に同じ入口から復帰することを導入完了条件とします。
+
 初回導入時から、書き換える既存ファイルの内容と差分を確認できるようにします。同じ設定・同じ生成元で再実行した場合は内容を変えません。既存の同名コマンドや生成物が指定内容と食い違う場合は、上書き前に対象と理由を示して非ゼロ終了します。無関係なローカル変更は保持します。入力不正と既知の衝突はファイルの配置前に検出します。OS・インストール障害を含む操作全体の原子性は要求せず、途中失敗した内容を明示します。
 
 ## 導入後の呼出しと完了条件
