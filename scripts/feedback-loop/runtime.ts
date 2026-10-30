@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
+import { stripVTControlCharacters } from 'node:util';
 import { createRequire } from 'node:module';
 import { classification, matches, object, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { selectVitest } from './vitest.ts';
-import { changedFiles, selectAffected } from '../test-runtime/affected.ts';
+import { changedFiles, mergeBase, selectAffected } from '../test-runtime/affected.ts';
 import { loadRecords, saveRecords } from '../test-runtime/affected-records.ts';
 import { checkReport } from '../test-runtime/report.ts';
 import type * as Recorder from '../test-runtime/record-modules.ts';
@@ -28,7 +29,14 @@ async function execute(argv: string[], env = process.env) {
   console.log(
     `実行: ${argv.join(' ')}; 再実行: ${process.versions.bun ? 'bun' : 'npm'} run test:affected`,
   );
-  const child = spawn(command, args, { stdio: 'inherit', env });
+  const child = spawn(command, args, { stdio: ['inherit', 'inherit', 'pipe'], env });
+  // Bunの選択診断は先頭に出ます。テスト本体の大量ログは保持しません。
+  let stderr = '';
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk: string) => {
+    process.stderr.write(chunk);
+    stderr += chunk.slice(0, Math.max(0, 4096 - stderr.length));
+  });
   let cancelled = false;
   const forward = (signal: NodeJS.Signals) => {
     cancelled = true;
@@ -44,6 +52,7 @@ async function execute(argv: string[], env = process.env) {
       },
     );
     assert(!cancelled && result.code === 0, `検査失敗または取消: ${result.signal ?? result.code}`);
+    return stderr;
   } finally {
     process.off('SIGINT', forward);
     process.off('SIGTERM', forward);
@@ -94,42 +103,69 @@ function select(root: string, config: FeedbackConfig, quality: string[], changed
   }
   if (reasons.length > 0) {
     console.log(`quality全件の理由: ${reasons.join(', ')}`);
-    return quality;
+    return { files: quality, all: true };
   }
-  return selection.kind === 'tests'
-    ? selection.tests.map((path) => path.slice(root.length + 1))
-    : quality;
+  assert(selection.kind === 'tests');
+  return { files: selection.tests.map((path) => path.slice(root.length + 1)), all: false };
 }
 
-async function bunTests(root: string, config: FeedbackConfig, files: string[]) {
+async function bunTests(
+  root: string,
+  config: FeedbackConfig,
+  quality: string[],
+  changed: string[],
+) {
+  const selected = select(root, config, quality, changed);
+  const comparison = mergeBase(root, config.base);
+  const bun = process.versions.bun ? process.execPath : 'bun';
   const dir = await mkdtemp(join(tmpdir(), 'feedback-loop-'));
   // npm/Vitestの実行にはBunを要求しません。記録器はBunの分岐でだけ読み込みます。
   const recorderFile = join(root, 'scripts/feedback-loop/record-modules.ts');
   const recorder: unknown = await import(pathToFileURL(recorderFile).href);
   recorderModule(recorder);
   const ran = new Map<string, Set<string>>();
+  const attempted = new Set<string>();
   let completed = 0;
   let succeeded = false;
   try {
-    for (let index = 0; index < files.length; index++) {
-      const file = files[index];
+    for (let index = 0; index < quality.length; index++) {
+      const file = quality[index];
       assert(file);
       const recordDir = join(dir, String(index));
       const report = join(dir, `${index}.xml`);
       await mkdir(recordDir);
-      await execute(
-        [
-          process.versions.bun ? process.execPath : 'bun',
-          ...config.bunArgs,
-          'test',
-          `./${file}`,
-          ...config.testArgs,
-          '--reporter=junit',
-          '--reporter-outfile',
-          report,
-        ],
-        recorder.recorderEnv(process.env, recordDir, recorderFile),
-      );
+      const argv = [
+        bun,
+        ...config.bunArgs,
+        'test',
+        `./${file}`,
+        ...config.testArgs,
+        '--reporter=junit',
+        '--reporter-outfile',
+        report,
+      ];
+      const env = recorder.recorderEnv(process.env, recordDir, recorderFile);
+      attempted.add(join(root, file));
+      let excluded = false;
+      if (!selected.all) {
+        const stderr = await execute([...argv, `--changed=${comparison}`], env);
+        const recorded: Map<string, Set<string>> = await recorder.readRecords(recordDir);
+        // Bun 1.4.4は関連0件でも終了0で、JUnitを生成しません。
+        // 診断と未読込みを確認し、選択されたテストの結果欠落とは区別します。
+        excluded =
+          !existsSync(report) &&
+          recorded.size === 0 &&
+          /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(
+            stripVTControlCharacters(stderr),
+          );
+      }
+      if (excluded && !selected.files.includes(file)) {
+        attempted.delete(join(root, file));
+        continue;
+      }
+      if (selected.all || excluded) {
+        await execute(argv, env);
+      }
       const count = checkReport('bun', await readFile(report, 'utf8'), config.allowSkipped);
       completed += count;
       const recorded: Map<string, Set<string>> = await recorder.readRecords(recordDir);
@@ -140,13 +176,15 @@ async function bunTests(root: string, config: FeedbackConfig, files: string[]) {
         ran.set(owner, modules);
       }
     }
+    console.log(`quality選択: ${attempted.size}件（Bunの実行結果と補完依存の和集合）`);
+    assert(attempted.size > 0, '候補0件: 関連テストがありません');
     assert(completed > 0, '未実行: 選択したテストがすべてskipされています');
     succeeded = true;
   } finally {
     saveRecords({
       root,
       ran: succeeded ? ran : new Map<string, Set<string>>(),
-      failed: files.map((file) => join(root, file)).filter((file) => !succeeded || !ran.has(file)),
+      failed: [...attempted].filter((file) => !succeeded || !ran.has(file)),
       trusted: true,
     });
     await rm(dir, { recursive: true, force: true });
@@ -252,10 +290,7 @@ try {
       await execute(config.prepare);
     }
     if (config.runner === 'bun') {
-      const files = select(root, config, classes.quality, changed);
-      console.log(`quality選択: ${files.length}件`);
-      assert(files.length > 0, '候補0件: 関連テストがありません');
-      await bunTests(root, config, files);
+      await bunTests(root, config, classes.quality, changed);
     } else {
       await vitestTests(root, config, classes.quality, changed);
     }

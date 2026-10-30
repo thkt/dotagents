@@ -102,6 +102,10 @@ function nulSeparated(text: string): string[] {
   return text.split('\0').filter((path) => path !== '');
 }
 
+export function mergeBase(root: string, base: string): string {
+  return git(root, ['merge-base', base, 'HEAD']).trim();
+}
+
 // base との分岐点以降の commit・未 commit の変更・未追跡ファイルを、root 配下の絶対パスで返す。
 // --no-renames により rename は旧パスと新パスの両方を数える。
 export function changedFiles({
@@ -109,9 +113,16 @@ export function changedFiles({
   base,
   ignoredPathPrefixes = workPathPrefixes,
 }: ChangedFilesInput): string[] {
-  const mergeBase = git(root, ['merge-base', base, 'HEAD']).trim();
+  const comparison = mergeBase(root, base);
   // --relative と ls-files の既定出力は root からの相対パスで、root の外は含まない。
-  const tracked = git(root, ['diff', '--name-only', '--no-renames', '--relative', '-z', mergeBase]);
+  const tracked = git(root, [
+    'diff',
+    '--name-only',
+    '--no-renames',
+    '--relative',
+    '-z',
+    comparison,
+  ]);
   const untracked = git(root, ['ls-files', '--others', '--exclude-standard', '-z']);
   return [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])]
     .filter((path) => !ignoredPathPrefixes.some((prefix) => path.startsWith(prefix)))
