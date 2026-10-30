@@ -165,11 +165,11 @@ async function planAffected(base: string, paths: string[]): Promise<AffectedPlan
     changed.length > 0,
     `変更なし: ${base} との分岐点以降に変更がないため、テストを実行しません`,
   );
-  const { records, warning } = modules.loadRecords(root, true, changed);
+  const testFiles = testFilesUnder(modules, paths.length ? paths : [join(root, 'scripts/tests')]);
+  const { records, warning } = modules.loadRecords(root, true, changed, testFiles);
   if (warning !== undefined) {
     console.error(`警告: ${warning}`);
   }
-  const testFiles = testFilesUnder(modules, paths.length ? paths : [join(root, 'scripts/tests')]);
   const selection = modules.selectAffected({
     root,
     changed,

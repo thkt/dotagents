@@ -50,8 +50,19 @@ function parseRecords(text: string): Map<string, Set<string>> | undefined {
   return records;
 }
 
-export function loadRecords(root: string, trusted = false, changed: string[] = []): LoadedRecords {
-  const { records, warning } = loadRecordsAtPath(root, recordsPath(root), trusted, changed);
+export function loadRecords(
+  root: string,
+  trusted = false,
+  changed: string[] = [],
+  testFiles?: string[],
+): LoadedRecords {
+  const { records, warning } = loadRecordsAtPath(
+    root,
+    recordsPath(root),
+    trusted,
+    changed,
+    testFiles,
+  );
   return { records, warning };
 }
 
@@ -60,6 +71,7 @@ function loadRecordsAtPath(
   path: string,
   trusted = false,
   changed: string[] = [],
+  testFiles?: string[],
 ): LoadedRecords & { original?: Buffer; readError?: unknown } {
   let original: Buffer;
   try {
@@ -84,7 +96,10 @@ function loadRecordsAtPath(
     };
   }
   if (trusted) {
-    return { ...validatedRecords(root, path, records, changed), original };
+    if (existsSync(`${path}.pending`)) {
+      return { records: new Map(), warning: '前回の実行が未完了のため全件へ広げます', original };
+    }
+    return { ...validatedRecords(root, path, records, changed, testFiles), original };
   }
   return { records, warning: undefined, original };
 }
@@ -166,14 +181,18 @@ function validatedRecords(
   path: string,
   records: Map<string, Set<string>>,
   changed: string[],
+  testFiles?: string[],
 ): LoadedRecords {
   try {
     const provenance = readProvenance(path);
     const digests = new Map<string, string>();
     const basis = sourceBasis(root, digests);
     const accounted = new Set(changed);
+    const current = testFiles === undefined ? undefined : new Set(testFiles);
+    // 対象外の原記録は保存したまま、現行の候補に使う記録だけを照合します。
+    const relevant = [...records].filter(([file]) => current === undefined || current.has(file));
     const valid = new Map(
-      [...records].filter(([file, modules]) => {
+      relevant.filter(([file, modules]) => {
         const entry = provenance.get(file);
         return (
           entry?.basis === basis &&
@@ -183,7 +202,7 @@ function validatedRecords(
         );
       }),
     );
-    return valid.size === records.size
+    return valid.size === relevant.length
       ? { records: valid, warning: undefined }
       : { records: new Map(), warning: '古い、または基点不明の依存記録は採用せず全件へ広げます' };
   } catch (error) {
@@ -194,8 +213,8 @@ function validatedRecords(
 export function saveRecords({ root, ran, failed, trusted = false }: SaveInput): void {
   const path = recordsPath(root);
   const { records, original, readError } = loadRecordsAtPath(root, path);
-  // 失敗時は利用中の記録を無効化しても、成功した原文は内容別に保持します。
-  if (failed.length > 0) {
+  // 未完了の実行を挟んだ場合も、置換前の原記録を内容別に保持します。
+  if (failed.length > 0 || existsSync(`${path}.pending`)) {
     if (readError !== undefined) {
       throw readError;
     }
@@ -244,5 +263,6 @@ export function saveRecords({ root, ran, failed, trusted = false }: SaveInput): 
       `${path}.basis.json`,
       `${JSON.stringify(Object.fromEntries(provenance), null, 2)}\n`,
     );
+    rmSync(`${path}.pending`, { force: true });
   }
 }

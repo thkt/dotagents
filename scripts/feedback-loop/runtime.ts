@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -11,7 +11,7 @@ import { classification, matches, object, readConfig } from './config.ts';
 import type { FeedbackConfig } from './config.ts';
 import { selectVitest } from './vitest.ts';
 import { changedFiles, mergeBase, selectAffected } from '../test-runtime/affected.ts';
-import { loadRecords, saveRecords } from '../test-runtime/affected-records.ts';
+import { loadRecords, recordsPath, saveRecords } from '../test-runtime/affected-records.ts';
 import { readBunReport } from './bun-report.ts';
 import type * as Recorder from '../test-runtime/record-modules.ts';
 
@@ -95,7 +95,8 @@ function select(root: string, config: FeedbackConfig, quality: string[], changed
   const global = relative.filter((path) =>
     [...fixed, ...config.globalChanges].some((glob) => matches(path, glob)),
   );
-  const { records, warning } = loadRecords(root, true, changed);
+  const testFiles = quality.map((path) => join(root, path));
+  const { records, warning } = loadRecords(root, true, changed, testFiles);
   const dependencies = new Map(records);
   for (const path of relative) {
     for (const dependency of config.dependencies) {
@@ -111,7 +112,7 @@ function select(root: string, config: FeedbackConfig, quality: string[], changed
   const selection = selectAffected({
     root,
     changed,
-    testFiles: quality.map((path) => join(root, path)),
+    testFiles,
     records: dependencies,
     readText: (path) => readFileSync(path, 'utf8'),
   });
@@ -152,6 +153,7 @@ async function runBunBatch(
     'test',
     ...batch.files.map((file) => `./${file}`),
     ...config.testArgs,
+    '--no-orphans',
     '--isolate',
     `--parallel=${config.bunWorkers}`,
     '--reporter=junit',
@@ -210,6 +212,10 @@ async function bunTests(
   let completed = 0;
   let succeeded = false;
   try {
+    // ホストのSIGKILLではfinallyを実行できません。旧記録を残し、完了まで選択には使いません。
+    const pending = `${recordsPath(root)}.pending`;
+    await mkdir(dirname(pending), { recursive: true });
+    await writeFile(pending, 'incomplete\n');
     const batches = [{ files: quality, changed: !selected.all }];
     for (const [index, batch] of batches.entries()) {
       const candidates = new Set(batch.files.map((file) => join(root, file)));
@@ -326,6 +332,11 @@ async function vitestTests(
     assert(
       executed.length > 0 && executed.every((file) => quality.includes(file)),
       'Vitestの実行結果がquality集合と一致しません',
+    );
+    const completed = new Set(executed);
+    assert(
+      selected.files.every((file) => completed.has(file)),
+      'Vitestの選択したテストの結果が欠落しています',
     );
     console.log(`quality選択: ${new Set(executed).size}件（Vitestの実行結果）`);
   } finally {
