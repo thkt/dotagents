@@ -13,6 +13,7 @@ export type FeedbackConfig = {
   fullCheck: string[];
   prepare: string[];
   bunArgs: string[];
+  bunWorkers: number;
   testArgs: string[];
   allowSkipped: boolean;
   globalChanges: string[];
@@ -66,6 +67,21 @@ export function readConfig(root: string): FeedbackConfig {
   assert(typeof allowSkipped === 'boolean', 'allowSkippedはbooleanです');
   strings(bunArgs);
   assert(value.runner === 'bun' || bunArgs.length === 0, 'VitestにはbunArgsを指定できません');
+  const bunWorkers = value.bunWorkers === undefined ? 4 : value.bunWorkers;
+  assert(
+    typeof bunWorkers === 'number' && Number.isSafeInteger(bunWorkers) && bunWorkers > 0,
+    'bunWorkersは正の安全な整数で指定してください',
+  );
+  assert(
+    value.runner === 'bun' || value.bunWorkers === undefined,
+    'VitestにはbunWorkersを指定できません',
+  );
+  if (value.runner === 'bun') {
+    assert(
+      ![...bunArgs, ...testArgs].some((arg) => /^--(?:no-)?(?:isolate|parallel)(?:=|$)/.test(arg)),
+      'Bunの隔離は固定です。並列数はbunWorkersで指定してください',
+    );
+  }
   assert(Array.isArray(value.assurance), 'assurance配列が必要です');
   const assurance = value.assurance.map((item: unknown) => {
     object(item);
@@ -100,6 +116,7 @@ export function readConfig(root: string): FeedbackConfig {
     fullCheck,
     prepare,
     bunArgs,
+    bunWorkers,
     testArgs,
     allowSkipped,
     globalChanges,

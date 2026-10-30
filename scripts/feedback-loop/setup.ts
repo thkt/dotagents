@@ -196,10 +196,10 @@ async function apply(
             'setup.ts',
             'config.ts',
             'runtime.ts',
+            'bun-report.ts',
             'vitest.ts',
             '../test-runtime/affected.ts',
             '../test-runtime/affected-records.ts',
-            '../test-runtime/report.ts',
             '../shared/values.ts',
           ].map((path) => [
             path,

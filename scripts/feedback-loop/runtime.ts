@@ -12,7 +12,7 @@ import type { FeedbackConfig } from './config.ts';
 import { selectVitest } from './vitest.ts';
 import { changedFiles, mergeBase, selectAffected } from '../test-runtime/affected.ts';
 import { loadRecords, saveRecords } from '../test-runtime/affected-records.ts';
-import { checkReport } from '../test-runtime/report.ts';
+import { readBunReport } from './bun-report.ts';
 import type * as Recorder from '../test-runtime/record-modules.ts';
 
 function recorderModule(value: unknown): asserts value is typeof Recorder {
@@ -29,7 +29,11 @@ async function execute(argv: string[], env = process.env) {
   console.log(
     `実行: ${argv.join(' ')}; 再実行: ${process.versions.bun ? 'bun' : 'npm'} run test:affected`,
   );
-  const child = spawn(command, args, { stdio: ['inherit', 'inherit', 'pipe'], env });
+  const child = spawn(command, args, {
+    stdio: ['inherit', 'inherit', 'pipe'],
+    env,
+    detached: true,
+  });
   // Bunの選択診断は先頭に出ます。テスト本体の大量ログは保持しません。
   let stderr = '';
   child.stderr.setEncoding('utf8');
@@ -38,12 +42,29 @@ async function execute(argv: string[], env = process.env) {
     stderr += chunk.slice(0, Math.max(0, 4096 - stderr.length));
   });
   let cancelled = false;
+  let cleanupError: unknown;
+  const stop = (signal: NodeJS.Signals) => {
+    if (child.pid === undefined) {
+      return;
+    }
+    try {
+      // 取消はBunへ渡し、別グループのworkerをBun自身が終了するまで待ちます。
+      process.kill(-child.pid, signal);
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) {
+        cleanupError = error;
+      }
+    }
+  };
   const forward = (signal: NodeJS.Signals) => {
     cancelled = true;
-    child.kill(signal);
+    stop(signal);
   };
-  process.on('SIGINT', forward);
-  process.on('SIGTERM', forward);
+  const interrupt = () => forward('SIGINT');
+  const terminate = () => forward('SIGTERM');
+  child.once('exit', () => stop('SIGKILL'));
+  process.on('SIGINT', interrupt);
+  process.on('SIGTERM', terminate);
   try {
     const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
       (done, fail) => {
@@ -51,11 +72,12 @@ async function execute(argv: string[], env = process.env) {
         child.once('close', (code, signal) => done({ code, signal }));
       },
     );
+    assert(cleanupError === undefined, `子プロセスの終了を確認できません: ${String(cleanupError)}`);
     assert(!cancelled && result.code === 0, `検査失敗または取消: ${result.signal ?? result.code}`);
     return stderr;
   } finally {
-    process.off('SIGINT', forward);
-    process.off('SIGTERM', forward);
+    process.off('SIGINT', interrupt);
+    process.off('SIGTERM', terminate);
   }
 }
 
@@ -109,6 +131,67 @@ function select(root: string, config: FeedbackConfig, quality: string[], changed
   return { files: selection.tests.map((path) => path.slice(root.length + 1)), all: false };
 }
 
+async function runBunBatch(
+  root: string,
+  config: FeedbackConfig,
+  batch: {
+    files: string[];
+    comparison: string | undefined;
+    dir: string;
+    recorderFile: string;
+    recorder: typeof Recorder;
+  },
+) {
+  const candidates = new Set(batch.files.map((file) => join(root, file)));
+  const report = join(batch.dir, 'results.xml');
+  const recordDir = join(batch.dir, 'records');
+  await mkdir(recordDir, { recursive: true });
+  const argv = [
+    process.versions.bun ? process.execPath : 'bun',
+    ...config.bunArgs,
+    'test',
+    ...batch.files.map((file) => `./${file}`),
+    ...config.testArgs,
+    '--isolate',
+    `--parallel=${config.bunWorkers}`,
+    '--reporter=junit',
+    '--reporter-outfile',
+    report,
+    ...(batch.comparison === undefined ? [] : [`--changed=${batch.comparison}`]),
+  ];
+  const stderr = await execute(
+    argv,
+    batch.recorder.recorderEnv(process.env, recordDir, batch.recorderFile),
+  );
+  const recorded = await batch.recorder.readRecords(recordDir);
+  // 関連0件の終了0と、選択されたファイルの結果欠落を区別します。
+  const excluded =
+    batch.comparison !== undefined &&
+    !existsSync(report) &&
+    recorded.size === 0 &&
+    /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(
+      stripVTControlCharacters(stderr),
+    );
+  const results = excluded
+    ? new Map<string, number>()
+    : readBunReport(await readFile(report, 'utf8'), root, candidates, config.allowSkipped);
+  assert(
+    recorded.size === results.size && [...recorded.keys()].every((file) => results.has(file)),
+    '読み込んだテストとJUnitのファイル集合が一致しません',
+  );
+  assert(
+    batch.comparison !== undefined || results.size === candidates.size,
+    '指定したテストの結果が欠落しています',
+  );
+  return new Map(
+    [...results].map(([owner, count]) => {
+      const modules = recorded.get(owner);
+      assert(modules, `完了したテストの依存記録がありません: ${owner}`);
+      return [owner, { count, modules }];
+    }),
+  );
+}
+
 async function bunTests(
   root: string,
   config: FeedbackConfig,
@@ -117,7 +200,6 @@ async function bunTests(
 ) {
   const selected = select(root, config, quality, changed);
   const comparison = mergeBase(root, config.base);
-  const bun = process.versions.bun ? process.execPath : 'bun';
   const dir = await mkdtemp(join(tmpdir(), 'feedback-loop-'));
   // npm/Vitestの実行にはBunを要求しません。記録器はBunの分岐でだけ読み込みます。
   const recorderFile = join(root, 'scripts/feedback-loop/record-modules.ts');
@@ -128,52 +210,33 @@ async function bunTests(
   let completed = 0;
   let succeeded = false;
   try {
-    for (let index = 0; index < quality.length; index++) {
-      const file = quality[index];
-      assert(file);
-      const recordDir = join(dir, String(index));
-      const report = join(dir, `${index}.xml`);
-      await mkdir(recordDir);
-      const argv = [
-        bun,
-        ...config.bunArgs,
-        'test',
-        `./${file}`,
-        ...config.testArgs,
-        '--reporter=junit',
-        '--reporter-outfile',
-        report,
-      ];
-      const env = recorder.recorderEnv(process.env, recordDir, recorderFile);
-      attempted.add(join(root, file));
-      let excluded = false;
-      if (!selected.all) {
-        const stderr = await execute([...argv, `--changed=${comparison}`], env);
-        const recorded: Map<string, Set<string>> = await recorder.readRecords(recordDir);
-        // Bun 1.4.4は関連0件でも終了0で、JUnitを生成しません。
-        // 診断と未読込みを確認し、選択されたテストの結果欠落とは区別します。
-        excluded =
-          !existsSync(report) &&
-          recorded.size === 0 &&
-          /^--changed: (?:\d+ changed files?, but no test files are affected|no changed files, nothing to run)\r?$/m.test(
-            stripVTControlCharacters(stderr),
-          );
-      }
-      if (excluded && !selected.files.includes(file)) {
-        attempted.delete(join(root, file));
-        continue;
-      }
-      if (selected.all || excluded) {
-        await execute(argv, env);
-      }
-      const count = checkReport('bun', await readFile(report, 'utf8'), config.allowSkipped);
-      completed += count;
-      const recorded: Map<string, Set<string>> = await recorder.readRecords(recordDir);
-      const owner = join(root, file);
-      const modules: Set<string> | undefined = recorded.get(owner);
-      assert(modules, `完了したテストの依存記録がありません: ${file}`);
-      if (count > 0) {
-        ran.set(owner, modules);
+    const batches = [{ files: quality, changed: !selected.all }];
+    for (const [index, batch] of batches.entries()) {
+      const candidates = new Set(batch.files.map((file) => join(root, file)));
+      candidates.forEach((file) => attempted.add(file));
+      const results = await runBunBatch(root, config, {
+        files: batch.files,
+        comparison: batch.changed ? comparison : undefined,
+        dir: join(dir, String(index)),
+        recorderFile,
+        recorder,
+      });
+      candidates.forEach((file) => {
+        if (!results.has(file)) {
+          attempted.delete(file);
+        }
+      });
+      results.forEach(({ count, modules }, owner) => {
+        completed += count;
+        if (count > 0) {
+          ran.set(owner, modules);
+        }
+      });
+      if (batch.changed) {
+        const remaining = selected.files.filter((file) => !results.has(join(root, file)));
+        if (remaining.length > 0) {
+          batches.push({ files: remaining, changed: false });
+        }
       }
     }
     console.log(`quality選択: ${attempted.size}件（Bunの実行結果と補完依存の和集合）`);

@@ -52,6 +52,7 @@ bun /absolute/harness/scripts/feedback-loop/setup.ts install --repo /absolute/pr
   "fullCheck": ["bun", "run", "check"],
   "prepare": ["bun", "--no-env-file", "scripts/test.ts", "--prepare"],
   "bunArgs": ["--no-env-file"],
+  "bunWorkers": 4,
   "testArgs": ["--timeout", "15000"],
   "globalChanges": ["package.json", "bun.lock", "mise.toml", "scripts/**", "evaluation/**/*.py"],
   "dependencies": []
@@ -72,7 +73,7 @@ cantleでは、開始版`3f256f0c904e4a0b06ba401b218645ccf80bd64d`の`scripts/te
 
 一覧用の`--list`は通常checkと同じ`testFiles()`の結果を返し、準備処理とテスト本体を実行しません。通常checkは既存の準備処理と全テストを保ちます。`test:affected`は選択したテストを実行する前に`prepare`を一度だけ完了させ、失敗時には診断と非ゼロ終了を返してテスト本体へ進みません。修正後の再実行では準備処理から確認します。`check:classification`は収集と分類の検査であり、準備処理を実行しません。`--prepare`と`--list`は導入時に対象repoへ用意する接続で、開始版にはありません。
 
-`fullCheck`は、assuranceへの影響を判断できない場合等に実行を広げる既存コマンドです。`globalChanges`はquality全件へ広げる入力、`dependencies`は通常のファイル読み込み等を補う対応です。ある変更を対応付けできても、別の変更の影響が不明なら全qualityへ広げます。`package.json`、使用するlockfile、分類設定、関連選択器自体は、指定漏れでも部分実行の根拠にしません。
+`fullCheck`は、担当AIがassuranceへの影響を判断できない場合等に直接実行する既存コマンドです。`test:affected`から自動では実行しません。`globalChanges`はquality全件へ広げる入力、`dependencies`は通常のファイル読み込み等を補う対応です。ある変更を対応付けできても、別の変更の影響が不明なら全qualityへ広げます。`package.json`、使用するlockfile、分類設定、関連選択器自体は、指定漏れでも部分実行の根拠にしません。
 
 cantleのPython変更は本体側の`test/runtime.test.ts`にも関係するため、この例では全qualityへ広げます。`dependencies`を指定する場合は、`{"inputs":["data/*.json"],"tests":["test/example.test.ts"]}`の形で、内容を確認した対応を追加します。
 
@@ -101,9 +102,13 @@ bun run check
 
 npmプロジェクトでは同じscript名を`npm run`で呼びます。`check:classification`は、`collect`と`testGlobs`の集合の一致、qualityとassuranceの重複・未登録・存在しない指定を機械検査します。通常checkと`collect`が同じ収集処理へ接続されることも、導入前後の一覧と独立テストで照合します。意味の分類を機械判定したとは扱いません。
 
-`test:affected`はGitの変更と設定された関連選択からqualityを実行します。変更なし・候補0件・選択不能・実行失敗・実行成功を区別し、候補数・選択数・全件へ広げた理由を表示します。比較元が取得できない等の選択不能を、実行成功へ読み替えません。変更したassuranceや影響先が明らかなassuranceは直接実行し、影響を判断できなければ全体checkへ広げます。部分実行の成功は全体checkの成功ではありません。
+`test:affected`はGitの変更と設定された関連選択からqualityを実行します。変更なし・候補0件・選択不能・実行失敗・実行成功を区別し、候補数・選択数・全件へ広げた理由を表示します。比較元が取得できない等の選択不能を、実行成功へ読み替えません。担当AIは変更したassuranceや影響先が明らかなassuranceを直接実行し、影響を判断できなければ全体checkへ広げます。部分実行の成功は全体checkの成功ではありません。
 
-Bunでは、quality候補へ標準CLIの`bun test --changed=<baseとの分岐点>`を適用し、実行時記録と明示した`dependencies`の対象も実行します。同じファイルが両方へ含まれても重複実行しません。通常importの標準選択を、子Bun・動的読込み・ファイル読込み等の補完と置き換えず、和集合にします。準備処理と既存の起動引数を保ち、候補数と実際に選択されたファイル数を区別します。
+Bunではquality全候補を一度の`bun test --changed=<baseとの分岐点> --isolate`へ渡します。実行時記録と明示した`dependencies`が選んだ未実行ファイルを、補完対象として追加実行します。同じファイルが両方へ含まれても重複実行しません。通常importの標準選択を、子Bun・動的読込み・ファイル読込み等の補完と置き換えず、和集合にします。準備処理と既存の起動引数を保ち、候補数と実際に選択されたファイル数を区別します。
+
+`bunWorkers`はBunの並列worker数で、省略時は4です。正の安全な整数を指定し、1なら直列に実行します。Bun標準による選択・補完・全qualityへのfallbackに同じ設定を使い、各ファイルのglobalとmodule cacheを`--isolate`で分離します。workerのPIDは再利用されるため、ファイルごとの別OSプロセスは保証しません。Vitestではこのキーを指定しません。`bunArgs`・`testArgs`には`--isolate`・`--no-isolate`・`--parallel`・`--no-parallel`を重ねず、並列数はこのキーで指定します。
+
+一括実行の成功はJUnitにあるファイル別の結果と記録されたownerを照合して判定します。読み込まれたファイルの結果欠落、0件、件数の不一致、対象外ファイル、失敗を成功扱いしません。補完や全件実行では指定した全ファイルの結果を要求します。許可された一部skipを保ち、和集合全体がskipなら非ゼロ終了にします。失敗・取消では起動した処理の終了を待ち、成功記録を部分採用しません。終了や結果を確定できない一括実行の候補は、旧記録を保持したうえで利用中の依存記録から無効にします。
 
 標準CLIの選択集合だけでは、複数の変更がすべて対応付けできたとは判断しません。各変更の届き先が実行記録や明示対応等で確認できない場合は、全qualityへ広げます。Bun 1.4.4は関連0件で終了0を返すため、選択診断と未読込み、結果レポートの有無から、選択対象外と実行結果の欠落を区別します。補完を含めた実行がゼロなら非ゼロ終了とします。
 

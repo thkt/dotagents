@@ -505,9 +505,20 @@ test('明示依存の入力とquality自身を同時に変更しても、変更�
     const control = run(f, ['run', 'check:feedback']);
     expect(control.code, control.output).toBe(0);
     expect(control.output).toContain('QUALITY_A');
+    await writeFile(
+      join(f.repo, 'test/b.test.ts'),
+      header +
+        "test('changed', () => { console.log('CHANGED_QUALITY_B_SUCCESS'); expect(1).toBe(1); });\n",
+    );
+    const successfulMixed = run(f, ['run', 'check:feedback']);
+    expect(successfulMixed.code, successfulMixed.output).toBe(0);
+    expect(successfulMixed.output).toContain('QUALITY_A');
+    expect(successfulMixed.output).toContain('CHANGED_QUALITY_B_SUCCESS');
+    expect(successfulMixed.output).toContain('quality選択: 2');
+    expect(successfulMixed.output).not.toContain('quality全件の理由:');
+    expect(successfulMixed.output).not.toContain('ASSURANCE_RAN');
     await writeFile(join(f.repo, 'test/b.test.ts'), changedTest);
     const mixed = run(f, ['run', 'check:feedback']);
-    expect(mixed.output).toContain('QUALITY_A');
     expect(mixed.output).toContain('CHANGED_QUALITY_B');
     expect(mixed.output).toContain('1 fail');
     expect(mixed.output).not.toContain('ASSURANCE_RAN');

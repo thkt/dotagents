@@ -20,7 +20,7 @@ description: JavaScript／TypeScriptのrepoへ静的検査と関連qualityテス
 3. [分類とrunnerの接続](references/runners.md)で通常checkの収集集合を保ち、`.feedback-loop.json`、静的検査の専用設定、診断用package scriptsを用意する。テスト・fixture・検証接続の変更は独立テスト担当へ渡す。未確認・新規テストはqualityへ残す。
 4. `apply`へ採用した診断用コマンドを渡す。生成物とpackage scripts、`.dotagents.json.feedbackCheck`の差分を確認する。既存の同名コマンドや生成物との衝突は上書きせず、未完了箇所として報告する。設定・補助ファイルの更新を再実行で自動採用しない。
 5. 採用した必須検査を既存の全体checkとCIへ追加する。既存のcoverage・build・準備・全テストを保つ。`test:*`等の一括実行へ`test:affected`が混入しないよう、従来の明示集合に接続し直す。この変更も独立テスト経路で確認する。
-6. `check:classification`、`test:affected`、`check:feedback`と全体checkを確認する。設定変更の影響を除いた通常のソース変更で、必要なqualityが実行され、無関係なqualityとassuranceが除外されることを確認する。Bunでは標準の`bun test --changed`と補完依存の両方を検証する。採用した各検査は正常例、小さい既知の違反、修正後の再検査で診断と非ゼロ終了を確かめ、違反を残さない。依存導入・配置を再実行し、クリーンなcheckoutから固定依存だけで再現することも確認する。
+6. `check:classification`、`test:affected`、`check:feedback`と全体checkを確認する。設定変更の影響を除いた通常のソース変更で、必要なqualityが実行され、無関係なqualityとassuranceが除外されることを確認する。Bunでは標準の一括選択と補完依存、`--isolate`と採用した並列数での全qualityの互換性を検証し、[ファイル別の完了・失敗・取消の条件](references/runners.md)も確認する。採用した各検査は正常例、小さい既知の違反、修正後の再検査で診断と非ゼロ終了を確かめ、違反を残さない。依存導入・配置を再実行し、クリーンなcheckoutから固定依存だけで再現することも確認する。
 
 ## 完了と引き継ぎ
 
