@@ -241,28 +241,29 @@ export function saveRecords({ root, ran, failed, trusted = false }: SaveInput): 
     rmSync(temp, { force: true });
     throw error;
   }
-  if (trusted) {
-    let provenance = new Map<string, Provenance>();
-    try {
-      provenance = readProvenance(path);
-    } catch {
-      // 不正な基点は再採用せず、今回成功した記録だけに基点を付けます。
-    }
-    const digests = new Map<string, string>();
-    const basis = sourceBasis(root, digests);
-    for (const [file, modules] of ran) {
-      provenance.set(file, {
-        basis,
-        files: Object.fromEntries([...modules].map((module) => [module, digest(module, digests)])),
-      });
-    }
-    for (const file of failed) {
-      provenance.delete(file);
-    }
-    writeFileSync(
-      `${path}.basis.json`,
-      `${JSON.stringify(Object.fromEntries(provenance), null, 2)}\n`,
-    );
-    rmSync(`${path}.pending`, { force: true });
+  if (!trusted) {
+    return;
   }
+  let provenance = new Map<string, Provenance>();
+  try {
+    provenance = readProvenance(path);
+  } catch {
+    // 不正な基点は再採用せず、今回成功した記録だけに基点を付けます。
+  }
+  const digests = new Map<string, string>();
+  const basis = sourceBasis(root, digests);
+  for (const [file, modules] of ran) {
+    provenance.set(file, {
+      basis,
+      files: Object.fromEntries([...modules].map((module) => [module, digest(module, digests)])),
+    });
+  }
+  for (const file of failed) {
+    provenance.delete(file);
+  }
+  writeFileSync(
+    `${path}.basis.json`,
+    `${JSON.stringify(Object.fromEntries(provenance), null, 2)}\n`,
+  );
+  rmSync(`${path}.pending`, { force: true });
 }
