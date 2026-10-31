@@ -474,3 +474,25 @@ test('format checks and writes root and nested TS without changing other scripts
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+test('CI checks jobの固定時間指定だけを外し検証とverifyの契約を維持する', async () => {
+  const text = await readFile(
+    new URL('../../../../.github/workflows/ci.yml', import.meta.url),
+    'utf8',
+  );
+  const checks = text.split('\n  checks:')[1]?.split('\n  verify:')[0];
+  const verify = text.split('\n  verify:')[1];
+  assert(checks && verify);
+  expect(checks).not.toMatch(/timeout-minutes:/);
+  expect(checks).toContain('bun-version: 1.4.4');
+  expect(checks).toContain('run: bun install --frozen-lockfile --ignore-scripts');
+  expect(checks).toContain('ref: ${{ github.event.pull_request.head.sha || github.sha }}');
+  expect(checks).toContain('persist-credentials: false');
+  expect(text).toContain('contents: read');
+  expect(verify).toContain('if: ${{ always() }}');
+  expect(verify).toContain('permissions: {}');
+  expect(checks).toContain('run: bun run check');
+  expect(verify).toContain('needs: checks');
+  expect(verify).toContain('timeout-minutes: 1');
+  expect(verify).toContain('test "$CHECKS_RESULT" = success');
+});

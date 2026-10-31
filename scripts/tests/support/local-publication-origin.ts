@@ -11,7 +11,7 @@ import type { DevelopmentFixture } from './development.ts';
 import { formalHostFixture, formalTree } from './formal-host-return.ts';
 import { nativeActorEnvironment } from './native-actor.ts';
 import { git } from './target.ts';
-import publicContract from '../fixtures/human-decision-recovery/public-contract.json';
+import { contractArgs } from './human-decision-contract.ts';
 
 export async function localPublicationOrigin(f: DevelopmentFixture, human: boolean) {
   const lineage = await formalHostFixture(f, { producer: '430' });
@@ -44,9 +44,7 @@ export async function localPublicationOrigin(f: DevelopmentFixture, human: boole
       UNUSED_SIBLING_RUN: dir,
     };
     await writeFile(lineage.control, JSON.stringify({ phase: 'accept' }));
-    const resumed = await lineage.cli(
-      publicContract.argvShape.slice(2).map((value) => values[value] ?? value),
-    );
+    const resumed = await lineage.cli(contractArgs(values));
     assert.equal(resumed.code, 0, resumed.stderr);
     expect(resumed.timedOut).toBe(false);
     prior = dir;
