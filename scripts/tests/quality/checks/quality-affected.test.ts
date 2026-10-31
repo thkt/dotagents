@@ -98,20 +98,20 @@ for (const condition of [
         await mkdir(dirname(record), { recursive: true });
         if (condition === 'unreadable') {
           await mkdir(record);
+        } else if (condition === 'invalid') {
+          await writeFile(record, '{broken');
         } else {
           await writeFile(
-            record,
-            condition === 'invalid'
-              ? '{broken'
-              : JSON.stringify({
-                  [join(f.repo, 'scripts/tests/quality/a.test.ts')]: [
-                    join(f.repo, 'scripts/shared/target.ts'),
-                  ],
-                  [join(f.repo, 'scripts/tests/quality/b.test.ts')]: [],
-                  [join(f.repo, 'scripts/tests/assurance/guard.test.ts')]: [
-                    join(f.repo, 'scripts/shared/target.ts'),
-                  ],
-                }),
+            join(f.repo, 'scripts/shared/target.ts'),
+            'export const value = 1; // record\n',
+          );
+          const recorded = run(f, ['run', 'test:affected']);
+          expect(recorded.code, recorded.output).toBe(0);
+          expect(recorded.output).toContain('QUALITY_A');
+          expect(recorded.output).toContain('QUALITY_B');
+          await writeFile(
+            join(f.repo, 'scripts/shared/target.ts'),
+            files['scripts/shared/target.ts'],
           );
         }
       }
@@ -283,23 +283,7 @@ for (const dependency of ['fs', 'branch', 'isolated-child'] as const) {
         expect(records[join(f.repo, 'scripts/tests/quality/b.test.ts')]).not.toContain(
           join(f.repo, 'scripts/shared/target.ts'),
         );
-        // 初回の未commit変更を解消し、次は共有モジュールだけを変える。
-        const git = spawnSync(
-          'git',
-          [
-            '-c',
-            'user.name=test',
-            '-c',
-            'user.email=test@example.com',
-            '-c',
-            'commit.gpgsign=false',
-            'commit',
-            '-am',
-            'recorded input',
-          ],
-          { cwd: f.repo, encoding: 'utf8' },
-        );
-        expect(git.status, git.stderr).toBe(0);
+        // 同じ採用commitの差分内で変更し、古い記録による全件復帰と区別する。
         await writeFile(join(f.repo, 'scripts/shared/target.ts'), 'export const value = 2;\n');
         const partial = run(f, [entry, 'bun', 'scripts/tests/quality', '--affected']);
         expect(partial.code, partial.output).toBe(0);

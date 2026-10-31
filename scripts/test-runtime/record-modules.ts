@@ -72,6 +72,9 @@ export async function readRecords(recordDir: string): Promise<Map<string, Set<st
 
 function register(recordDir: string) {
   mkdirSync(recordDir, { recursive: true });
+  // 後からテストがnode:fsをmockしても、記録器の読み書きを製品のI/O観測へ混ぜません。
+  const readModule = readFileSync;
+  const appendRecord = appendFileSync;
   // 起動したテストファイルが決めた持ち主を子のbunが受け取った場合は、子が読むテストファイルで持ち主を変えません。
   const inherited = process.env[recordOwnerVariable];
   const recordFile = join(recordDir, `${process.pid}.jsonl`);
@@ -83,7 +86,7 @@ function register(recordDir: string) {
       const line = JSON.stringify([owner, path]);
       if (!written.has(line)) {
         written.add(line);
-        appendFileSync(recordFile, `${line}\n`);
+        appendRecord(recordFile, `${line}\n`);
       }
     }
   };
@@ -139,7 +142,7 @@ function register(recordDir: string) {
         if (loader === undefined) {
           throw new Error(`No loader for recorded module: ${path}`);
         }
-        return { contents: readFileSync(path, 'utf8'), loader };
+        return { contents: readModule(path, 'utf8'), loader };
       });
     },
   });
