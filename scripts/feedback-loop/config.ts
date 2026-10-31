@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { execute } from './command.ts';
 
@@ -19,6 +20,10 @@ export type FeedbackConfig = {
   globalChanges: string[];
   dependencies: { inputs: string[]; tests: string[] }[];
 };
+
+export const reviewPath = '.feedback-loop-review.json';
+
+type ReviewRecord = { path: string; class: 'quality' | 'assurance'; sha256: string };
 
 export function object(value: unknown): asserts value is Record<string, unknown> {
   assert(
@@ -124,6 +129,51 @@ export function readConfig(root: string): FeedbackConfig {
   };
 }
 
+// 確認記録は分類の確認状況だけを扱い、実行範囲には使いません。
+function readReview(root: string): ReviewRecord[] {
+  const target = join(root, reviewPath);
+  if (!existsSync(target)) {
+    return [];
+  }
+  let value: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(target, 'utf8'));
+    object(parsed);
+    value = parsed;
+  } catch (error) {
+    throw new Error(
+      `${reviewPath}: JSONオブジェクトを読めません: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  assert(value.version === 1, `${reviewPath}: 未対応のversionです`);
+  assert(Array.isArray(value.files), `${reviewPath}: files配列が必要です`);
+  return value.files.map((item: unknown) => {
+    object(item);
+    assert(typeof item.path === 'string', `${reviewPath}: pathが必要です`);
+    localPath(item.path);
+    assert(
+      item.class === 'quality' || item.class === 'assurance',
+      `${reviewPath}: classはqualityまたはassuranceです: ${item.path}`,
+    );
+    assert(
+      typeof item.sha256 === 'string' && /^[0-9a-f]{64}$/.test(item.sha256),
+      `${reviewPath}: sha256は小文字16進64文字です: ${item.path}`,
+    );
+    if (item.class === 'quality') {
+      assert(
+        typeof item.reason === 'string' && item.reason.trim().length > 0,
+        `${reviewPath}: qualityには確認した理由のreasonが必要です: ${item.path}`,
+      );
+    } else {
+      assert(
+        item.reason === undefined,
+        `${reviewPath}: assuranceにはreasonを書かず、理由は.feedback-loop.jsonだけに置きます: ${item.path}`,
+      );
+    }
+    return { path: item.path, class: item.class, sha256: item.sha256 };
+  });
+}
+
 // *は同階層、**は階層をまたぐglobです。正規表現の記号はリテラルとして扱います。
 export function matches(path: string, glob: string): boolean {
   let pattern = '^';
@@ -193,5 +243,36 @@ export async function classification(
     all: expected,
     quality: expected.filter((path) => !assurance.has(path)),
     assurance: [...assurance],
+  };
+}
+
+// test:affectedとapplyは呼ばず、記録の不整合で日常の実行を止めません。
+export function review(root: string, classes: { all: string[]; assurance: string[] }) {
+  const records = readReview(root);
+  const recorded = new Map(records.map((record) => [record.path, record]));
+  assert(recorded.size === records.length, `${reviewPath}: 同じpathの記録が重複しています`);
+  const assurance = new Set(classes.assurance);
+  const files = classes.all.map((path) => {
+    const sha256 = createHash('sha256')
+      .update(readFileSync(join(root, path)))
+      .digest('hex');
+    const kind: ReviewRecord['class'] = assurance.has(path) ? 'assurance' : 'quality';
+    const record = recorded.get(path);
+    const status = !record
+      ? 'unreviewed'
+      : record.class !== kind
+        ? 'mismatch'
+        : record.sha256 === sha256
+          ? 'reviewed'
+          : 'stale';
+    return { path, class: kind, sha256, status };
+  });
+  const orphans = records
+    .map((record) => record.path)
+    .filter((path) => !classes.all.includes(path));
+  return {
+    complete: orphans.length === 0 && files.every((file) => file.status === 'reviewed'),
+    files,
+    orphans,
   };
 }

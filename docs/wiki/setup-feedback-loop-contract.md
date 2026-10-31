@@ -77,6 +77,50 @@ cantleでは、開始版`3f256f0c904e4a0b06ba401b218645ccf80bd64d`の`scripts/te
 
 cantleのPython変更は本体側の`test/runtime.test.ts`にも関係するため、この例では全qualityへ広げます。`dependencies`を指定する場合は、`{"inputs":["data/*.json"],"tests":["test/example.test.ts"]}`の形で、内容を確認した対応を追加します。
 
+## 分類の確認記録
+
+導入担当AIは収集集合の全テストファイルを読み、qualityとassuranceのどちらに当たるかを判断します。その判断と、確認したファイル内容のSHA-256を`.feedback-loop-review.json`へ記録します。この記録は分類の確認状況だけを扱い、`check:classification`だけが読みます。`test:affected`と`apply`は読まず、関連選択と実行範囲にも使いません。実行時にassuranceを除外する入力は、引き続き`.feedback-loop.json`の`assurance`です。
+
+```json
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "test/run-history.test.ts",
+      "class": "quality",
+      "sha256": "（check:classificationが表示した現在の値）",
+      "reason": "実行履歴の保存形式と、公開した集計値の入出力を確認する"
+    },
+    {
+      "path": "evaluation/test/claude-cleanup.test.ts",
+      "class": "assurance",
+      "sha256": "（check:classificationが表示した現在の値）"
+    }
+  ]
+}
+```
+
+`files`の各要素は、収集集合にあるテストファイル1件の確認結果です。`class`は`quality`または`assurance`です。qualityの記録には、そのファイルのテストが確認する要求・入出力・状態等を述べた`reason`を必須とします。assuranceの記録には`reason`を書きません。assuranceの理由は`.feedback-loop.json`の`assurance[].reason`だけに置きます。`sha256`は、確認した時点のファイル内容のSHA-256を小文字16進64文字で記録します。値は`check:classification`の出力から転記し、手計算しません。
+
+確認記録が照合するのはテストファイル本体の内容だけです。目的の判断に読んだhelper・fixtureの変更では、記録を古いと判定しません。helper・fixtureの目的が変わった場合は、担当AIが関係するテストを読み直して記録を更新します。
+
+`check:classification`は、収集した各ファイルの確認状態を次の4つに分けます。
+
+| 状態 | 条件 |
+| --- | --- |
+| `reviewed` | 記録があり、記録した`sha256`が現在の内容と一致する |
+| `stale` | 記録があり、記録した`sha256`が現在の内容と一致しない |
+| `unreviewed` | 記録がない。確認記録ファイル自体がない場合は全ファイルがこの状態 |
+| `mismatch` | 記録の`class`が、`.feedback-loop.json`の`assurance`への指定有無と食い違う |
+
+`stale`・`unreviewed`・`mismatch`のファイルも、実行時の分類は変わりません。assuranceへ指定していないファイルはqualityとして実行し、assuranceへ指定したファイルは除外を続けます。
+
+収集集合にないpathの記録は`review.orphans`へ出します。テストの削除・改名後に残った記録がこれに当たります。
+
+記録ファイル自体の誤りでは、`check:classification`が完了確認の有無に関係なく非ゼロ終了します。対象は不正なJSON・形、未対応のversion、同じpathの重複、`quality`・`assurance`以外の`class`、空のqualityの`reason`、assuranceの`reason`、64文字の小文字16進以外の`sha256`です。
+
+`apply`はこの記録を読まず、作成・変更もしません。記録の有無や内容によらず、再`apply`は従来どおり進みます。`test:affected`は`.feedback-loop-review.json`の変更を関連選択の入力から除きます。この記録だけの変更は「変更なし」として非ゼロ終了し、テストを実行しません。
+
 ## ファイルの配置と接続
 
 ```sh
@@ -104,7 +148,11 @@ bun run check:feedback
 bun run check
 ```
 
-npmプロジェクトでは同じscript名を`npm run`で呼びます。`check:classification`は、`collect`と`testGlobs`の集合の一致、qualityとassuranceの重複・未登録・存在しない指定を機械検査します。通常checkと`collect`が同じ収集処理へ接続されることも、導入前後の一覧と独立テストで照合します。意味の分類を機械判定したとは扱いません。
+npmプロジェクトでは同じscript名を`npm run`で呼びます。`check:classification`は、`collect`と`testGlobs`の集合の一致、qualityとassuranceの重複・未登録・存在しない指定、[分類の確認記録](#分類の確認記録)の構造を機械検査します。通常checkと`collect`が同じ収集処理へ接続されることも、導入前後の一覧と独立テストで照合します。
+
+標準出力のJSONには、従来の`all`・`quality`・`assurance`に加えて`review`を出します。`review.files`は収集した各ファイルの`path`・`class`・現在の`sha256`・`status`を持ちます。`review.complete`は、全ファイルが`reviewed`で`orphans`が空の場合だけ`true`です。日常の`check:classification`は、記録ファイル自体に誤りがなければ、`stale`・`unreviewed`・`mismatch`・`orphans`が残っても終了0とし、その件数とpathを標準エラーへ表示します。新規・未確認のテストをqualityとして実行し続け、テストの追加・削除・改名・分類変更で全体checkやCIを止めないためです。
+
+導入時の全件分類の完了は`check:classification -- --complete`で確認します。`reviewed`以外のファイルか`orphans`が1件でもあれば、該当pathを標準エラーへ表示して非ゼロ終了します。標準出力には同じJSONを出すため、記録の転記に使えます。この検査の成功は、全ファイルに現在の版の確認記録があることだけを示します。記録した理由の意味が正しいことは機械検査では判定しません。
 
 `test:affected`はGitの変更と設定された関連選択からqualityを実行します。変更なし・候補0件・選択不能・実行失敗・実行成功を区別し、候補数・選択数・全件へ広げた理由を表示します。比較元が取得できない等の選択不能を、実行成功へ読み替えません。担当AIは変更したassuranceや影響先が明らかなassuranceを直接実行し、影響を判断できなければ全体checkへ広げます。部分実行の成功は全体checkの成功ではありません。
 

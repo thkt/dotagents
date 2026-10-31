@@ -56,7 +56,12 @@ export function run(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
   });
   expect(result.error).toBeUndefined();
   expect(result.signal).toBeNull();
-  return { code: result.status, output: result.stdout + result.stderr };
+  return {
+    code: result.status,
+    output: result.stdout + result.stderr,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  };
 }
 
 export function installed(f: Fixture) {
