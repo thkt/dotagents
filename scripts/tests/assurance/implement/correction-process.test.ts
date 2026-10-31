@@ -4,19 +4,10 @@ import { writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { correctionFixture, controller, object, events } from '../../support/correction.ts';
+import { alive } from '../../support/process-alive.ts';
 
 const { trial, cleanup } = correctionFixture();
 afterEach(cleanup);
-
-function alive(pid: number) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    assert(error instanceof Error && 'code' in error && error.code === 'ESRCH');
-    return false;
-  }
-}
 
 async function childWriter(root: string) {
   const pidFile = join(root, 'actor.pid');
@@ -222,7 +213,7 @@ test('successful check leaves no child writer after acceptance', async () => {
   const worker = join(t.root, 'successful-check.js');
   const groupFile = join(t.root, 'group');
   const childFile = join(t.root, 'child');
-  // checkは子の起動記録を待って終わる。受入れの時点で子が動いていたことを前提にできる。
+  // 受入れの時点で子が動いていたことを保証するため、checkは子の起動記録を待って終わる。
   await writeFile(
     worker,
     `import {spawn} from 'node:child_process'; import {existsSync, writeFileSync} from 'node:fs';
@@ -242,7 +233,6 @@ test('successful check leaves no child writer after acceptance', async () => {
       status: 0,
       state: { result: 'ready_for_human_review' },
     });
-    // 時間待ちで遅延書込みの不在を見るのではなく、書込み元の子が終了していることを確かめる。
     // SIGKILLの送信後に回収されるまでの短い間は残るため、期限付きで待つ。
     const child = Number(await readFile(childFile, 'utf8'));
     const deadline = Date.now() + 2000;

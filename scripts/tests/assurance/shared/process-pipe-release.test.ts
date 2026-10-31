@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { isRecord } from '../../../shared/values.ts';
+import { alive } from '../../support/process-alive.ts';
 
 const target = resolve(
   process.env.PROCESS_MODULE ?? join(import.meta.dir, '../../../shared/process.ts'),
@@ -31,16 +32,6 @@ function acquired(value: unknown): Record<string, unknown> | undefined {
     if (found) {
       return found;
     }
-  }
-}
-
-function alive(pid: number) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    assert(error instanceof Error && 'code' in error && error.code === 'ESRCH');
-    return false;
   }
 }
 

@@ -360,7 +360,7 @@ for (const period of ['during_old_run', 'after_stop'] as const) {
     const saved = object(JSON.parse(await readFile(join(f.dir, 'result.json'), 'utf8')));
     assert(typeof saved.startedAt === 'string' && typeof saved.finishedAt === 'string');
     if (period === 'after_stop') {
-      // psは秒単位で、未来の開始時刻は拒否される。旧停止の次の秒に入るまで実時間で待つ。
+      // psは秒単位で、未来の開始時刻は拒否される。
       const nextSecond = Math.floor(Date.parse(saved.finishedAt) / 1000) * 1000 + 1000;
       await Bun.sleep(Math.max(0, nextSecond - Date.now()) + 10);
     }
