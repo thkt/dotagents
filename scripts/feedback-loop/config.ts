@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
+import { execute } from './command.ts';
 
 export type FeedbackConfig = {
   version: 1;
@@ -156,22 +156,12 @@ function filesUnder(root: string, prefix = ''): string[] {
   });
 }
 
-export function classification(root: string, config: FeedbackConfig) {
+export async function classification(root: string, config: FeedbackConfig, runtime: string) {
   const expected = filesUnder(root)
     .filter((path) => config.testGlobs.some((glob) => matches(path, glob)))
     .sort();
-  const [command, ...args] = config.collect;
-  assert(command);
-  const result = spawnSync(command, args, {
-    cwd: root,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  assert(
-    !result.error && result.status === 0,
-    `テスト収集失敗: ${String(result.error ?? result.signal ?? result.status)}\n${result.stderr}`,
-  );
-  const actual: unknown = JSON.parse(result.stdout);
+  const { stdout } = await execute(config.collect, { runtime, cwd: root, captureStdout: true });
+  const actual: unknown = JSON.parse(stdout);
   strings(actual);
   actual.forEach(localPath);
   assert(new Set(actual).size === actual.length, '収集結果が重複しています');

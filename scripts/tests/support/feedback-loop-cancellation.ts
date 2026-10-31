@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isRecord } from '../../shared/values.ts';
-import { baseEnv } from './feedback-loop-batch.ts';
+import { baseEnv, setup } from './feedback-loop-batch.ts';
 import type { Fixture } from './feedback-loop-batch.ts';
 
 function alive(pid: number) {
@@ -34,12 +34,27 @@ async function waitFor(condition: () => boolean, message: () => string) {
   }
 }
 
-export async function cancelFeedbackCommand(f: Fixture, target: 'host' | 'runtime') {
+export async function cancelFeedbackCommand(
+  f: Fixture,
+  target: 'host' | 'runtime' | 'apply',
+  options: { timeoutMs?: number; env?: NodeJS.ProcessEnv } = {},
+) {
   const pkg: unknown = JSON.parse(await readFile(join(f.repo, 'package.json'), 'utf8'));
   assert(isRecord(pkg) && isRecord(pkg.scripts));
   const script = pkg.scripts['test:affected'];
   assert(typeof script === 'string');
-  const argv = script.split(' ');
+  const argv =
+    target === 'apply'
+      ? [
+          process.execPath,
+          setup,
+          'apply',
+          '--repo',
+          f.repo,
+          '--feedback-command',
+          'bun run test:affected',
+        ]
+      : script.split(' ');
   const trace = join(f.signals, 'cancel-trace.json');
   const result = join(f.signals, 'cancel-result.json');
   if (target === 'host') {
@@ -50,7 +65,7 @@ export async function cancelFeedbackCommand(f: Fixture, target: 'host' | 'runtim
 import { command, withInterrupts } from ${JSON.stringify(resolve(import.meta.dir, '../../shared/process.ts'))};
 import { writeFileSync } from 'node:fs';
 try {
-  const result = await withInterrupts(() => command(${JSON.stringify(argv)}, ${JSON.stringify(f.repo)}, '', null));
+  const result = await withInterrupts(() => command(${JSON.stringify(argv)}, ${JSON.stringify(f.repo)}, '', ${options.timeoutMs ?? 'null'}));
   writeFileSync(${JSON.stringify(result)}, JSON.stringify({ result }));
 } catch (error) {
   writeFileSync(${JSON.stringify(result)}, JSON.stringify({ error: String(error) }));
@@ -65,6 +80,7 @@ try {
     ...baseEnv(f),
     CANCEL_TRACE: trace,
     CANCEL_STARTED: join(f.signals, 'test-started'),
+    ...options.env,
   };
   delete env.BUN_FEATURE_FLAG_NO_ORPHANS;
   const child = spawn(executable, argv, {
@@ -105,15 +121,24 @@ try {
     children.add(observed.child);
     children.add(observed.parent);
     expect([...children].every(alive)).toBe(true);
-    child.kill('SIGTERM');
+    if (options.timeoutMs === undefined) {
+      child.kill('SIGTERM');
+    }
     await waitFor(
       () => closed,
-      () => `取消後も${target}がpipeを待っています: ${output}`,
+      () =>
+        `取消後も${target}がpipeを待っています。生存PID: ${JSON.stringify([...children].filter(alive))}: ${output}`,
     );
     if (target === 'host') {
       const outcome: unknown = JSON.parse(await readFile(result, 'utf8'));
       assert(isRecord(outcome));
-      expect(outcome.error).toContain('Interrupted execution');
+      if (options.timeoutMs === undefined) {
+        expect(outcome.error).toContain('Interrupted execution');
+      } else {
+        assert(isRecord(outcome.result), JSON.stringify(outcome));
+        expect(outcome.result.timedOut).toBe(true);
+        expect(outcome.result.code).not.toBe(0);
+      }
     } else {
       expect(code, output).not.toBe(0);
     }

@@ -122,7 +122,7 @@ async function apply(
   assert(inspected.packageManager, 'package managerを選択できません');
   assert(feedback?.trim(), '--feedback-commandに診断用コマンドを指定してください');
   const config = readConfig(root);
-  classification(root, config);
+  await classification(root, config, join(import.meta.dir, 'runtime.ts'));
   const target = join(root, '.dotagents.json');
   const dotagents: unknown = JSON.parse(readFileSync(target, 'utf8'));
   object(dotagents);
@@ -195,6 +195,7 @@ async function apply(
           [
             'setup.ts',
             'config.ts',
+            'command.ts',
             'runtime.ts',
             'bun-report.ts',
             'vitest.ts',
