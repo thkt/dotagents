@@ -160,7 +160,7 @@ export async function classification(
   root: string,
   config: FeedbackConfig,
   runtime: string,
-  packageManager?: 'bun' | 'npm',
+  retryCommand?: string,
 ) {
   const expected = filesUnder(root)
     .filter((path) => config.testGlobs.some((glob) => matches(path, glob)))
@@ -169,7 +169,7 @@ export async function classification(
     runtime,
     cwd: root,
     captureStdout: true,
-    packageManager,
+    retryCommand,
   });
   const actual: unknown = JSON.parse(stdout);
   strings(actual);

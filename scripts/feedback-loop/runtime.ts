@@ -108,7 +108,7 @@ async function runBunBatch(
   ];
   const { stderr } = await execute(argv, {
     runtime,
-    packageManager: targetPackageManager,
+    retryCommand: `${targetPackageManager} run test:affected`,
     env: batch.recorder.recorderEnv(process.env, recordDir, batch.recorderFile),
   });
   const recorded = await batch.recorder.readRecords(recordDir);
@@ -252,7 +252,7 @@ async function vitestTests(
         '--reporter=json',
         `--outputFile=${report}`,
       ],
-      { runtime, packageManager: targetPackageManager },
+      { runtime, retryCommand: `${targetPackageManager} run test:affected` },
     );
     const result: unknown = JSON.parse(await readFile(report, 'utf8'));
     object(result);
@@ -336,7 +336,12 @@ try {
       '操作はclassificationまたはaffectedです',
     );
     const config = readConfig(root);
-    const classes = await classification(root, config, runtime, targetPackageManager);
+    const classes = await classification(
+      root,
+      config,
+      runtime,
+      `${targetPackageManager} run test:affected`,
+    );
     if (operation === 'classification') {
       console.log(JSON.stringify(classes, null, 2));
     } else {
@@ -345,7 +350,10 @@ try {
       assert(changed.length > 0, '変更なし: テストを実行しません');
       assert(classes.quality.length > 0, '候補0件: qualityがありません');
       if (config.prepare.length > 0) {
-        await execute(config.prepare, { runtime, packageManager: targetPackageManager });
+        await execute(config.prepare, {
+          runtime,
+          retryCommand: `${targetPackageManager} run test:affected`,
+        });
       }
       if (config.runner === 'bun') {
         await bunTests(root, config, classes.quality, changed);

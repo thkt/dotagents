@@ -200,13 +200,104 @@ test('applyの接続と再実行は既存check・設定・ローカル差分を�
   });
 });
 
+for (const [manager, quotedRepo] of [
+  ['bun', false],
+  ['npm', false],
+  ['bun', true],
+] as const) {
+  test(`初回applyの収集失敗後は案内どおりの再実行で${manager}管理${quotedRepo ? 'の空白・引用符パス' : ''}の導入が完了する`, async () => {
+    const feedback = `printf '%s\\n' "SETUP'S FEEDBACK" && ${manager} run test:affected`;
+    await fixture(
+      {
+        ...files,
+        'package.json': JSON.stringify({
+          private: true,
+          type: 'module',
+          packageManager: manager === 'bun' ? 'bun@1.4.4' : 'npm@11.0.0',
+          scripts: { check: 'bun test test' },
+        }),
+        'scripts/collect.ts':
+          "import { existsSync } from 'node:fs'; if (!existsSync('collection-ready')) { console.error('COLLECTION_NOT_READY'); process.exit(23); }\n" +
+          files['scripts/collect.ts'],
+      },
+      async (initial) => {
+        const repo = quotedRepo ? join(initial.repo, '..', "project 'quoted' space") : initial.repo;
+        if (quotedRepo) {
+          await rename(initial.repo, repo);
+        }
+        const f = { ...initial, repo };
+        const env = { ...baseEnv(f), npm_config_cache: join(f.reports, 'npm-cache') };
+        const before = await snapshot(repo);
+        const failed = run(f, [setup, 'apply', '--repo', repo, '--feedback-command', feedback]);
+        expect(failed.code, failed.output).toBe(1);
+        expect(failed.output).toContain('COLLECTION_NOT_READY');
+        expect(await snapshot(repo)).toEqual(before);
+        const retry = /再実行: ([^\r\n]+)/.exec(failed.output)?.[1];
+        assert(retry, failed.output);
+
+        await writeFile(join(repo, 'collection-ready'), 'ready\n');
+        const recovered = spawnSync('/bin/sh', ['-c', retry], {
+          cwd: repo,
+          encoding: 'utf8',
+          timeout: 30000,
+          env,
+        });
+        expect(recovered.error).toBeUndefined();
+        expect(recovered.signal).toBeNull();
+        expect(recovered.status, recovered.stdout + recovered.stderr).toBe(0);
+        const pkg = object(await readFile(join(repo, 'package.json'), 'utf8'));
+        assert(isRecord(pkg.scripts));
+        expect(pkg.scripts['check:feedback']).toBe(feedback);
+        expect(typeof pkg.scripts['test:affected']).toBe('string');
+        expect(typeof pkg.scripts['check:classification']).toBe('string');
+        const target = object(await readFile(join(repo, '.dotagents.json'), 'utf8'));
+        const { feedbackCheck } = target;
+        assert(typeof feedbackCheck === 'string' || Array.isArray(feedbackCheck));
+        expect(typeof feedbackCheck === 'string' ? feedbackCheck : feedbackCheck.join(' ')).toBe(
+          `${manager} run check:feedback`,
+        );
+        expect(
+          Object.keys(await snapshot(repo)).some((path) =>
+            path.startsWith('scripts/feedback-loop/'),
+          ),
+        ).toBe(true);
+        const connected = spawnSync(
+          manager,
+          ['run', quotedRepo ? 'check:classification' : 'check:feedback'],
+          {
+            cwd: repo,
+            encoding: 'utf8',
+            timeout: 30000,
+            env,
+          },
+        );
+        expect(connected.error).toBeUndefined();
+        expect(connected.signal).toBeNull();
+        const output = connected.stdout + connected.stderr;
+        expect(connected.status, output).toBe(0);
+        if (quotedRepo) {
+          expect(JSON.parse(connected.stdout)).toMatchObject({
+            quality: ['test/a.test.ts', 'test/b.test.ts'],
+            assurance: ['test/assurance.test.ts'],
+          });
+        } else {
+          expect(output).toContain("SETUP'S FEEDBACK");
+          expect(output).toContain('QUALITY_A');
+          expect(output).toContain('QUALITY_B');
+        }
+        expect(output).not.toContain('ASSURANCE_RAN');
+      },
+    );
+  });
+}
+
 for (const [manager, runner] of [
   ['bun', 'bun'],
   ['npm', 'vitest'],
   ['npm', 'bun'],
   ['bun', 'vitest'],
 ] as const) {
-  test(`Bunからのapplyと生成入口は${manager}管理・${runner} runnerに対応する再実行方法を案内する`, async () => {
+  test(`生成入口は${manager}管理・${runner} runnerに対応する再実行方法を案内する`, async () => {
     const targetConfig = {
       ...config,
       runner,
@@ -274,10 +365,6 @@ writeFileSync(argument.slice('--outputFile='.length), JSON.stringify({
           `${manager} run test:affected`,
         ]);
         expect(applied.code, applied.output).toBe(0);
-        expect(applied.output).toContain(`再実行: ${manager} run test:affected`);
-        expect(applied.output).not.toContain(
-          `再実行: ${manager === 'bun' ? 'npm' : 'bun'} run test:affected`,
-        );
         for (const script of ['check:classification', 'test:affected']) {
           const result = spawnSync(manager, ['run', script], {
             cwd: f.repo,

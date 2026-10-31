@@ -121,9 +121,21 @@ async function apply(
   feedback: string | undefined,
 ) {
   assert(inspected.packageManager, 'package managerを選択できません');
-  assert(feedback?.trim(), '--feedback-commandに診断用コマンドを指定してください');
+  assert(feedback && feedback.trim(), '--feedback-commandに診断用コマンドを指定してください');
   const config = readConfig(root);
-  await classification(root, config, join(import.meta.dir, 'runtime.ts'), inspected.packageManager);
+  const retryCommand = [
+    process.execPath,
+    ...process.execArgv,
+    import.meta.path,
+    'apply',
+    '--repo',
+    root,
+    '--feedback-command',
+    feedback,
+  ]
+    .map((arg) => `'${arg.replaceAll("'", "'\\''")}'`)
+    .join(' ');
+  await classification(root, config, join(import.meta.dir, 'runtime.ts'), retryCommand);
   const target = join(root, '.dotagents.json');
   const dotagents: unknown = JSON.parse(readFileSync(target, 'utf8'));
   object(dotagents);

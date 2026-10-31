@@ -7,11 +7,11 @@ type ExecutionOptions = {
   env?: NodeJS.ProcessEnv;
   monitorParent?: boolean;
   captureStdout?: boolean;
-  packageManager?: 'bun' | 'npm';
+  retryCommand?: string;
 };
 
 function startCommand(argv: string[], options: Required<ExecutionOptions>) {
-  const { runtime, cwd, env, monitorParent, captureStdout, packageManager } = options;
+  const { runtime, cwd, env, monitorParent, captureStdout, retryCommand } = options;
   const stdout = captureStdout ? 'pipe' : 'inherit';
   const [command, ...args] = argv;
   assert(command, '実行コマンドがありません');
@@ -20,7 +20,7 @@ function startCommand(argv: string[], options: Required<ExecutionOptions>) {
   } else {
     const log = captureStdout ? console.error : console.log;
     const operation = captureStdout ? '収集' : '実行';
-    log(`${operation}: ${argv.join(' ')}; 再実行: ${packageManager} run test:affected`);
+    log(`${operation}: ${argv.join(' ')}; 再実行: ${retryCommand}`);
   }
   const startupEnv = { ...env };
   if (!monitorParent) {
@@ -51,7 +51,7 @@ export async function execute(argv: string[], options: ExecutionOptions) {
     env = process.env,
     monitorParent = false,
     captureStdout = false,
-    packageManager = process.versions.bun ? 'bun' : 'npm',
+    retryCommand = `${process.versions.bun ? 'bun' : 'npm'} run test:affected`,
   } = options;
   const child = startCommand(argv, {
     runtime,
@@ -59,7 +59,7 @@ export async function execute(argv: string[], options: ExecutionOptions) {
     env,
     monitorParent,
     captureStdout,
-    packageManager,
+    retryCommand,
   });
   assert(child.stderr);
   // Bunの選択診断は先頭に出ます。テスト本体の大量ログは保持しません。
