@@ -1,26 +1,9 @@
 import { test, expect } from 'bun:test';
-import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { changedFiles, existingTestFiles, selectAffected } from '../../../test-runtime/affected.ts';
-
-function git(root: string, ...args: string[]) {
-  const result = spawnSync(
-    'git',
-    [
-      '-c',
-      'user.name=test',
-      '-c',
-      'user.email=test@example.com',
-      '-c',
-      'commit.gpgsign=false',
-      ...args,
-    ],
-    { cwd: root, encoding: 'utf8' },
-  );
-  expect(result.status, result.stderr).toBe(0);
-}
+import { git } from '../../support/runner-affected.ts';
 
 function write(root: string, path: string, text = 'x') {
   const full = join(root, path);

@@ -25,6 +25,7 @@ import { oldTestActor } from '../../support/initial-test-records.ts';
 import { fixedHostGenerator } from '../../support/fixed-host-generator.ts';
 import { nativeActorEnvironment } from '../../support/native-actor.ts';
 import publicContract from '../../fixtures/human-decision-recovery/public-contract.json';
+import { contractArgs } from '../../support/human-decision-contract.ts';
 import { object, reviewReplySource } from '../../support/correction.ts';
 import {
   recoveryCli,
@@ -300,7 +301,7 @@ for (const scenario of ['normal', 'nested_dependency'] as const) {
         EXTERNAL_REGULAR_SUPPLEMENT_JSON: file,
         UNUSED_SIBLING_RUN: dir,
       };
-      const args = publicContract.argvShape.slice(2).map((value) => values[value] ?? value);
+      const args = contractArgs(values);
       await writeFile(t.control, JSON.stringify({ response: 'unnecessary' }));
       const result = await recoveryCli(
         f,

@@ -417,7 +417,15 @@ for (const failure of [
       await writeFile(`${prefix}.stderr`, stderr);
       return { ...ok(stdout), stderr, code: failure === 'command_failure' ? 7 : 0 };
     };
-    const saved = await stoppedRevision(f, failure === 'invalid_response' ? /findings/ : /./);
+    const saved = await stoppedRevision(
+      f,
+      {
+        command_failure: /テスト工程が失敗しました/,
+        invalid_json: /JSON/,
+        invalid_response: /findings/,
+        target_mismatch: /テスト応答の入力が一致しません/,
+      }[failure],
+    );
     expect(workspace).toBeTruthy();
     expect(logPrefix).toBeTruthy();
     expect(saved.publication).toBe('not_attempted');

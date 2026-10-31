@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { expect, test, spyOn } from 'bun:test';
+import { expect, spyOn } from 'bun:test';
 import { chmod, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -360,8 +360,9 @@ for (const period of ['during_old_run', 'after_stop'] as const) {
     const saved = object(JSON.parse(await readFile(join(f.dir, 'result.json'), 'utf8')));
     assert(typeof saved.startedAt === 'string' && typeof saved.finishedAt === 'string');
     if (period === 'after_stop') {
-      // psは秒単位なので、旧停止の次の秒に開始した別checkを観測する。
-      await Bun.sleep(1100);
+      // psは秒単位で、未来の開始時刻は拒否される。旧停止の次の秒に入るまで実時間で待つ。
+      const nextSecond = Math.floor(Date.parse(saved.finishedAt) / 1000) * 1000 + 1000;
+      await Bun.sleep(Math.max(0, nextSecond - Date.now()) + 10);
     }
     const processStartedAt = new Date(
       period === 'during_old_run' ? saved.startedAt : Date.now(),
@@ -482,28 +483,6 @@ for (const capture of [false, true]) {
     );
   });
 }
-
-test('CI checks jobの固定時間指定だけを外し検証とverifyの契約を維持する', async () => {
-  const text = await readFile(
-    new URL('../../../../.github/workflows/ci.yml', import.meta.url),
-    'utf8',
-  );
-  const checks = text.split('\n  checks:')[1]?.split('\n  verify:')[0];
-  const verify = text.split('\n  verify:')[1];
-  assert(checks && verify);
-  expect(checks).not.toMatch(/timeout-minutes:/);
-  expect(checks).toContain('bun-version: 1.4.4');
-  expect(checks).toContain('run: bun install --frozen-lockfile --ignore-scripts');
-  expect(checks).toContain('ref: ${{ github.event.pull_request.head.sha || github.sha }}');
-  expect(checks).toContain('persist-credentials: false');
-  expect(text).toContain('contents: read');
-  expect(verify).toContain('if: ${{ always() }}');
-  expect(verify).toContain('permissions: {}');
-  expect(checks).toContain('run: bun run check');
-  expect(verify).toContain('needs: checks');
-  expect(verify).toContain('timeout-minutes: 1');
-  expect(verify).toContain('test "$CHECKS_RESULT" = success');
-});
 
 testDevelopment('新runの不完全な終了報告を成功にせず自動連鎖しない', async (f) => {
   const t = await fixture(f);

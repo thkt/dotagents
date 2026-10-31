@@ -8,6 +8,16 @@ import { correctionFixture, controller, object, events } from '../../support/cor
 const { trial, cleanup } = correctionFixture();
 afterEach(cleanup);
 
+function alive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    assert(error instanceof Error && 'code' in error && error.code === 'ESRCH');
+    return false;
+  }
+}
+
 async function childWriter(root: string) {
   const pidFile = join(root, 'actor.pid');
   const heartbeat = join(root, 'heartbeat');
@@ -211,12 +221,17 @@ test('successful check leaves no child writer after acceptance', async () => {
   await writeFile(join(t.config.cwd, 'source.txt'), 'correct');
   const worker = join(t.root, 'successful-check.js');
   const groupFile = join(t.root, 'group');
+  const childFile = join(t.root, 'child');
+  // checkは子の起動記録を待って終わる。受入れの時点で子が動いていたことを前提にできる。
   await writeFile(
     worker,
-    `import {spawn} from 'node:child_process'; import {writeFileSync} from 'node:fs';
+    `import {spawn} from 'node:child_process'; import {existsSync, writeFileSync} from 'node:fs';
     writeFileSync(${JSON.stringify(groupFile)}, String(process.pid));
-    const child = spawn(process.execPath, ['-e', "setTimeout(()=>require('node:fs').writeFileSync('source.txt','late edit'),500);setInterval(()=>{},1000)"], {stdio:'ignore'});
-    child.unref();`,
+    const child = spawn(process.execPath, ['-e', ${JSON.stringify(
+      `require('node:fs').writeFileSync(${JSON.stringify(childFile)},String(process.pid));setTimeout(()=>require('node:fs').writeFileSync('source.txt','late edit'),500);setInterval(()=>{},1000)`,
+    )}], {stdio:'ignore'});
+    child.unref();
+    while (!existsSync(${JSON.stringify(childFile)})) await new Promise((resolve) => setTimeout(resolve, 10));`,
   );
   await writeFile(t.configFile, JSON.stringify({ ...t.config, check: [process.execPath, worker] }));
   let group: number | undefined;
@@ -227,7 +242,14 @@ test('successful check leaves no child writer after acceptance', async () => {
       status: 0,
       state: { result: 'ready_for_human_review' },
     });
-    await Bun.sleep(700);
+    // 時間待ちで遅延書込みの不在を見るのではなく、書込み元の子が終了していることを確かめる。
+    // SIGKILLの送信後に回収されるまでの短い間は残るため、期限付きで待つ。
+    const child = Number(await readFile(childFile, 'utf8'));
+    const deadline = Date.now() + 2000;
+    while (alive(child)) {
+      assert(Date.now() < deadline, `Late writer ${child} is still running after acceptance`);
+      await Bun.sleep(20);
+    }
     expect(await readFile(join(t.config.cwd, 'source.txt'), 'utf8')).toBe('correct');
   } finally {
     if (group) {

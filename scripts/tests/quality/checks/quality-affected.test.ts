@@ -11,6 +11,7 @@ import {
   baseEnv,
   recordFile,
   readRecordFile,
+  header,
 } from '../../support/runner-affected.ts';
 
 const manifest: unknown = await Bun.file(
@@ -29,7 +30,6 @@ if (typeof manifest.scripts['test:feedback'] === 'string') {
     entry,
   );
 }
-const header = "import { test, expect } from 'bun:test';\n";
 const files = {
   'package.json': JSON.stringify({ type: 'module', scripts }),
   'scripts/shared/target.ts': 'export const value = 1;\n',

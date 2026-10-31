@@ -231,6 +231,9 @@ for (const failure of ['command_failure', 'invalid_json', 'invalid_response'] as
     if (failure === 'command_failure') {
       expect(saved.reason).toContain(`独立テスト工程の試験診断: ${failure}`);
     }
+    if (failure === 'invalid_json') {
+      expect(saved.reason).toMatch(/JSON/);
+    }
     if (failure === 'invalid_response') {
       expect(saved.reason).toMatch(/findings/);
       expect(saved.reason).not.toMatch(/テスト応答の入力が一致しません/);
