@@ -19,6 +19,7 @@
     "analyze:complexity": "fallow health --complexity --sort cognitive --report-only",
     "analyze:cycles": "fallow dead-code --circular-deps",
     "check": "bun run lint && bun run format:check && bun run complexity && bun run typecheck && bun run check:unused && bun run test:control && bun run test:eval",
+    "check:feedback": "bun run lint && bun run format:check && bun run complexity && bun run typecheck && bun run check:unused && bun run test:affected",
     "test:eval": "bun scripts/test-runtime/runner.ts bun eval/tests"
   },
   "dependencies": {
