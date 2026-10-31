@@ -200,6 +200,113 @@ test('applyの接続と再実行は既存check・設定・ローカル差分を�
   });
 });
 
+for (const [manager, runner] of [
+  ['bun', 'bun'],
+  ['npm', 'vitest'],
+  ['npm', 'bun'],
+  ['bun', 'vitest'],
+] as const) {
+  test(`Bunからのapplyと生成入口は${manager}管理・${runner} runnerに対応する再実行方法を案内する`, async () => {
+    const targetConfig = {
+      ...config,
+      runner,
+      prepare: [process.execPath, 'scripts/prepare.ts'],
+    };
+    if (runner === 'vitest') {
+      Reflect.deleteProperty(targetConfig, 'bunArgs');
+    }
+    await fixture(
+      {
+        ...files,
+        'package.json': JSON.stringify({
+          private: true,
+          type: 'module',
+          packageManager: manager === 'bun' ? 'bun@1.4.4' : 'npm@11.0.0',
+          scripts: { check: 'echo existing' },
+        }),
+        '.feedback-loop.json': JSON.stringify(targetConfig),
+        'scripts/prepare.ts': "console.log('PREPARE_RAN');\n",
+        ...(runner === 'vitest'
+          ? {
+              'node_modules/vitest/package.json': JSON.stringify({
+                name: 'vitest',
+                type: 'module',
+                bin: { vitest: './vitest.mjs' },
+                exports: {
+                  './package.json': './package.json',
+                  './node': './node.mjs',
+                },
+              }),
+              'node_modules/vitest/node.mjs': `import { resolve } from 'node:path';
+export const parseCLI = () => ({ options: {} });
+export const createVitest = async () => ({
+  config: {},
+  getRelevantTestSpecifications: async () => ['a', 'b'].map(name => ({ moduleId: resolve('test/' + name + '.test.ts') })),
+  close: async () => {},
+});\n`,
+              'node_modules/vitest/vitest.mjs': `import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+console.log('VITEST_CLI_RAN');
+const selected = process.argv.filter(value => value.startsWith('test/') && value.endsWith('.test.ts'));
+const argument = process.argv.find(value => value.startsWith('--outputFile='));
+if (!argument) throw new Error('JSON report output was not requested');
+writeFileSync(argument.slice('--outputFile='.length), JSON.stringify({
+  success: true,
+  numTotalTestSuites: selected.length, numPassedTestSuites: selected.length,
+  numFailedTestSuites: 0, numPendingTestSuites: 0,
+  numTotalTests: selected.length, numPassedTests: selected.length,
+  numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
+  testResults: selected.map(file => ({
+    name: resolve(file), status: 'passed', message: '',
+    assertionResults: [{ title: file, fullName: file, ancestorTitles: [], status: 'passed', failureMessages: [] }],
+  })),
+}));\n`,
+            }
+          : {}),
+      },
+      async (f) => {
+        const applied = run(f, [
+          setup,
+          'apply',
+          '--repo',
+          f.repo,
+          '--feedback-command',
+          `${manager} run test:affected`,
+        ]);
+        expect(applied.code, applied.output).toBe(0);
+        expect(applied.output).toContain(`再実行: ${manager} run test:affected`);
+        expect(applied.output).not.toContain(
+          `再実行: ${manager === 'bun' ? 'npm' : 'bun'} run test:affected`,
+        );
+        for (const script of ['check:classification', 'test:affected']) {
+          const result = spawnSync(manager, ['run', script], {
+            cwd: f.repo,
+            encoding: 'utf8',
+            timeout: 30000,
+            env: baseEnv(f),
+          });
+          expect(result.error).toBeUndefined();
+          expect(result.signal).toBeNull();
+          const output = result.stdout + result.stderr;
+          expect(result.status, output).toBe(0);
+          const managers = [...output.matchAll(/再実行: (bun|npm) run test:affected/g)].map(
+            (match) => match[1],
+          );
+          expect(managers.length, output).toBeGreaterThanOrEqual(
+            script === 'check:classification' ? 1 : 3,
+          );
+          expect(new Set(managers), output).toEqual(new Set([manager]));
+          if (script === 'test:affected') {
+            expect(output).toContain('PREPARE_RAN');
+            expect(output).toContain(runner === 'bun' ? 'QUALITY_A' : 'VITEST_CLI_RAN');
+            expect(output).toContain('quality選択: 2');
+          }
+        }
+      },
+    );
+  });
+}
+
 for (const scenario of [
   'duplicate',
   'outside',

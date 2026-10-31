@@ -37,7 +37,8 @@ function inspect(root: string) {
     }
   }
   const first = [...hints][0];
-  const packageManager = hints.size === 1 && (first === 'bun' || first === 'npm') ? first : null;
+  const packageManager: 'bun' | 'npm' | null =
+    hints.size === 1 && (first === 'bun' || first === 'npm') ? first : null;
   const configFiles = readdirSync(root, { withFileTypes: true })
     .filter(
       (entry) =>
@@ -122,7 +123,7 @@ async function apply(
   assert(inspected.packageManager, 'package managerを選択できません');
   assert(feedback?.trim(), '--feedback-commandに診断用コマンドを指定してください');
   const config = readConfig(root);
-  await classification(root, config, join(import.meta.dir, 'runtime.ts'));
+  await classification(root, config, join(import.meta.dir, 'runtime.ts'), inspected.packageManager);
   const target = join(root, '.dotagents.json');
   const dotagents: unknown = JSON.parse(readFileSync(target, 'utf8'));
   object(dotagents);
@@ -157,6 +158,7 @@ async function apply(
       target: 'node',
       format: 'esm',
       minify: false,
+      define: { targetPackageManager: JSON.stringify(inspected.packageManager) },
     });
   } finally {
     process.chdir(cwd);

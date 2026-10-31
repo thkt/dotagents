@@ -156,11 +156,21 @@ function filesUnder(root: string, prefix = ''): string[] {
   });
 }
 
-export async function classification(root: string, config: FeedbackConfig, runtime: string) {
+export async function classification(
+  root: string,
+  config: FeedbackConfig,
+  runtime: string,
+  packageManager?: 'bun' | 'npm',
+) {
   const expected = filesUnder(root)
     .filter((path) => config.testGlobs.some((glob) => matches(path, glob)))
     .sort();
-  const { stdout } = await execute(config.collect, { runtime, cwd: root, captureStdout: true });
+  const { stdout } = await execute(config.collect, {
+    runtime,
+    cwd: root,
+    captureStdout: true,
+    packageManager,
+  });
   const actual: unknown = JSON.parse(stdout);
   strings(actual);
   actual.forEach(localPath);

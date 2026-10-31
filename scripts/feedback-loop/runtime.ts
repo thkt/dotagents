@@ -16,6 +16,8 @@ import { execute } from './command.ts';
 import type * as Recorder from '../test-runtime/record-modules.ts';
 
 const runtime = fileURLToPath(import.meta.url);
+// 導入時に判定したpackage managerを、生成時のdefineで埋め込みます。
+declare const targetPackageManager: 'bun' | 'npm';
 
 function recorderModule(value: unknown): asserts value is typeof Recorder {
   object(value);
@@ -58,7 +60,6 @@ function select(root: string, config: FeedbackConfig, quality: string[], changed
     changed,
     testFiles,
     records: dependencies,
-    readText: (path) => readFileSync(path, 'utf8'),
   });
   const reasons = [
     ...global,
@@ -107,6 +108,7 @@ async function runBunBatch(
   ];
   const { stderr } = await execute(argv, {
     runtime,
+    packageManager: targetPackageManager,
     env: batch.recorder.recorderEnv(process.env, recordDir, batch.recorderFile),
   });
   const recorded = await batch.recorder.readRecords(recordDir);
@@ -250,7 +252,7 @@ async function vitestTests(
         '--reporter=json',
         `--outputFile=${report}`,
       ],
-      { runtime },
+      { runtime, packageManager: targetPackageManager },
     );
     const result: unknown = JSON.parse(await readFile(report, 'utf8'));
     object(result);
@@ -334,7 +336,7 @@ try {
       '操作はclassificationまたはaffectedです',
     );
     const config = readConfig(root);
-    const classes = await classification(root, config, runtime);
+    const classes = await classification(root, config, runtime, targetPackageManager);
     if (operation === 'classification') {
       console.log(JSON.stringify(classes, null, 2));
     } else {
@@ -343,7 +345,7 @@ try {
       assert(changed.length > 0, '変更なし: テストを実行しません');
       assert(classes.quality.length > 0, '候補0件: qualityがありません');
       if (config.prepare.length > 0) {
-        await execute(config.prepare, { runtime });
+        await execute(config.prepare, { runtime, packageManager: targetPackageManager });
       }
       if (config.runner === 'bun') {
         await bunTests(root, config, classes.quality, changed);

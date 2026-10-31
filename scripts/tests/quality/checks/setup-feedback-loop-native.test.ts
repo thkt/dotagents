@@ -170,6 +170,45 @@ for (const scenario of [
   }, 60000);
 }
 
+for (const mention of ['', '// data/value.json\n']) {
+  test(`未知入力は${mention ? '無関係なコメントにパスがあっても' : 'パスへの言及がなくても'}全qualityで失敗を検出する`, async () => {
+    await fixture(
+      {
+        ...files,
+        '.feedback-loop.json': JSON.stringify({
+          ...config,
+          dependencies: [{ inputs: ['src/imported.ts'], tests: ['test/file.test.ts'] }],
+        }),
+        'test/file.test.ts':
+          header +
+          "import { observe } from './observe.ts'; import { readFileSync } from 'node:fs'; import { join } from 'node:path'; test('file', () => { observe('file'); expect(JSON.parse(readFileSync(join('data', 'value.json'), 'utf8')).value).toBeLessThan(3); });\n",
+        'test/unrelated.test.ts': files['test/unrelated.test.ts'] + mention,
+      },
+      async (f) => {
+        await installed(f);
+        await writeFile(join(f.repo, 'data/value.json'), '{"value":1}\n ');
+        const initial = run(f, ['run', 'test:affected']);
+        expect(initial.code, initial.output).toBe(0);
+        expect((await observations(f)).sort()).toEqual(['child', 'file', 'import', 'unrelated']);
+        await writeFile(join(f.repo, 'data/value.json'), '{"value":3}\n');
+        expect(git(f.repo, 'diff', '--name-only')).toBe('data/value.json');
+        await writeFile(join(f.signals, 'executed.log'), '');
+
+        const failed = run(f, ['run', 'test:affected']);
+        expect(failed.code, failed.output).not.toBe(0);
+        expect(failed.output).toContain('(fail) file');
+        expect((await observations(f)).sort(), failed.output).toEqual([
+          'child',
+          'file',
+          'import',
+          'unrelated',
+        ]);
+        expect(failed.output).toContain('quality全件の理由:');
+      },
+    );
+  }, 60000);
+}
+
 // nativeの失敗を補完側の成功で上書きせず、失敗前の原記録を保つ。
 test('標準関連テストの失敗・全件skipを成功にせず、失敗前の依存原記録を保持する', async () => {
   await fixture(

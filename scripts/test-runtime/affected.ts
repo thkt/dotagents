@@ -9,7 +9,7 @@ export type SelectionInput = {
   changed: string[];
   testFiles: string[];
   records: Map<string, Set<string>>;
-  readText: (path: string) => string;
+  readText?: (path: string) => string;
 };
 
 // 記録の有無によらず、変更すると全部実行にするファイルです（root からの相対パス）。
@@ -27,15 +27,15 @@ function pathTail(path: string): string {
   return path.split('/').slice(-2).join('/');
 }
 
-// 変更ファイルを記録に持つか、パスの末尾2要素を本文に書いたテストファイルを返す。
+// 本文の補完を指定した呼出元だけ、記録に加えてパスの末尾2要素も照合する。
 function reachingTests(
   path: string,
   testFiles: string[],
   records: Map<string, Set<string>>,
-  body: (file: string) => string,
+  body: ((file: string) => string) | undefined,
 ): string[] {
   const tail = pathTail(path);
-  return testFiles.filter((file) => records.get(file)?.has(path) || body(file).includes(tail));
+  return testFiles.filter((file) => records.get(file)?.has(path) || body?.(file).includes(tail));
 }
 
 function cachedReader(readText: (path: string) => string): (path: string) => string {
@@ -51,7 +51,7 @@ export function selectAffected(input: SelectionInput): Selection {
   const { root, changed, testFiles, records } = input;
   const fixed = new Set(fixedAllPaths.map((path) => `${root}/${path}`));
   const testSet = new Set(testFiles);
-  const body = cachedReader(input.readText);
+  const body = input.readText ? cachedReader(input.readText) : undefined;
   // 記録のないテストファイルは何を読むか分からないため、常に選ぶ。
   const selected = new Set(testFiles.filter((file) => !records.has(file)));
   const reasons: string[] = [];
