@@ -170,7 +170,6 @@ console.log(JSON.stringify(reply));`,
   await writeFile(t.configFile, JSON.stringify(t.config));
 }
 
-// Inject filesystem changes at real I/O boundaries in an isolated controller process.
 export async function withFileHooks(t: CorrectionTrial, hooks: string) {
   const preload = join(t.root, 'file-hooks.js');
   await writeFile(

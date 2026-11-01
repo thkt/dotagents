@@ -84,7 +84,6 @@ test('実行中にSIGTERMを受けると子プロセスを止めて一時コピ�
     expect((await readdir(temp)).filter((name) => name.startsWith('mutate-diff-'))).toHaveLength(1);
     child.kill('SIGTERM');
     expect(await exited).not.toBe(0);
-    // 待機中のテストプロセスが終わったことを確かめてから、終了記録の不在を見る。
     const waiting = Number(await readFile(join(probe, 'started'), 'utf8'));
     await until(() => !alive(waiting), 5000);
     expect(existsSync(join(probe, 'finished'))).toBe(false);
