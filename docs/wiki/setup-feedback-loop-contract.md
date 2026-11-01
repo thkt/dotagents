@@ -152,7 +152,7 @@ npmプロジェクトでは同じscript名を`npm run`で呼びます。`check:c
 
 標準出力のJSONには、従来の`all`・`quality`・`assurance`に加えて`review`を出します。`review.files`は収集した各ファイルの`path`・`class`・現在の`sha256`・`status`を持ちます。`review.complete`は、全ファイルが`reviewed`で`orphans`が空の場合だけ`true`です。日常の`check:classification`は、記録ファイル自体に誤りがなければ、`stale`・`unreviewed`・`mismatch`・`orphans`が残っても終了0とし、その件数とpathを標準エラーへ表示します。新規・未確認のテストをqualityとして実行し続け、テストの追加・削除・改名・分類変更で全体checkやCIを止めないためです。
 
-導入時の全件分類の完了は`check:classification -- --complete`で確認します。`reviewed`以外のファイルか`orphans`が1件でもあれば、該当pathを標準エラーへ表示して非ゼロ終了します。標準出力には同じJSONを出すため、記録の転記に使えます。この検査の成功は、全ファイルに現在の版の確認記録があることだけを示します。記録した理由の意味が正しいことは機械検査では判定しません。
+導入時の全件分類の完了は`check:classification -- --complete`で確認します。`reviewed`以外のファイルか`orphans`が1件でもあれば、該当pathを標準エラーへ表示して非ゼロ終了します。標準出力には同じJSONを出すため、記録の転記に使えます。この検査の成功は、全ファイルに現在の版の確認記録があることだけを示します。記録した理由の意味が正しいことは機械検査では判定せず、導入手順の[分類の独立評価](../../skills/setup-feedback-loop/references/runners.md#分類の独立評価)で確認します。
 
 `test:affected`はGitの変更と設定された関連選択からqualityを実行します。変更なし・候補0件・選択不能・実行失敗・実行成功を区別し、候補数・選択数・全件へ広げた理由を表示します。比較元が取得できない等の選択不能を、実行成功へ読み替えません。担当AIは変更したassuranceや影響先が明らかなassuranceを直接実行し、影響を判断できなければ全体checkへ広げます。部分実行の成功は全体checkの成功ではありません。
 
