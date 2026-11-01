@@ -27,7 +27,7 @@ description: JavaScript／TypeScriptのrepoへ静的検査と関連qualityテス
 
 失敗した検査・対象・診断・再実行方法を既存findingsとログへ残す。起動失敗・解析不完全・取消・未実行を成功へ読み替えない。必須検査と参考レポート、未対応を区別し、未対応を導入完了に含めない。
 
-`check:classification -- --complete`が失敗する間と、分類の独立評価がacceptになるまでは、導入時の全件分類を完了と報告しない。導入後の日常実行では、未確認・古い記録のテストもqualityとして実行し、全体checkとCIを止めない。日常の`check:classification`は該当する件数とpathを表示する。全件分類の完了を改めて報告する場合は、同じ`--complete`の成功と、変更した分類の独立評価を条件にする。
+`check:classification -- --complete`が失敗する間と、分類の独立評価がacceptになるまでは、導入時の全件分類を完了と報告しない。導入後の日常実行では、未確認・古い記録のテストもqualityとして実行し、全体checkとCIを止めない。日常の`check:classification`は該当する件数とpathを表示する。全件分類の完了を改めて報告する場合は、同じ`--complete`の成功と、[再導入時の範囲](references/runners.md#分類の独立評価)での独立評価のacceptを条件にする。
 
 `src/**`等を一括で`globalChanges`へ指定し、通常変更でも常に全qualityを実行する状態は、関連テストの絞り込みを確認したことにならない。全件実行が必要な共通入力と、内容を確認した`dependencies`を分ける。対応が不明な入力の全件実行は保ち、絞り込みが未確認の範囲を報告する。
 
