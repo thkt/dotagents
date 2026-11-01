@@ -10,6 +10,7 @@ import type { DevelopmentFixture } from '../../support/development.ts';
 import { formalHostFixture, formalTree } from '../../support/formal-host-return.ts';
 import { testReviewRecovery } from '../../support/review-recovery.ts';
 import publicContract from '../../fixtures/human-decision-recovery/public-contract.json';
+import { contractArgs } from '../../support/human-decision-contract.ts';
 
 async function humanStop(f: DevelopmentFixture, testHuman = true) {
   const lineage = await formalHostFixture(f, { producer: '430' });
@@ -89,7 +90,7 @@ async function decision(f: DevelopmentFixture, stopped: string, cwd: string) {
     EXTERNAL_REGULAR_SUPPLEMENT_JSON: file,
     UNUSED_SIBLING_RUN: dir,
   };
-  const args = publicContract.argvShape.slice(2).map((value) => values[value] ?? value);
+  const args = contractArgs(values);
   return { args, dir, file, agreement };
 }
 

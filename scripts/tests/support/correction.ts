@@ -154,6 +154,39 @@ if(role==='review') {
   };
 }
 
+type CorrectionTrial = Awaited<ReturnType<ReturnType<typeof correctionFixture>['trial']>>;
+
+export async function reviewer(t: CorrectionTrial, body: string) {
+  const path = join(t.root, 'review.js');
+  await writeFile(
+    path,
+    `import {readFileSync,writeFileSync} from 'node:fs';
+const role='review';
+${reviewReplySource}
+${body}
+console.log(JSON.stringify(reply));`,
+  );
+  t.config.review = [process.execPath, path];
+  await writeFile(t.configFile, JSON.stringify(t.config));
+}
+
+export async function withFileHooks(t: CorrectionTrial, hooks: string) {
+  const preload = join(t.root, 'file-hooks.js');
+  await writeFile(
+    preload,
+    `
+import {mock} from 'bun:test';
+import * as filesystem from 'node:fs/promises';
+const fs={...filesystem};
+mock.module('node:fs/promises',()=>({...fs,${hooks}}));
+`,
+  );
+  return spawnSync(process.execPath, ['--preload', preload, controller, t.configFile], {
+    encoding: 'utf8',
+    timeout: 20000,
+  });
+}
+
 // プロセス終了・中断を含む制御テスト用の入口。公開CLIではない。
 if (import.meta.main) {
   try {

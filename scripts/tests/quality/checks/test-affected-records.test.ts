@@ -1,5 +1,4 @@
 import { test, expect } from 'bun:test';
-import { spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -13,24 +12,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { loadRecords, saveRecords } from '../../../test-runtime/affected-records.ts';
 import { selectAffected } from '../../../test-runtime/affected.ts';
-
-function git(root: string, ...args: string[]): string {
-  const result = spawnSync(
-    'git',
-    [
-      '-c',
-      'user.name=test',
-      '-c',
-      'user.email=test@example.com',
-      '-c',
-      'commit.gpgsign=false',
-      ...args,
-    ],
-    { cwd: root, encoding: 'utf8' },
-  );
-  expect(result.status, result.stderr).toBe(0);
-  return result.stdout.trim();
-}
+import { git } from '../../support/runner-affected.ts';
 
 // 契約で決まっている保存先です。実装の recordsPath を使わず、git から直接求めます。
 function storedPath(root: string): string {
