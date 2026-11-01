@@ -9,7 +9,7 @@ export type SelectionInput = {
   changed: string[];
   testFiles: string[];
   records: Map<string, Set<string>>;
-  readText: (path: string) => string;
+  readText?: (path: string) => string;
 };
 
 // 記録の有無によらず、変更すると全部実行にするファイルです（root からの相対パス）。
@@ -27,15 +27,15 @@ function pathTail(path: string): string {
   return path.split('/').slice(-2).join('/');
 }
 
-// 変更ファイルを記録に持つか、パスの末尾2要素を本文に書いたテストファイルを返す。
+// 本文の補完を指定した呼出元だけ、記録に加えてパスの末尾2要素も照合する。
 function reachingTests(
   path: string,
   testFiles: string[],
   records: Map<string, Set<string>>,
-  body: (file: string) => string,
+  body: ((file: string) => string) | undefined,
 ): string[] {
   const tail = pathTail(path);
-  return testFiles.filter((file) => records.get(file)?.has(path) || body(file).includes(tail));
+  return testFiles.filter((file) => records.get(file)?.has(path) || body?.(file).includes(tail));
 }
 
 function cachedReader(readText: (path: string) => string): (path: string) => string {
@@ -51,7 +51,7 @@ export function selectAffected(input: SelectionInput): Selection {
   const { root, changed, testFiles, records } = input;
   const fixed = new Set(fixedAllPaths.map((path) => `${root}/${path}`));
   const testSet = new Set(testFiles);
-  const body = cachedReader(input.readText);
+  const body = input.readText ? cachedReader(input.readText) : undefined;
   // 記録のないテストファイルは何を読むか分からないため、常に選ぶ。
   const selected = new Set(testFiles.filter((file) => !records.has(file)));
   const reasons: string[] = [];
@@ -80,6 +80,7 @@ export function selectAffected(input: SelectionInput): Selection {
 export type ChangedFilesInput = {
   root: string;
   base: string;
+  ignoredPathPrefixes?: string[];
 };
 
 // 読み込まれず、実行の理由にならない作業用のパスです（root からの相対パスの接頭辞）。
@@ -101,15 +102,30 @@ function nulSeparated(text: string): string[] {
   return text.split('\0').filter((path) => path !== '');
 }
 
+export function mergeBase(root: string, base: string): string {
+  return git(root, ['merge-base', base, 'HEAD']).trim();
+}
+
 // base との分岐点以降の commit・未 commit の変更・未追跡ファイルを、root 配下の絶対パスで返す。
 // --no-renames により rename は旧パスと新パスの両方を数える。
-export function changedFiles({ root, base }: ChangedFilesInput): string[] {
-  const mergeBase = git(root, ['merge-base', base, 'HEAD']).trim();
+export function changedFiles({
+  root,
+  base,
+  ignoredPathPrefixes = workPathPrefixes,
+}: ChangedFilesInput): string[] {
+  const comparison = mergeBase(root, base);
   // --relative と ls-files の既定出力は root からの相対パスで、root の外は含まない。
-  const tracked = git(root, ['diff', '--name-only', '--no-renames', '--relative', '-z', mergeBase]);
+  const tracked = git(root, [
+    'diff',
+    '--name-only',
+    '--no-renames',
+    '--relative',
+    '-z',
+    comparison,
+  ]);
   const untracked = git(root, ['ls-files', '--others', '--exclude-standard', '-z']);
   return [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])]
-    .filter((path) => !workPathPrefixes.some((prefix) => path.startsWith(prefix)))
+    .filter((path) => !ignoredPathPrefixes.some((prefix) => path.startsWith(prefix)))
     .map((path) => join(root, path));
 }
 

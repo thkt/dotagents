@@ -188,3 +188,91 @@ test('報告自体を書き込めない場合は非zero終了する', async () =
   expect(result.code).not.toBeNull();
   expect(result.code).not.toBe(0);
 }, 10000);
+
+for (const trigger of ['exit', 'timeout', 'signal']) {
+  test(`${trigger}のsignal送信後はpipeが閉じていてもgroup消滅を待ってから次へ進む`, async () => {
+    const report = await probe(trigger, 'delayed-kill');
+    expect(report.injected).toMatchObject([{ signal: 'SIGKILL', aliveAtDelivery: true }]);
+    expect(report.escaped).toEqual([]);
+    expect(report.saved).toEqual({ stdout: '取得済みstdout\n', stderr: '取得済みstderr\n' });
+    expect(report.groupAliveBeforeNext).toBe(false);
+    expect(report.next).toMatchObject({ status: 'fulfilled', value: { code: 0 } });
+    expect(report.nextStarted).toBe(true);
+    if (trigger === 'signal') {
+      expect(report.first).toMatchObject({ status: 'rejected' });
+      expect(JSON.stringify(report.first)).toContain('Interrupted execution');
+    } else {
+      expect(report.first).toMatchObject({
+        status: 'fulfilled',
+        value: {
+          code: trigger === 'exit' ? 7 : null,
+          stdout: '取得済みstdout\n',
+          stderr: '取得済みstderr\n',
+          timedOut: trigger === 'timeout',
+        },
+      });
+    }
+  }, 10000);
+}
+
+test('signal送信が成功してもgroupが残り続ける場合は出力を保存してrejectし後続を起動しない', async () => {
+  const report = await probe('exit', 'pending-kill');
+  expect(report.injected).toMatchObject([{ signal: 'SIGKILL', aliveAtDelivery: true }]);
+  expect(report.escaped).toEqual([]);
+  expect(report.groupAliveBeforeNext).toBe(true);
+  const first = object(report.first);
+  expect(first.status).toBe('rejected');
+  const result = acquired(first.error);
+  assert(result);
+  expect(result).toMatchObject({
+    code: 7,
+    stdout: '取得済みstdout\n',
+    stderr: '取得済みstderr\n',
+    timedOut: false,
+  });
+  expect(report.saved).toEqual({ stdout: '取得済みstdout\n', stderr: '取得済みstderr\n' });
+  expect(report.next).toMatchObject({ status: 'rejected' });
+  expect(report.nextStarted).toBe(false);
+}, 10000);
+
+test('commandの一時的な存在確認EPERMはgroupの消滅を再確認して次へ進む', async () => {
+  const report = await probe('exit', 'existence-EPERM-once');
+  expect(report.injected).toMatchObject([
+    { signal: 0, groupAliveAtFailure: true, error: { code: 'EPERM' } },
+  ]);
+  expect(report.escaped).toEqual([]);
+  expect(report.first).toMatchObject({
+    status: 'fulfilled',
+    value: { code: 7, stdout: '取得済みstdout\n', stderr: '取得済みstderr\n', timedOut: false },
+  });
+  expect(report.saved).toEqual({ stdout: '取得済みstdout\n', stderr: '取得済みstderr\n' });
+  expect(report.groupAliveBeforeNext).toBe(false);
+  expect(report.nextStarted).toBe(true);
+}, 10000);
+
+for (const injection of ['existence-EPERM', 'existence-exception']) {
+  test(`commandの${injection}では消滅を確認済みにせず出力を保存して後続を拒否する`, async () => {
+    const report = await probe('exit', injection);
+    assert(Array.isArray(report.injected));
+    expect(report.injected.length).toBeGreaterThan(0);
+    expect(report.injected[0]).toMatchObject({
+      signal: 0,
+      groupAliveAtFailure: true,
+      error: { code: injection === 'existence-EPERM' ? 'EPERM' : 'EIO' },
+    });
+    expect(report.escaped).toEqual([]);
+    const first = object(report.first);
+    expect(first.status).toBe('rejected');
+    const result = acquired(first.error);
+    assert(result);
+    expect(result).toMatchObject({
+      code: 7,
+      stdout: '取得済みstdout\n',
+      stderr: '取得済みstderr\n',
+      timedOut: false,
+    });
+    expect(report.saved).toEqual({ stdout: '取得済みstdout\n', stderr: '取得済みstderr\n' });
+    expect(report.next).toMatchObject({ status: 'rejected' });
+    expect(report.nextStarted).toBe(false);
+  }, 10000);
+}

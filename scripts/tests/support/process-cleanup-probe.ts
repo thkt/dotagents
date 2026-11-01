@@ -45,19 +45,20 @@ function serialize(value: unknown, seen = new Set<object>()): unknown {
   );
 }
 
-const [modulePath, root, trigger, injection] = process.argv.slice(2);
-assert(modulePath && root && trigger && injection);
-const api: unknown = await import(pathToFileURL(modulePath).href);
-assertApi(api);
+const [modulePath, root, trigger, injectionArgument] = process.argv.slice(2);
+assert(modulePath && root && trigger && injectionArgument);
+const injection = injectionArgument;
 const originalKill = process.kill.bind(process);
 const injected: unknown[] = [];
 const escaped: unknown[] = [];
 const groupFile = join(root, 'group.pid');
 const prefix = join(root, 'acquired');
 const marker = join(root, 'next-command');
-const deadlineMs = 2000;
+const deadlineMs = injection === 'pending-kill' ? 5000 : 2000;
 let cleaningUp = false;
 let cleanupChecks = 0;
+let delayedKill: ReturnType<typeof setTimeout> | undefined;
+let groupKillDelivered = false;
 
 function alive(pid: number) {
   try {
@@ -120,14 +121,47 @@ process.on('uncaughtException', (error) => {
   escaped.push(serialize(error));
   process.exitCode = 1;
 });
+
+function killLeaderBeforeDescendants(group: number) {
+  // signal送信の成功とgroup消滅の間を、pipeのEOFとは独立に再現する。
+  if (!injection.startsWith('existence-')) {
+    injected.push({ pid: -group, signal: 'SIGKILL', aliveAtDelivery: alive(-group) });
+  }
+  try {
+    originalKill(group, 'SIGKILL');
+  } catch (error) {
+    assert(error instanceof Error && 'code' in error && error.code === 'ESRCH');
+  }
+  if (injection === 'delayed-kill' || injection.startsWith('existence-')) {
+    delayedKill = setTimeout(() => {
+      originalKill(-group, 'SIGKILL');
+    }, 200);
+  }
+}
+
 process.kill = (pid, signal) => {
   const ownedGroup = existsSync(groupFile) ? Number(readFileSync(groupFile, 'utf8')) : undefined;
+  if (ownedGroup === undefined || pid !== -ownedGroup) {
+    return originalKill(pid, signal);
+  }
   if (
-    injection === 'EPERM' &&
-    ownedGroup !== undefined &&
-    pid === -ownedGroup &&
-    signal === 'SIGKILL'
+    signal === 0 &&
+    ['existence-EPERM', 'existence-EPERM-once', 'existence-exception'].includes(injection)
   ) {
+    if (injection === 'existence-EPERM-once' && injected.length > 0) {
+      return originalKill(pid, signal);
+    }
+    const error = Object.assign(Error('controlled command existence failure'), {
+      code: injection === 'existence-exception' ? 'EIO' : 'EPERM',
+      syscall: 'kill',
+    });
+    injected.push({ pid, signal, groupAliveAtFailure: alive(pid), error: serialize(error) });
+    throw error;
+  }
+  if (signal !== 'SIGKILL') {
+    return originalKill(pid, signal);
+  }
+  if (injection === 'EPERM') {
     const error = Object.assign(Error('controlled owned-group kill failure'), {
       code: 'EPERM',
       syscall: 'kill',
@@ -135,15 +169,35 @@ process.kill = (pid, signal) => {
     injected.push({ pid, signal, error: serialize(error) });
     throw error;
   }
-  return originalKill(pid, signal);
+  if (
+    !['delayed-kill', 'pending-kill'].includes(injection) &&
+    !injection.startsWith('existence-')
+  ) {
+    return originalKill(pid, signal);
+  }
+  if (groupKillDelivered) {
+    return true;
+  }
+  groupKillDelivered = true;
+  killLeaderBeforeDescendants(ownedGroup);
+  return true;
 };
 
+const api: unknown = await import(pathToFileURL(modulePath).href);
+assertApi(api);
 const report: Record<string, unknown> = { trigger, injection, injected, escaped };
 try {
   const pending = outcome(() =>
     api.withInterrupts(() =>
       api.command(
-        [process.execPath, join(import.meta.dir, 'process-cleanup-worker.ts'), root, trigger],
+        [
+          process.execPath,
+          join(import.meta.dir, 'process-cleanup-worker.ts'),
+          root,
+          trigger,
+          'leader',
+          injection,
+        ],
         root,
         '',
         trigger === 'timeout' ? 600 : null,
@@ -189,6 +243,7 @@ try {
   report.harnessError = serialize(error);
 }
 cleaningUp = true;
+clearTimeout(delayedKill);
 process.kill = originalKill;
 try {
   if (existsSync(groupFile)) {

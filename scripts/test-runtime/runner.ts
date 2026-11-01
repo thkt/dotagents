@@ -5,30 +5,9 @@ import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
-import { isRecord } from '../shared/values.ts';
 
-export function checkReport(runner: 'bun' | 'playwright', text: string) {
-  let total: unknown, skipped: unknown;
-  if (runner === 'bun') {
-    // Read only the root summary emitted by pinned Bun, not testcase text or logs.
-    const summary = /^<\?xml[^>]*>\s*<testsuites\s+([^>]*)>/.exec(text)?.[1];
-    assert(
-      summary && text.trimEnd().endsWith('</testsuites>'),
-      'Missing or incomplete Bun JUnit summary',
-    );
-    const testsAttribute = /\btests="(\d+)"/.exec(summary)?.[1];
-    const skippedAttribute = /\bskipped="(\d+)"/.exec(summary)?.[1];
-    total = testsAttribute === undefined ? undefined : Number(testsAttribute);
-    skipped = skippedAttribute === undefined ? undefined : Number(skippedAttribute);
-  } else {
-    const report: unknown = JSON.parse(text);
-    assert(isRecord(report) && isRecord(report.stats), 'Missing Playwright stats');
-    total = report.stats.expected;
-    skipped = report.stats.skipped;
-  }
-  assert(typeof total === 'number' && Number.isInteger(total) && total > 0, 'No completed tests');
-  assert(skipped === 0, `Unexecuted tests or invalid skipped count: ${String(skipped)}`);
-}
+import { checkReport } from './report.ts';
+export { checkReport } from './report.ts';
 
 // commitなどが切り離して起動する自動maintenanceは、終了後もobjects/maintenance.lockを保持します。
 // その間にverifyGitLocksが走ると、テストのGitリポジトリが断続的に拒否されます。
@@ -186,11 +165,11 @@ async function planAffected(base: string, paths: string[]): Promise<AffectedPlan
     changed.length > 0,
     `変更なし: ${base} との分岐点以降に変更がないため、テストを実行しません`,
   );
-  const { records, warning } = modules.loadRecords(root);
+  const testFiles = testFilesUnder(modules, paths.length ? paths : [join(root, 'scripts/tests')]);
+  const { records, warning } = modules.loadRecords(root, true, changed, testFiles);
   if (warning !== undefined) {
     console.error(`警告: ${warning}`);
   }
-  const testFiles = testFilesUnder(modules, paths.length ? paths : [join(root, 'scripts/tests')]);
   const selection = modules.selectAffected({
     root,
     changed,
@@ -205,7 +184,11 @@ async function planAffected(base: string, paths: string[]): Promise<AffectedPlan
   console.log(`${label}候補: ${testFiles.length}件（全体checkではありません）`);
   const files = selection.kind === 'all' ? testFiles : selection.tests;
   if (warning !== undefined || testFiles.every((file) => !records.has(file))) {
-    console.log(`${label}全件を実行します。理由: ${warning ?? '依存記録なし'}`);
+    const reasons = [
+      warning ?? '依存記録なし',
+      ...(selection.kind === 'all' ? selection.reasons : []),
+    ];
+    console.log(`${label}全件を実行します。理由: ${reasons.join(', ')}`);
   } else if (selection.kind === 'all') {
     console.log(
       `全テストファイルを実行します。${label}全件の理由: ${selection.reasons.join(', ')}`,
@@ -249,6 +232,7 @@ async function saveAffectedRecords(affected: AffectedPlan, recordDir: string, re
     root: affected.root,
     ran: new Map([...recorded].filter(([file]) => passed.has(file))),
     failed: affected.files.filter((file) => !passed.has(file)),
+    trusted: true,
   });
 }
 
