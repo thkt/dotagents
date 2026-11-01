@@ -52,7 +52,7 @@ Bun 1.4.4 を使います。check は次の順に実行します。ツールご�
 | 6 | `test:control` | Bun | 通常ハーネスの制御テスト（`quality`・`assurance`の両分類） |
 | 7 | `test:eval` | Bun | eval専用の模擬テスト |
 
-制御テストはBunのファイル単位の隔離を保ち、2workerで実行します。eval専用の模擬テストは直列です。通常のAI実装では、lint・型検査等と、品質候補に限定した`bun run test:affected`を実行します。これをfeedbackモードと呼びます。安心テストやその検証対象を修正した場合は、該当安心テストをパス指定で直接実行します。品質内の影響先が不明なら品質全件、安心への影響を判断できなければ全体checkへ広げます。提出前・CIは引数なしの`bun run check`で両分類全件と既存の他のcheckを実行します。分類の基準は[開発方針](docs/wiki/development-policy.md#制御テストの階層)、選択漏れと記録の再生成、直接実行、計時は[CLIガイド](scripts/README.md#制御テストの選択と計時)を参照してください。旧`test:feedback`は既存利用のため`test:affected`へ委譲する互換名として残します。
+制御テストはBunのファイル単位の隔離を保ち、2workerで実行します。eval専用の模擬テストは直列です。通常のAI実装の反復では、`bun run check:feedback`で全体checkの静的検査と品質候補の`bun run test:affected`を実行します。これをfeedbackモードと呼びます。提出前・CIは引数なしの`bun run check`で両分類全件と既存の他のcheckを実行します。場面ごとの実行範囲、選択漏れへの対処、旧`test:feedback`の扱いは[開発方針](docs/wiki/development-policy.md#制御テストの階層)を正本とします。選択の仕組み・記録・計時は[CLIガイド](scripts/README.md#制御テストの選択と計時)を参照してください。
 
 過去の固定snapshotを使う復旧テストでは、テスト専用の開発依存`zod-host-fixture`でsnapshotが要求するZodを使います。現行ハーネスの`zod`とは分けて導入し、テスト中のパッケージ取得は行いません。
 
