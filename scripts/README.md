@@ -160,7 +160,7 @@ bun /absolute/path/to/trusted/scripts/implement/development.ts 99 \
 
 担当には`feedbackCheck`を反復用として明示します。担当は対象repoの方針に従って必要な確認範囲へ広げます。実装・修正担当は完了前に全体の`check`が通る状態にします。ホストは各修正後に設定済みの全体`check`を実行し、そのコマンドと結果を従来どおり記録します。`feedbackCheck`はこのホスト検証やCIを置き換えません。担当が実際に反復用コマンドを選んだかの強制・記録や、時間短縮の保証は行いません。
 
-指定した`feedbackCheck`は、検証設定と独立テストの保存入力・対象IDにも含めます。既存PRの修正やホスト復帰では設定原文と保存したコマンドを照合し、変更があれば停止します。キーがない旧runの原記録に値を補いません。このrepo自身は`bun run test:feedback`を設定し、既存の互換名を通じて`test:affected`の関連qualityを実行します。分類と実行範囲の拡大は[制御テストの選択と計時](#制御テストの選択と計時)に従います。
+指定した`feedbackCheck`は、検証設定と独立テストの保存入力・対象IDにも含めます。既存PRの修正やホスト復帰では設定原文と保存したコマンドを照合し、変更があれば停止します。キーがない旧runの原記録に値を補いません。このrepo自身は`bun run check:feedback`を設定し、全体checkの静的検査と`test:affected`の関連qualityを実行します。分類と実行範囲の拡大は[開発方針](../docs/wiki/development-policy.md#制御テストの階層)に従います。
 
 `capture.command` はargv配列です。`.dotagents.json` では、実行ファイル名が空または空白だけの配列、`setup`・`check` の欠落・空文字列・空白だけの文字列・不正な型、`check` の空配列、撮影方針の省略は開始前に拒否します。セットアップが不要な場合は `setup: []` と明示します。
 
@@ -850,7 +850,7 @@ jq -e '
 
 実行基盤は`scripts/test-runtime/`、検証するテスト本体は`scripts/tests/`に置きます。独立テストの成果物保護を維持し、実行基盤の修正をテストの変更と混同しない配置です。旧`scripts/tests/runner.ts`・`scripts/tests/mutation/cli.ts`の直接実行は互換入口として残し、新しい実体へ同一プロセスで委譲します。
 
-`bun run test:control`はBun 1.4.4の`--parallel=2`でファイルを分離して実行します。同じプロセス内のケースは直列のままです。`test:eval`は直列で実行します。通常のAI実装ではlint・型検査等と`bun run test:affected`で品質候補の関連実行を行います。関連するパスをすべて渡すこともできます。
+`bun run test:control`はBun 1.4.4の`--parallel=2`でファイルを分離して実行します。同じプロセス内のケースは直列のままです。`test:eval`は直列で実行します。どの場面でどの範囲を実行するかは[開発方針](../docs/wiki/development-policy.md#制御テストの階層)に従います。関連するパスをすべて渡して実行できます。
 
 ```sh
 # 品質候補から関連テストを実行する（feedbackモード）
@@ -878,7 +878,7 @@ bun scripts/test-runtime/runner.ts bun scripts/tests --parallel=2 --timings=/abs
 
 ### 変更に影響されるテストだけを実行する
 
-`bun run test:affected`は、既存runnerへ`scripts/tests/quality`と`--affected`を渡し、品質候補の中から関連テストを選びます。これをfeedbackモードと呼び、lint・型検査等と並べて実行します。安心を通常の候補へ追加しません。汎用runnerの明示パス指定は維持します。Bun標準の`bun test --changed`は併用していません。提出前・CIは引数なしの`bun run check`で品質・安心全件と既存の他のcheckを実行します。
+`bun run test:affected`は、既存runnerへ`scripts/tests/quality`と`--affected`を渡し、品質候補の中から関連テストを選びます。これをfeedbackモードと呼び、`bun run check:feedback`でlint・型検査等の後に実行します。安心を通常の候補へ追加しません。汎用runnerの明示パス指定は維持します。Bun標準の`bun test --changed`は併用していません。
 
 ```sh
 bun run test:affected
@@ -893,7 +893,7 @@ bun run test:control scripts/tests/assurance/shared/process-cleanup.test.ts
 bun scripts/test-runtime/runner.ts bun scripts/tests/quality --affected=origin/main --parallel=2
 ```
 
-安心への影響を判断できなければ全体checkへ広げます。安心が自動選択に出ないことを不要の根拠にしません。旧`test:feedback`はREADME・CLIで案内していた既存利用のため`test:affected`へ委譲する互換名として残します。固定集合はありません。
+実行範囲を広げる規則と旧`test:feedback`の扱いは[開発方針](../docs/wiki/development-policy.md#制御テストの階層)に従います。
 
 変更はmainまたは`--affected=REF`との分岐点以降のcommit、未commitの変更、未追跡ファイルです。renameは旧パスと新パスの両方を数えます。安心・共有入力も変更一覧に含めます。`.claude/workspace/`・`docs/issues/`・`.issue-drafts/`だけの変更は読み込まれないため実行の理由にしません。変更なしは非zeroで終了し、成功にしません。
 
@@ -903,15 +903,7 @@ bun scripts/test-runtime/runner.ts bun scripts/tests/quality --affected=origin/m
 
 記録はworktreeのgit dir配下の`dotagents/test-deps.json`です。`BUN_OPTIONS`へ記録器の`--preload`を足し、テストと環境を引き継ぐ子Bunが読むモジュールを親テストへ帰属させます。実行は`--isolate`付きです。非ASCIIのコードはUTF-8文字列で読み、JSON/TOMLはBun標準のloaderを使います。明示した拡張子の解決時に加え、テストでは`afterAll`、通常の子Bunでは終了時に、読み込み済みモジュールのキャッシュからJSON/TOMLのパスを補完します。Bun 1.4.4で`onResolve`を通らない省略JSON importも、この補完で記録します。保存は一時ファイルからrenameで置き換え、未実行テストの記録を保持します。失敗・skipしたファイルの記録は成功として保存せず、次回は記録なしとして選びます。中断時は既存記録を書き換えません。
 
-影響先が1件でも見つかり、別のテストの依存だけが漏れている場合、全件へ戻るとは限りません。
-
-| 漏れの条件 | 対処 |
-| --- | --- |
-| 未実行分岐・完了を待たない動的import | 対応する分岐を検査するテストを直接実行します。記録の再生成だけで解消済みにしません |
-| 通常のfs読取り・組み立てたパス | 読む側の品質・安心テストを直接実行します。品質内の影響先が不明なら品質全件、安心への影響を判断できなければ全体checkへ広げます |
-| 記録用の環境変数を引き継がない子プロセス | 対象テストを直接実行します。試験目的の環境分離を記録のために壊しません |
-| 省略JSON import後、補完前にテスト自身がそのモジュールキャッシュを削除 | 読む側のテストを直接実行します。キャッシュ補完だけで全依存を追跡できるとは扱いません |
-| rebase・依存構造変更などによる古い記録 | 関係するテストを直接確認します。記録を信頼できなければ退避し、品質全件を記録付きで実行して作り直します。古さの自動判定はしません |
+影響先が1件でも見つかり、別のテストの依存だけが漏れている場合、全件へ戻るとは限りません。漏れの条件と対処は[開発方針](../docs/wiki/development-policy.md#制御テストの階層)の表に従います。
 
 通常check・直接実行の成功は依存記録の更新を意味しません。必要なら記録付きaffected経路でも対象を実行します。再生成の例は次のとおりです。退避先は既存ファイルと重ならない名前を選んでください。
 
