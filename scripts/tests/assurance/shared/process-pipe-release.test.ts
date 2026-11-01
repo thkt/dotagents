@@ -4,6 +4,8 @@ import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { isRecord } from '../../../shared/values.ts';
+import { alive } from '../../support/process-alive.ts';
 
 const target = resolve(
   process.env.PROCESS_MODULE ?? join(import.meta.dir, '../../../shared/process.ts'),
@@ -13,12 +15,8 @@ const evidenceRoot = process.env.PROCESS_EVIDENCE
   : await mkdtemp(join(tmpdir(), 'process-pipe-release-'));
 await mkdir(evidenceRoot, { recursive: true });
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
 function object(value: unknown): Record<string, unknown> {
-  assert(isObject(value));
+  assert(isRecord(value));
   return value;
 }
 
@@ -34,16 +32,6 @@ function acquired(value: unknown): Record<string, unknown> | undefined {
     if (found) {
       return found;
     }
-  }
-}
-
-function alive(pid: number) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    assert(error instanceof Error && 'code' in error && error.code === 'ESRCH');
-    return false;
   }
 }
 

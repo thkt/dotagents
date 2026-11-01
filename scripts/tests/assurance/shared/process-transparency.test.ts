@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { isRecord } from '../../../shared/values.ts';
 
 const target = resolve(
   process.env.PROCESS_MODULE ?? join(import.meta.dir, '../../../shared/process.ts'),
@@ -14,12 +15,8 @@ const evidenceRoot = process.env.PROCESS_EVIDENCE
   : await mkdtemp(join(tmpdir(), 'process-transparency-'));
 await mkdir(evidenceRoot, { recursive: true });
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
 function object(value: unknown) {
-  assert(isObject(value));
+  assert(isRecord(value));
   return value;
 }
 

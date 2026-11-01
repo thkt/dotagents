@@ -5,17 +5,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isRecord } from '../../../shared/values.ts';
 import { fixture, writeProbe, run, paths, entry } from '../../support/runner-selection.ts';
-function alive(pid: number) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    if (isRecord(error) && error.code === 'ESRCH') {
-      return false;
-    }
-    throw error;
-  }
-}
+import { alive } from '../../support/process-alive.ts';
 
 function terminateGroup(pid: number | undefined) {
   if (pid === undefined) {
