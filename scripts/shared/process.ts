@@ -39,29 +39,63 @@ class ProcessCleanupError extends Error {
 export const interruptionMessage =
   'Interrupted execution: reconcile existing process and evidence before continuing';
 let interrupted = false;
-let activeGroup: number | undefined;
+let activeGroup: { pid: number; killSent: boolean } | undefined;
 // 終了未確認のgroupを残した場合は、新しい割り込みscopeでも処理を再開しない。
 let cleanupFailure: { group: number; cause: unknown } | undefined;
 
+function hasErrorCode(error: unknown, code: string) {
+  return error instanceof Error && 'code' in error && error.code === code;
+}
+
 function killGroup(pid: number | undefined) {
-  if (pid === undefined || pid !== activeGroup || cleanupFailure) {
+  const group = activeGroup;
+  if (!group || pid !== group.pid || group.killSent || cleanupFailure) {
     return;
   }
   try {
-    process.kill(-pid, 'SIGKILL');
+    process.kill(-group.pid, 'SIGKILL');
+    group.killSent = true;
   } catch (error) {
-    if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) {
-      cleanupFailure = { group: pid, cause: error };
+    if (hasErrorCode(error, 'ESRCH')) {
+      activeGroup = undefined;
+    } else {
+      cleanupFailure = { group: group.pid, cause: error };
       interrupted = true;
-      return;
     }
   }
-  activeGroup = undefined;
+}
+
+async function waitForGroup(pid: number) {
+  const deadline = performance.now() + 1000;
+  try {
+    while (pid === activeGroup?.pid && !cleanupFailure) {
+      let failure: unknown;
+      try {
+        process.kill(-pid, 0);
+      } catch (error) {
+        if (!hasErrorCode(error, 'EPERM')) {
+          throw error;
+        }
+        failure = error;
+      }
+      if (performance.now() >= deadline) {
+        throw failure ?? Error('SIGKILL送信後もプロセスグループの消滅を1秒以内に確認できません');
+      }
+      await Bun.sleep(10);
+    }
+  } catch (error) {
+    if (hasErrorCode(error, 'ESRCH')) {
+      activeGroup = undefined;
+    } else {
+      cleanupFailure = { group: pid, cause: error };
+      interrupted = true;
+    }
+  }
 }
 
 function interrupt() {
   interrupted = true;
-  killGroup(activeGroup);
+  killGroup(activeGroup?.pid);
 }
 
 export function assertRunning() {
@@ -132,7 +166,7 @@ export async function command(
     assertRunning();
     return result;
   }
-  activeGroup = child.pid;
+  activeGroup = { pid: child.pid, killSent: false };
   // onExitはspawnが返る前に呼ばれる場合もある。
   if (exitCode !== undefined) {
     killGroup(child.pid);
@@ -194,6 +228,7 @@ export async function command(
   clearTimeout(timer);
   clearInterval(poll);
   killGroup(child.pid);
+  await waitForGroup(child.pid);
   const outputComplete = completedPipes === 2;
   if (cleanupFailure) {
     child.stdin.unref();
