@@ -213,7 +213,8 @@ test('successful check leaves no child writer after acceptance', async () => {
   const worker = join(t.root, 'successful-check.js');
   const groupFile = join(t.root, 'group');
   const childFile = join(t.root, 'child');
-  // 受入れの時点で子が動いていたことを保証するため、checkは子の起動記録を待って終わる。
+  // The check exits only after the child has recorded its PID. Otherwise the child might not
+  // have started yet at acceptance, and "child is gone" would prove nothing.
   await writeFile(
     worker,
     `import {spawn} from 'node:child_process'; import {existsSync, writeFileSync} from 'node:fs';
@@ -233,7 +234,8 @@ test('successful check leaves no child writer after acceptance', async () => {
       status: 0,
       state: { result: 'ready_for_human_review' },
     });
-    // SIGKILLの送信後に回収されるまでの短い間は残るため、期限付きで待つ。
+    // The controller sends SIGKILL without waiting for the child to exit, so the PID can
+    // linger briefly. Poll until it disappears instead of checking once.
     const child = Number(await readFile(childFile, 'utf8'));
     const deadline = Date.now() + 2000;
     while (alive(child)) {

@@ -360,8 +360,9 @@ for (const period of ['during_old_run', 'after_stop'] as const) {
     const saved = object(JSON.parse(await readFile(join(f.dir, 'result.json'), 'utf8')));
     assert(typeof saved.startedAt === 'string' && typeof saved.finishedAt === 'string');
     if (period === 'after_stop') {
-      // psの開始時刻は秒単位に切り捨てられ、旧停止と同じ秒の開始は旧実行期間内と判定される。
-      // 現在より後の開始時刻は拒否されるため、実時間で次の秒まで待つ。
+      // ps truncates start times to the second, so a process that starts in the same second
+      // as the old run's finishedAt counts as part of the old run. Start times later than now
+      // are rejected, so we cannot fake a later time and must wait for the next second.
       const nextSecond = Math.floor(Date.parse(saved.finishedAt) / 1000) * 1000 + 1000;
       await Bun.sleep(Math.max(0, nextSecond - Date.now()) + 10);
     }
