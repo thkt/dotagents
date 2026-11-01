@@ -52,6 +52,97 @@ function bunTest(root: string, recordDir: string, args: string[]) {
 
 const passing = "import { test, expect } from 'bun:test';\n";
 
+// Issue #466の通常実行との同等性を、製品のI/Oを観測する子Bunでも保ちます。
+// メタデータ参照の陰性対照と、同期・非同期の内容読み込みの陽性対照です。
+for (const mode of ['metadata', 'read-sync', 'read-async'] as const) {
+  for (const recorded of [false, true]) {
+    test(`子BunのI/O観測とassertionを保つ: ${mode} ${recorded ? '記録あり' : '通常'}`, async () => {
+      await fixture(
+        {
+          'state.txt': 'fixture only, no credential\n',
+          'metadata.ts': `
+import { statSync, readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+export async function inspect(mode) {
+  const path = import.meta.dir + '/state.txt';
+  if (mode === 'metadata') return { present: statSync(path).isFile() };
+  if (mode === 'read-sync') return readFileSync(path, 'utf8');
+  return await readFile(path, 'utf8');
+}
+`,
+          'boundary.ts': "export { inspect } from './metadata.ts';\n",
+          'observe.ts': `
+import { mock } from 'bun:test';
+import * as fs from 'node:fs';
+import * as promises from 'node:fs/promises';
+const syncRead = fs.readFileSync;
+const asyncRead = promises.readFile;
+const reads = [];
+mock.module('node:fs', () => ({ ...fs, readFileSync(...args) {
+  reads.push({ api: 'node:fs.readFileSync', path: String(args[0]) });
+  return syncRead(...args);
+} }));
+mock.module('node:fs/promises', () => ({ ...promises, readFile(...args) {
+  reads.push({ api: 'node:fs/promises.readFile', path: String(args[0]) });
+  return asyncRead(...args);
+} }));
+const { inspect } = await import('./boundary.ts');
+const value = await inspect(process.argv[2]);
+console.log(JSON.stringify({ value, reads }));
+`,
+          'observation.test.ts': `
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+test('製品の内容読み込みだけを観測する', () => {
+  const child = spawnSync(process.execPath, ['--no-env-file', 'observe.ts', '${mode}'], {
+    cwd: import.meta.dir, encoding: 'utf8', env: { ...process.env },
+  });
+  assert.equal(child.error, undefined);
+  assert.equal(child.signal, null);
+  assert.equal(child.status, 0, child.stderr);
+  const observed = JSON.parse(child.stdout);
+  console.log('OBSERVED=' + JSON.stringify(observed));
+  assert.deepEqual(observed.value, ${mode === 'metadata' ? '{ present: true }' : JSON.stringify('fixture only, no credential\n')});
+  assert.deepEqual(observed.reads, ${
+    mode === 'metadata'
+      ? '[]'
+      : `[{ api: '${mode === 'read-sync' ? 'node:fs.readFileSync' : 'node:fs/promises.readFile'}', path: import.meta.dir + '/state.txt' }]`
+  }, '記録器は製品の内容読み込みの観測を変えない');
+});
+`,
+        },
+        async (root, recordDir) => {
+          const result = spawnSync(
+            process.execPath,
+            ['--no-env-file', 'test', 'observation.test.ts'],
+            {
+              cwd: root,
+              encoding: 'utf8',
+              timeout: 30000,
+              env: recorded ? recorderEnv(baseEnv(), recordDir) : baseEnv(),
+            },
+          );
+          const output = result.stdout + result.stderr;
+          expect(result.error).toBeUndefined();
+          expect(result.signal).toBeNull();
+          expect(output).toContain('OBSERVED=');
+          expect(result.status, output).toBe(0);
+          expect(output).toContain('1 pass');
+          expect(output).toContain('0 fail');
+          if (recorded) {
+            const records = await readRecords(recordDir);
+            const modules = [...(records.get(join(root, 'observation.test.ts')) ?? [])];
+            expect(modules).toContain(join(root, 'observe.ts'));
+            expect(modules).toContain(join(root, 'boundary.ts'));
+            expect(modules).toContain(join(root, 'metadata.ts'));
+          }
+        },
+      );
+    });
+  }
+}
+
 test('テストから動的 import したモジュールは、そのテストファイルの記録に入る', async () => {
   await fixture(
     {

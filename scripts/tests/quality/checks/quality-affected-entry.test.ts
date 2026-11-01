@@ -69,15 +69,26 @@ for (const scenario of [
       async (f) => {
         const path = recordFile(f.repo);
         await mkdir(dirname(path), { recursive: true });
-        const records = {
-          [join(f.repo, qualityA)]: [join(f.repo, qualityA), join(f.repo, target)],
-          [join(f.repo, qualityB)]: [join(f.repo, qualityB)],
-          [join(f.repo, assurance)]: [join(f.repo, assurance), join(f.repo, target)],
-        };
         if (scenario === 'unreadable') {
           await mkdir(path);
+        } else if (Object.hasOwn(invalidRecords, scenario)) {
+          const invalid = invalidRecords[scenario];
+          assert(typeof invalid === 'string');
+          await writeFile(path, invalid);
         } else if (scenario !== 'missing') {
-          await writeFile(path, invalidRecords[scenario] ?? JSON.stringify(records));
+          // 公開入口で記録を作り、採用コードとの整合条件も満たす。
+          await writeFile(join(f.repo, target), 'export const value = 1; // record\n');
+          const recorded = spawnSync(process.execPath, ['run', 'test:affected'], {
+            cwd: f.repo,
+            encoding: 'utf8',
+            timeout: 30000,
+            env: baseEnv(f),
+          });
+          expect(recorded.error).toBeUndefined();
+          expect(recorded.status, recorded.stdout + recorded.stderr).toBe(0);
+          expect(recorded.stdout + recorded.stderr).toContain('QUALITY_A_RAN');
+          expect(recorded.stdout + recorded.stderr).toContain('QUALITY_B_RAN');
+          await writeFile(join(f.repo, target), 'export const value = 1;\n');
         }
         await writeFile(join(f.repo, changed), changedBody);
         const result = spawnSync(process.execPath, args, {
