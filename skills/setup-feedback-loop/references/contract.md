@@ -1,6 +1,6 @@
 # setup-feedback-loopの呼出し仕様
 
-[Issue #466](https://github.com/thkt/dotagents/issues/466)の導入操作を、実装と独立テストで照合するための公開仕様です。実装済み・導入済みを示す文書ではありません。内部のファイル分割や依存記録の保存形式は固定しません。
+[Issue #466](https://github.com/thkt/dotagents/issues/466)と[Issue #473](https://github.com/thkt/dotagents/issues/473)の導入操作を、実装と独立テストで照合するための公開仕様です。実装済み・導入済みを示す文書ではありません。内部のファイル分割や依存記録の保存形式は固定しません。
 
 ## 利用例と担当
 
@@ -10,12 +10,16 @@ cantleの導入担当は、通常checkが収集する`test/*.test.ts`と`evaluat
 
 導入担当がツールの選択、設定の意味、通常check・CIへの接続を判断します。スクリプトは構成の取得、固定依存の導入、必要な補助ファイルの配置とコマンドの接続を担います。package scriptsで表せる実行順序はそのまま使い、独自のタスクグラフや修正ループを追加しません。テスト・fixture・検証接続の作成と変更は独立テスト担当が行います。
 
-以下のコマンドは、信頼する共有ハーネスの`/absolute/harness/scripts/feedback-loop/setup.ts`を固定Bunで呼びます。`--repo`は対象Git checkoutの絶対パスです。対象repoの日常実行に、この共有ハーネスのパスやBunの追加導入を要求しません。
+以下のコマンドは、スキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`をBun 1.4.4で呼びます。`${CLAUDE_SKILL_DIR}`はSKILL.mdのあるディレクトリの絶対パスです。展開されない環境では、そのパスへ書き換えて実行します。`--repo`は対象Git checkoutの絶対パスです。CLIはdotagentsのcheckout・git履歴・node_modulesを参照しません。別の版のBunやNode.jsで起動すると、版の不一致を示して非ゼロ終了します。対象repoの日常実行に、スキルのパスやBunの追加導入を要求しません。
+
+`setup.mjs`と、配置する`runtime.mjs`・`record-modules.ts`は、[thkt/dotagents](https://github.com/thkt/dotagents)の`scripts/feedback-loop`を正本として生成したものです。生成元のファイルとSHA-256は同じディレクトリの`source.json`にあります。直接編集せず、正本を変更して`bun run build:feedback-loop`で再生成します。
+
+スキルには2つの版があります。dotagentsの私用版は、対象repoに`.dotagents.json`があればimplementの`feedbackCheck`へ接続します。Claude Codeのプラグイン版は`.dotagents.json`を読まず書きません。それ以外の入力・出力・失敗条件は同じです。
 
 ## 構成の調査
 
 ```sh
-bun /absolute/harness/scripts/feedback-loop/setup.ts inspect --repo /absolute/project
+bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs inspect --repo /absolute/project
 ```
 
 ファイルや依存を変更せず、package manager、runtimeの指定、package scripts、既存のlint・formatter・型検査・fallow・test runner、`.dotagents.json`、CI定義の所在をJSONで標準出力へ返します。未導入・不明な項目を区別し、不明なツールを採用済みと推測しません。取得不能や不正なpackage設定は非ゼロ終了と診断で返します。JSONの付加情報は拡張できますが、`packageManager`、`scripts`、`devDependencies`、`configFiles`を公開項目とします。
@@ -29,7 +33,7 @@ bun /absolute/harness/scripts/feedback-loop/setup.ts inspect --repo /absolute/pr
 ## 不足依存のインストール
 
 ```sh
-bun /absolute/harness/scripts/feedback-loop/setup.ts install --repo /absolute/project --package oxlint@1.89.0 --package oxfmt@0.74.0 --package fallow@3.34.1
+bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --package oxlint@1.89.0 --package oxfmt@0.74.0 --package fallow@3.34.1
 ```
 
 版は呼出し側が対応機能と配布元を確認して指定します。例は操作の形を示すもので、全repoへの採用指定ではありません。初版の自動導入対象は`oxlint`・`oxfmt`・`fallow`とし、既存ツールのプラグインや型検査の追加は、スキルから対象repoの通常の依存管理で行います。
@@ -124,16 +128,16 @@ cantleのPython変更は本体側の`test/runtime.test.ts`にも関係するた�
 ## ファイルの配置と接続
 
 ```sh
-bun /absolute/harness/scripts/feedback-loop/setup.ts apply --repo /absolute/project --feedback-command 'bun run lint:feedback && bun run format:feedback && bun run check:unused && bun run test:affected'
+bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedback-command 'bun run lint:feedback && bun run format:feedback && bun run check:unused && bun run test:affected'
 ```
 
-`apply`は`.feedback-loop.json`と既存の`.dotagents.json`を読み、対象repoで実行できる補助ファイルを`scripts/feedback-loop/`へ配置します。必要なBun記録器は共有実装を再利用して配置します。導入元のrepo・版と配置ファイルを確認できる情報を添えます。保存場所や記録形式を利用者が管理する仕組みにはしません。
+`apply`は`.feedback-loop.json`を読み、対象repoで実行できる補助ファイルを`scripts/feedback-loop/`へ配置します。Bunのrunnerでは、スキルに同梱した記録器も配置します。`scripts/feedback-loop/generated.json`には、生成元・生成元ファイルのSHA-256・実行したBunの版と、配置ファイルのSHA-256を記録します。保存場所や記録形式を利用者が管理する仕組みにはしません。
 
-`package.json`へ`test:affected`、`check:classification`、`check:feedback`を接続し、`.dotagents.json.feedbackCheck`を対象package managerの`check:feedback`呼出しへ設定します。`check:feedback`の値は`--feedback-command`で指定した診断用コマンドです。自動修正用の`format`・`lint:fix`は別の明示操作として用意します。全体checkとCIは導入担当が既存構成へ接続し、このコマンドが任意のCI定義を推測で書き換えることはしません。
+`package.json`へ`test:affected`、`check:classification`、`check:feedback`を接続します。私用版は、`.dotagents.json`がある場合だけ`.dotagents.json.feedbackCheck`を対象package managerの`check:feedback`呼出しへ設定します。ない場合は接続を省いたことを表示し、終了0にします。プラグイン版は`.dotagents.json`の有無によらず、そのファイルを読まず書きません。標準出力のJSONの`feedbackCheck`は、接続した場合だけ値を持ち、それ以外は`null`です。`check:feedback`の値は`--feedback-command`で指定した診断用コマンドです。自動修正用の`format`・`lint:fix`は別の明示操作として用意します。全体checkとCIは導入担当が既存構成へ接続し、このコマンドが任意のCI定義を推測で書き換えることはしません。
 
 上例では、型検査は`test:affected`の`prepare`に含まれます。`check:feedback`へ同じ型検査を別途追加しません。準備処理が不要なrepoでは`prepare: []`を使い、必要な型検査はそのrepoの既存構成に合わせて接続します。
 
-Bun内蔵の型検査を採用する場合は、[接続手順](../../skills/setup-feedback-loop/references/typecheck.md)に従い、固定Bunの機能・対応TypeScript版と既存の検査範囲を確認します。`bun run check`は全体check、`bun check --no-script -p tsconfig.json`は指定プロジェクトの型検査です。同名のpackage scriptを起動しないよう、内蔵型検査には`--no-script`を付けます。変更ファイルや関連テストの集合へ型検査を狭めません。
+Bun内蔵の型検査を採用する場合は、[接続手順](typecheck.md)に従い、固定Bunの機能・対応TypeScript版と既存の検査範囲を確認します。`bun run check`は全体check、`bun check --no-script -p tsconfig.json`は指定プロジェクトの型検査です。同名のpackage scriptを起動しないよう、内蔵型検査には`--no-script`を付けます。変更ファイルや関連テストの集合へ型検査を狭めません。
 
 cantleでBun型検査を使う反復用の準備入口を用意した場合は、`prepare`を`["bun", "--no-env-file", "scripts/test.ts", "--prepare-feedback"]`へ切り替えます。このフラグは導入先へ追加する接続例です。依存版の照合・既存tsconfigの型検査・Python構文検査を一度だけ実行し、通常checkの準備入口と既存の型検査は保ちます。複数のtsconfig、参照先、型生成・codegen等を含め、接続前後の範囲を確認します。型エラーでテスト開始前に失敗し、修正後に同じ入口から復帰することを導入完了条件とします。
 
@@ -152,7 +156,7 @@ npmプロジェクトでは同じscript名を`npm run`で呼びます。`check:c
 
 標準出力のJSONには、従来の`all`・`quality`・`assurance`に加えて`review`を出します。`review.files`は収集した各ファイルの`path`・`class`・現在の`sha256`・`status`を持ちます。`review.complete`は、全ファイルが`reviewed`で`orphans`が空の場合だけ`true`です。日常の`check:classification`は、記録ファイル自体に誤りがなければ、`stale`・`unreviewed`・`mismatch`・`orphans`が残っても終了0とし、その件数とpathを標準エラーへ表示します。新規・未確認のテストをqualityとして実行し続け、テストの追加・削除・改名・分類変更で全体checkやCIを止めないためです。
 
-導入時の全件分類の完了は`check:classification -- --complete`で確認します。`reviewed`以外のファイルか`orphans`が1件でもあれば、該当pathを標準エラーへ表示して非ゼロ終了します。標準出力には同じJSONを出すため、記録の転記に使えます。この検査の成功は、全ファイルに現在の版の確認記録があることだけを示します。記録した理由の意味が正しいことは機械検査では判定せず、導入手順の[分類の独立評価](../../skills/setup-feedback-loop/references/runners.md#分類の独立評価)で確認します。
+導入時の全件分類の完了は`check:classification -- --complete`で確認します。`reviewed`以外のファイルか`orphans`が1件でもあれば、該当pathを標準エラーへ表示して非ゼロ終了します。標準出力には同じJSONを出すため、記録の転記に使えます。この検査の成功は、全ファイルに現在の版の確認記録があることだけを示します。記録した理由の意味が正しいことは機械検査では判定せず、導入手順の[分類の独立評価](runners.md#分類の独立評価)で確認します。
 
 `test:affected`はGitの変更と設定された関連選択からqualityを実行します。変更なし・候補0件・選択不能・実行失敗・実行成功を区別し、候補数・選択数・全件へ広げた理由を表示します。比較元が取得できない等の選択不能を、実行成功へ読み替えません。担当AIは変更したassuranceや影響先が明らかなassuranceを直接実行し、影響を判断できなければ全体checkへ広げます。部分実行の成功は全体checkの成功ではありません。
 
@@ -184,4 +188,4 @@ Bunのテストプロセスには`--no-orphans`も付け、leader・workerと出
 
 関連選択の導入確認では、設定変更と通常ソース変更を分けます。隔離したcheckoutで導入後の版を比較元にし、通常ソースだけの変更に必要なqualityが実行され、無関係なqualityとassuranceが除外されることを確認します。標準importと補完依存の両方を確かめ、記録なし・古い記録・未知の入力では全qualityへ広がることも維持します。`src/**`等の一括指定で常に全qualityを実行するだけでは、絞り込みの導入完了とは扱いません。
 
-`.dotagents.json`の更新を含む導入は、対象repoのimplementを開始する前に行います。実行中のrunが使う設定・旧run・保護規則を変更せず、更新後の設定を新しいrunで固定します。導入作業の独立テスト・独立評価は省略しません。実装担当へコマンドが渡る接続確認と、実モデルが実際にそのコマンドを使った観測は区別します。
+私用版で`.dotagents.json`の更新を含む導入は、対象repoのimplementを開始する前に行います。実行中のrunが使う設定・旧run・保護規則を変更せず、更新後の設定を新しいrunで固定します。導入作業の独立テスト・独立評価は省略しません。実装担当へコマンドが渡る接続確認と、実モデルが実際にそのコマンドを使った観測は区別します。

@@ -1,6 +1,6 @@
 # ツールの選定と静的検査
 
-導入版の公開CLI・設定schema・必要機能を確認してから採用する。固定版の例は[呼出し仕様](../../../docs/wiki/setup-feedback-loop-contract.md)にあるが、全repoへの採用指定ではない。
+導入版の公開CLI・設定schema・必要機能を確認してから採用する。固定版の例は[呼出し仕様](contract.md)にあるが、全repoへの採用指定ではない。
 
 | 既存構成 | 選び方 |
 | --- | --- |
@@ -11,7 +11,7 @@
 | 型検査 | 既存tsconfig・生成物・プロジェクト単位を保つ。Bunでは[内蔵型検査](typecheck.md)の機能・互換性を確認して接続する。準備に含まれる型検査をfeedbackで重ねない |
 | fallow | entry・framework・生成物・動的利用を専用設定へ反映する。未使用コード・依存・循環の採否と解析完了を確認する |
 
-依存は対象repoのdevDependenciesへ固定版で置く。共有ハーネスのnode_modules、グローバルツール、毎回取得する最新版に日常実行を依存させない。runtime付属機能にはruntimeの固定を使う。npmは既存package-lock、Bunは既存Bun lockを更新し、通常の固定依存インストールから起動を確認する。
+依存は対象repoのdevDependenciesへ固定版で置く。スキルやハーネスのnode_modules、グローバルツール、毎回取得する最新版に日常実行を依存させない。runtime付属機能にはruntimeの固定を使う。npmは既存package-lock、Bunは既存Bun lockを更新し、通常の固定依存インストールから起動を確認する。
 
 formatは対応する変更ファイルへ書込みなしで実行する。`git diff --name-only --no-renames -z`と`git ls-files --others --exclude-standard -z`等を使い、分岐点以降のcommit・staged・unstaged・未追跡を含める。削除ファイルは整形対象に渡さず、改名後の既存パスを検査する。空白・非ASCIIのパスはargvで渡し、空集合をformatterの全件指定と誤認しない。
 
