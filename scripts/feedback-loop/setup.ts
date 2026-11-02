@@ -3,7 +3,11 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { classification, object, readConfig } from './config.ts';
+import { classification, object, packageManagerToken, readConfig } from './config.ts';
+
+// build.tsが生成時にdefineで埋め込みます。このファイルは生成したsetup.mjsから実行します。
+declare const dotagentsConnection: boolean;
+declare const requiredBun: string;
 
 function stringMap(value: unknown): Record<string, string> {
   object(value);
@@ -115,6 +119,71 @@ function install(root: string, inspected: ReturnType<typeof inspect>, packages: 
   );
 }
 
+// プラグイン版は生成時にこの接続を無効にし、.dotagents.jsonを読みません。
+function readDotagents(root: string) {
+  const target = join(root, '.dotagents.json');
+  if (!dotagentsConnection || !existsSync(target)) {
+    return undefined;
+  }
+  const dotagents: unknown = JSON.parse(readFileSync(target, 'utf8'));
+  object(dotagents);
+  return dotagents;
+}
+
+/** 既存のfeedbackCheckと衝突しないことを確かめ、書き換えが必要な場合だけ新しい内容を返す。 */
+function connectFeedbackCheck(dotagents: Record<string, unknown>, feedbackCheck: string[]) {
+  const current = dotagents.feedbackCheck;
+  assert(
+    current === undefined ||
+      JSON.stringify(current) === JSON.stringify(feedbackCheck) ||
+      current === feedbackCheck.join(' '),
+    '既存feedbackCheckと衝突しています',
+  );
+  return current === undefined
+    ? `${JSON.stringify({ ...dotagents, feedbackCheck }, null, 2)}\n`
+    : undefined;
+}
+
+/** スキルに同梱した生成物から、対象repoへ置くファイルを組み立てる。 */
+function generatedFiles(config: ReturnType<typeof readConfig>, packageManager: 'bun' | 'npm') {
+  const generated = new Map([
+    [
+      'scripts/feedback-loop/runtime.mjs',
+      readFileSync(join(import.meta.dir, 'runtime.mjs'), 'utf8').replaceAll(
+        packageManagerToken,
+        packageManager,
+      ),
+    ],
+  ]);
+  if (config.runner === 'bun') {
+    generated.set(
+      'scripts/feedback-loop/record-modules.ts',
+      readFileSync(join(import.meta.dir, 'record-modules.ts'), 'utf8'),
+    );
+  }
+  const source: unknown = JSON.parse(readFileSync(join(import.meta.dir, 'source.json'), 'utf8'));
+  object(source);
+  generated.set(
+    'scripts/feedback-loop/generated.json',
+    JSON.stringify(
+      {
+        generator: source.generator,
+        bun: Bun.version,
+        sources: source.sources,
+        files: Object.fromEntries(
+          [...generated].map(([path, body]) => [
+            path,
+            createHash('sha256').update(body).digest('hex'),
+          ]),
+        ),
+      },
+      null,
+      2,
+    ) + '\n',
+  );
+  return generated;
+}
+
 async function apply(
   root: string,
   inspected: ReturnType<typeof inspect>,
@@ -135,10 +204,8 @@ async function apply(
   ]
     .map((arg) => `'${arg.replaceAll("'", "'\\''")}'`)
     .join(' ');
-  await classification(root, config, join(import.meta.dir, 'runtime.ts'), retryCommand);
-  const target = join(root, '.dotagents.json');
-  const dotagents: unknown = JSON.parse(readFileSync(target, 'utf8'));
-  object(dotagents);
+  await classification(root, config, join(import.meta.dir, 'runtime.mjs'), retryCommand);
+  const dotagents = readDotagents(root);
   let runtime = { bun: 'bun', vitest: 'node' }[config.runner];
   if (config.bunArgs.includes('--no-env-file')) {
     runtime += ' --no-env-file';
@@ -155,87 +222,9 @@ async function apply(
     );
   }
   const feedbackCheck = [inspected.packageManager, 'run', 'check:feedback'];
-  assert(
-    dotagents.feedbackCheck === undefined ||
-      JSON.stringify(dotagents.feedbackCheck) === JSON.stringify(feedbackCheck) ||
-      dotagents.feedbackCheck === feedbackCheck.join(' '),
-    '既存feedbackCheckと衝突しています',
-  );
-  const cwd = process.cwd();
-  let build;
-  try {
-    process.chdir(resolve(import.meta.dir, '../..'));
-    build = await Bun.build({
-      entrypoints: [join(import.meta.dir, 'runtime.ts')],
-      target: 'node',
-      format: 'esm',
-      minify: false,
-      define: { targetPackageManager: JSON.stringify(inspected.packageManager) },
-    });
-  } finally {
-    process.chdir(cwd);
-  }
-  assert(
-    build.success,
-    `補助ファイルの生成に失敗しました: ${build.logs.map((log) => log.message).join('\n')}`,
-  );
-  assert(build.outputs[0]);
-  const generated = new Map([
-    [
-      'scripts/feedback-loop/runtime.mjs',
-      '// 生成元: thkt/dotagents scripts/feedback-loop/setup.ts\n' +
-        (await build.outputs[0].text()),
-    ],
-  ]);
-  if (config.runner === 'bun') {
-    generated.set(
-      'scripts/feedback-loop/record-modules.ts',
-      readFileSync(join(import.meta.dir, '../test-runtime/record-modules.ts'), 'utf8'),
-    );
-  }
-  const source = spawnSync('git', ['rev-parse', 'HEAD'], {
-    cwd: resolve(import.meta.dir, '../..'),
-    encoding: 'utf8',
-  });
-  assert(source.status === 0, '導入元の版を取得できません');
-  generated.set(
-    'scripts/feedback-loop/generated.json',
-    JSON.stringify(
-      {
-        generator: 'thkt/dotagents/scripts/feedback-loop/setup.ts',
-        commit: source.stdout.trim(),
-        bun: Bun.version,
-        sources: Object.fromEntries(
-          [
-            'setup.ts',
-            'config.ts',
-            'command.ts',
-            'runtime.ts',
-            'bun-report.ts',
-            'vitest.ts',
-            '../test-runtime/affected.ts',
-            '../test-runtime/affected-records.ts',
-            '../shared/values.ts',
-          ].map((path) => [
-            path,
-            createHash('sha256')
-              .update(readFileSync(join(import.meta.dir, path)))
-              .digest('hex'),
-          ]),
-        ),
-        files: Object.fromEntries(
-          [...generated].map(([path, body]) => [
-            path,
-            createHash('sha256').update(body).digest('hex'),
-          ]),
-        ),
-      },
-      null,
-      2,
-    ) + '\n',
-  );
+  const nextDotagents = dotagents && connectFeedbackCheck(dotagents, feedbackCheck);
   const updates = new Map<string, string>();
-  for (const [path, body] of generated) {
+  for (const [path, body] of generatedFiles(config, inspected.packageManager)) {
     if (existsSync(join(root, path))) {
       assert(
         readFileSync(join(root, path), 'utf8') === body,
@@ -246,25 +235,38 @@ async function apply(
     }
   }
   const nextPackage = { ...inspected.pkg, scripts: { ...inspected.scripts, ...commands } };
-  const nextDotagents = { ...dotagents, feedbackCheck: dotagents.feedbackCheck ?? feedbackCheck };
   if (JSON.stringify(nextPackage) !== JSON.stringify(inspected.pkg)) {
     updates.set('package.json', `${JSON.stringify(nextPackage, null, 2)}\n`);
   }
-  if (JSON.stringify(nextDotagents) !== JSON.stringify(dotagents)) {
-    updates.set('.dotagents.json', `${JSON.stringify(nextDotagents, null, 2)}\n`);
+  if (nextDotagents) {
+    updates.set('.dotagents.json', nextDotagents);
   }
-  console.log(JSON.stringify({ scripts: commands, feedbackCheck }));
+  console.log(
+    JSON.stringify({ scripts: commands, feedbackCheck: dotagents ? feedbackCheck : null }),
+  );
   for (const [path, body] of updates) {
     console.log(`配置: ${path}`);
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), body);
   }
-  console.log(
-    '補助ファイルとfeedbackCheckを接続しました。静的検査・通常check・CIの接続と動作確認は導入担当が完了してください',
-  );
+  console.log(placedMessage(dotagents !== undefined));
+  console.log('静的検査・通常check・CIの接続と動作確認は導入担当が完了してください');
+}
+
+function placedMessage(connected: boolean) {
+  if (connected) {
+    return '補助ファイルを配置し、.dotagents.jsonのfeedbackCheckを接続しました';
+  }
+  return dotagentsConnection
+    ? '補助ファイルを配置しました。.dotagents.jsonがないため、feedbackCheckの接続を省きました'
+    : '補助ファイルを配置しました';
 }
 
 try {
+  assert(
+    process.versions.bun === requiredBun,
+    `Bun ${requiredBun}で起動してください（現在: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}）`,
+  );
   const [operation, ...args] = process.argv.slice(2);
   let root: string | undefined, feedback: string | undefined;
   const packages: string[] = [];

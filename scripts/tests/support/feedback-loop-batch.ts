@@ -1,12 +1,13 @@
 import { expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { baseEnv, fixture, git, header, recordFile } from './runner-affected.ts';
+import { skillSetup } from './feedback-loop-skill.ts';
 
 export { baseEnv, fixture, header, recordFile };
 export type Fixture = Parameters<Parameters<typeof fixture>[1]>[0];
-export const setup = resolve(import.meta.dir, '../../feedback-loop/setup.ts');
+export const setup = await skillSetup();
 export const config = {
   version: 1,
   runner: 'bun',

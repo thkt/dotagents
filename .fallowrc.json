@@ -6,6 +6,7 @@
     "scripts/lint/fallow.ts",
     "scripts/feedback-loop/setup.ts",
     "scripts/feedback-loop/runtime.ts",
+    "scripts/feedback-loop/build.ts",
     "scripts/implement/codex-actor.ts",
     "scripts/implement/development.ts",
     "scripts/implement/publish.ts",
@@ -25,7 +26,9 @@
   ],
   "includeEntryExports": true,
   "ignorePatterns": [
-    "output/**"
+    "output/**",
+    "skills/setup-feedback-loop/scripts/**",
+    ".claude/plugins/**"
   ],
   "ignoreDependencies": [
     "@textlint-rule/textlint-rule-no-invalid-control-character",

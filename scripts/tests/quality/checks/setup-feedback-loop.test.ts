@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { isRecord } from '../../../shared/values.ts';
 import { baseEnv, fixture, git, header } from '../../support/runner-affected.ts';
+import { skillSetup } from '../../support/feedback-loop-skill.ts';
 
-// Issue #466とdocs/wiki/setup-feedback-loop-contract.mdの公開入口を使う。
+// Issue #466・#473とskills/setup-feedback-loop/references/contract.mdの公開入口を使う。
 // 内部export・記録形式・生成ファイルの分割は期待値にしない。
-const setup = resolve(import.meta.dir, '../../../feedback-loop/setup.ts');
+const setup = await skillSetup();
 type Fixture = Parameters<Parameters<typeof fixture>[1]>[0];
 
 function run(f: Fixture, args: string[], env: NodeJS.ProcessEnv = {}) {
