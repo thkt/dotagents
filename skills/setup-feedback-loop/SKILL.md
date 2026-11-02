@@ -33,6 +33,6 @@ description: JavaScript／TypeScriptのrepoへ静的検査と関連qualityテス
 
 依頼されたrepoの採用版と差分を導入直前に再確認し、そのrepoで検証を完了する。今回のIssue #466の初回展開では、共有の独立検証用repo、cantle、kaiの順に確認する。cantleの固定Bun・型依存照合・型検査・Python構文検査・直下テスト収集と、kaiの既存npm・ESLint・Prettier・Vitest・環境変数・codegen・DB準備・coverageを保つ。この2repoへの展開順を、別repoへの導入依頼には適用しない。DB利用だけでassuranceへ除外しない。複数repoを扱うときは、未完了のrepoを導入完了と報告しない。
 
-実装・修正・独立テスト担当への`feedbackCheck`伝達は既存implementを使う。模擬コマンドの接続成功と、実モデルがコマンドを選んだ観測を区別する。提出前・各修正後のホスト全体check、独立評価、人の承認・マージを維持する。通常check外の受入検証は[ホスト検証](../../scripts/README.md#ホスト検証後の再評価)へ渡す。
+実装・修正・独立テスト担当への`feedbackCheck`伝達は既存implementを使う。模擬コマンドの接続成功と、実モデルがコマンドを選んだ観測を区別する。提出前・各修正後のホスト全体check、独立評価、人の承認・マージを維持する。通常check外の受入検証は[ホスト検証](https://github.com/thkt/dotagents/blob/main/scripts/README.md#ホスト検証後の再評価)へ渡す。
 
-yomiyasuが利用できる場合は、変更文書に[yomiyasuと意味確認](../references/yomiyasu.md)を適用し、同じ差分の独立評価に含める。利用できない場合は省き、原資料との意味の照合を同じ独立評価に含める。採用ツール・必須／参考の検査・実行範囲・対象commit・残る制約を既存findings・PR説明へ残し、別の監査台帳を作らない。非公開コード・内部ログを公開Issueへ転記しない。
+yomiyasuが利用できる場合は、変更文書に[yomiyasuと意味確認](https://github.com/thkt/dotagents/blob/main/skills/references/yomiyasu.md)を適用し、同じ差分の独立評価に含める。利用できない場合は省き、原資料との意味の照合を同じ独立評価に含める。採用ツール・必須／参考の検査・実行範囲・対象commit・残る制約を既存findings・PR説明へ残し、別の監査台帳を作らない。非公開コード・内部ログを公開Issueへ転記しない。
