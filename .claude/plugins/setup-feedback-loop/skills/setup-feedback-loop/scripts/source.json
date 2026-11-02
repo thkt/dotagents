@@ -2,7 +2,7 @@
   "generator": "thkt/dotagents scripts/feedback-loop/build.ts",
   "bun": "1.4.4",
   "sources": {
-    "scripts/feedback-loop/setup.ts": "4fec2bae025e93241e61d0e7b04fcf50e6e44c1303f7a8cb8f97c24c9b23b93e",
+    "scripts/feedback-loop/setup.ts": "34574ea0fd9a06fadcf4dac8ae8a6d20a74a6729fdbb315115db07451d5e870e",
     "scripts/feedback-loop/config.ts": "0d109db66558d827e447d4680f878818ca93a65463416420d8f5a982a327c058",
     "scripts/feedback-loop/command.ts": "3b0624404229d4e18b47ea2d611cd41aa03eb40ed5ab2bfa6a8e0d5d01729edf",
     "scripts/feedback-loop/runtime.ts": "b2dff8001e32e9e56832e228d6cc2c2fe840912908218dbd456178aa56431f0b",

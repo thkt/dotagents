@@ -21,8 +21,8 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
 4. `apply`へ採用した診断用コマンドを渡す。生成物とpackage scriptsの差分を確認する。既存の同名コマンドや生成物との衝突は上書きせず、未完了箇所として報告する。設定・補助ファイルの更新を再実行で自動採用しない。
 5. 収集集合の全テストファイルを読み、[全テストの分類と確認記録](references/runners.md#全テストの分類と確認記録)でquality／assuranceを判断する。ファイル名・件数・キーワードの一致だけで確認済みとしない。assuranceは`.feedback-loop.json`へ理由付きで指定し、全ファイルの分類・根拠・確認したファイル内容のSHA-256を`.feedback-loop-review.json`へ記録する。`check:classification -- --complete`の成功は記録が揃ったことだけを示す。分類の意味は[分類の独立評価](references/runners.md#分類の独立評価)で、分類に関わっていないsubagentか新しいセッションに照合させる。そのacceptと`--complete`の成功の両方を全件分類の完了条件とする。
 6. 採用した必須検査を既存の全体checkとCIへ追加する。既存のcoverage・build・準備・全テストを保つ。`test:*`等の一括実行へ`test:affected`が混入しないよう、従来の明示集合に接続し直す。
-7. [Claude Codeとの接続](references/claude-code.md)で、反復中に`check:feedback`を使う指示を対象repoのCLAUDE.mdかhookへ用意する。
-8. `check:classification`、`test:affected`、`check:feedback`と全体checkを確認する。設定変更の影響を除いた通常のソース変更で、必要なqualityが実行され、無関係なqualityとassuranceが除外されることを確認する。Bunでは標準の一括選択と補完依存、`--isolate`と採用した並列数での全qualityの互換性を検証し、[ファイル別の完了・失敗・取消の条件](references/runners.md)も確認する。採用した各検査は正常例、小さい既知の違反、修正後の再検査で診断と非ゼロ終了を確かめ、違反を残さない。型検査は[検査範囲と失敗・復帰の確認](references/typecheck.md#接続後に確認する)も行う。依存導入・配置を再実行し、クリーンなcheckoutから固定依存だけで再現することも確認する。
+7. `check:classification`、`test:affected`、`check:feedback`と全体checkを確認する。設定変更の影響を除いた通常のソース変更で、必要なqualityが実行され、無関係なqualityとassuranceが除外されることを確認する。Bunでは標準の一括選択と補完依存、`--isolate`と採用した並列数での全qualityの互換性を検証し、[ファイル別の完了・失敗・取消の条件](references/runners.md)も確認する。採用した各検査は正常例、小さい既知の違反、修正後の再検査で診断と非ゼロ終了を確かめ、違反を残さない。型検査は[検査範囲と失敗・復帰の確認](references/typecheck.md#接続後に確認する)も行う。依存導入・配置を再実行し、クリーンなcheckoutから固定依存だけで再現することも確認する。
+8. [Claude Codeとの接続](references/claude-code.md)で、反復中に`check:feedback`を使う指示を対象repoのCLAUDE.mdかhookへ用意する。
 
 ## 完了と引き継ぎ
 

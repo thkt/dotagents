@@ -49,7 +49,7 @@ cd "$(printf '%s' "$input" | jq -r '.cwd')" || exit 0
 bun run check:feedback >&2 || exit 2
 ```
 
-終了コード2は停止を取り消し、stderrを修正の理由としてClaude Codeへ渡す。`stop_hook_active`が`true`のときに終了0にして、同じ失敗による繰返しを防ぐ。変更の有無の判定は、分岐点以降のcommitを含めるか等を対象repoに合わせる。この例は`jq`を使う。スクリプトとhookの設定は対象repoの変更としてレビューを受ける。
+終了コード2は停止を取り消し、stderrを修正の理由としてClaude Codeへ渡す。`stop_hook_active`が`true`のときに終了0にして、同じ失敗による繰返しを防ぐ。そのため、修正後の再実行はhookでは保証されない。修正後に`check:feedback`を再実行させるのはCLAUDE.mdへの指示であり、hookを提出前の判定に使わない。変更の有無の判定は、分岐点以降のcommitを含めるか等を対象repoに合わせる。この例は`jq`を使う。スクリプトとhookの設定は対象repoの変更としてレビューを受ける。
 
 hookのイベント名・入力・終了コードの意味は、利用するClaude Codeの版の[hooksの説明](https://code.claude.com/docs/en/hooks#stop-input)へ照合する。`.claude/settings.local.json`は個人用のため、チームで共有する接続には使わない。
 

@@ -89,6 +89,16 @@ test('Bun 1.4.4以外で起動すると、版の不一致を示してrepoを変�
   });
 });
 
+test('旧入口の正本setup.tsを直接実行すると、生成したCLIへの移行を示してrepoを変更しない', async () => {
+  const legacy = join(import.meta.dir, '../../../feedback-loop/setup.ts');
+  await fixture(withoutDotagents, async (f) => {
+    const result = run(f, [legacy, 'inspect', '--repo', f.repo]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('skills/setup-feedback-loop/scripts/setup.mjs');
+    expect(existsSync(join(f.repo, 'scripts/feedback-loop'))).toBe(false);
+  });
+});
+
 test('生成先が正本と食い違うと、checkは書き換えずに食い違いと余分なファイルを返す', async () => {
   const root = await mkdtemp(join(tmpdir(), 'feedback-loop-generated-'));
   try {
