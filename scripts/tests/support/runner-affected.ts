@@ -58,6 +58,10 @@ export function readRecordFile(repo: string): Record<string, string[]> {
 export function baseEnv(fixture: Fixture): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, CI: 'true', TMPDIR: fixture.reports };
   delete env.BUN_OPTIONS;
+  // Bun 1.4.4はこれらがあると成功した `(pass)` 行を省くため、外側のAIエージェント環境を持ち込みません。
+  for (const key of ['CLAUDECODE', 'AGENT', 'REPL_ID']) {
+    delete env[key];
+  }
   for (const key of Object.keys(env)) {
     if (key.startsWith('DOTAGENTS_RECORD_')) {
       delete env[key];
