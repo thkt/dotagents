@@ -15,9 +15,9 @@ CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`である�
 
 ## 導入する
 
-1. `inspect --repo /absolute/project`で既存構成を調べる。package manager・runtime・lockfile、lint・formatter・型検査・参照解析、通常テストの収集と準備、全体check・coverage・build・CIを実際のコードへ照合する。不明な項目は採用済みと推測しない。
+1. `inspect --repo /absolute/project`で既存構成を調べる。package manager・runtime・lockfile、lint・formatter・型検査・参照解析、通常テストの収集と準備、全体check・coverage・build・CIを実際のコードへ照合する。不明な項目は採用済みと推測しない。`inspect`の`base`を`.feedback-loop.json`の`base`の候補にし、対象repoの既定ブランチと照合する。`base`が`null`なら、既定ブランチを利用者に確かめて指定する。`origin/main`を前提にしない。
 2. [ツール選定](references/tools.md)で既存ツールを優先し、不足分だけを固定版で導入する。初期候補はOxlint・Oxfmt・fallowであり、一律の採用指定ではない。`install`に確認したバージョンを渡し、devDependenciesとlockfileの差分を確認する。Bunプロジェクトの型検査は[内蔵型検査の接続手順](references/typecheck.md)で`bun check --no-script`を候補にし、固定版の機能・既存範囲・互換性を確認して採用する。
-3. [分類とrunnerの接続](references/runners.md)で通常checkの収集集合を保ち、`.feedback-loop.json`、静的検査の専用設定、診断用package scriptsを用意する。
+3. [分類とrunnerの接続](references/runners.md)で通常checkの収集集合を保ち、`.feedback-loop.json`、静的検査の専用設定、診断用package scriptsを用意する。Bunの`collect`は[Bunのテスト一覧](references/collect.md)で用意し、通常checkのJUnitと照合してファイル名まで一致させる。
 4. `apply`へ採用した診断用コマンドを渡す。生成物とpackage scriptsの差分を確認する。既存の同名コマンドや生成物との衝突は上書きせず、未完了箇所として報告する。設定・補助ファイルの更新を再実行で自動採用しない。
 5. 収集集合の全テストファイルを読み、[全テストの分類と確認記録](references/runners.md#全テストの分類と確認記録)でquality／assuranceを判断する。ファイル名・件数・キーワードの一致だけで確認済みとしない。assuranceは`.feedback-loop.json`へ理由付きで指定し、全ファイルの分類・根拠・確認したファイル内容のSHA-256を`.feedback-loop-review.json`へ記録する。`check:classification -- --complete`の成功は記録が揃ったことだけを示す。分類の意味は[分類の独立評価](references/runners.md#分類の独立評価)で、分類に関わっていないsubagentか新しいセッションに照合させる。そのacceptと`--complete`の成功の両方を全件分類の完了条件とする。
 6. 採用した必須検査を既存の全体checkとCIへ追加する。既存のcoverage・build・準備・全テストを保つ。`test:*`等の一括実行へ`test:affected`が混入しないよう、従来の明示集合に接続し直す。

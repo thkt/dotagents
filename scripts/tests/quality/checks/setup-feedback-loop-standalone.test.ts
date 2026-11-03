@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { sync } from '../../../feedback-loop/build.ts';
 import { skillDir } from '../../support/feedback-loop-skill.ts';
 import { files, fixture, run } from '../../support/feedback-loop-batch.ts';
+import { git } from '../../support/runner-affected.ts';
 
 // Issue #473: スキルはdotagentsのcheckoutなしで動き、.dotagents.jsonの扱いだけが版で異なる。
 const variants = ['private', 'plugin'] as const;
@@ -87,6 +88,101 @@ test('Bun 1.4.4以外で起動すると、版の不一致を示してrepoを変�
     expect(result.stderr).toContain('Bun 1.4.4で起動してください（現在: Node.js');
     expect(existsSync(join(f.repo, 'scripts/feedback-loop'))).toBe(false);
   });
+});
+
+test('--helpは操作と引数の一覧を表示して終了0になり、repoを要求しない', async () => {
+  for (const variant of variants) {
+    const setup = join(await skillDir(variant), 'scripts/setup.mjs');
+    for (const args of [['--help'], ['-h'], ['apply', '--help']]) {
+      const result = spawnSync(process.execPath, [setup, ...args], { encoding: 'utf8' });
+      expect(result.status, `${variant} ${args.join(' ')}\n${result.stderr}`).toBe(0);
+      for (const word of [
+        'inspect',
+        'install',
+        'apply',
+        '--repo',
+        '--package',
+        '--feedback-command',
+      ]) {
+        expect(result.stdout).toContain(word);
+      }
+      expect(result.stderr).toBe('');
+    }
+  }
+});
+
+test('inspectは比較元の候補を既定ブランチから示し、決められなければnullと診断を返す', async () => {
+  const setup = join(await skillDir('plugin'), 'scripts/setup.mjs');
+  await fixture(withoutDotagents, async (f) => {
+    const inspect = (): unknown => {
+      const result = run(f, [setup, 'inspect', '--repo', f.repo]);
+      expect(result.code, result.output).toBe(0);
+      return JSON.parse(result.stdout);
+    };
+    git(f.repo, 'branch', '-m', 'master');
+    expect(inspect()).toMatchObject({ base: 'master', diagnostics: [] });
+    git(f.repo, 'branch', 'main');
+    expect(inspect()).toMatchObject({
+      base: null,
+      diagnostics: [expect.stringContaining('比較元')],
+    });
+    git(f.repo, 'update-ref', 'refs/remotes/origin/trunk', 'HEAD');
+    git(f.repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk');
+    expect(inspect()).toMatchObject({ base: 'origin/trunk', diagnostics: [] });
+  });
+});
+
+test('Bunのテスト一覧の手順は、bun testが実行したファイルと一覧の一致と食い違いを判定できる', async () => {
+  const guide = await readFile(
+    join(import.meta.dir, '../../../../skills/setup-feedback-loop/references/collect.md'),
+    'utf8',
+  );
+  const [list, compare] = [...guide.matchAll(/```ts\n([\s\S]*?)```/g)].map((match) => match[1]);
+  expect(list).toBeDefined();
+  expect(compare).toBeDefined();
+  const passing = "import { test } from 'bun:test'; test('ok', () => {});\n";
+  await fixture(
+    {
+      'package.json': '{"private":true,"type":"module"}\n',
+      'scripts/list-tests.ts': list ?? '',
+      'compare-collect.ts': compare ?? '',
+      'test/a.test.ts': passing,
+      'test/nested/b_spec.ts': passing,
+      'test/helper.ts': 'export const helper = 1;\n',
+      'node_modules/pkg/c.test.ts': passing,
+      'src/d.test.ts': passing,
+    },
+    async (f) => {
+      const report = join(f.reports, 'junit.xml');
+      const executed = run(f, [
+        'test',
+        './test',
+        '--reporter=junit',
+        `--reporter-outfile=${report}`,
+      ]);
+      expect(executed.code, executed.output).toBe(0);
+      const listed = run(f, ['scripts/list-tests.ts', './test']);
+      expect(JSON.parse(listed.stdout)).toEqual(['test/a.test.ts', 'test/nested/b_spec.ts']);
+      const matched = run(f, [
+        'compare-collect.ts',
+        report,
+        process.execPath,
+        'scripts/list-tests.ts',
+        './test',
+      ]);
+      expect(matched.code, matched.output).toBe(0);
+      expect(JSON.parse(matched.stdout)).toEqual({ missing: [], extra: [] });
+      const widened = run(f, [
+        'compare-collect.ts',
+        report,
+        process.execPath,
+        'scripts/list-tests.ts',
+        '.',
+      ]);
+      expect(widened.code).toBe(1);
+      expect(JSON.parse(widened.stdout)).toEqual({ missing: ['src/d.test.ts'], extra: [] });
+    },
+  );
 });
 
 test('旧入口の正本setup.tsを直接実行すると、生成したCLIへの移行を示してrepoを変更しない', async () => {

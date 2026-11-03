@@ -275,6 +275,28 @@ function stringMap(value) {
   }
   return result;
 }
+function gitOutput(root, args) {
+  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  return result.status === 0 ? result.stdout.trim() : undefined;
+}
+function defaultBase(root) {
+  const remoteHead = gitOutput(root, [
+    "symbolic-ref",
+    "--quiet",
+    "--short",
+    "refs/remotes/origin/HEAD"
+  ]);
+  if (remoteHead) {
+    return remoteHead;
+  }
+  for (const prefix of ["refs/remotes/origin/", "refs/heads/"]) {
+    const found = ["main", "master"].filter((name) => gitOutput(root, ["rev-parse", "--verify", "--quiet", `${prefix}${name}`]) !== undefined);
+    if (found.length > 0) {
+      return found.length === 1 ? `${prefix === "refs/heads/" ? "" : "origin/"}${found[0]}` : null;
+    }
+  }
+  return null;
+}
 function inspect(root) {
   const pkg = JSON.parse(readFileSync2(join2(root, "package.json"), "utf8"));
   object(pkg);
@@ -303,15 +325,23 @@ function inspect(root) {
   if (existsSync2(workflow)) {
     configFiles.push(...readdirSync2(workflow).map((name) => `.github/workflows/${name}`));
   }
+  const base = defaultBase(root);
   return {
     packageManager,
+    base,
     scripts,
     devDependencies,
     dependencies,
     configFiles: configFiles.sort(),
     runtime: pkg.engines ?? pkg.packageManager ?? null,
     tools: Object.keys({ ...dependencies, ...devDependencies }).filter((name) => /eslint|prettier|biome|oxlint|oxfmt|fallow|typescript|vitest/.test(name)),
-    diagnostics: packageManager ? [] : ["package manager\u304C\u672A\u6307\u5B9A\u3001\u7AF6\u5408\u3001\u307E\u305F\u306F\u672A\u5BFE\u5FDC\u3067\u3059"],
+    diagnostics: [
+      [packageManager, "package manager\u304C\u672A\u6307\u5B9A\u3001\u7AF6\u5408\u3001\u307E\u305F\u306F\u672A\u5BFE\u5FDC\u3067\u3059"],
+      [
+        base,
+        "\u6BD4\u8F03\u5143\u3092\u6C7A\u3081\u3089\u308C\u307E\u305B\u3093\u3002origin/HEAD\u304C\u306A\u304F\u3001main\u3068master\u304C\u4E21\u65B9\u3042\u308B\u304B\u3001\u3069\u3061\u3089\u3082\u3042\u308A\u307E\u305B\u3093"
+      ]
+    ].filter(([found]) => !found).map(([, message]) => message),
     pkg
   };
 }
@@ -441,6 +471,18 @@ async function apply(root, inspected, feedback) {
   console.log(placedMessage(dotagents !== undefined));
   console.log("\u9759\u7684\u691C\u67FB\u30FB\u901A\u5E38check\u30FBCI\u306E\u63A5\u7D9A\u3068\u52D5\u4F5C\u78BA\u8A8D\u306F\u5C0E\u5165\u62C5\u5F53\u304C\u5B8C\u4E86\u3057\u3066\u304F\u3060\u3055\u3044");
 }
+var usage = `\u4F7F\u3044\u65B9: bun setup.mjs <\u64CD\u4F5C> --repo <Git checkout\u306E\u7D76\u5BFE\u30D1\u30B9> [\u5F15\u6570]
+
+\u64CD\u4F5C:
+  inspect   \u69CB\u6210\u3092\u8ABF\u3079\u3066JSON\u3067\u8868\u793A\u3057\u307E\u3059\u3002\u30D5\u30A1\u30A4\u30EB\u306F\u5909\u66F4\u3057\u307E\u305B\u3093
+  install   \u4E0D\u8DB3\u3059\u308B\u56FA\u5B9A\u7248\u306E\u4F9D\u5B58\u3092\u5C0E\u5165\u3057\u307E\u3059
+            --package <oxlint|oxfmt|fallow>@<\u7248>\uFF08\u8907\u6570\u6307\u5B9A\u53EF\uFF09
+  apply     .feedback-loop.json\u3092\u8AAD\u307F\u3001\u88DC\u52A9\u30D5\u30A1\u30A4\u30EB\u3068package scripts\u3092\u914D\u7F6E\u3057\u307E\u3059
+            --feedback-command <check:feedback\u306B\u8A2D\u5B9A\u3059\u308B\u8A3A\u65AD\u7528\u30B3\u30DE\u30F3\u30C9>
+
+\u5171\u901A:
+  --repo <\u30D1\u30B9>   \u5BFE\u8C61Git checkout\u306E\u30EB\u30FC\u30C8\u306E\u7D76\u5BFE\u30D1\u30B9
+  -h, --help      \u3053\u306E\u4E00\u89A7\u3092\u8868\u793A\u3057\u307E\u3059`;
 function placedMessage(connected) {
   if (connected) {
     return "\u88DC\u52A9\u30D5\u30A1\u30A4\u30EB\u3092\u914D\u7F6E\u3057\u3001.dotagents.json\u306EfeedbackCheck\u3092\u63A5\u7D9A\u3057\u307E\u3057\u305F";
@@ -451,6 +493,10 @@ try {
   assert3(true, "\u6B63\u672C\u306Esetup.ts\u306F\u76F4\u63A5\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002\u751F\u6210\u3057\u305Fskills/setup-feedback-loop/scripts/setup.mjs\u3092\u540C\u3058\u5F15\u6570\u3067\u5B9F\u884C\u3057\u3066\u304F\u3060\u3055\u3044");
   assert3(process.versions.bun === "1.4.4", `Bun ${"1.4.4"}\u3067\u8D77\u52D5\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u73FE\u5728: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}\uFF09`);
   const [operation, ...args] = process.argv.slice(2);
+  if (process.argv.slice(2).some((arg) => arg === "--help" || arg === "-h")) {
+    console.log(usage);
+    process.exit(0);
+  }
   let root, feedback;
   const packages = [];
   for (let i = 0;i < args.length; i += 2) {

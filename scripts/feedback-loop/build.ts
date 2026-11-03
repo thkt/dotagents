@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path';
 const harness = resolve(import.meta.dir, '../..');
 import { packageManagerToken } from './config.ts';
 const generator = 'thkt/dotagents scripts/feedback-loop/build.ts';
-const sharedReferences = ['contract.md', 'runners.md', 'tools.md', 'typecheck.md'];
+const sharedReferences = ['collect.md', 'contract.md', 'runners.md', 'tools.md', 'typecheck.md'];
 const sources = [
   'scripts/feedback-loop/setup.ts',
   'scripts/feedback-loop/config.ts',

@@ -19,6 +19,34 @@ function stringMap(value: unknown): Record<string, string> {
   return result;
 }
 
+function gitOutput(root: string, args: string[]) {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  return result.status === 0 ? result.stdout.trim() : undefined;
+}
+
+/** origin/HEADの指す先を優先し、なければmainとmasterのうち1つだけある方を比較元の候補にする。 */
+function defaultBase(root: string): string | null {
+  const remoteHead = gitOutput(root, [
+    'symbolic-ref',
+    '--quiet',
+    '--short',
+    'refs/remotes/origin/HEAD',
+  ]);
+  if (remoteHead) {
+    return remoteHead;
+  }
+  for (const prefix of ['refs/remotes/origin/', 'refs/heads/']) {
+    const found = ['main', 'master'].filter(
+      (name) =>
+        gitOutput(root, ['rev-parse', '--verify', '--quiet', `${prefix}${name}`]) !== undefined,
+    );
+    if (found.length > 0) {
+      return found.length === 1 ? `${prefix === 'refs/heads/' ? '' : 'origin/'}${found[0]}` : null;
+    }
+  }
+  return null;
+}
+
 function inspect(root: string) {
   const pkg: unknown = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   object(pkg);
@@ -56,8 +84,10 @@ function inspect(root: string) {
   if (existsSync(workflow)) {
     configFiles.push(...readdirSync(workflow).map((name) => `.github/workflows/${name}`));
   }
+  const base = defaultBase(root);
   return {
     packageManager,
+    base,
     scripts,
     devDependencies,
     dependencies,
@@ -66,7 +96,15 @@ function inspect(root: string) {
     tools: Object.keys({ ...dependencies, ...devDependencies }).filter((name) =>
       /eslint|prettier|biome|oxlint|oxfmt|fallow|typescript|vitest/.test(name),
     ),
-    diagnostics: packageManager ? [] : ['package managerが未指定、競合、または未対応です'],
+    diagnostics: [
+      [packageManager, 'package managerが未指定、競合、または未対応です'],
+      [
+        base,
+        '比較元を決められません。origin/HEADがなく、mainとmasterが両方あるか、どちらもありません',
+      ],
+    ]
+      .filter(([found]) => !found)
+      .map(([, message]) => message),
     pkg,
   };
 }
@@ -253,6 +291,19 @@ async function apply(
   console.log('静的検査・通常check・CIの接続と動作確認は導入担当が完了してください');
 }
 
+const usage = `使い方: bun setup.mjs <操作> --repo <Git checkoutの絶対パス> [引数]
+
+操作:
+  inspect   構成を調べてJSONで表示します。ファイルは変更しません
+  install   不足する固定版の依存を導入します
+            --package <oxlint|oxfmt|fallow>@<版>（複数指定可）
+  apply     .feedback-loop.jsonを読み、補助ファイルとpackage scriptsを配置します
+            --feedback-command <check:feedbackに設定する診断用コマンド>
+
+共通:
+  --repo <パス>   対象Git checkoutのルートの絶対パス
+  -h, --help      この一覧を表示します`;
+
 function placedMessage(connected: boolean) {
   if (connected) {
     return '補助ファイルを配置し、.dotagents.jsonのfeedbackCheckを接続しました';
@@ -272,6 +323,10 @@ try {
     `Bun ${requiredBun}で起動してください（現在: ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node.js ${process.version}`}）`,
   );
   const [operation, ...args] = process.argv.slice(2);
+  if (process.argv.slice(2).some((arg) => arg === '--help' || arg === '-h')) {
+    console.log(usage);
+    process.exit(0);
+  }
   let root: string | undefined, feedback: string | undefined;
   const packages: string[] = [];
   for (let i = 0; i < args.length; i += 2) {

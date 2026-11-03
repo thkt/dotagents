@@ -4,7 +4,7 @@
 
 qualityは要求、入出力、権限、保存、状態遷移、公開契約を確認する。assuranceは環境障害、中断・復帰、後始末、履歴保全、repo全体の整合等を主目的とする。異常系・DB・結合範囲・遅さだけでassuranceにしない。混在ファイルはqualityに残すか、必要性を確かめて独立テスト担当が分割する。意味分類をOxlintへ任せない。
 
-`collect`は通常checkと同じ収集処理からJSON文字列配列を返す。`check:classification`でglob集合と実収集の差、重複、存在しない指定を拒否する。通常checkの対象が導入前後で減っていないことも照合する。globの誤設定と収集側の同時変更までは集合比較だけで防げない。
+`collect`は通常checkと同じ収集処理からJSON文字列配列を返す。`check:classification`でglob集合と実収集の差、重複、存在しない指定を拒否する。通常checkの対象が導入前後で減っていないことも照合する。globの誤設定と収集側の同時変更までは集合比較だけで防げない。Bunの`collect`の作り方と、一覧を実際の実行と照合する手順は[Bunのテスト一覧](collect.md)を使う。
 
 通常runnerが許可する条件付きskipは既定で維持する。対象repoのcheckがskipを禁止している場合は`allowSkipped: false`を指定し、その失敗条件も照合する。skipを許可していても、選択した全テストがskipで一件も実行されなければ非ゼロ終了にする。package managerとrunnerは別々に確認し、npm管理のBunテストもBunで起動する。
 

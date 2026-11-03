@@ -768,11 +768,8 @@ function select(root, config, quality, changed) {
     testFiles,
     records: dependencies
   });
-  const reasons = [
-    ...global,
-    ...warning ? [warning] : [],
-    ...selection.kind === "all" ? selection.reasons : []
-  ];
+  const unreached = selection.kind === "all" ? selection.reasons.map((path) => path.slice(root.length + 1)) : [];
+  const reasons = [...new Set([...global, ...warning ? [warning] : [], ...unreached])];
   if (records.size === 0) {
     reasons.push("信頼できる依存記録なし");
   }

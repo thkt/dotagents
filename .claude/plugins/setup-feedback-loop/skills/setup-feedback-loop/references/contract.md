@@ -24,13 +24,13 @@ cantleの導入担当は、通常checkが収集する`test/*.test.ts`と`evaluat
 bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs inspect --repo /absolute/project
 ```
 
-ファイルや依存を変更せず、package manager、runtimeの指定、package scripts、既存のlint・formatter・型検査・fallow・test runner、`.dotagents.json`、CI定義の所在をJSONで標準出力へ返します。未導入・不明な項目を区別し、不明なツールを採用済みと推測しません。取得不能や不正なpackage設定は非ゼロ終了と診断で返します。JSONの付加情報は拡張できますが、`packageManager`、`scripts`、`devDependencies`、`configFiles`を公開項目とします。
+ファイルや依存を変更せず、package manager、runtimeの指定、package scripts、既存のlint・formatter・型検査・fallow・test runner、`.dotagents.json`、CI定義の所在をJSONで標準出力へ返します。未導入・不明な項目を区別し、不明なツールを採用済みと推測しません。取得不能や不正なpackage設定は非ゼロ終了と診断で返します。JSONの付加情報は拡張できますが、`packageManager`、`base`、`scripts`、`devDependencies`、`configFiles`を公開項目とします。
 
 ```json
-{"packageManager":"bun","scripts":{"check":"bun run scripts/check.ts"},"devDependencies":{},"configFiles":["mise.toml",".dotagents.json"]}
+{"packageManager":"bun","base":"origin/main","scripts":{"check":"bun run scripts/check.ts"},"devDependencies":{},"configFiles":["mise.toml",".dotagents.json"]}
 ```
 
-`packageManager`は`"bun"`・`"npm"`・`null`のいずれかです。競合する指定や判定材料不足は`null`と診断で示し、install・applyは選択不能として止めます。`scripts`と`devDependencies`は名前と文字列値のオブジェクトで、未定義なら空オブジェクトです。`configFiles`は実在するrepo相対パスの文字列配列で、該当なしなら空配列です。
+`packageManager`は`"bun"`・`"npm"`・`null`のいずれかです。競合する指定や判定材料不足は`null`と診断で示し、install・applyは選択不能として止めます。`base`は比較元の候補です。`origin/HEAD`が指す先を優先し、なければ`origin/main`と`origin/master`、次に`main`と`master`のうち、1つだけあるものを返します。どちらも見つからないか、同じ段階で両方あれば`null`と診断を返します。`scripts`と`devDependencies`は名前と文字列値のオブジェクトで、未定義なら空オブジェクトです。`configFiles`は実在するrepo相対パスの文字列配列で、該当なしなら空配列です。
 
 ## 不足依存のインストール
 
@@ -67,7 +67,9 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --pac
 
 `testGlobs`は通常checkの収集集合です。パスはrepo相対とし、`*`はその階層、`**`は下位階層にも対応するglobです。既存のfixture等を通常checkへ追加する指定にはしません。qualityは収集集合からassuranceを除いた集合です。assuranceの各要素は`{"path":"test/example.test.ts","reason":"内容を確認した指定理由"}`の形とし、実在するテストファイルを指定します。重複や集合外の指定、空の理由を拒否します。新規テストはglobに合えばqualityへ入ります。
 
-`collect`は、通常checkと同じ収集処理からテスト一覧を得るargv配列です。対象repoのcwdで実行し、標準出力へrepo相対パスのJSON文字列配列を返し、診断は標準エラーへ出します。cantleでは既存の`testFiles()`を一覧表示の入口と通常checkで共有する接続を用意します。例の`--list`はその接続案であり、導入前のコマンドにはありません。Vitestでは導入版CLIの収集結果を同じ形に整える対象repoの入口を使います。収集の失敗、不正な出力、重複、存在しないパス、`testGlobs`との集合の差は非ゼロ終了とします。
+`base`は関連選択の比較元にするGitの参照です。`inspect`の`base`を候補にし、対象repoの既定ブランチと照合して指定します。上例の`origin/main`は、既定ブランチが`main`のrepoの値です。
+
+`collect`は、通常checkと同じ収集処理からテスト一覧を得るargv配列です。対象repoのcwdで実行し、標準出力へrepo相対パスのJSON文字列配列を返し、診断は標準エラーへ出します。cantleでは既存の`testFiles()`を一覧表示の入口と通常checkで共有する接続を用意します。例の`--list`はその接続案であり、導入前のコマンドにはありません。Bunには一覧機能がないため、[Bunのテスト一覧](collect.md)の一覧スクリプトを使い、通常checkのJUnitと照合します。Vitestでは導入版CLIの収集結果を同じ形に整える対象repoの入口を使います。収集の失敗、不正な出力、重複、存在しないパス、`testGlobs`との集合の差は非ゼロ終了とします。
 
 `runner`は`bun`または`vitest`です。Bunは固定した実行系と`bunArgs`を使い、テストオプションには`testArgs`を渡します。Vitestは対象repoのローカル依存を使い、既存の設定・global setup・環境変数を引き継ぎます。Vitestでは`bunArgs`を指定しません。`prepare`はテスト前に必要な既存コマンドのargv配列で、不要なら空配列です。同じ呼出しで準備処理や型検査を重複実行しないようpackage scriptsと照合します。
 
