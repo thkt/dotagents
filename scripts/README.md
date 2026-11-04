@@ -880,7 +880,7 @@ bun scripts/test-runtime/runner.ts bun scripts/tests --parallel=2 --timings=/abs
 
 ### 変更に影響されるテストだけを実行する
 
-`bun run test:affected`は、既存runnerへ`scripts/tests/quality`と`--affected`を渡し、品質候補の中から関連テストを選びます。これをfeedbackモードと呼び、`bun run check:feedback`でlint・型検査等の後に実行します。安心を通常の候補へ追加しません。汎用runnerの明示パス指定は維持します。Bun標準の`bun test --changed`は併用していません。
+`bun run test:affected`は、`scripts/feedback-loop/runtime.mjs affected`を起動し、品質候補の中から関連テストを選びます。これをfeedbackモードと呼び、`bun run check:feedback`でlint・型検査等の後に実行します。安心を候補へ追加しません。`runtime.mjs`は同梱した`setup-feedback-loop`の`apply`で配置した生成物で、仕様の正本は[呼出し仕様](../skills/setup-feedback-loop/references/contract.md)です。このrepoの設定は`.feedback-loop.json`にあります。
 
 ```sh
 bun run test:affected
@@ -890,24 +890,31 @@ bun run test:control scripts/tests/quality
 
 # 安心テスト自体、またはその検証対象を修正した場合
 bun run test:control scripts/tests/assurance/shared/process-cleanup.test.ts
-
-# 比較基点を指定する場合はrunnerを直接呼ぶ
-bun scripts/test-runtime/runner.ts bun scripts/tests/quality --affected=origin/main --parallel=2
 ```
 
 実行範囲を広げる規則と旧`test:feedback`の扱いは[開発方針](../docs/wiki/development-policy.md#制御テストの階層)に従います。
 
-変更はmainまたは`--affected=REF`との分岐点以降のcommit、未commitの変更、未追跡ファイルです。renameは旧パスと新パスの両方を数えます。安心・共有入力も変更一覧に含めます。`.claude/workspace/`・`docs/issues/`・`.issue-drafts/`だけの変更は読み込まれないため実行の理由にしません。変更なしは非zeroで終了し、成功にしません。
+`test:affected`は引数を受け取りません。比較基点は`.feedback-loop.json`の`base`（`main`）、候補は`collect`と`testGlobs`（`scripts/tests/quality`）で決まります。runnerの`--affected`・`--affected=REF`は廃止しました。別の基点や候補で調べる場合は、設定を変更せず`bun run test:control`へパスを渡して直接実行します。
 
-品質候補内で、変更したテスト自身、変更モジュールを記録に持つテスト、本文に変更パスの末尾2要素を書いたテストを選びます。記録のないテストも常に選びます。初回・記録の読取り不能・形式不正では品質全件です。`scripts/test-runtime/`の`runner.ts`・`record-modules.ts`・`affected.ts`、旧runner互換入口・`package.json`・`bun.lock`・`tsconfig.json`という現行の固定一覧の変更と、品質候補に影響先が見つからない変更も品質全件へ戻り、理由を表示します。安心だけの変更や影響先不明の文書変更でも品質全件になる場合があります。
+変更はmainとの分岐点以降のcommit、未commitの変更、未追跡ファイルです。renameは旧パスと新パスの両方を数えます。変更なしと`.feedback-loop-review.json`だけの変更は非zeroで終了し、成功にしません。
 
-出力は品質候補数・選択数、品質全件になった理由と、全体checkではないことを示します。候補0件・変更なし・skip・only・集計不正・取消は成功にしません。通常のパス指定は同じrunnerの完了判定を使います。
+品質候補内で、Bun標準の`--changed`が選ぶテスト、変更モジュールを記録に持つテスト、`.feedback-loop.json`の`dependencies`で対応付けたテストの和集合を実行します。テスト本文に書かれたパスの照合は行いません。実行時の記録に現れない依存（子プロセスへ渡すパス、ファイル読取りなど）は、次の形で明示します。
 
-記録はworktreeのgit dir配下の`dotagents/test-deps.json`です。`BUN_OPTIONS`へ記録器の`--preload`を足し、テストと環境を引き継ぐ子Bunが読むモジュールを親テストへ帰属させます。実行は`--isolate`付きです。非ASCIIのコードはUTF-8文字列で読み、JSON/TOMLはBun標準のloaderを使います。明示した拡張子の解決時に加え、テストでは`afterAll`、通常の子Bunでは終了時に、読み込み済みモジュールのキャッシュからJSON/TOMLのパスを補完します。Bun 1.4.4で`onResolve`を通らない省略JSON importも、この補完で記録します。保存は一時ファイルからrenameで置き換え、未実行テストの記録を保持します。失敗・skipしたファイルの記録は成功として保存せず、次回は記録なしとして選びます。中断時は既存記録を書き換えません。
+```json
+{ "inputs": ["scripts/implement/codex-actor.ts"], "tests": ["scripts/tests/quality/implement/codex-actor.test.ts"] }
+```
+
+入力は`*`・`**`のglob、テストはrepo相対パスです。品質候補にないテストを指定すると拒否します。指定は静的なため、新しい依存は自動では追加されません。
+
+次の場合は品質全件へ戻り、理由を表示します。初回、記録の読取り不能・形式不正、前回の未完了、古い記録、直前の失敗・取消、固定一覧（`package.json`・lockfile・`tsconfig.json`・`.feedback-loop.json`・`.dotagents.json`・`scripts/feedback-loop/**`・`scripts/test-runtime/runner.ts`・`scripts/tests/runner.ts`）と`globalChanges`の変更、影響先が見つからない変更です。`.claude/workspace/`・`docs/issues/`・`.issue-drafts/`だけの変更も影響先が見つからない変更に含みます。安心だけの変更や影響先不明の文書変更でも品質全件になります。
+
+実行は2worker・`--isolate`・`--no-orphans`です。`.feedback-loop.json`の`bunArgs`が`scripts/test-runtime/feedback-test.ts`を経由させ、`test:control`と同じく`CI=true`とgitの自動maintenance停止を渡します。`allowSkipped: false`と`CI=true`により、`skip`・`todo`・`test.only`を成功にしません。候補0件・集計不正・取消も成功にしません。出力は候補数・選択数、全件に戻した理由と、全体checkではないことを示します。
+
+記録はworktreeのgit dir配下の`dotagents/test-deps.json`です。`BUN_OPTIONS`へ記録器の`--preload`を足し、テストと環境を引き継ぐ子Bunが読むモジュールを親テストへ帰属させます。実行中は`test-deps.json.pending`を置き、結果の確定後に消します。強制終了で印が残ると、次回は品質全件を実行します。失敗・取消では、原記録を`test-deps.json.<hash>.previous`へ残したうえで、実行した候補の依存記録を無効にし、次回は品質全件を実行します。
 
 影響先が1件でも見つかり、別のテストの依存だけが漏れている場合、全件へ戻るとは限りません。漏れの条件と対処は[開発方針](../docs/wiki/development-policy.md#制御テストの階層)の表に従います。
 
-通常check・直接実行の成功は依存記録の更新を意味しません。必要なら記録付きaffected経路でも対象を実行します。再生成の例は次のとおりです。退避先は既存ファイルと重ならない名前を選んでください。
+通常check・直接実行の成功は依存記録の更新を意味しません。再生成の例は次のとおりです。退避先は既存ファイルと重ならない名前を選んでください。
 
 ```sh
 record_path="$(git rev-parse --git-path dotagents/test-deps.json)"
@@ -916,9 +923,9 @@ mv -i "$record_path" "$record_path.backup"
 bun run test:affected
 ```
 
-変更が存在する状態で、記録がなければ品質全件を記録付きで実行します。変更なしは実行を拒否するため、その場合は実在する変更を含む合意済みの基点を明示してください。品質全件を再生成しても未実行分岐の依存まで埋まる保証はありません。記録器の動作確認より先に品質限定の通常運用へ切り替えない方針です。
+変更なしは実行を拒否します。品質全件を再生成しても未実行分岐の依存まで埋まる保証はありません。
 
-取消は子プロセスへ転送し、Bunの`--no-orphans`で子孫も終了させます。失敗や取消は成功にせず、一時レポートを後片付けします。Bunが終了0でもJUnit集計が不正な場合のレポート保持は、上の説明に従います。`--concurrent`、`--no-isolate`、任意のBunオプションの透過転送は扱いません。
+取消は子プロセスへ転送し、Bunの`--no-orphans`で子孫も終了させます。1秒後も残る処理は強制終了します。
 
 変更差分の行に入れた変異を品質全件が検出するかは、`bun run mutate:diff`で任意に調べられます。報告だけのコマンドで、`bun run check`とCIには含めません。
 
@@ -985,6 +992,23 @@ Playwright runnerを起動する契約テストは[trial repoのtrial/control/](
 SIGKILLのテストでは残存プロセスをテスト側で後片付けしており、CLIの自動停止保証ではありません。
 
 制御テストの成功は実モデルの判断品質の証拠には数えません。実測結果とその対象、未検証範囲は[検証記録](https://github.com/thkt/dotagents-workflow-trial/blob/93b38f0bc690373b4b1f68e37a42f721929d6386/trial/evidence/README.md)を参照してください。
+
+### setup-feedback-loopの同梱を更新する
+
+`skills/setup-feedback-loop/`の`scripts/`・`references/`と`upstream.json`は、thkt/feedback-loopの`dist/private`の複写です。次の手順で、指定したcommitから同梱し直します。
+
+```sh
+bun scripts/lint/feedback-loop-bundle.ts update --source /absolute/path/to/feedback-loop --commit <commit>
+bun run check:generated
+```
+
+`update`は指定commitの内容をGitから読み、作業ツリーの変更を取り込みません。配置済みの`scripts/feedback-loop/`は自動で更新されません。`apply`は配置済みファイルとの差分を上書きせず止まるため、`runtime.mjs`・`record-modules.ts`・`generated.json`を退避してから`apply`を実行します。
+
+```sh
+bun skills/setup-feedback-loop/scripts/setup.mjs apply --repo "$PWD" --feedback-command "<check:feedbackの値>"
+```
+
+配置済みファイルと同梱の不一致は[接続テスト](tests/quality/checks/feedback-loop-wiring.test.ts)が検出します。
 
 ### 未使用コード検査とコードベース調査
 

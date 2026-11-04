@@ -9,7 +9,7 @@ description: JavaScript／TypeScriptのrepoへ静的検査と関連qualityテス
 
 ## 導入前に確認する
 
-合意済みIssue、対象repoの指示・README・テスト方針、採用commit・設定・作業中差分を確認する。初版の対象はnpm・BunとVitest・Bunテストである。[呼出し仕様](references/contract.md)からCLIの入力・出力・失敗条件を確認する。CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`を、Bun 1.4.4で`bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs inspect --repo /absolute/project`のように起動する。変数が展開されない環境では、このSKILL.mdのあるディレクトリの絶対パスへ書き換える。CLIはdotagentsのcheckoutを参照しない。`scripts/`の生成物は直接編集せず、dotagentsの`scripts/feedback-loop`を変更して再生成する。
+合意済みIssue、対象repoの指示・README・テスト方針、採用commit・設定・作業中差分を確認する。初版の対象はnpm・BunとVitest・Bunテストである。[呼出し仕様](references/contract.md)からCLIの入力・出力・失敗条件を確認する。CLIはスキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`を、Bun 1.4.4で`bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs inspect --repo /absolute/project`のように起動する。変数が展開されない環境では、このSKILL.mdのあるディレクトリの絶対パスへ書き換える。CLIはdotagentsのcheckoutを参照しない。`scripts/`と`references/`はthkt/feedback-loopの生成物である。直接編集せず、thkt/feedback-loopの正本を変更して再生成し、[同梱の更新手順](https://github.com/thkt/dotagents/blob/main/scripts/README.md#setup-feedback-loopの同梱を更新する)で取り込む。
 
 対象repoに`.dotagents.json`がなければ、implementへの接続を省いて導入する。`.dotagents.json`の変更を含む導入はそのrepoのimplementを開始する前に完了する。実行中のrunがある場合は設定を変更せず、現行の停止・終了手順を使う。旧runの設定や保存入力を補完して再開しない。導入後の設定は新しいrunで固定する。#447の個別検証の例外を転用しない。
 
