@@ -17,7 +17,7 @@
       "path": "scripts/tests/quality/checks/feedback-loop-bundle.test.ts",
       "class": "quality",
       "sha256": "505c34aa3cb2df5ecaa54c16de1ce092f5a87ba3efe8342d075a8f279932c0f4",
-      "reason": "同梱ファイルとupstream.jsonのcommit・repository・directory・sha256の照合、食い違いの非0終了と対象の診断、指定commitでのupdateと空・対象外内容の拒否を確認する。実package.jsonがcheckとcheck:feedbackから同梱検査を呼ぶ確認はrepoの実ファイルを見る整合検査で混在するが、主目的はCLIの入出力なのでqualityに置く。"
+      "reason": "同梱ファイルとupstream.jsonのcommit・repository・directory・sha256の照合、食い違いの非0終了と対象の診断、指定commitでのupdateとdist/privateのないcommit・対象外内容の拒否を確認する。実package.jsonがcheckとcheck:feedbackから同梱検査を呼ぶ確認はrepoの実ファイルを見る整合検査で混在するが、主目的はCLIの入出力なのでqualityに置く。"
     },
     {
       "path": "scripts/tests/quality/checks/feedback-loop-wiring.test.ts",
@@ -77,7 +77,7 @@
       "path": "scripts/tests/quality/implement/actor-runtime.test.ts",
       "class": "quality",
       "sha256": "4570f0bab3853c758ff37d46f014a7e900ac0a8c3a07795f2210fba383c80f3a",
-      "reason": "実行基盤の観測がハーネス自身のrootとcommitを使い外部のGIT_*を無視し、対象外ファイルを除いて内容・パス・追加・削除・権限の変更でcodeHashと変更状態を変えることと、symlink・package.json欠落・gitのないPATHで値をnullにし理由や不明を記録することを確認する。"
+      "reason": "実行基盤の観測がハーネス自身のrootとcommitを使い外部のGIT_*を無視し、対象外ファイルを除いて内容・パス・追加・削除・権限の変更でcodeHashを変え、内容の変更では変更状態も変え、追加では変更状態を変えないことと、symlink・package.json欠落・gitのないPATHで値をnullにし理由や不明を記録することを確認する。"
     },
     {
       "path": "scripts/tests/quality/implement/allocation.test.ts",
