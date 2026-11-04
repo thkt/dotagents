@@ -31,7 +31,7 @@ description: JavaScript／TypeScriptのrepoへ静的検査と関連qualityテス
 
 `src/**`等を一括で`globalChanges`へ指定し、通常変更でも常に全qualityを実行する状態は、関連テストの絞り込みを確認したことにならない。全件実行が必要な共通入力と、内容を確認した`dependencies`を分ける。対応が不明な入力の全件実行は保ち、絞り込みが未確認の範囲を報告する。
 
-依頼されたrepoの採用版と差分を導入直前に再確認し、そのrepoで検証を完了する。今回のIssue #466の初回展開では、共有の独立検証用repo、cantle、kaiの順に確認する。cantleの固定Bun・型依存照合・型検査・Python構文検査・直下テスト収集と、kaiの既存npm・ESLint・Prettier・Vitest・環境変数・codegen・DB準備・coverageを保つ。この2repoへの展開順を、別repoへの導入依頼には適用しない。DB利用だけでassuranceへ除外しない。複数repoを扱うときは、未完了のrepoを導入完了と報告しない。
+依頼されたrepoの採用版と差分を導入直前に再確認し、そのrepoで検証を完了する。今回のIssue #466の初回展開では、共有の独立検証用repo、他リポジトリの順に確認する。展開先の固定Bun・型依存照合・型検査・Python構文検査・テスト収集や、既存のnpm・ESLint・Prettier・Vitest・環境変数・codegen・DB準備・coverageなど、そのrepoの検査と準備を保つ。この展開順を、別repoへの導入依頼には適用しない。DB利用だけでassuranceへ除外しない。複数repoを扱うときは、未完了のrepoを導入完了と報告しない。
 
 実装・修正・独立テスト担当への`feedbackCheck`伝達は既存implementを使う。模擬コマンドの接続成功と、実モデルがコマンドを選んだ観測を区別する。提出前・各修正後のホスト全体check、独立評価、人の承認・マージを維持する。通常check外の受入検証は[ホスト検証](https://github.com/thkt/dotagents/blob/main/scripts/README.md#ホスト検証後の再評価)へ渡す。
 

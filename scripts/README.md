@@ -894,7 +894,7 @@ bun run test:control scripts/tests/assurance/shared/process-cleanup.test.ts
 
 実行範囲を広げる規則と旧`test:feedback`の扱いは[開発方針](../docs/wiki/development-policy.md#制御テストの階層)に従います。
 
-`test:affected`は引数を受け取りません。比較基点は`.feedback-loop.json`の`base`（`main`）、候補は`collect`と`testGlobs`（`scripts/tests/quality`）で決まります。runnerの`--affected`・`--affected=REF`は廃止しました。別の基点や候補で調べる場合は、設定を変更せず`bun run test:control`へパスを渡して直接実行します。
+`test:affected`は引数を使いません。渡した引数は拒否されず無視されます。比較基点は`.feedback-loop.json`の`base`（`main`）、候補は`collect`と`testGlobs`（`scripts/tests/quality`）で決まります。このrepoはassuranceをディレクトリで分けて`testGlobs`の外に置くため、呼出し仕様の`assurance`（収集集合の中で除外するファイルの指定）は空配列です。runnerの`--affected`・`--affected=REF`は廃止しました。別の基点や候補で調べる場合は、設定を変更せず`bun run test:control`へパスを渡して直接実行します。
 
 変更はmainとの分岐点以降のcommit、未commitの変更、未追跡ファイルです。renameは旧パスと新パスの両方を数えます。変更なしと`.feedback-loop-review.json`だけの変更は非zeroで終了し、成功にしません。
 
@@ -910,7 +910,7 @@ bun run test:control scripts/tests/assurance/shared/process-cleanup.test.ts
 
 実行は2worker・`--isolate`・`--no-orphans`です。`.feedback-loop.json`の`bunArgs`が`scripts/test-runtime/feedback-test.ts`を経由させ、`test:control`と同じく`CI=true`とgitの自動maintenance停止を渡します。`allowSkipped: false`と`CI=true`により、`skip`・`todo`・`test.only`を成功にしません。候補0件・集計不正・取消も成功にしません。出力は候補数・選択数、全件に戻した理由と、全体checkではないことを示します。
 
-記録はworktreeのgit dir配下の`dotagents/test-deps.json`です。`BUN_OPTIONS`へ記録器の`--preload`を足し、テストと環境を引き継ぐ子Bunが読むモジュールを親テストへ帰属させます。実行中は`test-deps.json.pending`を置き、結果の確定後に消します。強制終了で印が残ると、次回は品質全件を実行します。失敗・取消では、原記録を`test-deps.json.<hash>.previous`へ残したうえで、実行した候補の依存記録を無効にし、次回は品質全件を実行します。
+記録はworktreeのgit dir配下の`dotagents/test-deps.json`です。`BUN_OPTIONS`へ記録器の`--preload`を足し、テストと環境を引き継ぐ子Bunが読むモジュールを親テストへ帰属させます。実行中は`test-deps.json.pending`を置き、結果の確定後に消します。強制終了で印が残ると、次回は品質全件を実行します。既存の記録があれば、実行のたびに、成功時も含めて原記録を`test-deps.json.<hash>.previous`へ残します。この退避ファイルを消す処理はないため、不要になったら手で退避します。失敗・取消では実行した候補の依存記録を無効にし、次回は品質全件を実行します。
 
 影響先が1件でも見つかり、別のテストの依存だけが漏れている場合、全件へ戻るとは限りません。漏れの条件と対処は[開発方針](../docs/wiki/development-policy.md#制御テストの階層)の表に従います。
 
