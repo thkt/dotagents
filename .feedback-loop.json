@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "runner": "bun",
+  "allowSkipped": false,
+  "base": "main",
+  "collect": [
+    "bun",
+    "scripts/test-runtime/list-tests.ts",
+    "scripts/tests/quality"
+  ],
+  "testGlobs": [
+    "scripts/tests/quality/**/*.test.ts"
+  ],
+  "assurance": [],
+  "fullCheck": [
+    "bun",
+    "run",
+    "check"
+  ],
+  "prepare": [],
+  "bunArgs": [
+    "--env-file=scripts/test-runtime/feedback.env"
+  ],
+  "bunWorkers": 2,
+  "testArgs": [
+    "--preload=./scripts/test-runtime/feedback-env.ts",
+    "--only-failures"
+  ],
+  "globalChanges": [],
+  "dependencies": [
+    {
+      "inputs": [
+        "scripts/capture/capture.ts"
+      ],
+      "tests": [
+        "scripts/tests/quality/shared/target.test.ts"
+      ]
+    },
+    {
+      "inputs": [
+        "scripts/implement/codex-actor.ts"
+      ],
+      "tests": [
+        "scripts/tests/quality/implement/codex-actor.test.ts"
+      ]
+    },
+    {
+      "inputs": [
+        "scripts/implement/orchestrator.ts"
+      ],
+      "tests": [
+        "scripts/tests/quality/implement/allocation.test.ts"
+      ]
+    },
+    {
+      "inputs": [
+        "scripts/tests/support/premise-reference.ts"
+      ],
+      "tests": [
+        "scripts/tests/quality/checks/premise-reference.test.ts"
+      ]
+    }
+  ]
+}

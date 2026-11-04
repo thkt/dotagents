@@ -18,5 +18,8 @@
     "scripts/**/*.ts",
     "eval/*.ts",
     "eval/tests/**/*.ts"
+  ],
+  "exclude": [
+    "scripts/feedback-loop/**"
   ]
 }

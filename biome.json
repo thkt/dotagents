@@ -5,7 +5,7 @@
 		"clientKind": "git",
 		"useIgnoreFile": true
 	},
-	"files": { "includes": ["**", "!!eval/fixtures/**"] },
+	"files": { "includes": ["**", "!!eval/fixtures/**", "!!scripts/feedback-loop/**"] },
 	"formatter": { "enabled": false },
 	"assist": { "enabled": false },
 	"linter": {
