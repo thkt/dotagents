@@ -16,14 +16,14 @@
     {
       "path": "scripts/tests/quality/checks/feedback-loop-bundle.test.ts",
       "class": "quality",
-      "sha256": "5e1c57656ff2f8d456a8695f1ba9e473073d11943aa86365276e69db33dcc5f1",
-      "reason": "同梱ファイルとupstream.jsonの照合結果、食い違い時の非0終了、指定commitでのupdateの置換範囲を確認する。"
+      "sha256": "505c34aa3cb2df5ecaa54c16de1ce092f5a87ba3efe8342d075a8f279932c0f4",
+      "reason": "同梱ファイルとupstream.jsonのcommit・repository・directory・sha256の照合、食い違いの非0終了、指定commitでのupdateと対象外内容の拒否を確認する。"
     },
     {
       "path": "scripts/tests/quality/checks/feedback-loop-wiring.test.ts",
       "class": "quality",
-      "sha256": "7bd58d750aed9a12b5eb2f78c49af91e44fdb41136f4e4a2c7b07e3dd845bebc",
-      "reason": "test:affectedが関連qualityだけを2workerで実行し、only・skip・失敗を成功にせず、生成物がsha256と一致することを確認する。"
+      "sha256": "e167ccf27616128416b271c8d83006d68d95b89c36b8fffbb7b5fd1b0e4e2426",
+      "reason": "実設定のtest:affected・test:feedback・check:classificationの選択と全件条件、only・skip・失敗の非0終了、実行環境、依存記録、設定の参照先、生成物の一致を確認する。"
     },
     {
       "path": "scripts/tests/quality/checks/mutation-cli.test.ts",
@@ -65,7 +65,7 @@
       "path": "scripts/tests/quality/checks/test-runner.test.ts",
       "class": "quality",
       "sha256": "97c77a838ae14d25942f7b771262f9cd2521b91eb1c9e5374a75df14fb1b1e09",
-      "reason": "runnerがJUnit報告の件数・失敗を終了コードへ反映し、evalの失敗を隠さないことを確認する。maintenance lock確認が混在するが判定が主なためquality。"
+      "reason": "package入口と旧runner CLIのパス選択・終了結果、JUnit報告の件数・skip・不正の拒否、evalの失敗の伝達、自動maintenance停止の環境を確認する。lock確認が混在するが入口の契約が主なためquality。"
     },
     {
       "path": "scripts/tests/quality/implement/actor-records.test.ts",
@@ -77,7 +77,7 @@
       "path": "scripts/tests/quality/implement/actor-runtime.test.ts",
       "class": "quality",
       "sha256": "4570f0bab3853c758ff37d46f014a7e900ac0a8c3a07795f2210fba383c80f3a",
-      "reason": "actorの実行基盤のhashが内容・パス・追加・削除・権限の変更で変わり、ハーネス自身のrootを基準にすることを確認する。"
+      "reason": "実行基盤の観測がハーネス自身のrootとcommitを使い、対象外ファイルを除き、内容・パス・追加・削除・権限の変更でcodeHashと変更状態が変わることを確認する。"
     },
     {
       "path": "scripts/tests/quality/implement/allocation.test.ts",
@@ -86,22 +86,16 @@
       "reason": "実行ディレクトリの割当が、checkoutとGit領域の内側を作成前に拒否し、symlink経由でも親を作らないことを確認する。"
     },
     {
-      "path": "scripts/tests/quality/implement/check-timeout-processes.test.ts",
-      "class": "quality",
-      "sha256": "c103707f04d0dd92c6d4c34b3b8323b8d16cd08c317f2dd1a16f4d7f05b06dfb",
-      "reason": "check時間切れ復帰で、旧runの稼働と判定するプロセスを開始時刻と旧パス参照で区別することを、固定の過去時刻で確認する。"
-    },
-    {
       "path": "scripts/tests/quality/implement/ci.test.ts",
       "class": "quality",
       "sha256": "afe5ea8fd2617dd86064bbf8e3728ccb63eebaf4a673bbea89e2838fd7f0c51d",
-      "reason": "CIシナリオのうちassurance以外を、共通のシナリオ表から実行して期待どおり判定されることを確認する。"
+      "reason": "CI確認の待機（登録・実行中・他checkの完了待ち）、対象のhead・draft状態の変更、必須checkのskip・neutral・同名失敗・status contextの判定と保存結果を確認する。"
     },
     {
       "path": "scripts/tests/quality/implement/codex-actor.test.ts",
       "class": "quality",
       "sha256": "a3fed31b9b6d99135b7b372d1a908333f953b19dba4bdf4f10fbb6d365b2fe10",
-      "reason": "独立テストactorへ渡す入力IDが、生成schemaで固定され任意の値を受け付けないことを確認する。"
+      "reason": "Codex actorのログと起動記録を通常・修正・テスト・shim・version空・非0終了・CLI欠落の各場合で確かめ、独立テストの入力IDを生成schemaで固定することを確認する。"
     },
     {
       "path": "scripts/tests/quality/implement/command-inputs.test.ts",
@@ -125,13 +119,13 @@
       "path": "scripts/tests/quality/implement/correction.test.ts",
       "class": "quality",
       "sha256": "a9bd49f6dbced68c71907c5b95fc35c81192d6d3149e64e2a9a28a89b0fb8928",
-      "reason": "修正周回の設定検証、検証済み変更のcommit、評価記録の再利用条件、不正な保存状態の拒否と証跡ディレクトリの境界を確認する。"
+      "reason": "修正周回の設定検証、検証済み変更のcommit、評価の再利用条件、不正な保存状態と証跡境界の拒否を確認する。修正後のIssue取得失敗や初回Issue証拠の再実行拒否も混在するが契約の判定が主なためquality。"
     },
     {
       "path": "scripts/tests/quality/implement/development.test.ts",
       "class": "quality",
       "sha256": "e9c3574e834f09a6c57aa24b5d945b9fdcbe83ec88e62a76cc4414ab738339ad",
-      "reason": "implement本体の開始入力・公開前後の照合・actor失敗・CI確認からready切替までの結果と保存状態を確認する。混在は時間切れや停止の分岐だが、結果の判定が主なためqualityに置く。"
+      "reason": "implement本体の開始入力、公開前後の照合、actor失敗、CI確認の結果と保存状態を確認し、ready切替は実行せずmark_readyを残作業に残すことを確かめる。時間切れや停止の分岐が混在するが結果の判定が主なためquality。"
     },
     {
       "path": "scripts/tests/quality/implement/document-references.test.ts",
@@ -143,7 +137,7 @@
       "path": "scripts/tests/quality/implement/feedback-check.test.ts",
       "class": "quality",
       "sha256": "f3588569fe606998b906d27975aee27e0f1aac3e0972f3d29e72b39aa7b5101a",
-      "reason": "feedbackCheckの設定有無が修正周回の全体checkと評価記録を変えないことと、既存PR修正で設定を照合することを確認する。"
+      "reason": "feedbackCheckが初回実装と独立テストへ反復用として渡ること、設定の有無が修正周回の全体check・評価記録を変えないこと、既存PR修正で設定を照合することを確認する。"
     },
     {
       "path": "scripts/tests/quality/implement/host-correction.test.ts",
@@ -173,19 +167,13 @@
       "path": "scripts/tests/quality/implement/publish.test.ts",
       "class": "quality",
       "sha256": "9672b62c7f4a5684f6482266045a156aa7102206cff755ded86987d475f5cb6f",
-      "reason": "公開CLIが、対象の欠落・不正引数・別GitHubホストを、認証情報やコマンドに触れる前に拒否することを確認する。"
+      "reason": "公開の主経路（新規作成・既存PRの再利用・指定SHAの照合）と、作者・対象の不一致、対象欠落・不正引数・別GitHubホストを認証やコマンドの前に拒否することを確認する。"
     },
     {
       "path": "scripts/tests/quality/implement/recovery-entry-limit.test.ts",
       "class": "quality",
       "sha256": "74b791230248617c91f07f648d4d541eaaaeecc448b7c058328c98f9f1c2a94b",
       "reason": "復帰入口を2つ同時に指定すると後続コマンドの起動前に拒否し、1つだけなら拒否しないことを確認する。"
-    },
-    {
-      "path": "scripts/tests/quality/implement/recovery-option-boundaries.test.ts",
-      "class": "quality",
-      "sha256": "261ffbae9eb3e3bc4211f15aa1ec1824dbdc9988bac45f0ce495b28c591fb69b",
-      "reason": "復帰時のプロセス判定が、正規のオプション形式と指定パスの完全一致だけを旧runの稼働として扱うことを確認する。"
     },
     {
       "path": "scripts/tests/quality/implement/review-probe.test.ts",
@@ -203,7 +191,7 @@
       "path": "scripts/tests/quality/implement/revision.test.ts",
       "class": "quality",
       "sha256": "677f7a3e1151cf0ba00d3e50bf9bce04d627e1a12b55f6cf5f0375be3284ec69",
-      "reason": "既存PRの修正で、入力検証・項目別の照合・開始時の変更拒否・証跡の予約と、初回公開出力からの接続を確認する。"
+      "reason": "既存PR修正の入力検証、項目別の照合、開始時の変更拒否、証跡の予約、初回公開出力からの接続を確認する。未完了・不確定の前回実行の拒否と並行実行の予約も混在するが開始判定が主なためquality。"
     },
     {
       "path": "scripts/tests/quality/implement/run-report.test.ts",
@@ -215,13 +203,7 @@
       "path": "scripts/tests/quality/implement/runtime-handoff.test.ts",
       "class": "quality",
       "sha256": "ef4db451f38765997480c1b9b93e68b480b85e0e7909e3484d22254f59e9fb90",
-      "reason": "評価中や受入後のactor原記録の改変を受入へ変換せず、保存済み成功の再利用を止めることを確認する。"
-    },
-    {
-      "path": "scripts/tests/quality/implement/runtime-history.test.ts",
-      "class": "quality",
-      "sha256": "0c8c6403f9ccee187a720c97ad4e24cc5dcc97eead9b6581c39e4f7df4415f5f",
-      "reason": "復帰履歴のactor原記録を共有祖先でも各工程一度だけ保持し、自己参照と祖先への逆辺を循環として拒否することを確認する。"
+      "reason": "actor原記録を要約なしで評価入力へ渡し無関係なrunを除くこと、欠落・不一致等を理由付きで区別すること、改変を受入へ変換せず保存済み成功の再利用を止めることを確認する。"
     },
     {
       "path": "scripts/tests/quality/implement/runtime-test-boundary.test.ts",
@@ -239,7 +221,7 @@
       "path": "scripts/tests/quality/implement/test-review-diagnostics.test.ts",
       "class": "quality",
       "sha256": "57e326f176969b51a29049d3675bbcde7b0c65a7444710d18728a2f2c22b08bb",
-      "reason": "テスト指摘の診断を保護記録の有無で振り分け、改変された保存入力を正常応答で採用せず再評価へ戻すことを確認する。"
+      "reason": "テスト指摘の診断を保護記録の有無で振り分け最新評価から渡すこと、不適用の無変更応答でも期待値を保つこと、改変された診断・保存入力・修正前入力を採用せず停止することを確認する。"
     },
     {
       "path": "scripts/tests/quality/implement/test-stage.test.ts",
