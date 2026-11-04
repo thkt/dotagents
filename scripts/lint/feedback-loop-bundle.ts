@@ -35,6 +35,14 @@ function readRecordedHashes(root: string) {
   const manifest: unknown = JSON.parse(readFileSync(join(root, 'upstream.json'), 'utf8'));
   assert(isRecord(manifest), 'upstream.jsonはオブジェクトです');
   assert(
+    manifest.repository === upstreamRepository,
+    `upstream.jsonのrepositoryは${upstreamRepository}です`,
+  );
+  assert(
+    manifest.directory === upstreamDirectory,
+    `upstream.jsonのdirectoryは${upstreamDirectory}です`,
+  );
+  assert(
     typeof manifest.commit === 'string' && /^[0-9a-f]{40}$/.test(manifest.commit),
     'upstream.jsonのcommitは40桁のフルhashです',
   );

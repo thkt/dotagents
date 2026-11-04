@@ -53,6 +53,7 @@ async function withRepo(run: (root: string, skill: string) => Promise<void>) {
       'SKILL.md': '# 私用版の手順\n',
       'upstream.json': JSON.stringify({
         repository: 'thkt/feedback-loop',
+        directory: 'dist/private',
         commit: fakeFullCommit,
         files: Object.fromEntries(
           Object.entries(bundled).map(([path, body]) => [path, sha256(body)]),
@@ -63,6 +64,12 @@ async function withRepo(run: (root: string, skill: string) => Promise<void>) {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+}
+
+async function patchManifest(skill: string, patch: Record<string, string>) {
+  const manifest: unknown = JSON.parse(await readFile(join(skill, 'upstream.json'), 'utf8'));
+  assert(isRecord(manifest));
+  await writeFile(join(skill, 'upstream.json'), JSON.stringify({ ...manifest, ...patch }));
 }
 
 function runBundle(root: string, ...args: string[]) {
@@ -101,17 +108,20 @@ for (const [name, change, diagnostic] of [
     'upstream.jsonに記録がありません: scripts/extra.mjs',
   ],
   [
-    '短いcommitの記録',
+    '別の配布元の記録',
     async (skill: string) => {
-      const manifest: unknown = JSON.parse(await readFile(join(skill, 'upstream.json'), 'utf8'));
-      assert(isRecord(manifest));
-      await writeFile(
-        join(skill, 'upstream.json'),
-        JSON.stringify({ ...manifest, commit: 'abc1234' }),
-      );
+      await patchManifest(skill, { repository: 'other/feedback-loop' });
     },
-    '40桁',
+    'repository',
   ],
+  [
+    '別のディレクトリの記録',
+    async (skill: string) => {
+      await patchManifest(skill, { directory: 'dist/plugin' });
+    },
+    'directory',
+  ],
+  ['短いcommitの記録', (skill: string) => patchManifest(skill, { commit: 'abc1234' }), '40桁'],
 ] as const) {
   test(`同梱の食い違いは非ゼロ終了し、対象を示す: ${name}`, async () => {
     await withRepo(async (root, skill) => {
@@ -180,6 +190,35 @@ test('updateは存在しないcommitで同梱を変更せず非ゼロ終了す�
     );
   });
 });
+
+for (const [name, files, diagnostic] of [
+  ['dist/privateのないcommit', { 'README.md': 'x\n' }, 'dist/privateがありません'],
+  [
+    '同梱対象外のファイルを含むcommit',
+    {
+      'dist/private/scripts/runtime.mjs': 'new\n',
+      'dist/private/hooks/run.sh': 'x\n',
+    },
+    '同梱対象外',
+  ],
+] as const) {
+  test(`updateは${name}で同梱を変更せず非ゼロ終了する`, async () => {
+    await withRepo(async (root, skill) => {
+      const source = join(root, 'source');
+      await writeFiles(source, files);
+      git(source, 'init', '-q', '-b', 'main');
+      git(source, 'add', '-A');
+      git(source, 'commit', '-q', '-m', 'first');
+      const result = runBundle(root, 'update', '--source', source, '--commit', 'HEAD');
+      expect(result.code, result.output).toBe(1);
+      expect(result.output).toContain(diagnostic);
+      expect(await readFile(join(skill, 'scripts/setup.mjs'), 'utf8')).toBe(
+        bundled['scripts/setup.mjs'],
+      );
+      expect(runBundle(root).code).toBe(0);
+    });
+  });
+}
 
 test('package scriptのcheckとcheck:feedbackは同梱検査を実行する', async () => {
   const manifest: unknown = JSON.parse(
