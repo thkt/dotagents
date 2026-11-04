@@ -1,0 +1,6 @@
+{
+  "name": "setup-feedback-loop",
+  "description": "JavaScript／TypeScriptのrepoへ静的検査と関連qualityテストの反復コマンドを導入するスキル",
+  "author": { "name": "thkt" },
+  "repository": "https://github.com/thkt/dotagents"
+}

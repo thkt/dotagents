@@ -1,0 +1,11 @@
+{
+  "name": "dotagents",
+  "owner": { "name": "thkt" },
+  "plugins": [
+    {
+      "name": "setup-feedback-loop",
+      "source": "./.claude/plugins/setup-feedback-loop",
+      "description": "JavaScript／TypeScriptのrepoへ静的検査と関連qualityテストの反復コマンドを導入するスキル"
+    }
+  ]
+}

@@ -21,6 +21,8 @@ export type FeedbackConfig = {
   dependencies: { inputs: string[]; tests: string[] }[];
 };
 
+// 生成したruntime.mjsで、導入時にpackage managerへ置き換える文字列です。
+export const packageManagerToken = '__FEEDBACK_LOOP_TARGET_PACKAGE_MANAGER__';
 export const reviewPath = '.feedback-loop-review.json';
 
 type ReviewRecord = { path: string; class: 'quality' | 'assurance'; sha256: string };

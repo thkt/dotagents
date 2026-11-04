@@ -16,7 +16,7 @@ import {
 } from '../../support/feedback-loop-batch.ts';
 import { git } from '../../support/runner-affected.ts';
 
-// docs/wiki/setup-feedback-loop-contract.mdの「分類の確認記録」と、
+// skills/setup-feedback-loop/references/contract.mdの「分類の確認記録」と、
 // check:classification・--completeの公開入口だけを期待値の根拠にする。
 const reviewPath = '.feedback-loop-review.json';
 const config = {

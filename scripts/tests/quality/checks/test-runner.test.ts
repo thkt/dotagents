@@ -26,7 +26,14 @@ async function commandFixture() {
   }
   const manifest: unknown = await Bun.file(join(repo, 'package.json')).json();
   assert(isRecord(manifest) && isRecord(manifest.scripts));
-  for (const name of ['lint', 'format:check', 'complexity', 'typecheck', 'check:unused']) {
+  for (const name of [
+    'lint',
+    'format:check',
+    'complexity',
+    'typecheck',
+    'check:unused',
+    'check:generated',
+  ]) {
     manifest.scripts[name] = `${process.execPath} -e 'console.log("STATIC_GATE")'`;
   }
   await writeFile(join(cwd, 'package.json'), JSON.stringify(manifest));

@@ -183,3 +183,21 @@ test('bunWorkersと競合するCLI引数は配置前に拒否する', async () =
     }
   });
 });
+
+test('全件実行の理由は変更ファイルをrepo相対パスで1回ずつ示す', async () => {
+  await fixture(files, async (f) => {
+    installed(f);
+    const pkg = join(f.repo, 'package.json');
+    await writeFile(pkg, `${await readFile(pkg, 'utf8')}\n`);
+    await writeFile(join(f.repo, 'src/other.ts'), 'export const other = 1;\n');
+    const affected = run(f, ['run', 'test:affected']);
+    expect(affected.code, affected.output).toBe(0);
+    const line = affected.stdout.split('\n').find((text) => text.startsWith('quality全件の理由: '));
+    expect(line, affected.output).toBeDefined();
+    const reasons = (line ?? '').slice('quality全件の理由: '.length).split(', ');
+    expect(reasons).toContain('package.json');
+    expect(reasons).toContain('src/other.ts');
+    expect(reasons.filter((reason) => reason.includes(f.repo))).toEqual([]);
+    expect(new Set(reasons).size).toBe(reasons.length);
+  });
+});

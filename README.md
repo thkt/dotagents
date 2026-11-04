@@ -18,7 +18,7 @@
 | 入口 | 利用条件と参照先 |
 | --- | --- |
 | `scoping` | 要求・検証方法・合意を整理し、Issueまたは公開しない下書きに渡します。必要な参照は[スキル](skills/scoping/SKILL.md)から辿ります |
-| `setup-feedback-loop` | 対象repoへ静的検査と関連qualityテストの反復コマンドを導入します。[スキル](skills/setup-feedback-loop/SKILL.md)と[呼出し仕様](docs/wiki/setup-feedback-loop-contract.md)から、構成調査・固定依存・配置・implement接続・動作確認へ進みます。導入完了と各repoの実検証は区別します |
+| `setup-feedback-loop` | 対象repoへ静的検査と関連qualityテストの反復コマンドを導入します。[スキル](skills/setup-feedback-loop/SKILL.md)と[呼出し仕様](skills/setup-feedback-loop/references/contract.md)から、構成調査・固定依存・配置・implement接続・動作確認へ進みます。CLIはスキルに同梱した`scripts/setup.mjs`です。旧入口`bun /absolute/harness/scripts/feedback-loop/setup.ts apply --repo /absolute/project ...`は、`bun /absolute/harness/skills/setup-feedback-loop/scripts/setup.mjs apply --repo /absolute/project ...`に置き換えました。引数・出力・失敗条件は同じです。対象repoに`.dotagents.json`がなければimplement接続を省きます。Codexを使わない利用者向けの[プラグイン版](#claude-codeプラグイン)もあります。導入完了と各repoの実検証は区別します |
 | `implement` | 合意済みIssueを受け取り、テスト作成と実装を別セッションで扱います。方針は[開発方針](docs/wiki/development-policy.md#実装とテストの整理)に従います。信頼するスキル実体からCLIを解決し、対象repoを指定します。[スキル](skills/implement/SKILL.md)、[通常起動](scripts/README.md#issueからpr作成)、[既存PR修正](scripts/README.md#既存prの修正)に従います。ローカル受入後に単独公開したdraft PRには、[限定した採用入口](scripts/README.md#ローカル受入後の単独公開を採用する)があります |
 | 対象repoの `.dotagents.json` | checkoutルートの設定は必須です。commit・pushは任意で、リポジトリへの登録による共有を推奨します。repo・remote・base branch、setup・check・CI、必要な媒体を明示します。[設定形式と拒否条件](scripts/README.md#対象repoの設定)が正本です |
 | 文書で案内するCLI・package script | 呼び出し方と用途は[CLI手順](scripts/README.md)、導入とcheckは[セットアップと検証](#セットアップと検証)で確認します。通常の開発と、担当者向けの1回レビュー試行は区別します |
@@ -29,7 +29,20 @@
 
 内部の TypeScript export、参照されているだけのファイル、fallow の`entry`全体は、公開契約にしません。repo 外から内部 export を使う実例は未確認です。利用が見つかったら、対象と必要な保証を明示し、合意する範囲を見直します。
 
+`setup-feedback-loop`のCLIの正本は`scripts/feedback-loop/`です。`bun run build:feedback-loop`で私用版`skills/setup-feedback-loop/scripts/`とプラグイン版へ生成し、`bun run check`の`check:generated`が正本との食い違いを検出します。生成物は直接編集しません。
+
 テスト実行基盤の実体は`scripts/test-runtime/`に置き、独立テストが保護するテスト本体・fixtureと区別します。package scriptsはこの実体を使います。旧`scripts/tests/runner.ts`と`scripts/tests/mutation/cli.ts`は、直接実行する既存利用のために同一プロセスで実体へ委譲する互換入口として残します。
+
+## Claude Codeプラグイン
+
+Codexやimplementを使わないClaude Codeの利用者は、`setup-feedback-loop`をプラグインとして導入できます。このrepoのcheckoutは不要で、Bun 1.4.4が必要です。プラグイン版は`.dotagents.json`を読まず書かず、反復中に`check:feedback`を使う方法をCLAUDE.mdかhookで用意します。
+
+```sh
+claude plugin marketplace add thkt/dotagents
+claude plugin install setup-feedback-loop@dotagents
+```
+
+本体は`.claude/plugins/setup-feedback-loop/`にあり、`SKILL.md`と`references/claude-code.md`以外は生成物です。marketplaceの定義は`.claude-plugin/marketplace.json`です。
 
 ## セットアップと検証
 
@@ -49,8 +62,9 @@ Bun 1.4.4 を使います。check は次の順に実行します。ツールご�
 | 3 | `complexity` | Biome | 認知的複雑度の上限 15 だけ。formatter と他の規則は無効です |
 | 4 | `typecheck` | `bun --check` | `tsconfig.json`に従う通常ハーネスとeval実行コード・模擬テストの型の整合。テストからimportされないCLIも含みます |
 | 5 | `check:unused` | fallow | 未使用のファイル・export・型・依存と、実行時 import の循環 |
-| 6 | `test:control` | Bun | 通常ハーネスの制御テスト（`quality`・`assurance`の両分類） |
-| 7 | `test:eval` | Bun | eval専用の模擬テスト |
+| 6 | `check:generated` | Bun | `setup-feedback-loop`の生成物が正本`scripts/feedback-loop/`と一致すること |
+| 7 | `test:control` | Bun | 通常ハーネスの制御テスト（`quality`・`assurance`の両分類） |
+| 8 | `test:eval` | Bun | eval専用の模擬テスト |
 
 制御テストはBunのファイル単位の隔離を保ち、2workerで実行します。eval専用の模擬テストは直列です。通常のAI実装の反復では、`bun run check:feedback`で全体checkの静的検査と品質候補の`bun run test:affected`を実行します。これをfeedbackモードと呼びます。提出前・CIは引数なしの`bun run check`で両分類全件と既存の他のcheckを実行します。場面ごとの実行範囲、選択漏れへの対処、旧`test:feedback`の扱いは[開発方針](docs/wiki/development-policy.md#制御テストの階層)を正本とします。選択の仕組み・記録・計時は[CLIガイド](scripts/README.md#制御テストの選択と計時)を参照してください。
 
