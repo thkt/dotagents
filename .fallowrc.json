@@ -4,12 +4,9 @@
     "scripts/capture/capture.ts",
     "scripts/ui/run.ts",
     "scripts/lint/fallow.ts",
-    "scripts/test-runtime/feedback-env.ts",
+    "scripts/test-runtime/feedback-test.ts",
     "scripts/test-runtime/list-tests.ts",
     "scripts/lint/feedback-loop-bundle.ts",
-    "scripts/feedback-loop/setup.ts",
-    "scripts/feedback-loop/runtime.ts",
-    "scripts/feedback-loop/build.ts",
     "scripts/implement/codex-actor.ts",
     "scripts/implement/development.ts",
     "scripts/implement/publish.ts",
@@ -32,8 +29,7 @@
     "output/**",
     "scripts/feedback-loop/runtime.mjs",
     "scripts/feedback-loop/record-modules.ts",
-    "skills/setup-feedback-loop/scripts/**",
-    ".claude/plugins/**"
+    "skills/setup-feedback-loop/scripts/**"
   ],
   "ignoreDependencies": [
     "@textlint-rule/textlint-rule-no-invalid-control-character",
