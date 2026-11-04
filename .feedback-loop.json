@@ -19,14 +19,16 @@
   ],
   "prepare": [],
   "bunArgs": [
-    "--env-file=scripts/test-runtime/feedback.env"
+    "scripts/test-runtime/feedback-test.ts"
   ],
   "bunWorkers": 2,
   "testArgs": [
-    "--preload=./scripts/test-runtime/feedback-env.ts",
     "--only-failures"
   ],
-  "globalChanges": [],
+  "globalChanges": [
+    "scripts/test-runtime/feedback-test.ts",
+    "scripts/test-runtime/list-tests.ts"
+  ],
   "dependencies": [
     {
       "inputs": [
