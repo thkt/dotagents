@@ -1,3 +1,5 @@
+<!-- 生成元: references/typecheck.md。直接編集せず、正本を変更して再生成してください -->
+
 # Bun内蔵の型検査を接続する
 
 Bunを日常実行に使うrepoでは、固定したBunの`bun check --no-script`を反復中の型検査の候補にする。追加の型検査パッケージは導入しない。npm・Nodeだけで動くrepoにはBunを追加せず、既存の型検査を保つ。
@@ -25,7 +27,7 @@ package scriptsで実行順序を表し、`.feedback-loop.json`の既存`prepare
 
 型検査を含む準備処理が既にあるrepoでは、反復用の準備入口で型検査部分だけをBunへ接続する。依存版の照合、環境変数、codegen、Python構文検査等の既存処理を保つ。通常checkが同じ準備関数を使う場合も、通常の呼出しは既存の型検査を使うようにする。`check:feedback`の直下と`prepare`の両方で同じ型検査を実行しない。
 
-cantleで導入担当が用意する例は次のとおり。`--prepare-feedback`は既存の公開CLIにあるフラグではなく、対象repoへ追加して確認する入口である。
+導入担当が用意する例は次のとおり。`--prepare-feedback`は既存の公開CLIにあるフラグではなく、対象repoへ追加して確認する入口である。
 
 1. 反復用の準備入口で固定依存の版を照合し、`bun check --no-script -p tsconfig.type-tests.json`と、記録器を検査する`bun check --no-script -p tsconfig.feedback-loop.json`を実行する。既存の起動引数も維持する。
 2. 既存のPython構文検査を一度実行し、準備だけで終了する。`tsconfig.feedback-loop.json`は実際の補助スクリプト検査用設定を確認して用意し、既存の型検査と同じ対象・条件を保つ。

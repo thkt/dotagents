@@ -1,20 +1,22 @@
+<!-- 生成元: references/contract.md。直接編集せず、正本を変更して再生成してください -->
+
 # setup-feedback-loopの呼出し仕様
 
 [Issue #466](https://github.com/thkt/dotagents/issues/466)と[Issue #473](https://github.com/thkt/dotagents/issues/473)の導入操作を、実装と独立テストで照合するための公開仕様です。実装済み・導入済みを示す文書ではありません。内部のファイル分割や依存記録の保存形式は固定しません。
 
 ## 利用例と担当
 
-cantleの導入担当は、通常checkが収集する`test/*.test.ts`と`evaluation/test/*.test.ts`を維持し、不足する静的検査を導入します。まず構成を調べ、固定版の依存をインストールし、設定とpackage scriptsを用意してから導入を確定します。通常の全体checkは、既存の型検査・Python構文検査・全テストに採用した静的検査を加えたものです。
+導入担当は、通常checkが収集する集合（例では`test/*.test.ts`と`evaluation/test/*.test.ts`）を維持し、不足する静的検査を導入します。まず構成を調べ、固定版の依存をインストールし、設定とpackage scriptsを用意してから導入を確定します。通常の全体checkは、既存の検査（例では型検査・Python構文検査・全テスト）に採用した静的検査を加えたものです。
 
 既存のESLint・Prettier・Vitestを使うnpmプロジェクトでは、既存ツールと準備処理を利用します。新たなformatterを併設せず、不足するfallow等だけを導入します。`test:*`の一括実行があれば、新しい部分実行コマンドが全体テストへ混入しない接続を先に用意します。
 
 導入担当がツールの選択、設定の意味、通常check・CIへの接続を判断します。スクリプトは構成の取得、固定依存の導入、必要な補助ファイルの配置とコマンドの接続を担います。package scriptsで表せる実行順序はそのまま使い、独自のタスクグラフや修正ループを追加しません。テスト・fixture・検証接続の作成と変更は独立テスト担当が行います。
 
-以下のコマンドは、スキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`をBun 1.4.4で呼びます。`${CLAUDE_SKILL_DIR}`はSKILL.mdのあるディレクトリの絶対パスです。展開されない環境では、そのパスへ書き換えて実行します。`--repo`は対象Git checkoutの絶対パスです。CLIはdotagentsのcheckout・git履歴・node_modulesを参照しません。別の版のBunやNode.jsで起動すると、版の不一致を示して非ゼロ終了します。対象repoの日常実行に、スキルのパスやBunの追加導入を要求しません。
+以下のコマンドは、スキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`をBun 1.4.4で呼びます。`${CLAUDE_SKILL_DIR}`はSKILL.mdのあるディレクトリの絶対パスです。展開されない環境では、そのパスへ書き換えて実行します。`--repo`は対象Git checkoutの絶対パスです。CLIはこのrepoのcheckout・git履歴・node_modulesを参照しません。別の版のBunやNode.jsで起動すると、版の不一致を示して非ゼロ終了します。対象repoの日常実行に、スキルのパスやBunの追加導入を要求しません。
 
-`setup.mjs`と、配置する`runtime.mjs`・`record-modules.ts`は、[thkt/dotagents](https://github.com/thkt/dotagents)の`scripts/feedback-loop`を正本として生成したものです。生成元のファイルとSHA-256は同じディレクトリの`source.json`にあります。直接編集せず、正本を変更して`bun run build:feedback-loop`で再生成します。
+`setup.mjs`と、配置する`runtime.mjs`・`record-modules.ts`は、[thkt/feedback-loop](https://github.com/thkt/feedback-loop)の`scripts/feedback-loop`を正本として生成したものです。生成元のファイルとSHA-256は同じディレクトリの`source.json`にあります。直接編集せず、正本を変更して`bun run build:feedback-loop`で再生成します。
 
-スキルには2つの版があります。dotagentsの私用版は、対象repoに`.dotagents.json`があればimplementの`feedbackCheck`へ接続します。Claude Codeのプラグイン版は`.dotagents.json`を読まず書きません。それ以外の入力・出力・失敗条件は同じです。
+スキルには2つの版があります。thkt/dotagentsの私用版は、対象repoに`.dotagents.json`があればimplementの`feedbackCheck`へ接続します。Claude Codeのプラグイン版は`.dotagents.json`を読まず書きません。それ以外の入力・出力・失敗条件は同じです。
 
 ## 構成の調査
 
@@ -67,21 +69,21 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --pac
 
 `base`は関連選択の比較元にするGitの参照です。`inspect`の`base`を候補にし、対象repoの既定ブランチと照合して指定します。上例の`origin/main`は、既定ブランチが`main`のrepoの値です。
 
-`collect`は、通常checkと同じ収集処理からテスト一覧を得るargv配列です。対象repoのcwdで実行し、標準出力へrepo相対パスのJSON文字列配列を返し、診断は標準エラーへ出します。cantleでは既存の`testFiles()`を一覧表示の入口と通常checkで共有する接続を用意します。例の`--list`はその接続案であり、導入前のコマンドにはありません。Bunには一覧機能がないため、[Bunのテスト一覧](collect.md)の一覧スクリプトを使い、通常checkのJUnitと照合します。Vitestでは導入版CLIの収集結果を同じ形に整える対象repoの入口を使います。収集の失敗、不正な出力、重複、存在しないパス、`testGlobs`との集合の差は非ゼロ終了とします。
+`collect`は、通常checkと同じ収集処理からテスト一覧を得るargv配列です。対象repoのcwdで実行し、標準出力へrepo相対パスのJSON文字列配列を返し、診断は標準エラーへ出します。既存の収集関数がある例では、その関数を一覧表示の入口と通常checkで共有する接続を用意します。例の`--list`はその接続案であり、導入前のコマンドにはありません。Bunには一覧機能がないため、[Bunのテスト一覧](collect.md)の一覧スクリプトを使い、通常checkのJUnitと照合します。Vitestでは導入版CLIの収集結果を同じ形に整える対象repoの入口を使います。収集の失敗、不正な出力、重複、存在しないパス、`testGlobs`との集合の差は非ゼロ終了とします。
 
 `runner`は`bun`または`vitest`です。Bunは固定した実行系と`bunArgs`を使い、テストオプションには`testArgs`を渡します。Vitestは対象repoのローカル依存を使い、既存の設定・global setup・環境変数を引き継ぎます。Vitestでは`bunArgs`を指定しません。`prepare`はテスト前に必要な既存コマンドのargv配列で、不要なら空配列です。同じ呼出しで準備処理や型検査を重複実行しないようpackage scriptsと照合します。
 
 `bunArgs`に`--no-env-file`がある場合は、生成する`test:affected`と`check:classification`のpackage scriptsにもこの引数を維持します。テスト本体だけでなく、補助ファイルを起動する外側のBunも`.env`を先に読み込まないようにします。
 
-`allowSkipped`は任意のbooleanで、省略時は`true`です。対象repoの既存checkがskip・todoを許容する場合は`true`、許容しない場合は`false`を指定します。boolean以外は入力不正として拒否します。この設定はBunとVitestの両runnerへ適用し、dotagents自身の既存runnerの厳格な判定は変更しません。
+`allowSkipped`は任意のbooleanで、省略時は`true`です。対象repoの既存checkがskip・todoを許容する場合は`true`、許容しない場合は`false`を指定します。boolean以外は入力不正として拒否します。この設定はBunとVitestの両runnerへ適用し、thkt/dotagentsのテスト実行器の判定とは独立しています。
 
-cantleでは、開始版`3f256f0c904e4a0b06ba401b218645ccf80bd64d`の`scripts/test.ts`にある`prepareTests()`へ、上例の`--prepare`を接続します。この入口は準備処理だけを実行して終了し、テスト本体を起動しません。既存の固定Bunと起動引数、`typescript`・`@types/node`の指定版と導入版の照合、`tsconfig.type-tests.json`による型検査、`evaluation`配下の既存収集処理によるPython構文検査を保ちます。単独の型検査への置換では、依存の照合とPython構文検査を満たしません。
+上の設定例のrepoでは、`scripts/test.ts`にある`prepareTests()`へ`--prepare`を接続します。この入口は準備処理だけを実行して終了し、テスト本体を起動しません。既存の固定Bunと起動引数、`typescript`・`@types/node`の指定版と導入版の照合、`tsconfig.type-tests.json`による型検査、`evaluation`配下の既存収集処理によるPython構文検査を保ちます。単独の型検査への置換では、依存の照合とPython構文検査を満たしません。
 
-一覧用の`--list`は通常checkと同じ`testFiles()`の結果を返し、準備処理とテスト本体を実行しません。通常checkは既存の準備処理と全テストを保ちます。`test:affected`は選択したテストを実行する前に`prepare`を一度だけ完了させ、失敗時には診断と非ゼロ終了を返してテスト本体へ進みません。修正後の再実行では準備処理から確認します。`check:classification`は収集と分類の検査であり、準備処理を実行しません。`--prepare`と`--list`は導入時に対象repoへ用意する接続で、開始版にはありません。
+一覧用の`--list`は通常checkと同じ収集関数の結果を返し、準備処理とテスト本体を実行しません。通常checkは既存の準備処理と全テストを保ちます。`test:affected`は選択したテストを実行する前に`prepare`を一度だけ完了させ、失敗時には診断と非ゼロ終了を返してテスト本体へ進みません。修正後の再実行では準備処理から確認します。`check:classification`は収集と分類の検査であり、準備処理を実行しません。`--prepare`と`--list`は導入時に対象repoへ用意する接続で、導入前のrepoにはありません。
 
 `fullCheck`は、担当AIがassuranceへの影響を判断できない場合等に直接実行する既存コマンドです。`test:affected`から自動では実行しません。`globalChanges`はquality全件へ広げる入力、`dependencies`は通常のファイル読み込み等を補う対応です。ある変更を対応付けできても、別の変更の影響が不明なら全qualityへ広げます。`package.json`、使用するlockfile、分類設定、関連選択器自体は、指定漏れでも部分実行の根拠にしません。
 
-cantleのPython変更は本体側の`test/runtime.test.ts`にも関係するため、この例では全qualityへ広げます。`dependencies`を指定する場合は、`{"inputs":["data/*.json"],"tests":["test/example.test.ts"]}`の形で、内容を確認した対応を追加します。
+この例のPython変更は本体側の`test/runtime.test.ts`にも関係するため、全qualityへ広げます。`dependencies`を指定する場合は、`{"inputs":["data/*.json"],"tests":["test/example.test.ts"]}`の形で、内容を確認した対応を追加します。
 
 ## 分類の確認記録
 
@@ -141,7 +143,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedb
 
 Bun内蔵の型検査を採用する場合は、[接続手順](typecheck.md)に従い、固定Bunの機能・対応TypeScript版と既存の検査範囲を確認します。`bun run check`は全体check、`bun check --no-script -p tsconfig.json`は指定プロジェクトの型検査です。同名のpackage scriptを起動しないよう、内蔵型検査には`--no-script`を付けます。変更ファイルや関連テストの集合へ型検査を狭めません。
 
-cantleでBun型検査を使う反復用の準備入口を用意した場合は、`prepare`を`["bun", "--no-env-file", "scripts/test.ts", "--prepare-feedback"]`へ切り替えます。このフラグは導入先へ追加する接続例です。依存版の照合・既存tsconfigの型検査・Python構文検査を一度だけ実行し、通常checkの準備入口と既存の型検査は保ちます。複数のtsconfig、参照先、型生成・codegen等を含め、接続前後の範囲を確認します。型エラーでテスト開始前に失敗し、修正後に同じ入口から復帰することを導入完了条件とします。
+上の設定例のrepoでBun型検査を使う反復用の準備入口を用意した場合は、`prepare`を`["bun", "--no-env-file", "scripts/test.ts", "--prepare-feedback"]`へ切り替えます。このフラグは導入先へ追加する接続例です。依存版の照合・既存tsconfigの型検査・Python構文検査を一度だけ実行し、通常checkの準備入口と既存の型検査は保ちます。複数のtsconfig、参照先、型生成・codegen等を含め、接続前後の範囲を確認します。型エラーでテスト開始前に失敗し、修正後に同じ入口から復帰することを導入完了条件とします。
 
 初回導入時から、書き換える既存ファイルの内容と差分を確認できるようにします。同じ設定・同じ生成元で再実行した場合は内容を変えません。既存の同名コマンドや生成物が指定内容と食い違う場合は、上書き前に対象と理由を示して非ゼロ終了します。無関係なローカル変更は保持します。入力不正と既知の衝突はファイルの配置前に検出します。OS・インストール障害を含む操作全体の原子性は要求せず、途中失敗した内容を明示します。
 
@@ -186,7 +188,7 @@ Bunのテストプロセスには`--no-orphans`も付け、leader・workerと出
 
 基点の照合対象は現在のquality候補です。削除済み・分類変更済みのテストの原記録は保持し、その古い基点だけで現行quality全体を無効にしません。現行qualityを正常に再実行した後、既知のソース変更で関連選択へ戻れることを確認します。
 
-導入操作では、formatter・lint・型検査・fallow・テストの正常例と小さい違反を`check:feedback`から確認し、違反を残さず再検査します。再インストール、再セットアップ、分類集合、選択漏れへのfallback、通常check・CIへの接続も確認します。共有の検証用repoで成立させた後、cantle、次にkaiへ適用します。実導入結果と未完了箇所は既存のfindings・PR説明に記録します。
+導入操作では、formatter・lint・型検査・fallow・テストの正常例と小さい違反を`check:feedback`から確認し、違反を残さず再検査します。再インストール、再セットアップ、分類集合、選択漏れへのfallback、通常check・CIへの接続も確認します。共有の検証用repoで成立させた後、展開先へ適用します。実導入結果と未完了箇所は既存のfindings・PR説明に記録します。
 
 関連選択の導入確認では、設定変更と通常ソース変更を分けます。隔離したcheckoutで導入後の版を比較元にし、通常ソースだけの変更に必要なqualityが実行され、無関係なqualityとassuranceが除外されることを確認します。標準importと補完依存の両方を確かめ、記録なし・古い記録・未知の入力では全qualityへ広がることも維持します。`src/**`等の一括指定で常に全qualityを実行するだけでは、絞り込みの導入完了とは扱いません。
 

@@ -1,3 +1,5 @@
+<!-- 生成元: references/collect.md。直接編集せず、正本を変更して再生成してください -->
+
 # Bunのテスト一覧を作る
 
 Bun 1.4.4の`bun test`には、テストを実行せずにファイルを一覧する機能がない。`.feedback-loop.json`の`collect`には、通常checkの`bun test`と同じ範囲を一覧する入口を対象repoへ用意する。既存の一覧処理があればそれを使い、なければ次のスクリプトを`scripts/list-tests.ts`として置く。

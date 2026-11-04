@@ -4,6 +4,7 @@
     "scripts/capture/capture.ts",
     "scripts/ui/run.ts",
     "scripts/lint/fallow.ts",
+    "scripts/lint/feedback-loop-bundle.ts",
     "scripts/feedback-loop/setup.ts",
     "scripts/feedback-loop/runtime.ts",
     "scripts/feedback-loop/build.ts",
