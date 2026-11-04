@@ -17,13 +17,13 @@
       "path": "scripts/tests/quality/checks/feedback-loop-bundle.test.ts",
       "class": "quality",
       "sha256": "505c34aa3cb2df5ecaa54c16de1ce092f5a87ba3efe8342d075a8f279932c0f4",
-      "reason": "同梱ファイルとupstream.jsonのcommit・repository・directory・sha256の照合、食い違いの非0終了、指定commitでのupdateと対象外内容の拒否を確認する。"
+      "reason": "同梱ファイルとupstream.jsonのcommit・repository・directory・sha256の照合、食い違いの非0終了と対象の診断、指定commitでのupdateと空・対象外内容の拒否を確認する。実package.jsonがcheckとcheck:feedbackから同梱検査を呼ぶ確認はrepoの実ファイルを見る整合検査で混在するが、主目的はCLIの入出力なのでqualityに置く。"
     },
     {
       "path": "scripts/tests/quality/checks/feedback-loop-wiring.test.ts",
       "class": "quality",
       "sha256": "e167ccf27616128416b271c8d83006d68d95b89c36b8fffbb7b5fd1b0e4e2426",
-      "reason": "実設定のtest:affected・test:feedback・check:classificationの選択と全件条件、only・skip・失敗の非0終了、実行環境、依存記録、設定の参照先、生成物の一致を確認する。"
+      "reason": "実設定のtest:affected・test:feedback・check:classificationの選択と全件条件、only・skip・失敗の非0終了、実行環境、依存記録を確認する。配置物と同梱物・generated.jsonの一致と設定の参照先の実在はrepoの実ファイルを照合する整合検査で混在するが、主目的はこの接続の入出力なのでqualityに置く。"
     },
     {
       "path": "scripts/tests/quality/checks/mutation-cli.test.ts",
@@ -65,7 +65,7 @@
       "path": "scripts/tests/quality/checks/test-runner.test.ts",
       "class": "quality",
       "sha256": "97c77a838ae14d25942f7b771262f9cd2521b91eb1c9e5374a75df14fb1b1e09",
-      "reason": "package入口と旧runner CLIのパス選択・終了結果、JUnit報告の件数・skip・不正の拒否、evalの失敗の伝達、自動maintenance停止の環境を確認する。lock確認が混在するが入口の契約が主なためquality。"
+      "reason": "package入口と旧runner CLIのパス選択・終了結果、総合checkでのevalの失敗の伝達、JUnit・Playwright報告の件数・skip・不正の拒否、不正な報告の保持と読取り失敗・完了時の一時領域の後始末、自動maintenance停止の環境を確認する。lock確認と後始末が混在するが入口と報告の判定が主なためqualityに置く。"
     },
     {
       "path": "scripts/tests/quality/implement/actor-records.test.ts",
@@ -77,7 +77,7 @@
       "path": "scripts/tests/quality/implement/actor-runtime.test.ts",
       "class": "quality",
       "sha256": "4570f0bab3853c758ff37d46f014a7e900ac0a8c3a07795f2210fba383c80f3a",
-      "reason": "実行基盤の観測がハーネス自身のrootとcommitを使い、対象外ファイルを除き、内容・パス・追加・削除・権限の変更でcodeHashと変更状態が変わることを確認する。"
+      "reason": "実行基盤の観測がハーネス自身のrootとcommitを使い外部のGIT_*を無視し、対象外ファイルを除いて内容・パス・追加・削除・権限の変更でcodeHashと変更状態を変えることと、symlink・package.json欠落・gitのないPATHで値をnullにし理由や不明を記録することを確認する。"
     },
     {
       "path": "scripts/tests/quality/implement/allocation.test.ts",
@@ -89,13 +89,13 @@
       "path": "scripts/tests/quality/implement/ci.test.ts",
       "class": "quality",
       "sha256": "afe5ea8fd2617dd86064bbf8e3728ccb63eebaf4a673bbea89e2838fd7f0c51d",
-      "reason": "CI確認の待機（登録・実行中・他checkの完了待ち）、対象のhead・draft状態の変更、必須checkのskip・neutral・同名失敗・status contextの判定と保存結果を確認する。"
+      "reason": "CI確認の待機（必須checkの未登録・実行中・他checkの完了待ち・9分超）、head・base・state・url・bodyの変更とdraft切替のtarget_changed、必須checkのskip・neutral・同名失敗・他check失敗・status contextの判定、PR応答の欠落・型不正・不正JSONのinvalid_response、保存結果と次の対応を確認する。"
     },
     {
       "path": "scripts/tests/quality/implement/codex-actor.test.ts",
       "class": "quality",
       "sha256": "a3fed31b9b6d99135b7b372d1a908333f953b19dba4bdf4f10fbb6d365b2fe10",
-      "reason": "Codex actorのログと起動記録を通常・修正・テスト・shim・version空・非0終了・CLI欠落の各場合で確かめ、独立テストの入力IDを生成schemaで固定することを確認する。"
+      "reason": "Codex actorのログと起動記録を通常・修正・テスト・shim・version空・非0終了・CLI欠落の各場合で確かめ、独立テストの入力IDを生成schemaで固定することを確認する。CLI欠落は起動不能が混在するが、開始前からPATHにない入力条件でentryとversionを不明と記録する判定なのでqualityに置く。観測後に実体が消えるlaunch_errorは環境障害としてassuranceのまま分ける。"
     },
     {
       "path": "scripts/tests/quality/implement/command-inputs.test.ts",
@@ -119,7 +119,7 @@
       "path": "scripts/tests/quality/implement/correction.test.ts",
       "class": "quality",
       "sha256": "a9bd49f6dbced68c71907c5b95fc35c81192d6d3149e64e2a9a28a89b0fb8928",
-      "reason": "修正周回の設定検証、検証済み変更のcommit、評価の再利用条件、不正な保存状態と証跡境界の拒否を確認する。修正後のIssue取得失敗や初回Issue証拠の再実行拒否も混在するが契約の判定が主なためquality。"
+      "reason": "修正周回の結果判定（受入・不正修正・不正評価・人の判断・要求変更・評価失敗・対象変更）、指摘が繰り返された後の最新修正の受入と評価入力、修正応答の契約、設定・保存状態・証跡境界の検証、検証済み変更のcommit後の再利用条件を確認する。修正後のIssue取得失敗の予約保持と初回Issue証拠の再実行拒否が混在するが、入力と結果の判定が主なためqualityに置く。"
     },
     {
       "path": "scripts/tests/quality/implement/development.test.ts",
@@ -167,7 +167,7 @@
       "path": "scripts/tests/quality/implement/publish.test.ts",
       "class": "quality",
       "sha256": "9672b62c7f4a5684f6482266045a156aa7102206cff755ded86987d475f5cb6f",
-      "reason": "公開の主経路（新規作成・既存PRの再利用・指定SHAの照合）と、作者・対象の不一致、対象欠落・不正引数・別GitHubホストを認証やコマンドの前に拒否することを確認する。"
+      "reason": "公開の主経路（新規作成・既存PRの再利用・指定SHAの照合）を確認する。作成前は想定外actor・権限なし・空本文を止め、一覧後はactor変更・既存PRの作者・本文・ready状態の不一致を止める。作成後は作者・対象・draftの不一致と取得失敗を成功にせず、作成失敗とREST応答の不正も拒否する。認証やコマンドの前に拒否するのは対象欠落・不正引数・別GitHubホストである。"
     },
     {
       "path": "scripts/tests/quality/implement/recovery-entry-limit.test.ts",
@@ -191,7 +191,7 @@
       "path": "scripts/tests/quality/implement/revision.test.ts",
       "class": "quality",
       "sha256": "677f7a3e1151cf0ba00d3e50bf9bce04d627e1a12b55f6cf5f0375be3284ec69",
-      "reason": "既存PR修正の入力検証、項目別の照合、開始時の変更拒否、証跡の予約、初回公開出力からの接続を確認する。未完了・不確定の前回実行の拒否と並行実行の予約も混在するが開始判定が主なためquality。"
+      "reason": "既存PR修正の入力検証と項目別照合、開始前のdirty・未完了run・前回証拠の拒否、開始境界と検証中の変更停止、correction経由の要求・対象・actor・権限・branch・head・ref・本文の変更停止、独立テスト工程の失敗・不正応答での停止と原記録の保持を確認する。修正の公開経路（commit・push・本文更新・読戻し・CI・添付）とpush後の照合、並行runの予約も確認する。既存lock（EEXIST）・active予約の再実行拒否が混在するが、修正の開始と公開の判定が主なためqualityに置く。"
     },
     {
       "path": "scripts/tests/quality/implement/run-report.test.ts",
