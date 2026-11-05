@@ -1,16 +1,17 @@
 {
   "repository": "thkt/feedback-loop",
   "directory": "dist/private",
-  "commit": "082327e6bf21da5b7e3cfef90a94ad7955899fb6",
+  "commit": "fd02869ace2df1a96007d53f9015eecc74877cbd",
   "files": {
     "references/collect.md": "8cb9d0604f519add82f9118ecfdf0c9161b9f7c2a10d66a52c43aaaafd1da9eb",
-    "references/contract.md": "92701e2e39b6938263711c3449ba78e9935acd92a836b68645c8bcf84f40e3ee",
-    "references/runners.md": "18c696cc89d6657b9e0b67d0fb51ba767c452e624e09fe09179f8c01ebae8219",
+    "references/contract.md": "ad612ef2b047d9a86842a4039d8963eeff74e415b299b78d3d8f862a5bba40f2",
+    "references/dotagents.md": "47160a87e2c465437d721d180834d3d8dfaab837a856f9b4e751eee847c75046",
+    "references/runners.md": "182936540e5cfbe2568e1ff10ee678ee7bc0f78f27bb7048c633d5295b430d41",
     "references/tools.md": "849579915155e076af25a23c48c8f1faec72bf59fea65ecfef5ddf801dd53d3a",
-    "references/typecheck.md": "6595af7d334bbb31dec74c83b0b3ba2eb2bcd279aec417b7598eb2c4b1e0387b",
-    "scripts/record-modules.ts": "6eb90f754a59425eaf1d242dd825fa30da625e60ae0b6e099e22537066c961f2",
-    "scripts/runtime.mjs": "305e0f646a067fb5271fb46d484146bb0a81326b683260fc44e03f7dbc6abbde",
-    "scripts/setup.mjs": "583e0d8a5bdd191e9a555e933ad3ab732a498efeb780a5644c510efd8b4d94b4",
-    "scripts/source.json": "31eb85b7e848c488eece4ff98341683d6209519077c276555c74514a262e64a7"
+    "references/typecheck.md": "407135a7ca2aa14a4d5960a5b2086f55a3b011c3da9a5d43298d55a749d78c76",
+    "scripts/record-modules.ts": "86cb1679ef667115831023b004934e1f38ef8e662321894f0edc440527392aad",
+    "scripts/runtime.mjs": "247bfe064d1464232a9883b46426fda57bf0d61db4c3b06fbb7ed653346e7675",
+    "scripts/setup.mjs": "642d44746ff1bc5985d5546abce0f2e25b42fe371fc806b5e0d995d377ed73b2",
+    "scripts/source.json": "741f68363aa662bf80a54bf88270e59f46a89ab67e5c3dbefa7949db1076f7e9"
   }
 }
