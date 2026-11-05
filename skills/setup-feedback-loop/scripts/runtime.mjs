@@ -1,4 +1,4 @@
-// 生成元: thkt/dotagents scripts/feedback-loop/build.ts。直接編集せず、正本を変更して再生成してください
+// 生成元: thkt/feedback-loop scripts/feedback-loop/build.ts。直接編集せず、正本を変更して再生成してください
 // scripts/feedback-loop/runtime.ts
 import assert5 from "node:assert/strict";
 import { existsSync as existsSync4, readFileSync as readFileSync3 } from "node:fs";

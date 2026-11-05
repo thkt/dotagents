@@ -18,7 +18,7 @@ assert(runner && mutation, '設定されたテスト実行基盤の入口が必�
 
 for (const runtime of [
   runner,
-  join(dirname(runner), 'record-modules.ts'),
+  join(dirname(runner), 'report.ts'),
   mutation,
   join(dirname(mutation), 'execute.ts'),
 ]) {

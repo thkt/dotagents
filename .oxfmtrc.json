@@ -4,6 +4,7 @@
     "**/*",
     "!**/",
     "!**/*.ts",
-    "eval/fixtures/**"
+    "eval/fixtures/**",
+    "scripts/feedback-loop/**"
   ]
 }

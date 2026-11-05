@@ -46,3 +46,14 @@ README・CLIで案内していた`test:feedback`と変異CLIの`--quality`は互
 
 - 品質限定の候補範囲や直接実行の運用が、合意した要求を守れないと確認された場合。
 - 記録の漏れへの対処や互換入口の維持に、要求・範囲の再合意が必要になった場合。
+
+### 追記: 関連実行の実行部の移動（Issue #475）
+
+[Issue #475](https://github.com/thkt/dotagents/issues/475)により、関連選択の実行部をthkt/feedback-loopへ移し、このrepoの`test:affected`は配置した`scripts/feedback-loop/runtime.mjs`を使います。qualityを候補にしassuranceを自動選択しないこと、品質全件へ戻す判断、提出前の全件checkという本文の決定は維持します。次の点は「既存runnerのパス指定を使う」という本文の手段から変わります。
+
+- runnerの`--affected`・`--affected=REF`とパス引数による候補指定を廃止しました。基点と候補は`.feedback-loop.json`で決めます。
+- テスト本文のパス末尾の照合を廃止しました。実行時の記録に現れない依存は`dependencies`へ明示します。未指定の依存は選ばれません。利用者はこの差を受け入れました。
+- 失敗・取消の後は実行した候補の依存記録を無効にして原記録を別名で残し、次回は品質全件を実行します。
+- `.claude/workspace/`・`docs/issues/`・`.issue-drafts/`だけの変更は、停止せず品質全件を実行します。
+
+見直しの条件は上記のまま適用します。
