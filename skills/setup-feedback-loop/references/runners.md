@@ -78,7 +78,7 @@ Bunの標準選択が一部のテストを選んでも、すべての変更の�
 
 対象repoのローカルVitestで、公開APIの`createVitest`と`getRelevantTestSpecifications`を使い、変更ごとの関連qualityをテスト本体を実行せずに確認する。明示対応もVitestの到達先もない変更が混じれば全qualityへ広げる。実行は公開CLIの`related ... --run`を使う。既存のconfig・global setup・環境変数・codegen・DB準備を保つ。収集用コマンドは導入版の`list`の出力をrepo相対パスのJSON文字列配列へ整え、通常checkと照合する。[Vitest 4のAPI](https://v4.vitest.dev/advanced/api/vitest.html#getrelevanttestspecifications)と[CLIガイド](https://v4.vitest.dev/guide/cli.html)を導入版へ照合する。公開APIの対応が確認できない版では、正常に選択できたと扱わない。
 
-補助スクリプトは変更テスト自身と明示した依存先を関連入力へ含め、assuranceを除外する。設定・lock・選択器・削除、依存先不明の入力は全qualityへ広げる。静的importで追えると推測しただけの入力を、関連選択の根拠にしない。JSONレポートで完了・実行集合を確認し、選択した全ファイルの結果を要求する。関連0件の終了0や、一部の結果だけの成功を全体の完了に数えない。skip等は対象repoの既存契約へ照合する。
+補助スクリプトは変更テスト自身と明示した依存先を関連入力へ含め、assuranceを除外する。設定・lock・選択器・削除、依存先不明の入力は全qualityへ広げる。Vitestの関連選択はimport graphだけを追う。ファイルの読込みと子プロセスは`dependencies`で足す。`dependencies`の明示先とimportの到達先は和集合で選ぶ。到達先が0件でも、`dependencies`に当たる入力は全qualityへ広げない。JSONレポートで完了・実行集合を確認し、選択した全ファイルの結果を要求する。関連0件の終了0や、一部の結果だけの成功を全体の完了に数えない。skip等は対象repoの既存契約へ照合する。
 
 ## 導入時の確認
 

@@ -1,16 +1,16 @@
 {
   "repository": "thkt/feedback-loop",
   "directory": "dist/private",
-  "commit": "94823f2f4a7b176cf1cf30ec0a5c81c5c20b3619",
+  "commit": "082327e6bf21da5b7e3cfef90a94ad7955899fb6",
   "files": {
     "references/collect.md": "8cb9d0604f519add82f9118ecfdf0c9161b9f7c2a10d66a52c43aaaafd1da9eb",
-    "references/contract.md": "02a94f4f036eb4c0386253c812b7c530858d93bc7c5335a3ad67206a70046123",
-    "references/runners.md": "d9165ace7bfbe1511150ed139aefe838e3c0ddde4acaa86bc13757dae69e3378",
+    "references/contract.md": "92701e2e39b6938263711c3449ba78e9935acd92a836b68645c8bcf84f40e3ee",
+    "references/runners.md": "18c696cc89d6657b9e0b67d0fb51ba767c452e624e09fe09179f8c01ebae8219",
     "references/tools.md": "849579915155e076af25a23c48c8f1faec72bf59fea65ecfef5ddf801dd53d3a",
     "references/typecheck.md": "6595af7d334bbb31dec74c83b0b3ba2eb2bcd279aec417b7598eb2c4b1e0387b",
     "scripts/record-modules.ts": "6eb90f754a59425eaf1d242dd825fa30da625e60ae0b6e099e22537066c961f2",
-    "scripts/runtime.mjs": "e4ed70dced3d9ae947172d612a5afe15fec207453efee48960b72ca4ce1ae284",
-    "scripts/setup.mjs": "32d962f145151d31b870e9c21703cf0cfe9c7bc6fdcac474e271684221cb206f",
-    "scripts/source.json": "e62a50f31cc7d141a4ca254efb72b0f09b72a0482b3d588b9977bd62a199f5cf"
+    "scripts/runtime.mjs": "305e0f646a067fb5271fb46d484146bb0a81326b683260fc44e03f7dbc6abbde",
+    "scripts/setup.mjs": "583e0d8a5bdd191e9a555e933ad3ab732a498efeb780a5644c510efd8b4d94b4",
+    "scripts/source.json": "31eb85b7e848c488eece4ff98341683d6209519077c276555c74514a262e64a7"
   }
 }
