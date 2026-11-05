@@ -333,7 +333,6 @@ async function selectVitest(root, config, quality, changed, apiPath) {
     "bun.lock",
     "bun.lockb",
     ".feedback-loop.json",
-    ".dotagents.json",
     "scripts/feedback-loop/**",
     ...config.globalChanges
   ];
@@ -389,35 +388,11 @@ async function selectVitest(root, config, quality, changed, apiPath) {
 // scripts/test-runtime/affected.ts
 import { spawnSync } from "node:child_process";
 import { join as join3 } from "node:path";
-var fixedAllPaths = [
-  "scripts/test-runtime/runner.ts",
-  "scripts/test-runtime/record-modules.ts",
-  "scripts/test-runtime/affected.ts",
-  "scripts/tests/runner.ts",
-  "package.json",
-  "bun.lock",
-  "tsconfig.json"
-];
-function pathTail(path) {
-  return path.split("/").slice(-2).join("/");
-}
-function reachingTests(path, testFiles, records, body) {
-  const tail = pathTail(path);
-  return testFiles.filter((file) => records.get(file)?.has(path) || body?.(file).includes(tail));
-}
-function cachedReader(readText) {
-  const texts = new Map;
-  return (path) => {
-    const text = texts.get(path) ?? readText(path);
-    texts.set(path, text);
-    return text;
-  };
-}
+var fixedAllPaths = ["package.json", "bun.lock", "tsconfig.json"];
 function selectAffected(input) {
   const { root, changed, testFiles, records } = input;
   const fixed = new Set(fixedAllPaths.map((path) => `${root}/${path}`));
   const testSet = new Set(testFiles);
-  const body = input.readText ? cachedReader(input.readText) : undefined;
   const selected = new Set(testFiles.filter((file) => !records.has(file)));
   const reasons = [];
   for (const path of changed) {
@@ -425,7 +400,7 @@ function selectAffected(input) {
       selected.add(path);
       continue;
     }
-    const reached = fixed.has(path) ? [] : reachingTests(path, testFiles, records, body);
+    const reached = fixed.has(path) ? [] : testFiles.filter((file) => records.get(file)?.has(path));
     if (reached.length === 0) {
       reasons.push(path);
     }
@@ -438,7 +413,6 @@ function selectAffected(input) {
   }
   return { kind: "tests", tests: testFiles.filter((file) => selected.has(file)) };
 }
-var workPathPrefixes = [".claude/workspace/", "docs/issues/", ".issue-drafts/"];
 function git(root, args) {
   const result = spawnSync("git", args, {
     cwd: root,
@@ -456,11 +430,7 @@ function nulSeparated(text) {
 function mergeBase(root, base) {
   return git(root, ["merge-base", base, "HEAD"]).trim();
 }
-function changedFiles({
-  root,
-  base,
-  ignoredPathPrefixes = workPathPrefixes
-}) {
+function changedFiles({ root, base }) {
   const comparison = mergeBase(root, base);
   const tracked = git(root, [
     "diff",
@@ -471,7 +441,7 @@ function changedFiles({
     comparison
   ]);
   const untracked = git(root, ["ls-files", "--others", "--exclude-standard", "-z"]);
-  return [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])].filter((path) => !ignoredPathPrefixes.some((prefix) => path.startsWith(prefix))).map((path) => join3(root, path));
+  return [...new Set([...nulSeparated(tracked), ...nulSeparated(untracked)])].map((path) => join3(root, path));
 }
 
 // scripts/test-runtime/affected-records.ts
@@ -492,7 +462,7 @@ function recordsPath(root) {
   if (result.status !== 0) {
     throw new Error(`git rev-parse --git-dir failed: ${result.stderr}`);
   }
-  return join4(resolve(root, result.stdout.trim()), "dotagents", "test-deps.json");
+  return join4(resolve(root, result.stdout.trim()), "feedback-loop", "test-deps.json");
 }
 function parseRecords(text) {
   let parsed;
@@ -569,13 +539,7 @@ function sourceBasis(root, digests) {
     ...[
       ...new Set([
         fileURLToPath(import.meta.url),
-        ...[
-          "affected-records.ts",
-          "affected.ts",
-          "record-modules.ts",
-          "runner.ts",
-          "report.ts"
-        ].map((name) => join4(dirname(fileURLToPath(import.meta.url)), name))
+        ...["affected-records.ts", "affected.ts", "record-modules.ts"].map((name) => join4(dirname(fileURLToPath(import.meta.url)), name))
       ])
     ].map((path) => digest(path, digests)),
     ...[
@@ -749,7 +713,6 @@ function select(root, config, quality, changed) {
     "bun.lock",
     "bun.lockb",
     ".feedback-loop.json",
-    ".dotagents.json",
     "scripts/feedback-loop/**"
   ];
   const relative = changed.map((path) => path.slice(root.length + 1));
@@ -982,7 +945,7 @@ try {
         assert5(!options.includes("--complete"), "全件分類は完了していません");
       }
     } else {
-      const changed = changedFiles({ root, base: config.base, ignoredPathPrefixes: [] }).filter((path) => path !== join5(root, reviewPath));
+      const changed = changedFiles({ root, base: config.base }).filter((path) => path !== join5(root, reviewPath));
       console.log(`quality候補: ${classes.quality.length}件（全体checkではありません）`);
       assert5(changed.length > 0, "変更なし: テストを実行しません");
       assert5(classes.quality.length > 0, "候補0件: qualityがありません");

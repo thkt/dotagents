@@ -906,18 +906,18 @@ bun run test:control scripts/tests/assurance/shared/process-cleanup.test.ts
 
 入力は`*`・`**`のglob、テストはrepo相対パスです。品質候補にないテストを指定すると拒否します。指定は静的なため、新しい依存は自動では追加されません。
 
-次の場合は品質全件へ戻り、理由を表示します。初回、記録の読取り不能・形式不正、前回の未完了、古い記録、直前の失敗・取消、固定一覧（`package.json`・lockfile・`tsconfig.json`・`.feedback-loop.json`・`.dotagents.json`・`scripts/feedback-loop/**`・`scripts/test-runtime/runner.ts`・`scripts/tests/runner.ts`）と`globalChanges`の変更、影響先が見つからない変更です。`.claude/workspace/`・`docs/issues/`・`.issue-drafts/`だけの変更も影響先が見つからない変更に含みます。安心だけの変更や影響先不明の文書変更でも品質全件になります。
+次の場合は品質全件へ戻り、理由を表示します。初回、記録の読取り不能・形式不正、前回の未完了、古い記録、直前の失敗・取消、固定一覧（`package.json`・lockfile・`tsconfig.json`・`.feedback-loop.json`・`scripts/feedback-loop/**`）と`globalChanges`の変更、影響先が見つからない変更です。`.claude/workspace/`・`docs/issues/`・`.issue-drafts/`だけの変更も影響先が見つからない変更に含みます。安心だけの変更や影響先不明の文書変更でも品質全件になります。
 
 実行は2worker・`--isolate`・`--no-orphans`です。`.feedback-loop.json`の`bunArgs`が`scripts/test-runtime/feedback-test.ts`を経由させ、`test:control`と同じく`CI=true`とgitの自動maintenance停止を渡します。`allowSkipped: false`と`CI=true`により、`skip`・`todo`・`test.only`を成功にしません。候補0件・集計不正・取消も成功にしません。出力は候補数・選択数、全件に戻した理由と、全体checkではないことを示します。
 
-記録はworktreeのgit dir配下の`dotagents/test-deps.json`です。`BUN_OPTIONS`へ記録器の`--preload`を足し、テストと環境を引き継ぐ子Bunが読むモジュールを親テストへ帰属させます。実行中は`test-deps.json.pending`を置き、結果の確定後に消します。強制終了で印が残ると、次回は品質全件を実行します。既存の記録があれば、実行のたびに、成功時も含めて原記録を`test-deps.json.<hash>.previous`へ残します。この退避ファイルを消す処理はないため、不要になったら手で退避します。失敗・取消では実行した候補の依存記録を無効にし、次回は品質全件を実行します。
+記録はworktreeのgit dir配下の`feedback-loop/test-deps.json`です。`BUN_OPTIONS`へ記録器の`--preload`を足し、テストと環境を引き継ぐ子Bunが読むモジュールを親テストへ帰属させます。実行中は`test-deps.json.pending`を置き、結果の確定後に消します。強制終了で印が残ると、次回は品質全件を実行します。既存の記録があれば、実行のたびに、成功時も含めて原記録を`test-deps.json.<hash>.previous`へ残します。この退避ファイルを消す処理はないため、不要になったら手で退避します。失敗・取消では実行した候補の依存記録を無効にし、次回は品質全件を実行します。
 
 影響先が1件でも見つかり、別のテストの依存だけが漏れている場合、全件へ戻るとは限りません。漏れの条件と対処は[開発方針](../docs/wiki/development-policy.md#制御テストの階層)の表に従います。
 
 通常check・直接実行の成功は依存記録の更新を意味しません。再生成の例は次のとおりです。退避先は既存ファイルと重ならない名前を選んでください。
 
 ```sh
-record_path="$(git rev-parse --git-path dotagents/test-deps.json)"
+record_path="$(git rev-parse --git-path feedback-loop/test-deps.json)"
 # 記録が存在する場合だけ退避する。既存の退避先を上書きしない
 mv -i "$record_path" "$record_path.backup"
 bun run test:affected

@@ -88,7 +88,10 @@ test('hang', async () => {
       command.kill(signal);
       expect((await result).code).toBe(1);
       await waitFor(() => !alive(worker), `workerが残っています: ${worker}`);
-      const records = join(cwd, git(cwd, 'rev-parse', '--git-path', 'dotagents/test-deps.json'));
+      const records = join(
+        cwd,
+        git(cwd, 'rev-parse', '--git-path', 'feedback-loop/test-deps.json'),
+      );
       expect(existsSync(`${records}.pending`)).toBe(false);
       expect(JSON.parse(readFileSync(records, 'utf8'))).toEqual({});
     });

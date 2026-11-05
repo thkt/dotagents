@@ -214,7 +214,10 @@ test('実行環境を整える起動入口はテストの依存記録を変え�
       await writeFile(join(cwd, 'changed.txt'), 'x\n');
       const result = affected(cwd);
       expect(result.code, result.output).toBe(0);
-      const recordFile = join(cwd, git(cwd, 'rev-parse', '--git-path', 'dotagents/test-deps.json'));
+      const recordFile = join(
+        cwd,
+        git(cwd, 'rev-parse', '--git-path', 'feedback-loop/test-deps.json'),
+      );
       const records: unknown = JSON.parse(await readFile(recordFile, 'utf8'));
       expect(records).toEqual({ [join(cwd, qualityRelated)]: [join(cwd, qualityRelated)] });
     },

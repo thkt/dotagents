@@ -28,7 +28,8 @@
   "globalChanges": [
     "scripts/test-runtime/feedback-test.ts",
     "scripts/test-runtime/list-tests.ts",
-    "scripts/test-runtime/report.ts"
+    "scripts/test-runtime/report.ts",
+    "scripts/test-runtime/runner.ts"
   ],
   "dependencies": [
     {

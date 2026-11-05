@@ -102,7 +102,7 @@ export function nestedEnv(cwd: string): NodeJS.ProcessEnv {
     delete env[key];
   }
   for (const key of Object.keys(env)) {
-    if (key.startsWith('DOTAGENTS_RECORD_')) {
+    if (key.startsWith('FEEDBACK_LOOP_RECORD_')) {
       delete env[key];
     }
   }

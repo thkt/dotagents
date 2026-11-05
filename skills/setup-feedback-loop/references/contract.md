@@ -2,7 +2,7 @@
 
 # setup-feedback-loopの呼出し仕様
 
-[Issue #466](https://github.com/thkt/dotagents/issues/466)と[Issue #473](https://github.com/thkt/dotagents/issues/473)の導入操作を、実装と独立テストで照合するための公開仕様です。実装済み・導入済みを示す文書ではありません。内部のファイル分割や依存記録の保存形式は固定しません。
+スキルの導入操作を、実装とテストで照合するための公開仕様です。実装済み・導入済みを示す文書ではありません。内部のファイル分割や依存記録の保存形式は固定しません。
 
 ## 利用例と担当
 
@@ -10,13 +10,11 @@
 
 既存のESLint・Prettier・Vitestを使うnpmプロジェクトでは、既存ツールと準備処理を利用します。新たなformatterを併設せず、不足するfallow等だけを導入します。`test:*`の一括実行があれば、新しい部分実行コマンドが全体テストへ混入しない接続を先に用意します。
 
-導入担当がツールの選択、設定の意味、通常check・CIへの接続を判断します。スクリプトは構成の取得、固定依存の導入、必要な補助ファイルの配置とコマンドの接続を担います。package scriptsで表せる実行順序はそのまま使い、独自のタスクグラフや修正ループを追加しません。テスト・fixture・検証接続の作成と変更は独立テスト担当が行います。
+導入担当がツールの選択、設定の意味、通常check・CIへの接続を判断します。スクリプトは構成の取得、固定依存の導入、必要な補助ファイルの配置とコマンドの接続を担います。package scriptsで表せる実行順序はそのまま使い、独自のタスクグラフや修正ループを追加しません。
 
 以下のコマンドは、スキルに同梱した`${CLAUDE_SKILL_DIR}/scripts/setup.mjs`をBun 1.4.4で呼びます。`${CLAUDE_SKILL_DIR}`はSKILL.mdのあるディレクトリの絶対パスです。展開されない環境では、そのパスへ書き換えて実行します。`--repo`は対象Git checkoutの絶対パスです。CLIはこのrepoのcheckout・git履歴・node_modulesを参照しません。別の版のBunやNode.jsで起動すると、版の不一致を示して非ゼロ終了します。対象repoの日常実行に、スキルのパスやBunの追加導入を要求しません。
 
 `setup.mjs`と、配置する`runtime.mjs`・`record-modules.ts`は、[thkt/feedback-loop](https://github.com/thkt/feedback-loop)の`scripts/feedback-loop`を正本として生成したものです。生成元のファイルとSHA-256は同じディレクトリの`source.json`にあります。直接編集せず、正本を変更して`bun run build:feedback-loop`で再生成します。
-
-スキルには2つの版があります。thkt/dotagentsの私用版は、対象repoに`.dotagents.json`があればimplementの`feedbackCheck`へ接続します。Claude Codeのプラグイン版は`.dotagents.json`を読まず書きません。それ以外の入力・出力・失敗条件は同じです。
 
 ## 構成の調査
 
@@ -24,10 +22,10 @@
 bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs inspect --repo /absolute/project
 ```
 
-ファイルや依存を変更せず、package manager、runtimeの指定、package scripts、既存のlint・formatter・型検査・fallow・test runner、`.dotagents.json`、CI定義の所在をJSONで標準出力へ返します。未導入・不明な項目を区別し、不明なツールを採用済みと推測しません。取得不能や不正なpackage設定は非ゼロ終了と診断で返します。JSONの付加情報は拡張できますが、`packageManager`、`base`、`scripts`、`devDependencies`、`configFiles`を公開項目とします。
+ファイルや依存を変更せず、package manager、runtimeの指定、package scripts、既存のlint・formatter・型検査・fallow・test runner、CI定義の所在をJSONで標準出力へ返します。未導入・不明な項目を区別し、不明なツールを採用済みと推測しません。取得不能や不正なpackage設定は非ゼロ終了と診断で返します。JSONの付加情報は拡張できますが、`packageManager`、`base`、`scripts`、`devDependencies`、`configFiles`を公開項目とします。
 
 ```json
-{"packageManager":"bun","base":"origin/main","scripts":{"check":"bun run scripts/check.ts"},"devDependencies":{},"configFiles":["mise.toml",".dotagents.json"]}
+{"packageManager":"bun","base":"origin/main","scripts":{"check":"bun run scripts/check.ts"},"devDependencies":{},"configFiles":["mise.toml"]}
 ```
 
 `packageManager`は`"bun"`・`"npm"`・`null`のいずれかです。競合する指定や判定材料不足は`null`と診断で示し、install・applyは選択不能として止めます。`base`は比較元の候補です。`origin/HEAD`が指す先を優先し、なければ`origin/main`と`origin/master`、次に`main`と`master`のうち、1つだけあるものを返します。どちらも見つからないか、同じ段階で両方あれば`null`と診断を返します。`scripts`と`devDependencies`は名前と文字列値のオブジェクトで、未定義なら空オブジェクトです。`configFiles`は実在するrepo相対パスの文字列配列で、該当なしなら空配列です。
@@ -75,7 +73,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --pac
 
 `bunArgs`に`--no-env-file`がある場合は、生成する`test:affected`と`check:classification`のpackage scriptsにもこの引数を維持します。テスト本体だけでなく、補助ファイルを起動する外側のBunも`.env`を先に読み込まないようにします。
 
-`allowSkipped`は任意のbooleanで、省略時は`true`です。対象repoの既存checkがskip・todoを許容する場合は`true`、許容しない場合は`false`を指定します。boolean以外は入力不正として拒否します。この設定はBunとVitestの両runnerへ適用し、thkt/dotagentsのテスト実行器の判定とは独立しています。
+`allowSkipped`は任意のbooleanで、省略時は`true`です。対象repoの既存checkがskip・todoを許容する場合は`true`、許容しない場合は`false`を指定します。boolean以外は入力不正として拒否します。この設定はBunとVitestの両runnerへ適用します。
 
 上の設定例のrepoでは、`scripts/test.ts`にある`prepareTests()`へ`--prepare`を接続します。この入口は準備処理だけを実行して終了し、テスト本体を起動しません。既存の固定Bunと起動引数、`typescript`・`@types/node`の指定版と導入版の照合、`tsconfig.type-tests.json`による型検査、`evaluation`配下の既存収集処理によるPython構文検査を保ちます。単独の型検査への置換では、依存の照合とPython構文検査を満たしません。
 
@@ -137,7 +135,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedb
 
 `apply`は`.feedback-loop.json`を読み、対象repoで実行できる補助ファイルを`scripts/feedback-loop/`へ配置します。Bunのrunnerでは、スキルに同梱した記録器も配置します。`scripts/feedback-loop/generated.json`には、生成元・生成元ファイルのSHA-256・実行したBunの版と、配置ファイルのSHA-256を記録します。保存場所や記録形式を利用者が管理する仕組みにはしません。
 
-`package.json`へ`test:affected`、`check:classification`、`check:feedback`を接続します。私用版は、`.dotagents.json`がある場合だけ`.dotagents.json.feedbackCheck`を対象package managerの`check:feedback`呼出しへ設定します。ない場合は接続を省いたことを表示し、終了0にします。プラグイン版は`.dotagents.json`の有無によらず、そのファイルを読まず書きません。標準出力のJSONの`feedbackCheck`は、接続した場合だけ値を持ち、それ以外は`null`です。`check:feedback`の値は`--feedback-command`で指定した診断用コマンドです。自動修正用の`format`・`lint:fix`は別の明示操作として用意します。全体checkとCIは導入担当が既存構成へ接続し、このコマンドが任意のCI定義を推測で書き換えることはしません。
+`package.json`へ`test:affected`、`check:classification`、`check:feedback`を接続します。標準出力のJSONの`scripts`は接続したコマンド、`feedbackCheck`は`null`です。`check:feedback`の値は`--feedback-command`で指定した診断用コマンドです。自動修正用の`format`・`lint:fix`は別の明示操作として用意します。全体checkとCIは導入担当が既存構成へ接続し、このコマンドが任意のCI定義を推測で書き換えることはしません。
 
 `prepare`と`check:feedback`の置き分けは次の表で判断します。`prepare`は`test:affected`のテスト本体の前に一度だけ実行され、`check:feedback`の先頭に置いた段は`test:affected`を単独で実行したときには実行されません。所要時間は対象repoで実測し、導入のPR説明に残します。
 
@@ -167,7 +165,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --update --repo /absolute/projec
 - `generated.json`がないか、`files`がない。
 - 生成物が同梱版とも記録のSHA-256とも一致しない。手で編集した場合と、`files`に載っていない場合がこれに当たります。
 
-`package.json`と`.dotagents.json`は変更せず、接続先との差分を表示します。差分の採用は導入担当が判断します。同梱版から外れた生成物は消しません。`runner`をBunから変えた場合の`record-modules.ts`がこれに当たります。
+`package.json`は変更せず、接続先との差分を表示します。差分の採用は導入担当が判断します。同梱版から外れた生成物は消しません。`runner`をBunから変えた場合の`record-modules.ts`がこれに当たります。
 
 初回導入時から、書き換える既存ファイルの内容と差分を確認できるようにします。同じ設定・同じ生成元で再実行した場合は内容を変えません。既存の同名コマンドや生成物が指定内容と食い違う場合は、上書き前に対象と理由を示して非ゼロ終了します。無関係なローカル変更は保持します。入力不正と既知の衝突はファイルの配置前に検出します。OS・インストール障害を含む操作全体の原子性は要求せず、途中失敗した内容を明示します。
 
@@ -180,7 +178,7 @@ bun run check:feedback
 bun run check
 ```
 
-npmプロジェクトでは同じscript名を`npm run`で呼びます。`check:classification`は、`collect`と`testGlobs`の集合の一致、qualityとassuranceの重複・未登録・存在しない指定、[分類の確認記録](#分類の確認記録)の構造を機械検査します。通常checkと`collect`が同じ収集処理へ接続されることも、導入前後の一覧と独立テストで照合します。
+npmプロジェクトでは同じscript名を`npm run`で呼びます。`check:classification`は、`collect`と`testGlobs`の集合の一致、qualityとassuranceの重複・未登録・存在しない指定、[分類の確認記録](#分類の確認記録)の構造を機械検査します。通常checkと`collect`が同じ収集処理へ接続されることも、導入前後の一覧とテストで照合します。
 
 標準出力のJSONには、従来の`all`・`quality`・`assurance`に加えて`review`を出します。`review.files`は収集した各ファイルの`path`・`class`・現在の`sha256`・`status`を持ちます。`review.complete`は、全ファイルが`reviewed`で`orphans`が空の場合だけ`true`です。日常の`check:classification`は、記録ファイル自体に誤りがなければ、`stale`・`unreviewed`・`mismatch`・`orphans`が残っても終了0とし、その件数とpathを標準エラーへ表示します。新規・未確認のテストをqualityとして実行し続け、テストの追加・削除・改名・分類変更で全体checkやCIを止めないためです。
 
@@ -212,8 +210,6 @@ Bunのテストプロセスには`--no-orphans`も付け、leader・workerと出
 
 基点の照合対象は現在のquality候補です。削除済み・分類変更済みのテストの原記録は保持し、その古い基点だけで現行quality全体を無効にしません。現行qualityを正常に再実行した後、既知のソース変更で関連選択へ戻れることを確認します。
 
-導入操作では、formatter・lint・型検査・fallow・テストの正常例と小さい違反を`check:feedback`から確認し、違反を残さず再検査します。再インストール、再セットアップ、分類集合、選択漏れへのfallback、通常check・CIへの接続も確認します。共有の検証用repoで成立させた後、展開先へ適用します。実導入結果と未完了箇所は既存のfindings・PR説明に記録します。
+導入操作では、formatter・lint・型検査・fallow・テストの正常例と小さい違反を`check:feedback`から確認し、違反を残さず再検査します。再インストール、再セットアップ、分類集合、選択漏れへのfallback、通常check・CIへの接続も確認します。実導入結果と未完了箇所は対象repoのPR説明か既存の記録先へ残します。
 
 関連選択の導入確認では、設定変更と通常ソース変更を分けます。隔離したcheckoutで導入後の版を比較元にし、通常ソースだけの変更に必要なqualityが実行され、無関係なqualityとassuranceが除外されることを確認します。標準importと補完依存の両方を確かめ、記録なし・古い記録・未知の入力では全qualityへ広がることも維持します。`src/**`等の一括指定で常に全qualityを実行するだけでは、絞り込みの導入完了とは扱いません。
-
-私用版で`.dotagents.json`の更新を含む導入は、対象repoのimplementを開始する前に行います。実行中のrunが使う設定・旧run・保護規則を変更せず、更新後の設定を新しいrunで固定します。導入作業の独立テスト・独立評価は省略しません。実装担当へコマンドが渡る接続確認と、実モデルが実際にそのコマンドを使った観測は区別します。

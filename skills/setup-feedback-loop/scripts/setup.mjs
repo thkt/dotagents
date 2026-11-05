@@ -327,7 +327,7 @@ function inspect(root) {
   }
   const first = [...hints][0];
   const packageManager = hints.size === 1 && (first === "bun" || first === "npm") ? first : null;
-  const configFiles = readdirSync2(root, { withFileTypes: true }).filter((entry) => entry.isFile() && /(?:config|lock|mise|bunfig|dotagents|feedback-loop|eslint|prettier|biome|fallow|tsconfig)/.test(entry.name)).map((entry) => entry.name);
+  const configFiles = readdirSync2(root, { withFileTypes: true }).filter((entry) => entry.isFile() && (/(?:config|lock|mise|bunfig|feedback-loop|eslint|prettier|biome|fallow|tsconfig)/.test(entry.name) || entry.name === ".dotagents.json")).map((entry) => entry.name);
   const workflow = join2(root, ".github/workflows");
   if (existsSync2(workflow)) {
     configFiles.push(...readdirSync2(workflow).map((name) => `.github/workflows/${name}`));
