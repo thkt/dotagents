@@ -3,9 +3,16 @@
 // scripts/feedback-loop/setup.ts
 import assert3 from "assert/strict";
 import { spawnSync } from "child_process";
-import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, readdirSync as readdirSync2, writeFileSync } from "fs";
+import {
+  existsSync as existsSync2,
+  mkdirSync,
+  readFileSync as readFileSync2,
+  readdirSync as readdirSync2,
+  realpathSync,
+  writeFileSync
+} from "fs";
 import { createHash } from "crypto";
-import { dirname, isAbsolute as isAbsolute2, join as join2, resolve } from "path";
+import { dirname, isAbsolute as isAbsolute2, join as join2 } from "path";
 
 // scripts/feedback-loop/config.ts
 import assert2 from "assert/strict";
@@ -392,6 +399,10 @@ function connectFeedbackCheck(dotagents, feedbackCheck) {
   return current === undefined ? `${JSON.stringify({ ...dotagents, feedbackCheck }, null, 2)}
 ` : undefined;
 }
+function sha256(body) {
+  return createHash("sha256").update(body).digest("hex");
+}
+var generatedRecord = "scripts/feedback-loop/generated.json";
 function generatedFiles(config, packageManager) {
   const generated = new Map([
     [
@@ -404,17 +415,74 @@ function generatedFiles(config, packageManager) {
   }
   const source = JSON.parse(readFileSync2(join2(import.meta.dir, "source.json"), "utf8"));
   object(source);
-  generated.set("scripts/feedback-loop/generated.json", JSON.stringify({
+  generated.set(generatedRecord, JSON.stringify({
     generator: source.generator,
     bun: Bun.version,
     sources: source.sources,
-    files: Object.fromEntries([...generated].map(([path, body]) => [
-      path,
-      createHash("sha256").update(body).digest("hex")
-    ]))
+    files: Object.fromEntries([...generated].map(([path, body]) => [path, sha256(body)]))
   }, null, 2) + `
 `);
   return generated;
+}
+function runtimeCommands(config) {
+  let runtime = { bun: "bun", vitest: "node" }[config.runner];
+  if (config.bunArgs.includes("--no-env-file")) {
+    runtime += " --no-env-file";
+  }
+  return {
+    "test:affected": `${runtime} scripts/feedback-loop/runtime.mjs affected`,
+    "check:classification": `${runtime} scripts/feedback-loop/runtime.mjs classification`
+  };
+}
+function writeFiles(root, updates) {
+  for (const [path, body] of updates) {
+    console.log(`\u914D\u7F6E: ${path}`);
+    mkdirSync(dirname(join2(root, path)), { recursive: true });
+    writeFileSync(join2(root, path), body);
+  }
+}
+function reportConnectionDiffs(root, inspected, commands) {
+  for (const [name, command] of Object.entries(commands)) {
+    if (inspected.scripts[name] !== command) {
+      console.log(`package.json\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5DEE\u5206: ${name}: ${inspected.scripts[name] ?? "(\u672A\u5B9A\u7FA9)"} \u2192 ${command}`);
+    }
+  }
+  if (inspected.scripts["check:feedback"] === undefined) {
+    console.log("package.json\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5DEE\u5206: check:feedback: (\u672A\u5B9A\u7FA9)");
+  }
+  const dotagents = readDotagents(root);
+  const feedbackCheck = [inspected.packageManager ?? "", "run", "check:feedback"];
+  if (dotagents && JSON.stringify(dotagents.feedbackCheck) !== JSON.stringify(feedbackCheck) && dotagents.feedbackCheck !== feedbackCheck.join(" ")) {
+    console.log(`.dotagents.json\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002\u5DEE\u5206: feedbackCheck: ${JSON.stringify(dotagents.feedbackCheck) ?? "(\u672A\u5B9A\u7FA9)"} \u2192 ${feedbackCheck.join(" ")}`);
+  }
+}
+function update(root, inspected) {
+  assert3(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
+  const config = readConfig(root);
+  assert3(existsSync2(join2(root, generatedRecord)), `${generatedRecord}\u304C\u306A\u3044\u305F\u3081\u3001\u751F\u6210\u7269\u304B\u624B\u3067\u7DE8\u96C6\u3057\u305F\u30D5\u30A1\u30A4\u30EB\u304B\u3092\u533A\u5225\u3067\u304D\u307E\u305B\u3093`);
+  const record = JSON.parse(readFileSync2(join2(root, generatedRecord), "utf8"));
+  object(record);
+  assert3(record.files !== undefined, `${generatedRecord}\u306Bfiles\u304C\u306A\u3044\u305F\u3081\u3001\u751F\u6210\u7269\u304B\u624B\u3067\u7DE8\u96C6\u3057\u305F\u30D5\u30A1\u30A4\u30EB\u304B\u3092\u533A\u5225\u3067\u304D\u307E\u305B\u3093`);
+  const recorded = stringMap(record.files);
+  const generated = generatedFiles(config, inspected.packageManager);
+  const updates = new Map;
+  const edited = [];
+  for (const [path, body] of generated) {
+    const target = join2(root, path);
+    const current = existsSync2(target) ? readFileSync2(target, "utf8") : undefined;
+    if (current === body) {
+      continue;
+    }
+    if (path === generatedRecord || current === undefined || recorded[path] === sha256(current)) {
+      updates.set(path, body);
+    } else {
+      edited.push(path);
+    }
+  }
+  assert3(edited.length === 0, `\u8A18\u9332\u3068\u5185\u5BB9\u304C\u4E00\u81F4\u3057\u306A\u3044\u30D5\u30A1\u30A4\u30EB\u304C\u3042\u308B\u305F\u3081\u3001\u3069\u306E\u30D5\u30A1\u30A4\u30EB\u3082\u66F4\u65B0\u3057\u307E\u305B\u3093: ${edited.join(", ")}`);
+  reportConnectionDiffs(root, inspected, runtimeCommands(config));
+  writeFiles(root, updates);
+  console.log(updates.size === 0 ? "\u751F\u6210\u7269\u306F\u6700\u65B0\u3067\u3059\u3002\u5909\u66F4\u3057\u307E\u305B\u3093" : "\u751F\u6210\u7269\u3092\u66F4\u65B0\u3057\u307E\u3057\u305F\u3002check:classification\u3068check:feedback\u3092\u5B9F\u884C\u3057\u3066\u78BA\u8A8D\u3057\u3066\u304F\u3060\u3055\u3044");
 }
 async function apply(root, inspected, feedback) {
   assert3(inspected.packageManager, "package manager\u3092\u9078\u629E\u3067\u304D\u307E\u305B\u3093");
@@ -432,15 +500,7 @@ async function apply(root, inspected, feedback) {
   ].map((arg) => `'${arg.replaceAll("'", "'\\''")}'`).join(" ");
   await classification(root, config, join2(import.meta.dir, "runtime.mjs"), retryCommand);
   const dotagents = readDotagents(root);
-  let runtime = { bun: "bun", vitest: "node" }[config.runner];
-  if (config.bunArgs.includes("--no-env-file")) {
-    runtime += " --no-env-file";
-  }
-  const commands = {
-    "test:affected": `${runtime} scripts/feedback-loop/runtime.mjs affected`,
-    "check:classification": `${runtime} scripts/feedback-loop/runtime.mjs classification`,
-    "check:feedback": feedback
-  };
+  const commands = { ...runtimeCommands(config), "check:feedback": feedback };
   for (const [name, command] of Object.entries(commands)) {
     assert3(inspected.scripts[name] === undefined || inspected.scripts[name] === command, `\u65E2\u5B58\u30B3\u30DE\u30F3\u30C9\u3068\u885D\u7A81\u3057\u3066\u3044\u307E\u3059: ${name}`);
   }
@@ -463,11 +523,7 @@ async function apply(root, inspected, feedback) {
     updates.set(".dotagents.json", nextDotagents);
   }
   console.log(JSON.stringify({ scripts: commands, feedbackCheck: dotagents ? feedbackCheck : null }));
-  for (const [path, body] of updates) {
-    console.log(`\u914D\u7F6E: ${path}`);
-    mkdirSync(dirname(join2(root, path)), { recursive: true });
-    writeFileSync(join2(root, path), body);
-  }
+  writeFiles(root, updates);
   console.log(placedMessage(dotagents !== undefined));
   console.log("\u9759\u7684\u691C\u67FB\u30FB\u901A\u5E38check\u30FBCI\u306E\u63A5\u7D9A\u3068\u52D5\u4F5C\u78BA\u8A8D\u306F\u5C0E\u5165\u62C5\u5F53\u304C\u5B8C\u4E86\u3057\u3066\u304F\u3060\u3055\u3044");
 }
@@ -479,6 +535,7 @@ var usage = `\u4F7F\u3044\u65B9: bun setup.mjs <\u64CD\u4F5C> --repo <Git checko
             --package <oxlint|oxfmt|fallow>@<\u7248>\uFF08\u8907\u6570\u6307\u5B9A\u53EF\uFF09
   apply     .feedback-loop.json\u3092\u8AAD\u307F\u3001\u88DC\u52A9\u30D5\u30A1\u30A4\u30EB\u3068package scripts\u3092\u914D\u7F6E\u3057\u307E\u3059
             --feedback-command <check:feedback\u306B\u8A2D\u5B9A\u3059\u308B\u8A3A\u65AD\u7528\u30B3\u30DE\u30F3\u30C9>
+            --update  \u5C0E\u5165\u6E08\u307F\u306E\u751F\u6210\u7269\u3092\u66F4\u65B0\u3057\u307E\u3059\u3002--feedback-command\u3068\u306F\u4F75\u7528\u3057\u307E\u305B\u3093
 
 \u5171\u901A:
   --repo <\u30D1\u30B9>   \u5BFE\u8C61Git checkout\u306E\u30EB\u30FC\u30C8\u306E\u7D76\u5BFE\u30D1\u30B9
@@ -497,10 +554,16 @@ try {
     console.log(usage);
     process.exit(0);
   }
-  let root, feedback;
+  let root, feedback, updating = false;
   const packages = [];
-  for (let i = 0;i < args.length; i += 2) {
-    const key = args[i], value = args[i + 1];
+  for (let i = 0;i < args.length; i += 1) {
+    const key = args[i];
+    if (key === "--update") {
+      updating = true;
+      continue;
+    }
+    i += 1;
+    const value = args[i];
     assert3(value, `${key}\u306E\u5024\u304C\u3042\u308A\u307E\u305B\u3093`);
     if (key === "--repo") {
       assert3(root === undefined, "--repo\u304C\u91CD\u8907\u3057\u3066\u3044\u307E\u3059");
@@ -514,17 +577,25 @@ try {
     }
   }
   assert3(root && isAbsolute2(root), "--repo\u306BGit checkout\u306E\u7D76\u5BFE\u30D1\u30B9\u304C\u5FC5\u8981\u3067\u3059");
+  assert3(!updating || operation === "apply", "--update\u306Fapply\u3060\u3051\u3067\u6307\u5B9A\u3067\u304D\u307E\u3059");
+  assert3(!updating || feedback === undefined, "--update\u3068--feedback-command\u306F\u4F75\u7528\u3067\u304D\u307E\u305B\u3093");
   const git = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: root, encoding: "utf8" });
-  assert3(git.status === 0 && resolve(git.stdout.trim()) === resolve(root), "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
-  const inspected = inspect(root);
+  assert3(git.status === 0, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  const repo = realpathSync(root);
+  assert3(realpathSync(git.stdout.trim()) === repo, "--repo\u306FGit checkout\u306E\u30EB\u30FC\u30C8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044");
+  const inspected = inspect(repo);
   if (operation === "inspect") {
     const { pkg: _pkg, ...report } = inspected;
     console.log(JSON.stringify(report, null, 2));
   } else if (operation === "install") {
-    install(root, inspected, packages);
+    install(repo, inspected, packages);
   } else {
     assert3(operation === "apply", "\u64CD\u4F5C\u306Finspect\u30FBinstall\u30FBapply\u3067\u3059");
-    await apply(root, inspected, feedback);
+    if (updating) {
+      update(repo, inspected);
+    } else {
+      await apply(repo, inspected, feedback);
+    }
   }
 } catch (error) {
   console.error(`setup-feedback-loop\u672A\u5B8C\u4E86: ${error instanceof Error ? error.message : String(error)}`);

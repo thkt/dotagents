@@ -340,11 +340,14 @@ async function selectVitest(root, config, quality, changed, apiPath) {
   const reasons = relative.filter((path) => global.some((glob) => matches(path, glob)) || !existsSync2(join2(root, path)));
   const selected = new Set(quality.filter((path) => relative.includes(path)));
   const pending = [];
+  const mappedInputs = new Set;
   for (const path of relative) {
     const mapped = config.dependencies.filter((entry) => entry.inputs.some((glob) => matches(path, glob)));
     if (mapped.length > 0) {
+      mappedInputs.add(path);
       mapped.forEach((entry) => entry.tests.forEach((test) => selected.add(test)));
-    } else if (!quality.includes(path)) {
+    }
+    if (!quality.includes(path)) {
       pending.push(path);
     }
   }
@@ -365,8 +368,10 @@ async function selectVitest(root, config, quality, changed, apiPath) {
       for (const path of pending) {
         context.config.related = [join2(root, path)];
         const specs = await context.getRelevantTestSpecifications();
-        const reached = specs.map((spec) => spec.moduleId.slice(root.length + 1)).filter((file) => quality.includes(file));
-        if (reached.length === 0) {
+        const files = specs.map((spec) => spec.moduleId.slice(root.length + 1));
+        const reached = files.filter((file) => quality.includes(file));
+        assert3(reached.length === files.length, `Vitestの到達先がquality集合と一致しません: ${files.filter((file) => !quality.includes(file)).join(", ")}`);
+        if (reached.length === 0 && !mappedInputs.has(path)) {
           reasons.push(path);
         }
         reached.forEach((file) => selected.add(file));
@@ -882,11 +887,10 @@ async function vitestTests(root, config, quality, changed) {
   object(installed.bin);
   assert5(typeof installed.bin.vitest === "string", "Vitestの公開CLIがありません");
   const cli = join5(dirname2(packagePath), installed.bin.vitest);
-  const relative = changed.map((path) => path.slice(root.length + 1));
   const selected = await selectVitest(root, config, quality, changed, require2.resolve("vitest/node"));
   assert5(selected.files.length > 0, "候補0件: Vitestの関連qualityがありません");
   const exclude = config.assurance.flatMap((entry) => ["--exclude", join5(root, entry.path)]);
-  const selection = selected.reasons.length > 0 ? ["run", ...quality] : ["related", ...relative, ...selected.files, "--run"];
+  const selection = selected.reasons.length > 0 ? ["run", ...quality] : ["related", ...selected.files, "--run"];
   if (selected.reasons.length > 0) {
     console.log(`quality全件の理由: 設定変更、削除、または依存先不明: ${selected.reasons.join(", ")}`);
   }

@@ -1002,10 +1002,10 @@ bun scripts/lint/feedback-loop-bundle.ts update --source /absolute/path/to/feedb
 bun run check:generated
 ```
 
-`update`は指定commitの内容をGitから読み、作業ツリーの変更を取り込みません。配置済みの`scripts/feedback-loop/`は自動で更新されません。`apply`は配置済みファイルとの差分を上書きせず止まるため、`runtime.mjs`・`record-modules.ts`・`generated.json`を退避してから`apply`を実行します。
+`update`は指定commitの内容をGitから読み、作業ツリーの変更を取り込みません。配置済みの`scripts/feedback-loop/`は自動で更新されません。`apply --update`で更新します。
 
 ```sh
-bun skills/setup-feedback-loop/scripts/setup.mjs apply --repo "$PWD" --feedback-command "<check:feedbackの値>"
+bun skills/setup-feedback-loop/scripts/setup.mjs apply --update --repo "$PWD"
 ```
 
 配置済みファイルと同梱の不一致は[接続テスト](tests/quality/checks/feedback-loop-wiring.test.ts)が検出します。

@@ -139,11 +139,35 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedb
 
 `package.json`へ`test:affected`、`check:classification`、`check:feedback`を接続します。私用版は、`.dotagents.json`がある場合だけ`.dotagents.json.feedbackCheck`を対象package managerの`check:feedback`呼出しへ設定します。ない場合は接続を省いたことを表示し、終了0にします。プラグイン版は`.dotagents.json`の有無によらず、そのファイルを読まず書きません。標準出力のJSONの`feedbackCheck`は、接続した場合だけ値を持ち、それ以外は`null`です。`check:feedback`の値は`--feedback-command`で指定した診断用コマンドです。自動修正用の`format`・`lint:fix`は別の明示操作として用意します。全体checkとCIは導入担当が既存構成へ接続し、このコマンドが任意のCI定義を推測で書き換えることはしません。
 
+`prepare`と`check:feedback`の置き分けは次の表で判断します。`prepare`は`test:affected`のテスト本体の前に一度だけ実行され、`check:feedback`の先頭に置いた段は`test:affected`を単独で実行したときには実行されません。所要時間は対象repoで実測し、導入のPR説明に残します。
+
+| runnerとpackage manager | 準備の所要時間 | 外部依存 | 置き場所 |
+| --- | --- | --- | --- |
+| Bun・bun | 依存の照合と型検査を実測する | DB・ネットワークの有無を確かめる | テストの前提になる準備は`prepare`へ置く |
+| Bun・npm | 依存の照合と型検査を実測する | DB・ネットワークの有無を確かめる | テストの前提になる準備は`prepare`へ置く |
+| Vitest・npm | codegenと型検査を実測する | DB・ネットワークの有無を確かめる。Vitestのglobal setupが接続するDBも含める | テストの前提になるcodegenは`prepare`へ置く |
+| Vitest・bun | codegenと型検査を実測する | DB・ネットワークの有無を確かめる。Vitestのglobal setupが接続するDBも含める | テストの前提になるcodegenは`prepare`へ置く |
+
+テストの前提でない段は、型検査のように既存の準備入口に含まれていれば`prepare`、なければ`check:feedback`へ置きます。同じ段を両方へは置きません。外部依存のある段を置く場合は、毎回の反復でその依存が必要になることを報告します。
+
 上例では、型検査は`test:affected`の`prepare`に含まれます。`check:feedback`へ同じ型検査を別途追加しません。準備処理が不要なrepoでは`prepare: []`を使い、必要な型検査はそのrepoの既存構成に合わせて接続します。
 
 Bun内蔵の型検査を採用する場合は、[接続手順](typecheck.md)に従い、固定Bunの機能・対応TypeScript版と既存の検査範囲を確認します。`bun run check`は全体check、`bun check --no-script -p tsconfig.json`は指定プロジェクトの型検査です。同名のpackage scriptを起動しないよう、内蔵型検査には`--no-script`を付けます。変更ファイルや関連テストの集合へ型検査を狭めません。
 
 上の設定例のrepoでBun型検査を使う反復用の準備入口を用意した場合は、`prepare`を`["bun", "--no-env-file", "scripts/test.ts", "--prepare-feedback"]`へ切り替えます。このフラグは導入先へ追加する接続例です。依存版の照合・既存tsconfigの型検査・Python構文検査を一度だけ実行し、通常checkの準備入口と既存の型検査は保ちます。複数のtsconfig、参照先、型生成・codegen等を含め、接続前後の範囲を確認します。型エラーでテスト開始前に失敗し、修正後に同じ入口から復帰することを導入完了条件とします。
+
+導入済みの生成物の更新は`apply --update`で明示します。`--feedback-command`とは併用しません。
+
+```bash
+bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --update --repo /absolute/project
+```
+
+`scripts/feedback-loop/generated.json`の`files`にあるSHA-256と現在の内容が一致するファイルだけを、同梱の生成物へ置き換え、`generated.json`も更新します。存在しない生成物は配置します。次のいずれかに当たると、どのファイルも変更せず、対象を示して非ゼロ終了します。
+
+- `generated.json`がないか、`files`がない。
+- 生成物が同梱版とも記録のSHA-256とも一致しない。手で編集した場合と、`files`に載っていない場合がこれに当たります。
+
+`package.json`と`.dotagents.json`は変更せず、接続先との差分を表示します。差分の採用は導入担当が判断します。同梱版から外れた生成物は消しません。`runner`をBunから変えた場合の`record-modules.ts`がこれに当たります。
 
 初回導入時から、書き換える既存ファイルの内容と差分を確認できるようにします。同じ設定・同じ生成元で再実行した場合は内容を変えません。既存の同名コマンドや生成物が指定内容と食い違う場合は、上書き前に対象と理由を示して非ゼロ終了します。無関係なローカル変更は保持します。入力不正と既知の衝突はファイルの配置前に検出します。OS・インストール障害を含む操作全体の原子性は要求せず、途中失敗した内容を明示します。
 
