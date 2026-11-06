@@ -20,7 +20,7 @@ const connection = [
   `${placed}/record-modules.ts`,
 ];
 
-export function git(cwd: string, ...args: string[]) {
+function git(cwd: string, ...args: string[]) {
   const result = spawnSync(
     'git',
     [

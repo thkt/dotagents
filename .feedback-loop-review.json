@@ -22,7 +22,7 @@
     {
       "path": "scripts/tests/quality/checks/feedback-loop-wiring.test.ts",
       "class": "quality",
-      "sha256": "c91fb0808bb62fd470e507b4008d28ebb9262a3533d666f7d4704e979a6afb09",
+      "sha256": "101cd5cbde9226e843449ee61d7856dbb0ae62e607ad68fc9431028301d00812",
       "reason": "実設定のtest:affected・test:feedback・check:classificationの選択と全件条件、only・skip・失敗の非0終了、実行環境、依存記録を確認する。配置物と同梱物・generated.jsonの一致と設定の参照先の実在はrepoの実ファイルを照合する整合検査で混在するが、主目的はこの接続の入出力なのでqualityに置く。"
     },
     {
