@@ -6,12 +6,7 @@ import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { alive } from '../../support/process-alive.ts';
-import {
-  git,
-  header,
-  nestedEnv,
-  withFeedbackRepository,
-} from '../../support/feedback-loop-fixture.ts';
+import { header, nestedEnv, withFeedbackRepository } from '../../support/feedback-loop-fixture.ts';
 
 const entry = resolve(import.meta.dir, '../../../test-runtime/feedback-test.ts');
 
@@ -88,10 +83,7 @@ test('hang', async () => {
       command.kill(signal);
       expect((await result).code).toBe(1);
       await waitFor(() => !alive(worker), `workerが残っています: ${worker}`);
-      const records = join(
-        cwd,
-        git(cwd, 'rev-parse', '--git-path', 'feedback-loop/test-deps.json'),
-      );
+      const records = join(cwd, '.feedback-loop-records', 'test-deps.json');
       expect(existsSync(`${records}.pending`)).toBe(false);
       expect(JSON.parse(readFileSync(records, 'utf8'))).toEqual({});
     });

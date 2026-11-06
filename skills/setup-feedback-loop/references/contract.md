@@ -79,7 +79,7 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --pac
 
 一覧用の`--list`は通常checkと同じ収集関数の結果を返し、準備処理とテスト本体を実行しません。通常checkは既存の準備処理と全テストを保ちます。`test:affected`は選択したテストを実行する前に`prepare`を一度だけ完了させ、失敗時には診断と非ゼロ終了を返してテスト本体へ進みません。修正後の再実行では準備処理から確認します。`check:classification`は収集と分類の検査であり、準備処理を実行しません。`--prepare`と`--list`は導入時に対象repoへ用意する接続で、導入前のrepoにはありません。
 
-`fullCheck`は、担当AIがassuranceへの影響を判断できない場合等に直接実行する既存コマンドです。`test:affected`から自動では実行しません。`globalChanges`はquality全件へ広げる入力、`dependencies`は通常のファイル読み込み等を補う対応です。ある変更を対応付けできても、別の変更の影響が不明なら全qualityへ広げます。`package.json`、使用するlockfile、分類設定、関連選択器自体は、指定漏れでも部分実行の根拠にしません。
+`fullCheck`は、担当AIがassuranceへの影響を判断できない場合等に直接実行する既存コマンドです。`test:affected`から自動では実行しません。`globalChanges`はquality全件へ広げる入力、`dependencies`は通常のファイル読み込み等を補う対応です。ある変更を対応付けできても、別の変更の影響が不明なら全qualityへ広げます。`package.json`、使用するlockfile、`tsconfig.json`、分類設定、関連選択器自体は、指定漏れでも部分実行の根拠にしません。
 
 この例のPython変更は本体側の`test/runtime.test.ts`にも関係するため、全qualityへ広げます。`dependencies`を指定する場合は、`{"inputs":["data/*.json"],"tests":["test/example.test.ts"]}`の形で、内容を確認した対応を追加します。
 
@@ -130,12 +130,14 @@ bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs install --repo /absolute/project --pac
 ## ファイルの配置と接続
 
 ```sh
-bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedback-command 'bun run lint:feedback && bun run format:feedback && bun run check:unused && bun run test:affected'
+bun ${CLAUDE_SKILL_DIR}/scripts/setup.mjs apply --repo /absolute/project --feedback-command 'bun run lint:feedback && bun run format:feedback && bun run check:unused && bun run check:classification > /dev/null && bun run test:affected'
 ```
 
 `apply`は`.feedback-loop.json`を読み、対象repoで実行できる補助ファイルを`scripts/feedback-loop/`へ配置します。Bunのrunnerでは、スキルに同梱した記録器も配置します。`scripts/feedback-loop/generated.json`には、生成元・生成元ファイルのSHA-256・実行したBunの版と、配置ファイルのSHA-256を記録します。保存場所や記録形式を利用者が管理する仕組みにはしません。
 
 `package.json`へ`test:affected`、`check:classification`、`check:feedback`を接続します。標準出力のJSONの`scripts`は接続したコマンド、`feedbackCheck`は`null`です。`check:feedback`の値は`--feedback-command`で指定した診断用コマンドです。自動修正用の`format`・`lint:fix`は別の明示操作として用意します。全体checkとCIは導入担当が既存構成へ接続し、このコマンドが任意のCI定義を推測で書き換えることはしません。
+
+`--feedback-command`には`check:classification`を`test:affected`の前に含めます。テストが失敗しても、確認が必要なテストの表示を読めるようにするためです。標準出力のJSONは反復で読まないので`> /dev/null`で捨て、標準エラーの件数とpathを残します。
 
 `prepare`と`check:feedback`の置き分けは次の表で判断します。`prepare`は`test:affected`のテスト本体の前に一度だけ実行され、`check:feedback`の先頭に置いた段は`test:affected`を単独で実行したときには実行されません。所要時間は対象repoで実測し、導入のPR説明に残します。
 
@@ -180,7 +182,7 @@ bun run check
 
 npmプロジェクトでは同じscript名を`npm run`で呼びます。`check:classification`は、`collect`と`testGlobs`の集合の一致、qualityとassuranceの重複・未登録・存在しない指定、[分類の確認記録](#分類の確認記録)の構造を機械検査します。通常checkと`collect`が同じ収集処理へ接続されることも、導入前後の一覧とテストで照合します。
 
-標準出力のJSONには、従来の`all`・`quality`・`assurance`に加えて`review`を出します。`review.files`は収集した各ファイルの`path`・`class`・現在の`sha256`・`status`を持ちます。`review.complete`は、全ファイルが`reviewed`で`orphans`が空の場合だけ`true`です。日常の`check:classification`は、記録ファイル自体に誤りがなければ、`stale`・`unreviewed`・`mismatch`・`orphans`が残っても終了0とし、その件数とpathを標準エラーへ表示します。新規・未確認のテストをqualityとして実行し続け、テストの追加・削除・改名・分類変更で全体checkやCIを止めないためです。
+標準出力のJSONには、従来の`all`・`quality`・`assurance`に加えて`review`を出します。`review.files`は収集した各ファイルの`path`・`class`・現在の`sha256`・`status`を持ちます。`review.complete`は、全ファイルが`reviewed`で`orphans`が空の場合だけ`true`です。日常の`check:classification`は、記録ファイル自体に誤りがなければ、`stale`・`unreviewed`・`mismatch`・`orphans`が残っても終了0とし、その件数とpathを標準エラーへ表示します。新規・未確認のテストをqualityとして実行し続け、テストの追加・削除・改名・分類変更で全体checkやCIを止めないためです。この表示を読んだ担当AIは、該当するテストを読み直して確認記録を更新します。
 
 導入時の全件分類の完了は`check:classification -- --complete`で確認します。`reviewed`以外のファイルか`orphans`が1件でもあれば、該当pathを標準エラーへ表示して非ゼロ終了します。標準出力には同じJSONを出すため、記録の転記に使えます。この検査の成功は、全ファイルに現在の版の確認記録があることだけを示します。記録した理由の意味が正しいことは機械検査では判定せず、導入手順の[分類の独立評価](runners.md#分類の独立評価)で確認します。
 
