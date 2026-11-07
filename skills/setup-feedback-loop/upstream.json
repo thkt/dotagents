@@ -1,8 +1,11 @@
 {
   "repository": "thkt/feedback-loop",
   "directory": "dist/private",
-  "commit": "5c84466891ccdd494ad2fef37f1dc2c8893ae127",
+  "commit": "29006b5d50378f82c552a50fe47a024436183cf0",
   "files": {
+    "references/agents-md.md": "2b717a538bcd69c1ad14f09ed717a3e353758d44a23b7d3c83152b2f477aa9d7",
+    "references/claude-code.md": "95b0d1e0d2b2ed0a1b644cfca5aefbce98b86d97c4e77ee63ea7aa498228b747",
+    "references/codex.md": "a16dfa99b7961d0fd2b2198dd924eb1b48f13e9f8cf9ca5e098424eb6ab05bec",
     "references/collect.md": "8cb9d0604f519add82f9118ecfdf0c9161b9f7c2a10d66a52c43aaaafd1da9eb",
     "references/contract.md": "7fc4fe9ba7e6d092a8bd5d7d1b25217c8f6e6890bf307198bc3acd8e2c1a92dd",
     "references/dotagents.md": "47160a87e2c465437d721d180834d3d8dfaab837a856f9b4e751eee847c75046",
