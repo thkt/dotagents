@@ -5,7 +5,7 @@ description: JavaScript／TypeScriptのrepoへ静的検査と関連qualityテス
 
 # 検査と修正の反復を導入する
 
-対象repoの既存検証を保ち、不足するツールの固定依存、診断用コマンド、implement・全体check・CIへの接続を用意する。新しい修正エンジンや常駐監視は作らない。通常のimplementを未導入repoへの自動導入の契機にしない。
+対象repoの既存検証を保ち、不足するツールの固定依存、診断用コマンド、implement・全体check・CIへの接続と、Claude CodeやCodexが反復中に`check:feedback`を使う指示を用意する。新しい修正エンジンや常駐監視は作らない。通常のimplementを未導入repoへの自動導入の契機にしない。
 
 ## 導入前に確認する
 
@@ -22,10 +22,13 @@ description: JavaScript／TypeScriptのrepoへ静的検査と関連qualityテス
 5. 収集集合の全テストファイルを読み、[全テストの分類と確認記録](references/runners.md#全テストの分類と確認記録)でquality／assuranceを判断する。ファイル名・件数・キーワードの一致だけで確認済みとしない。各ファイル内のテストと、目的の判断に必要なhelper・fixtureを読む。assuranceは`.feedback-loop.json`へ理由付きで指定し、全ファイルの分類・根拠・確認したファイル内容のSHA-256を`.feedback-loop-review.json`へ記録する。`check:classification -- --complete`の成功は記録が揃ったことだけを示す。分類の意味は[分類の独立評価](references/runners.md#分類の独立評価)で照合し、そのacceptと`--complete`の成功の両方を全件分類の完了条件とする。
 6. 採用した必須検査を既存の全体checkとCIへ追加する。既存のcoverage・build・準備・全テストを保つ。`test:*`等の一括実行へ`test:affected`が混入しないよう、従来の明示集合に接続し直す。この変更も独立テスト経路で確認する。
 7. `check:classification`、`test:affected`、`check:feedback`と全体checkを確認する。設定変更の影響を除いた通常のソース変更で、必要なqualityが実行され、無関係なqualityとassuranceが除外されることを確認する。Bunでは標準の一括選択と補完依存、`--isolate`と採用した並列数での全qualityの互換性を検証し、[ファイル別の完了・失敗・取消の条件](references/runners.md)も確認する。採用した各検査は正常例、小さい既知の違反、修正後の再検査で診断と非ゼロ終了を確かめ、違反を残さない。型検査は[検査範囲と失敗・復帰の確認](references/typecheck.md#接続後に確認する)も行う。依存導入・配置を再実行し、クリーンなcheckoutから固定依存だけで再現することも確認する。`check:feedback`は同じ環境で全段を通す。各段の個別の成功では代えない。
+8. [エージェントへの指示](references/agents-md.md)で、反復中に`check:feedback`を使う指示を対象repoのAGENTS.mdへ用意する。実行漏れが観測された場合だけ、[Claude Code](references/claude-code.md)か[Codex](references/codex.md)のhookを追加する。Codexでは同じ文書のサンドボックスの扱いも確かめる。
 
 ## 完了と引き継ぎ
 
 `check:feedback`を同じ環境で全段通すまで、導入を完了と報告しない。外部要因で通せない場合は、止まった段と原因を未完了として報告する。CIで個別に成功した段を、全段の通しの代わりにしない。
+
+対象repoの`AGENTS.md`に[エージェントへの指示](references/agents-md.md)の節を置くまで、導入を完了と報告しない。`CLAUDE.md`があるrepoでは、その先頭の`@AGENTS.md`も完了の条件に含める。この節がないと、implementを通さない作業のエージェントは`check:feedback`を実行しない。
 
 失敗した検査・対象・診断・再実行方法を既存findingsとログへ残す。起動失敗・解析不完全・取消・未実行を成功へ読み替えない。必須検査と参考レポート、未対応を区別し、未対応を導入完了に含めない。
 
